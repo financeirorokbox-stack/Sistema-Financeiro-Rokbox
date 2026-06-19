@@ -319,11 +319,11 @@ const SUPABASE_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_kC9Gw5fDKP6vfKn0B2iRBw_v8Puy42e';
 const SUPABASE_TABLE = 'sistema_dados';
 
-// ID único do dispositivo/usuário (salvo no localStorage)
+// ID fixo da empresa — todos os dispositivos compartilham os mesmos dados
+const EMPRESA_ID = 'rokbox_financeiro';
+
 function getDeviceId() {
-  let id = localStorage.getItem('pgst_device_id');
-  if (!id) { id = 'user_' + Math.random().toString(36).slice(2,10); localStorage.setItem('pgst_device_id', id); }
-  return id;
+  return EMPRESA_ID;
 }
 
 async function sbFetch(method, body = null, extraPath = '') {
