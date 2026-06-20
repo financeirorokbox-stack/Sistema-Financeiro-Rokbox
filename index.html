@@ -862,7 +862,9 @@ function setView(v) {
   if (v === 'dashboard') renderDashboard();
   if (v === 'vendas') renderVendas();
   if (v === 'financeiro') {
-    const s = subAllowed(currentSub) ? currentSub : firstAllowedSub();
+    // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
+    let s = currentSub === 'conc' ? 'contas' : currentSub;
+    if (!subAllowed(s)) s = firstAllowedSub();
     if (s) setSub(s);
   }
   if (v === 'cadastro') renderCadastro();
