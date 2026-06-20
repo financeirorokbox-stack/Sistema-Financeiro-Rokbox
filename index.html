@@ -396,7 +396,8 @@ async function saveData(key, data) {
 }
 
 async function loadData(key) {
-  // Supabase SEMPRE primeiro (fonte da verdade)
+  let online = true;
+  // Supabase primeiro (fonte da verdade quando tem o dado)
   try {
     const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
     if (rows && rows.length > 0 && rows[0].valor) {
@@ -405,16 +406,22 @@ async function loadData(key) {
       try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(val)); } catch(e) {}
       return val;
     }
-    return null; // chave não existe no Supabase
+    // Online, mas a nuvem não tem essa chave → cai no backup local abaixo.
   } catch(e) {
+    online = false;
     console.warn('Supabase offline, usando localStorage:', e.message);
-    // Fallback: localStorage
-    try {
-      const local = localStorage.getItem(LS_PREFIX + key);
-      if (local !== null) return JSON.parse(local);
-    } catch(e2) {}
-    return null;
   }
+  // Fallback: backup local (vale tanto se está offline quanto se a nuvem está vazia)
+  try {
+    const local = localStorage.getItem(LS_PREFIX + key);
+    if (local !== null) {
+      const val = JSON.parse(local);
+      // Nuvem online porém vazia: sobe o backup local para sincronizar os aparelhos.
+      if (online) { try { await saveData(key, val); } catch(e) {} }
+      return val;
+    }
+  } catch(e2) {}
+  return null;
 }
 
 async function deleteData(key) {
