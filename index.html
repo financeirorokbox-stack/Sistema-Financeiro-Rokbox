@@ -336,6 +336,16 @@ function getDeviceId() {
   return EMPRESA_ID;
 }
 
+// ID determinístico por (dispositivo + chave). Evita usar a sequência
+// automática do banco (sem permissão para a chave pública) e garante
+// que re-salvar a mesma chave atualize sempre a mesma linha (upsert).
+function rowId(key) {
+  const s = getDeviceId() + '|' + key;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
 async function sbFetch(method, body = null, extraPath = '') {
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${extraPath}`;
   const opts = {
@@ -374,6 +384,7 @@ async function saveData(key, data) {
   // Salva no Supabase
   try {
     await sbFetch('POST', {
+      id: rowId(key),
       device_id: getDeviceId(),
       chave: key,
       valor: JSON.stringify(data),
