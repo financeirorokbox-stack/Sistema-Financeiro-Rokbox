@@ -964,9 +964,19 @@ function statusForma(pedido, categoria, valor) {
   const tol = 0.5;
   if (categoria === 'PayPal' || categoria === 'BraavoPay') {
     const gw = categoria; // 'PayPal' ou 'BraavoPay'
-    const porPedido = recebimentosConsolidado.find(r => r.gateway === gw && String(r.nped) === String(pedido));
-    if (porPedido) return { recebido: true, detalhe: fmtDate(porPedido.data) };
-    const porValor = recebimentosConsolidado.find(r => r.gateway === gw && Math.abs(r.bruto - valor) <= tol);
+    // Soma TODOS os recebimentos deste gateway com o nº deste pedido (1 pedido → N recebimentos)
+    const doPedido = recebimentosConsolidado.filter(r => r.gateway === gw && String(r.nped) === String(pedido));
+    if (doPedido.length) {
+      const total = doPedido.reduce((s, r) => s + (r.bruto || r.liq || 0), 0);
+      const falta = valor - total;
+      if (falta <= tol) {
+        const sufixo = doPedido.length > 1 ? ` (${doPedido.length} recebimentos)` : '';
+        return { recebido: true, detalhe: `✓ ${fmtVal(total)} via ${gw}${sufixo}` };
+      }
+      return { recebido: false, parcial: true, detalhe: `Parcial: ${fmtVal(total)} de ${fmtVal(valor)} — faltam ${fmtVal(falta)}` };
+    }
+    // Sem nº de pedido nos recebimentos: tenta um único que bata pelo valor
+    const porValor = recebimentosConsolidado.find(r => r.gateway === gw && Math.abs((r.bruto || r.liq) - valor) <= tol);
     if (porValor) return { recebido: true, detalhe: fmtDate(porValor.data) + ' (por valor)' };
     return { recebido: false, detalhe: '—' };
   }
