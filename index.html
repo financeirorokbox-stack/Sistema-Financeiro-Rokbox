@@ -375,25 +375,25 @@ async function saveData(key, data) {
 }
 
 async function loadData(key) {
-  // Tenta Supabase primeiro
+  // Supabase SEMPRE primeiro (fonte da verdade)
   try {
-    const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${key}&select=valor`);
+    const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
     if (rows && rows.length > 0 && rows[0].valor) {
       const val = JSON.parse(rows[0].valor);
-      // Atualiza localStorage com dado do Supabase
+      // Atualiza localStorage com o dado mais recente do Supabase
       try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(val)); } catch(e) {}
       return val;
     }
+    return null; // chave não existe no Supabase
   } catch(e) {
-    console.warn('Supabase loadData falhou, usando localStorage:', e.message);
+    console.warn('Supabase offline, usando localStorage:', e.message);
+    // Fallback: localStorage
+    try {
+      const local = localStorage.getItem(LS_PREFIX + key);
+      if (local !== null) return JSON.parse(local);
+    } catch(e2) {}
+    return null;
   }
-
-  // Fallback: localStorage
-  try {
-    const local = localStorage.getItem(LS_PREFIX + key);
-    if (local !== null) return JSON.parse(local);
-  } catch(e) {}
-  return null;
 }
 
 async function deleteData(key) {
