@@ -2670,6 +2670,7 @@ function renderExtrato() {
     <div class="filter-bar">
       <span class="f-label">Pesquisar créditos:</span>
       <input type="text" id="ext-q" value="${fQ}" placeholder="Descrição ou pedido..." oninput="debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
       <button class="btn danger sm" onclick="if(confirm('Limpar extrato?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar</button>
     </div>
     <div class="cards-row">
@@ -2821,6 +2822,43 @@ function linkExtratoInline(id) {
   saveData('extratoLinks', extratoLinks);
   syncExtratoToRecebimentos();
   renderExtrato();
+}
+
+// Vincula automaticamente os créditos com correspondência única e clara:
+// valor batendo (±0,10) com exatamente UM pedido PIX em aberto.
+// Casos ambíguos (vários pedidos com mesmo valor) ficam para vínculo manual.
+function autoVincularExtrato() {
+  const creditos = extratoBancario.filter(t => t.valor > 0 && !extratoLinks[t.id]);
+  // Pedidos já usados em algum vínculo (evita 2 créditos no mesmo pedido)
+  const usados = new Set(
+    Object.values(extratoLinks).flatMap(l => String(l.pedido).split(',').map(s => s.trim()))
+  );
+  let n = 0;
+  creditos.forEach(t => {
+    const candidatos = formaPagamento.filter(f => {
+      const c = classificaForma(f.descricao);
+      if (c.categoria !== 'Pix (Extrato/OFX)') return false;
+      const ped = pedidos.find(p => p.id === f.pedido);
+      if (!ped) return false;
+      if (SITUACOES_NAO_APLICAVEL.includes((ped.situacao || '').toLowerCase())) return false;
+      if (statusForma(f.pedido, c.categoria, f.valor).recebido) return false;
+      return Math.abs(f.valor - t.valor) <= 0.10;
+    });
+    const unicos = [...new Set(candidatos.map(f => String(f.pedido)))];
+    if (unicos.length === 1 && !usados.has(unicos[0])) {
+      extratoLinks[t.id] = { pedido: unicos[0] };
+      usados.add(unicos[0]);
+      n++;
+    }
+  });
+  if (n > 0) {
+    saveData('extratoLinks', extratoLinks);
+    syncExtratoToRecebimentos();
+  }
+  renderExtrato();
+  alert(n > 0
+    ? `${n} crédito(s) vinculado(s) automaticamente.`
+    : 'Nenhum crédito com correspondência única encontrado (os que restam têm valor ambíguo ou já estão vinculados).');
 }
 
 // ════════════════════════════════════════════════════════════════════
