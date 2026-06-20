@@ -200,9 +200,6 @@ tr:hover td{background:#fafaf8}
       onkeydown="if(event.key==='Enter')doLogin()">
     <button class="run-btn" style="margin-top:0" onclick="doLogin()">Entrar</button>
     <div id="login-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none">Usuário ou senha incorretos.</div>
-    <div style="margin-top:12px;text-align:center">
-      <a href="#" style="font-size:11px;color:var(--muted)" onclick="resetCredentials();return false">Redefinir acesso</a>
-    </div>
   </div>
 </div>
 
@@ -229,12 +226,25 @@ tr:hover td{background:#fafaf8}
     <div class="step-pill" id="pill-3">3 · Banco</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
+    <span id="current-user-label" style="font-size:11px;color:var(--muted);font-weight:600"></span>
     <span id="sync-status" style="font-size:11px;color:var(--muted)">⏳ Conectando...</span>
+    <button class="btn ghost sm" id="btn-usuarios" style="display:none" onclick="openUsuarios()" title="Gerenciar usuários">👥 Usuários</button>
     <label class="btn ghost sm" style="cursor:pointer" title="Importar backup">
       📂 <input type="file" accept=".json" style="display:none" onchange="importarBackup(this.files[0])">
     </label>
     <button class="btn ghost sm" onclick="exportarBackup()" title="Exportar backup">💾 Backup</button>
     <button class="btn ghost sm" onclick="doLogout()">Sair</button>
+  </div>
+</div>
+
+<!-- MODAL USUÁRIOS -->
+<div class="modal-overlay" id="usuarios-modal">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:14px;font-weight:800">👥 Gerenciar Usuários</div>
+      <button onclick="closeUsuarios()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="padding:16px 20px;overflow:auto" id="usuarios-body"></div>
   </div>
 </div>
 
@@ -519,43 +529,143 @@ async function getCredentials() {
   const val = await storageGet('auth_credentials', true);
   return val ? JSON.parse(val) : null;
 }
+// ── Usuários & Permissões ────────────────────────────────────────────
+// Áreas controláveis. As do Financeiro usam o prefixo "fin:".
+const PERM_PRINCIPAIS = [
+  ['dashboard', 'Dashboard'],
+  ['vendas',    'Vendas'],
+  ['cadastro',  'Cadastro'],
+];
+const PERM_FIN = [
+  ['fin:contas',    'Financeiro · Contas a Receber'],
+  ['fin:receb',     'Financeiro · Recebimentos'],
+  ['fin:boletos',   'Financeiro · Boletos a Emitir'],
+  ['fin:cobranca',  'Financeiro · Cobrança'],
+  ['fin:devolucao', 'Financeiro · Devolução / Troca'],
+  ['fin:extrato',   'Financeiro · Extrato (OFX)'],
+  ['fin:conc',      'Financeiro · Conciliação'],
+  ['fin:banco',     'Financeiro · Conciliação Bancária'],
+];
+const ALL_PERMS = [...PERM_PRINCIPAIS, ...PERM_FIN];
+let currentUser = null;
+
+// Lê a lista de usuários (migra a credencial única antiga para um admin).
+async function getUsuarios() {
+  const val = await storageGet('usuarios', true);
+  let list = val ? JSON.parse(val) : null;
+  if (!list) {
+    const legacy = await getCredentials();
+    if (legacy && legacy.user) {
+      list = [{ user: legacy.user, pass: legacy.pass, admin: true, perms: [] }];
+      await storageSet('usuarios', JSON.stringify(list), true);
+    }
+  }
+  if (list) list.forEach(u => { if (!u.perms) u.perms = []; });
+  return list;
+}
+async function saveUsuarios(list) {
+  await storageSet('usuarios', JSON.stringify(list), true);
+}
+
+// Helpers de permissão (admin sempre pode tudo).
+function can(key) {
+  return !!currentUser && (currentUser.admin || (currentUser.perms || []).includes(key));
+}
+function canFinanceiro() {
+  return !!currentUser && (currentUser.admin || (currentUser.perms || []).some(p => p.startsWith('fin:')));
+}
+function subAllowed(s) {
+  return !!currentUser && (currentUser.admin || (currentUser.perms || []).includes('fin:' + s));
+}
+function viewAllowed(v) {
+  return v === 'financeiro' ? canFinanceiro() : can(v);
+}
+function firstAllowedView() {
+  return ['dashboard', 'vendas', 'financeiro', 'cadastro'].find(viewAllowed) || null;
+}
+function firstAllowedSub() {
+  return ['contas', 'receb', 'boletos', 'cobranca', 'devolucao', 'extrato', 'conc', 'banco'].find(subAllowed) || null;
+}
+
 async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('login-error');
   if (!user || !pass) return;
 
-  let creds = await getCredentials();
+  let list = await getUsuarios();
 
-  if (!creds) {
-    // Primeiro acesso: cadastra as credenciais informadas
-    creds = { user, pass };
-    await storageSet('auth_credentials', JSON.stringify(creds), true);
-    enterApp();
+  if (!list || list.length === 0) {
+    // Primeiro acesso: cria o administrador inicial.
+    list = [{ user, pass, admin: true, perms: [] }];
+    await saveUsuarios(list);
+    loginAs(list[0]);
     return;
   }
 
-  if (creds.user === user && creds.pass === pass) {
-    enterApp();
+  const found = list.find(u => (u.user || '').toLowerCase() === user.toLowerCase() && u.pass === pass);
+  if (found) {
+    loginAs(found);
   } else {
     errEl.style.display = 'block';
   }
 }
+
+function loginAs(u) {
+  currentUser = u;
+  try { sessionStorage.setItem('pg_current_user', u.user); } catch (e) {}
+  document.getElementById('login-pass').value = '';
+  document.getElementById('login-error').style.display = 'none';
+  enterApp();
+}
+
 async function resetCredentials() {
-  if (!confirm('Isso vai apagar o usuário e senha atuais e permitir cadastrar novos. Os dados (pedidos, recebimentos, etc.) NÃO serão apagados. Continuar?')) return;
+  if (!confirm('Isso vai apagar TODOS os usuários e senhas e permitir cadastrar um novo administrador. Os dados (pedidos, recebimentos, etc.) NÃO serão apagados. Continuar?')) return;
+  await storageDelete('usuarios', true);
   await storageDelete('auth_credentials', true);
   document.getElementById('login-error').style.display = 'none';
   document.getElementById('login-setup-msg').style.display = 'block';
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
 }
+
 function enterApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  setView('vendas');
+  applyPermissions();
+}
+
+// Mostra/esconde abas conforme o usuário logado e vai para a 1ª permitida.
+function applyPermissions() {
+  const u = currentUser || { admin: true, perms: [] };
+  const lbl = document.getElementById('current-user-label');
+  if (lbl) lbl.textContent = u.user ? '👤 ' + u.user : '';
+  const adminBtn = document.getElementById('btn-usuarios');
+  if (adminBtn) adminBtn.style.display = u.admin ? 'inline-flex' : 'none';
+
+  const navVis = {
+    dashboard: viewAllowed('dashboard'),
+    vendas: viewAllowed('vendas'),
+    financeiro: viewAllowed('financeiro'),
+    cadastro: viewAllowed('cadastro'),
+  };
+  Object.entries(navVis).forEach(([k, v]) => {
+    const el = document.getElementById('nav-' + k);
+    if (el) el.style.display = v ? 'block' : 'none';
+  });
+  PERM_FIN.forEach(([permKey]) => {
+    const sub = permKey.split(':')[1];
+    const el = document.getElementById('sub-' + sub);
+    if (el) el.style.display = subAllowed(sub) ? 'block' : 'none';
+  });
+
+  const first = firstAllowedView();
+  if (first) setView(first);
 }
 
 function doLogout() {
+  currentUser = null;
+  try { sessionStorage.removeItem('pg_current_user'); } catch (e) {}
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-user').value = '';
@@ -563,9 +673,81 @@ function doLogout() {
   document.getElementById('login-error').style.display = 'none';
 }
 
+// ── Modal de gerenciamento de usuários (somente admin) ───────────────
+let _editUsers = null;
+async function openUsuarios() {
+  if (!currentUser || !currentUser.admin) return;
+  const list = (await getUsuarios()) || [];
+  _editUsers = JSON.parse(JSON.stringify(list));
+  _editUsers.forEach(u => { if (!u.perms) u.perms = []; });
+  document.getElementById('usuarios-modal').style.display = 'flex';
+  renderUsuarios();
+}
+function closeUsuarios() {
+  document.getElementById('usuarios-modal').style.display = 'none';
+}
+function togglePerm(i, key, on) {
+  const perms = _editUsers[i].perms;
+  const idx = perms.indexOf(key);
+  if (on && idx < 0) perms.push(key);
+  if (!on && idx >= 0) perms.splice(idx, 1);
+}
+function renderUsuarios() {
+  const esc = s => (s || '').replace(/"/g, '&quot;');
+  let html = '';
+  _editUsers.forEach((u, i) => {
+    html += `<div style="border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <input value="${esc(u.user)}" oninput="_editUsers[${i}].user=this.value" placeholder="Usuário"
+          style="font-weight:700;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;min-width:120px">
+        <input type="text" value="${esc(u.pass)}" oninput="_editUsers[${i}].pass=this.value" placeholder="Senha"
+          style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:140px">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <input type="checkbox" ${u.admin ? 'checked' : ''} onchange="_editUsers[${i}].admin=this.checked;renderUsuarios()"> Admin
+        </label>
+        <button class="btn danger sm" onclick="_editUsers.splice(${i},1);renderUsuarios()">Excluir</button>
+      </div>`;
+    if (u.admin) {
+      html += `<div style="font-size:11px;color:var(--green)">✓ Administrador: vê e edita tudo, e gerencia usuários.</div>`;
+    } else {
+      html += `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Áreas que pode acessar:</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:5px 14px">`;
+      ALL_PERMS.forEach(([key, label]) => {
+        const checked = u.perms.includes(key) ? 'checked' : '';
+        html += `<label style="font-size:12px;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" ${checked} onchange="togglePerm(${i},'${key}',this.checked)"> ${label}</label>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+  });
+  html += `<button class="btn ghost sm" onclick="_editUsers.push({user:'',pass:'',admin:false,perms:[]});renderUsuarios()">+ Adicionar usuário</button>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:12px">
+      <button class="btn ghost sm" onclick="closeUsuarios()">Cancelar</button>
+      <button class="btn primary sm" onclick="salvarUsuarios()">Salvar alterações</button>
+    </div>`;
+  document.getElementById('usuarios-body').innerHTML = html;
+}
+async function salvarUsuarios() {
+  const clean = _editUsers.filter(u => u.user && u.user.trim());
+  for (const u of clean) {
+    u.user = u.user.trim();
+    if (!u.pass) { alert('Defina uma senha para o usuário "' + u.user + '".'); return; }
+  }
+  const names = clean.map(u => u.user.toLowerCase());
+  if (new Set(names).size !== names.length) { alert('Há usuários com o mesmo nome.'); return; }
+  if (!clean.some(u => u.admin)) { alert('É preciso manter ao menos um administrador.'); return; }
+  await saveUsuarios(clean);
+  const me = clean.find(u => u.user === currentUser.user) || clean.find(u => u.admin);
+  if (me) { currentUser = me; try { sessionStorage.setItem('pg_current_user', me.user); } catch (e) {} }
+  applyPermissions();
+  closeUsuarios();
+  alert('Usuários salvos com sucesso.');
+}
+
 (async function checkAuth() {
-  const creds = await getCredentials();
-  if (!creds) document.getElementById('login-setup-msg').style.display = 'block';
+  const list = await getUsuarios();
+  if (!list || list.length === 0) document.getElementById('login-setup-msg').style.display = 'block';
 })();
 
 // ════════════════════════════════════════════════════════════════════
@@ -666,6 +848,7 @@ function debounceRender(fn, ms = 120) {
 // NAVEGAÇÃO
 // ════════════════════════════════════════════════════════════════════
 function setView(v) {
+  if (!viewAllowed(v)) { const f = firstAllowedView(); if (!f) return; v = f; }
   currentView = v;
   ['dashboard','vendas','financeiro','cadastro'].forEach(x => {
     document.getElementById('nav-' + x).classList.toggle('active', x === v);
@@ -678,11 +861,15 @@ function setView(v) {
   document.getElementById('conc-pills').style.display = 'none';
   if (v === 'dashboard') renderDashboard();
   if (v === 'vendas') renderVendas();
-  if (v === 'financeiro') setSub(currentSub === 'conc' ? 'contas' : currentSub);
+  if (v === 'financeiro') {
+    const s = subAllowed(currentSub) ? currentSub : firstAllowedSub();
+    if (s) setSub(s);
+  }
   if (v === 'cadastro') renderCadastro();
 }
 
 function setSub(s) {
+  if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   currentSub = s;
   ['contas','receb','boletos','cobranca','devolucao','extrato','conc','banco'].forEach(x => {
     const btn = document.getElementById('sub-' + x);
@@ -3637,9 +3824,7 @@ function delCheckboxHeader(source) {
 // INIT
 // ════════════════════════════════════════════════════════════════════
 (async function init() {
-  // Auth
-  const creds = await getCredentials();
-  if (!creds) document.getElementById('login-setup-msg').style.display='block';
+  // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
@@ -3678,19 +3863,27 @@ function delCheckboxHeader(source) {
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
   initLojaCadastro();
 
-  document.getElementById('login-screen').style.display = creds ? 'none' : 'flex';
-  if (creds) { 
-    document.getElementById('app').style.display = 'block'; 
-    // Testa conexão Supabase
-    try {
-      await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.__test__&select=chave`);
-      document.getElementById('sync-status').textContent = '☁ Online';
-      document.getElementById('sync-status').style.color = 'var(--green)';
-    } catch(e) {
-      document.getElementById('sync-status').textContent = '⚠ Offline (local)';
-      document.getElementById('sync-status').style.color = 'var(--amber)';
-    }
-    setView('dashboard'); 
+  // Testa conexão Supabase
+  try {
+    await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.__test__&select=chave`);
+    document.getElementById('sync-status').textContent = '☁ Online';
+    document.getElementById('sync-status').style.color = 'var(--green)';
+  } catch(e) {
+    document.getElementById('sync-status').textContent = '⚠ Offline (local)';
+    document.getElementById('sync-status').style.color = 'var(--amber)';
+  }
+
+  // Exige login a cada sessão; um refresh na mesma aba mantém o usuário.
+  const usuarios = await getUsuarios();
+  if (!usuarios || usuarios.length === 0) document.getElementById('login-setup-msg').style.display = 'block';
+  let sessionUser = null;
+  try { sessionUser = sessionStorage.getItem('pg_current_user'); } catch(e) {}
+  const active = sessionUser && usuarios && usuarios.find(u => u.user === sessionUser);
+  if (active) {
+    currentUser = active;
+    enterApp();
+  } else {
+    document.getElementById('login-screen').style.display = 'flex';
   }
 })();
 </script>
