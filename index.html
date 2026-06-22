@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-31';
+const APP_VERSION = 'v22/06-32';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -980,14 +980,14 @@ function alocRecebGateway(r, pedido) {
   if (idx < 0) return 0;
   const total = r.bruto || r.liq || 0;
   if (peds.length === 1) return total;
-  const valorGw = pid => {
-    const fp = formaPagamento.find(f => String(f.pedido) === String(pid) &&
-      (formaOverrideMap[pid] ? formaOverrideMap[pid] === gw : classificaForma(f.descricao).categoria === gw));
-    return fp ? fp.valor : 0;
+  // Aloca pelo VALOR TOTAL de cada pedido (qualquer forma), na ordem; o resto vai ao próximo.
+  const valorPed = pid => {
+    const p = pedidos.find(x => String(x.id) === String(pid));
+    return p ? getValorConciliacaoPedido(p) : 0;
   };
   let remaining = total;
   for (let k = 0; k < peds.length; k++) {
-    const aloc = Math.min(valorGw(peds[k]), Math.max(0, remaining));
+    const aloc = Math.min(valorPed(peds[k]), Math.max(0, remaining));
     if (k === idx) return +aloc.toFixed(2);
     remaining -= aloc;
   }
@@ -3157,33 +3157,10 @@ function autoVincularExtrato() {
 // ════════════════════════════════════════════════════════════════════
 async function renderConc() {
   const el = document.getElementById('v-conc');
-  // Restaura resultados salvos se existirem
-  const hasResults = await loadResults();
-  el.innerHTML = `
-    <div id="conc-step-upload" ${hasResults ? 'style="display:none"' : ''}>
-      <div class="cards-row">
-        <div class="card ${pedidos.length?'green':'red'}"><div class="c-label">Pedidos</div><div class="c-val">${pedidos.filter(p=>pedidoTemRecebimento(p)).length}</div><div class="c-sub">com recebimento</div></div>
-        <div class="card ${recebimentosConsolidado.length?'green':'red'}"><div class="c-label">Recebimentos</div><div class="c-val">${recebimentosConsolidado.length}</div></div>
-      </div>
-      <div class="filter-bar" style="flex-direction:column;align-items:flex-start">
-        <div style="display:flex;gap:10px;align-items:center">
-          <span class="f-label">Tolerância de datas:</span>
-          <input type="number" class="tol-input" id="tol-days" value="2" min="0" max="10"> dias
-          <span class="f-label" style="margin-left:12px">Tolerância de valor:</span>
-          R$ <input type="number" class="tol-input" id="tol-val" value="0.10" min="0" step="0.01">
-        </div>
-      </div>
-      <button class="run-btn" onclick="runConc()" ${!pedidos.length||!recebimentosConsolidado.length?'disabled':''}>
-        Processar Conciliação
-      </button>
-    </div>
-    <div id="conc-result" ${hasResults ? '' : 'style="display:none"'}></div>`;
-  if (hasResults) {
-    document.getElementById('pill-1').classList.remove('active');
-    document.getElementById('pill-1').classList.add('done');
-    document.getElementById('pill-2').classList.add('active');
-    renderConcResult();
-  }
+  await loadResults(); // restaura resultados salvos (usados na aba "Receb. s/ pedido")
+  activeTab = 'porpedido'; // abre sempre na visão principal: Por Pedido
+  el.innerHTML = `<div id="conc-result"></div>`;
+  renderConcResult();
 }
 
 function saveResults() {
@@ -3603,49 +3580,23 @@ function renderConcResult() {
     return true;
   });
 
-  const allGws = [...new Set([...results.ok,...results.diff,...results.missing,...results.extra].map(x=>x.rec?.gateway).filter(Boolean))].sort();
-
   el.innerHTML = `
     <div class="filter-bar">
-      <span class="f-label">Operadora:</span>
-      <select id="cr-op" onchange="renderConcResult()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${allGws.map(g=>`<option value="${g}" ${g===fOp?'selected':''}>${g}</option>`).join('')}
-      </select>
-      <span class="f-label">Operação:</span>
-      <select id="cr-oper" onchange="renderConcResult()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        <option value="Venda" ${fOper==='Venda'?'selected':''}>Venda</option>
-        <option value="Troca" ${fOper==='Troca'?'selected':''}>Troca</option>
-        <option value="Amostra" ${fOper==='Amostra'?'selected':''}>Amostra</option>
-      </select>
-      <span class="f-label">Empresa:</span>
-      <select id="cr-emp" onchange="renderConcResult()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${[...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort().map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
-      </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cr-q" value="${fQ}" placeholder="Pedido ou nome..." oninput="debounceRender('renderConcResult')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-      <button class="btn ghost sm" onclick="document.getElementById('conc-result').style.display='none';document.getElementById('conc-step-upload').style.display='block';document.getElementById('pill-2').classList.remove('active');document.getElementById('pill-1').classList.remove('done');document.getElementById('pill-1').classList.add('active')">↑ Configuração</button>
-      <button class="btn primary sm" onclick="runConc()">↻ Reprocessar</button>
+      <button class="btn primary sm" onclick="reprocessarTudo()" title="Recalcula tudo com os dados atuais (vincula automáticos e atualiza)">🔄 Atualizar tudo</button>
     </div>
-
-    <div class="cards-row">
-      <div class="card green"><div class="c-label">Conciliados</div><div class="c-val">${results.ok.length}</div><div class="c-sub">${fmtVal(results.ok.reduce((s,x)=>s+x.ped.valor,0))}</div></div>
-      <div class="card amber"><div class="c-label">Divergentes</div><div class="c-val">${results.diff.length}</div><div class="c-sub">${fmtVal(results.diff.reduce((s,x)=>s+x.ped.valor,0))}</div></div>
-      <div class="card red"><div class="c-label">Sem recebimento</div><div class="c-val">${contAbertoCR}</div><div class="c-sub">${fmtVal(valorAbertoCR)}</div></div>
-      <div class="card blue"><div class="c-label">Receb. s/ pedido</div><div class="c-val">${results.extra.length}</div></div>
-    </div>
-
     <div class="conc-tabs">
-      ${[['porpedido','📋 Por Pedido'],['ok','✓ Conciliados'],['diff','⚠ Divergentes'],['missing','✗ Sem recebimento'],['extra','↩ Receb. s/ pedido']].map(([t,l])=>`
-        <div class="conc-tab ${t===tab?'active':''}" onclick="activeTab='${t}';renderConcResult()">${l}${t==='porpedido'?'':` <span class="cnt">${t==='missing' ? contAbertoCR : results[t].length}</span>`}</div>`).join('')}
+      ${[['porpedido','📋 Por Pedido'],['extra','↩ Recebimentos sem pedido']].map(([t,l])=>`
+        <div class="conc-tab ${t===tab?'active':''}" onclick="activeTab='${t}';renderConcResult()">${l}${t==='extra'?` <span class="cnt">${recebimentosConsolidado.filter(r=>!r.nped).length}</span>`:''}</div>`).join('')}
     </div>
     <div id="conc-table"></div>`;
 
   if (tab === 'porpedido') { renderPorPedido(); return; }
 
-  const rows = filter(results[tab]);
+  const rows = tab === 'extra'
+    ? filter(recebimentosConsolidado.filter(r => !r.nped).map(r => ({ rec: r })))
+    : filter(results[tab]);
 
   if (!rows.length) {
     document.getElementById('conc-table').innerHTML = '<div class="empty"><div class="e-icon">✓</div>Nenhum registro nesta categoria</div>';
@@ -3815,13 +3766,14 @@ function renderConcResult() {
       }
 
     } else {
+      const realIdx = recebimentosConsolidado.indexOf(item.rec);
       html += `<tr>
         <td>${item.rec.gateway}</td><td>${fmtDate(item.rec.data)}</td>
         <td>${fmtVal(item.rec.bruto)}</td><td>${fmtVal(item.rec.taxa)}</td><td>${fmtVal(item.rec.liq)}</td>
         <td>${item.rec.nome||'—'}</td>
-        <td><input class="inline-input" id="ep-${idx}" type="number" placeholder="Nº pedido" style="width:90px"
-              onkeydown="if(event.key==='Enter')doLinkExtra(${idx})">
-           <button class="btn primary sm" onclick="doLinkExtra(${idx})">Vincular</button></td>
+        <td><input class="inline-input" id="ep-${realIdx}" placeholder="Nº pedido (vírgula p/ vários)" style="width:160px"
+              onkeydown="if(event.key==='Enter')vincularRecebSemPedido(${realIdx})">
+           <button class="btn primary sm" onclick="vincularRecebSemPedido(${realIdx})">Vincular</button></td>
       </tr>`;
     }
   });
@@ -3887,6 +3839,16 @@ function doManualLink(idx, pedId) {
   const mi = results.missing.findIndex(x=>x.ped.id===pedId);
   if (mi>=0) { results.ok.push({ped:results.missing[mi].ped, rec:manualLinks[pedId], tipo:'manual'}); results.missing.splice(mi,1); }
   saveResults(); renderConcResult();
+}
+// Vincula um recebimento "sem pedido" ao(s) pedido(s) digitado(s) (vírgula p/ vários)
+function vincularRecebSemPedido(realIdx) {
+  const r = recebimentosConsolidado[realIdx];
+  if (!r) return;
+  const v = (document.getElementById('ep-' + realIdx)?.value || '').trim();
+  if (!v) return;
+  r.nped = v.split(',').map(s => s.trim()).filter(Boolean).join(',');
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderConcResult();
 }
 function doLinkExtra(idx) {
   const rows = document.getElementById('conc-table').querySelectorAll('tbody tr');
