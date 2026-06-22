@@ -436,7 +436,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','devolucaoAcao','concResults'];
+    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','devolucaoAcao','concResults'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -789,6 +789,7 @@ let globalFilters = { ano:'', mes:'', dia:'', situacao:'', vendedor:'' };
 let results = { ok:[], diff:[], missing:[], extra:[] };
 let manualLinks = {};
 let formaManualMap = {}; // forma digitada manualmente em Contas a Receber
+let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categoria do pedido)
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
 let activeTab = 'ok';
 let tolValGlobal = 0.10;
@@ -1036,9 +1037,15 @@ function statusForma(pedido, categoria, valor) {
       detalhe: `Parcial: recebido ${fmtVal(totalRecebido)} de ${fmtVal(valor)} — faltam ${fmtVal(falta)}`
     };
   }
-  // Devolução de mercadorias: verifica se existe registro de devolução vinculado ao pedido
+  // Devolução de mercadorias: verifica se existe registro de devolução vinculado ao pedido.
+  // Casa tanto pelo pedido ORIGINAL (d.pedido) quanto pelo pedido de CRÉDITO (d.pedidoCredito),
+  // que é o que aparece em Contas a Receber. Ignora pedidoCredito em texto livre (ex.: "Estorno").
   if (categoria === 'Devolução' || categoria === 'Crédito Cliente') {
-    const devPedido = devolucoes.filter(d => String(d.pedido) === String(pedido));
+    const devPedido = devolucoes.filter(d => {
+      if (String(d.pedido) === String(pedido)) return true;
+      const credPeds = String(d.pedidoCredito || '').match(/\d{4,6}/g) || [];
+      return credPeds.includes(String(pedido));
+    });
     if (!devPedido.length) return { recebido: false, detalhe: 'não localizado em Devoluções' };
     const totalDevolvido = devPedido.reduce((s,d) => s+d.valorPago, 0);
     if (Math.abs(totalDevolvido - valor) <= tol) return { recebido: true, detalhe: `Devolução registrada: ${fmtVal(totalDevolvido)}` };
@@ -1468,11 +1475,19 @@ function _renderContasImpl(el) {
         descricao = formaManual;
       }
 
-      const st = statusFormaSemForma(ped, concOk, recs);
+      let st = statusFormaSemForma(ped, concOk, recs);
+      // Trocar forma: se há override, recalcula o status pela forma escolhida
+      if (formaOverrideMap[ped.id]) {
+        cat = formaOverrideMap[ped.id];
+        descricao = cat;
+        st = statusForma(ped.id, cat, ped.valor);
+      }
       linhas.push({ ped, f: { pedido: ped.id, descricao, valor: ped.valor, vencimento: null }, cat, st, venc: null, realIdx: -1, semForma: true });
     } else {
       formas.forEach(f => {
-        const c = classificaForma(f.descricao);
+        // Trocar forma: override manual sobrepõe a categoria detectada
+        const catOrig = classificaForma(f.descricao).categoria;
+        const c = { categoria: formaOverrideMap[ped.id] || catOrig };
         const st = statusForma(f.pedido, c.categoria, f.valor);
         let venc = f.vencimento;
 
@@ -1592,7 +1607,8 @@ function _renderContasImpl(el) {
                    id="fm-${l.f.pedido}" onkeydown="if(event.key==='Enter')salvarFormaManual('${l.f.pedido}',this.value)">
                  <button class="btn ghost sm" onclick="salvarFormaManual('${l.f.pedido}',document.getElementById('fm-${l.f.pedido}').value)">OK</button>
                </span>`)
-          : `<span style="font-size:11px">${l.f.descricao !== '—' ? l.f.descricao : ''}</span>`}</td>
+          : `<span style="font-size:11px">${l.f.descricao !== '—' ? l.f.descricao : ''}</span>`}
+          ${selectTrocaForma(l.ped.id)}</td>
         <td>${l.venc ? fmtDate(l.venc) : '—'}</td>
         <td>${fmtVal(l.f.valor)}</td>
         <td>${l.st.recebido ? '<span class="badge ok">PAGO</span>' : (l.st.parcial ? '<span class="badge warn">PARCIAL</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
@@ -1687,6 +1703,28 @@ function salvarFormaManual(pedidoId, valor) {
   if (!valor) return;
   formaManualMap[pedidoId] = valor;
   saveData('formaManualMap', formaManualMap);
+  renderContas();
+}
+
+// Formas que o usuário pode escolher ao trocar a forma de um pedido
+const CATEGORIAS_FORMA = ['Pix (Extrato/OFX)', 'PayPal', 'BraavoPay', 'Boleto Itaú', 'Devolução', 'Crédito Cliente'];
+
+// Seletor compacto (✏) para trocar a forma de pagamento de qualquer pedido
+function selectTrocaForma(pedId) {
+  const temOverride = !!formaOverrideMap[pedId];
+  const opts = CATEGORIAS_FORMA.map(c => `<option value="${c}">${c}</option>`).join('');
+  const voltar = temOverride ? `<option value="__orig__">↻ Voltar ao original</option>` : '';
+  return `<select class="inline-input" title="Trocar forma de pagamento"
+    style="width:32px;font-size:10px;padding:2px;margin-left:4px;${temOverride ? 'border-color:var(--accent)' : ''}"
+    onchange="trocarForma('${pedId}', this.value)">
+    <option value="">✏${temOverride ? '✓' : ''}</option>${opts}${voltar}</select>`;
+}
+
+function trocarForma(pedId, val) {
+  if (!val) return;
+  if (val === '__orig__') delete formaOverrideMap[pedId];
+  else formaOverrideMap[pedId] = val;
+  saveData('formaOverrideMap', formaOverrideMap);
   renderContas();
 }
 
@@ -3907,7 +3945,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','devolucaoAcao'];
+    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','devolucaoAcao'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -3936,6 +3974,7 @@ function delCheckboxHeader(source) {
     else if (k==='manualLinks') manualLinks = v;
     else if (k==='boletoStatus') boletoStatus = v;
     else if (k==='formaManualMap') formaManualMap = v;
+    else if (k==='formaOverrideMap') formaOverrideMap = v;
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
