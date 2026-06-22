@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-35';
+const APP_VERSION = 'v22/06-36';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -992,6 +992,25 @@ function alocRecebGateway(r, pedido) {
     remaining -= aloc;
   }
   return 0;
+}
+// Grupo da aba "Categoria Receitas" (Cartão de Crédito, Cartão de Débito, Boleto,
+// Depósito, Dinheiro, BraavoPay) a partir da descrição da forma de pagamento.
+// Inclui as exceções da planilha do usuário (Boleto Pagseguro e PagSeguro Pix → Cartão de Crédito).
+function grupoReceita(descricao) {
+  const d = (descricao || '').toLowerCase().trim();
+  if (!d) return '';
+  if (d.includes('boleto pagseguro')) return 'Cartão de Crédito';
+  if (d.includes('pagseguro pix') || d.includes('pagseguro - pix')) return 'Cartão de Crédito';
+  if (d.includes('braavo')) return 'BraavoPay';
+  if (d.includes('boleto')) return 'Boleto';
+  if (d.includes('dinheiro')) return 'Dinheiro';
+  if (d.includes('debito') || d.includes('débito')) return 'Cartão de Débito';
+  if (d.includes('depósito') || d.includes('deposito')) return 'Depósito';
+  if (d.includes('pix')) return 'Depósito';
+  if (d.includes('credito') || d.includes('crédito') || d.includes('cielo') ||
+      d.includes('pagarme') || d.includes('pagseguro') || d.includes('rede') || d.includes('paypal'))
+    return 'Cartão de Crédito';
+  return '';
 }
 function statusForma(pedido, categoria, valor) {
   const tol = 0.5;
@@ -1931,7 +1950,8 @@ function exportarModeloCR() {
     const situacao = l.st.recebido ? 'Pago' : (l.st.parcial ? 'Parcial' : 'Em Aberto');
     const competencia = liq ? `01/${String(liq.getMonth() + 1).padStart(2, '0')}/${liq.getFullYear()}` : '';
     const aliquota = l.f.valor ? +(taxa / l.f.valor * 100).toFixed(2) : 0;
-    const desc = `${l.f.descricao && l.f.descricao !== '—' ? l.f.descricao : l.cat} Ref. ao pedido de venda n° ${l.f.pedido}`;
+    const grupo = grupoReceita(l.f.descricao) || grupoReceita(l.cat) || l.cat || l.f.descricao || '';
+    const desc = `${grupo} Ref. ao pedido de venda n° ${l.f.pedido}`;
     rows.push([
       liq || '', l.venc ? new Date(l.venc) : '', String(l.f.pedido), l.ped.nome || '', situacao,
       competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, desc, ''
