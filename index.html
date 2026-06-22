@@ -1051,8 +1051,9 @@ function statusForma(pedido, categoria, valor) {
     });
     if (!devPedido.length) return { recebido: false, detalhe: 'não localizado em Devoluções' };
     const totalDevolvido = devPedido.reduce((s,d) => s+d.valorPago, 0);
-    if (Math.abs(totalDevolvido - valor) <= tol) return { recebido: true, detalhe: `Devolução registrada: ${fmtVal(totalDevolvido)}` };
-    if (totalDevolvido > 0) return { recebido: false, detalhe: `Parcial: devolvido ${fmtVal(totalDevolvido)} de ${fmtVal(valor)}` };
+    // Pago quando o devolvido cobre o valor (igual ou a mais); só é parcial se faltar.
+    if (totalDevolvido >= valor - tol) return { recebido: true, detalhe: `Devolução registrada: ${fmtVal(totalDevolvido)}` };
+    if (totalDevolvido > 0) return { recebido: false, parcial: true, detalhe: `Parcial: devolvido ${fmtVal(totalDevolvido)} de ${fmtVal(valor)}` };
     return { recebido: false, detalhe: 'devolução sem valor registrado' };
   }
   return { recebido: null, detalhe: '' };
