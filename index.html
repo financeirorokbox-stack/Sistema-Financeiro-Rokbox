@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-24';
+const APP_VERSION = 'v22/06-25';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3353,7 +3353,7 @@ function vincularRecebimentosPorValor(pedId) {
   const usados = new Set();
   recebimentosConsolidado.forEach((r, i) => { if (String(r.nped) === String(pedId)) usados.add(i); });
   const formas = formaPagamento.filter(f => String(f.pedido) === String(pedId) && classificaForma(f.descricao).isReceita);
-  let n = 0;
+  const candidatos = [];
   formas.forEach(f => {
     const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
     if (cat !== 'PayPal' && cat !== 'BraavoPay') return;
@@ -3361,11 +3361,16 @@ function vincularRecebimentosPorValor(pedId) {
     if (recebimentosConsolidado.some((r, idx) => usados.has(idx) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
     // pega um recebimento SEM pedido, do mesmo gateway e valor
     const i = recebimentosConsolidado.findIndex((r, idx) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5);
-    if (i >= 0) { recebimentosConsolidado[i].nped = String(pedId); usados.add(i); n++; }
+    if (i >= 0) { candidatos.push(i); usados.add(i); }
   });
-  if (n > 0) saveData('recebimentosConsolidado', recebimentosConsolidado);
+  if (!candidatos.length) { alert('Nenhum recebimento "por valor" pendente para vincular neste pedido.'); return; }
+  // Mostra os nomes para conferência (o casamento é por valor, pode ter nome diferente)
+  const lista = candidatos.map(i => { const r = recebimentosConsolidado[i]; return `• ${r.gateway} ${fmtVal(r.bruto || r.liq)} — ${r.nome || '(sem nome)'}`; }).join('\n');
+  if (!confirm(`Vincular ao pedido ${pedId} (${ped.nome}) estes recebimentos?\n\n${lista}\n\n⚠️ O casamento é por VALOR — confira se os nomes batem.`)) return;
+  candidatos.forEach(i => recebimentosConsolidado[i].nped = String(pedId));
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderConcResult();
-  alert(n > 0 ? `${n} recebimento(s) vinculado(s) ao pedido ${pedId}. Agora aparecem em Recebimentos.` : 'Nenhum recebimento "por valor" pendente para vincular neste pedido.');
+  alert(`${candidatos.length} recebimento(s) vinculado(s) ao pedido ${pedId}. Agora aparecem em Recebimentos.`);
 }
 
 let ppFiltroStatus = '';
