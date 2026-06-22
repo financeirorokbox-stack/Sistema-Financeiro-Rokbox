@@ -2319,16 +2319,19 @@ function getConciliacaoDevolucao(d) {
       encontrou = true;
       totalPedCred += pedCred.valor;
 
-      // Soma TODOS os recebimentos do pedido de crédito (PIX, PayPal, Boleto etc.)
+      // Soma os recebimentos do pedido de crédito (PIX, PayPal, Boleto etc.),
+      // EXCETO a linha de Devolução/Crédito — ela representa o próprio crédito,
+      // que é somado via valorPago abaixo (evita contar em dobro).
       const formasPed = formaPagamento.filter(f => String(f.pedido) === String(pc) && classificaForma(f.descricao).isReceita);
       formasPed.forEach(f => {
         const c = classificaForma(f.descricao);
+        if (c.categoria === 'Devolução' || c.categoria === 'Crédito Cliente') return;
         const st = statusForma(pc, c.categoria, f.valor);
         if (st.recebido) totalRecebidoNoPed += f.valor;
       });
 
-      // Adiciona o valor da devolução em si como recebimento
-      totalRecebidoNoPed += d.valorPago;
+      // Adiciona o valor TOTAL da devolução (soma de todos os itens do grupo)
+      totalRecebidoNoPed += (d._valorTotal || d.valorPago);
     });
 
     if (encontrou) {
