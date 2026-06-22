@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-12';
+const APP_VERSION = 'v22/06-13';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1544,10 +1544,13 @@ function _renderContasImpl(el) {
   const fSt  = el.querySelector('#fc-st')?.value || '';
   const fQ   = (el.querySelector('#fc-q')?.value || '').toLowerCase();
   const fOp  = el.querySelector('#fc-op')?.value || '';
+  const fEmp = el.querySelector('#fc-emp')?.value || '';
   const cats = [...new Set(linhas.map(l=>l.cat).filter(c=>c!=='—'))].sort();
+  const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
 
   let vis = linhas;
   if (fCat) vis = vis.filter(l => l.cat === fCat);
+  if (fEmp) vis = vis.filter(l => (l.ped.empresa||'') === fEmp);
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
   if (fQ)  vis = vis.filter(l => String(l.f.pedido).includes(fQ) || (l.ped.nome||'').toLowerCase().includes(fQ));
@@ -1568,6 +1571,11 @@ function _renderContasImpl(el) {
       <select id="fc-cat" onchange="renderContas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todas</option>
         ${cats.map(c=>`<option value="${c}" ${c===fCat?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <span class="f-label">Empresa:</span>
+      <select id="fc-emp" onchange="renderContas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
       </select>
       <span class="f-label">Operação:</span>
       <select id="fc-op" onchange="renderContas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
@@ -1801,10 +1809,14 @@ function renderRecebimentos() {
   const el = document.getElementById('v-receb');
   const fGw = el.querySelector('#rr-gw')?.value || '';
   const fQ  = (el.querySelector('#rr-q')?.value || '').toLowerCase();
+  const fEmp = el.querySelector('#rr-emp')?.value || '';
   const gws = [...new Set(recebimentosConsolidado.map(r=>r.gateway))].sort();
+  const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
 
   let vis = recebimentosConsolidado;
   if (fGw) vis = vis.filter(r=>r.gateway===fGw);
+  if (fEmp) vis = vis.filter(r=>empresaDoPed(r.nped)===fEmp);
   if (fQ) vis = vis.filter(r=>(r.nome||'').toLowerCase().includes(fQ)||String(r.nped||'').includes(fQ));
 
   const totalLiq = vis.reduce((s,r)=>s+r.liq,0);
@@ -1828,6 +1840,11 @@ function renderRecebimentos() {
       <select id="rr-gw" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todos</option>
         ${gws.map(g=>`<option value="${g}" ${g===fGw?'selected':''}>${g}</option>`).join('')}
+      </select>
+      <span class="f-label">Empresa:</span>
+      <select id="rr-emp" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="rr-q" value="${fQ}" placeholder="Nome ou pedido..." oninput="debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
@@ -2068,11 +2085,19 @@ function renderBoletos() {
     return;
   }
   const fQ = (el.querySelector('#bl-q')?.value||'').toLowerCase();
-  const vis = peds.filter(b => !fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ));
+  const fEmp = el.querySelector('#bl-emp')?.value||'';
+  const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
+  const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp));
   const totalEmitidos = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])}).length;
 
   el.innerHTML = `
     <div class="filter-bar">
+      <span class="f-label">Empresa:</span>
+      <select id="bl-emp" onchange="renderBoletos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
+      </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="bl-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
     </div>
@@ -2220,6 +2245,9 @@ function renderCobranca() {
   const today = new Date();
   const fSt = el.querySelector('#cob-st')?.value||'';
   const fQ  = (el.querySelector('#cob-q')?.value||'').toLowerCase();
+  const fEmp = el.querySelector('#cob-emp')?.value||'';
+  const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
 
   el.innerHTML = `
     <label class="upload-card" id="card-cobranca" for="file-cobranca">
@@ -2231,6 +2259,11 @@ function renderCobranca() {
     </label>
 
     <div class="filter-bar">
+      <span class="f-label">Empresa:</span>
+      <select id="cob-emp" onchange="renderCobranca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
+      </select>
       <span class="f-label">Status:</span>
       <select id="cob-st" onchange="renderCobranca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="" ${fSt===''?'selected':''}>Todos</option>
@@ -2256,6 +2289,7 @@ function renderCobranca() {
   if (fSt==='atrasado') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
   if (fSt==='avencer') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
   if (fQ) vis = vis.filter(b=>String(b.pedido).includes(fQ)||b.cliente.toLowerCase().includes(fQ));
+  if (fEmp) vis = vis.filter(b=>empresaDoPed(b.pedido)===fEmp);
 
   const pagos=vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
   const atrasados=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
