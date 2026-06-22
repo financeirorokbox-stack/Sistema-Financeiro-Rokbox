@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-37';
+const APP_VERSION = 'v22/06-38';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1010,6 +1010,28 @@ function grupoReceita(descricao) {
   if (d.includes('credito') || d.includes('crédito') || d.includes('cielo') ||
       d.includes('pagarme') || d.includes('pagseguro') || d.includes('rede') || d.includes('paypal'))
     return 'Cartão de Crédito';
+  return '';
+}
+// Coluna "DESCRIÇÃO" da aba Categoria Receitas (código curto: CC PAYPAL, CC CIELO,
+// CC PAGSEGURO, CC PAGARME, CC REDE, CD PAGSEGURO, PIX, PIX PAGSEGURO, BRAAVO PAY,
+// Boleto Itaú/Bradesco/Pagseguro, Depósito, Dinheiro) a partir da forma de pagamento.
+function descricaoReceita(desc) {
+  const d = (desc || '').toLowerCase().trim();
+  if (!d) return '';
+  if (d.includes('braavo')) return 'BRAAVO PAY';
+  if (d.includes('cielo')) return 'CC CIELO';
+  if (d.includes('pagarme')) return 'CC PAGARME';
+  if (d.includes('paypal')) return 'CC PAYPAL';
+  if (d.includes('rede')) return 'CC REDE';
+  if (d.includes('boleto bradesco')) return 'Boleto Bradesco';
+  if (d.includes('boleto pagseguro')) return 'Boleto Pagseguro';
+  if (d.includes('boleto')) return 'Boleto Itaú';
+  if (d.includes('pagseguro pix') || d.includes('pagseguro - pix')) return 'PIX PAGSEGURO';
+  if (d.includes('pagseguro')) return 'CC PAGSEGURO';
+  if (d.includes('maquina - debito') || d === 'debito' || d === 'débito') return 'CD PAGSEGURO';
+  if (d.includes('depósito') || d.includes('deposito')) return 'Depósito';
+  if (d.includes('dinheiro')) return 'Dinheiro';
+  if (d.includes('pix')) return 'PIX';
   return '';
 }
 function statusForma(pedido, categoria, valor) {
@@ -1950,11 +1972,11 @@ function exportarModeloCR() {
     const situacao = l.st.recebido ? 'Pago' : (l.st.parcial ? 'Parcial' : 'Em Aberto');
     const competencia = liq ? `01/${String(liq.getMonth() + 1).padStart(2, '0')}/${liq.getFullYear()}` : '';
     const aliquota = l.f.valor ? +(taxa / l.f.valor * 100).toFixed(2) : 0;
-    const grupo = grupoReceita(l.f.descricao) || grupoReceita(l.cat) || l.cat || l.f.descricao || '';
+    const descricao = descricaoReceita(l.f.descricao) || descricaoReceita(l.cat) || l.cat || l.f.descricao || '';
     const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
     rows.push([
       liq || '', l.venc ? new Date(l.venc) : '', String(l.f.pedido), l.ped.nome || '', situacao,
-      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, grupo, obs
+      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, descricao, obs
     ]);
   });
   const wb = XLSX.utils.book_new();
