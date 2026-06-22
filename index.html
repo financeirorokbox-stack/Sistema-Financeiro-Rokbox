@@ -262,10 +262,6 @@ tr:hover td{background:#fafaf8}
 <div class="subnav" id="sub-fin" style="display:none">
   <div class="subnav-item active" id="sub-contas" onclick="setSub('contas')">Contas a Receber</div>
   <div class="subnav-item" id="sub-pagar" onclick="setSub('pagar')">Contas a Pagar</div>
-  <div class="subnav-item" id="sub-receb" onclick="setSub('receb')">Recebimentos</div>
-  <div class="subnav-item" id="sub-boletos" onclick="setSub('boletos')">Boletos a Emitir</div>
-  <div class="subnav-item" id="sub-cobranca" onclick="setSub('cobranca')">Cobrança</div>
-  <div class="subnav-item" id="sub-devolucao" onclick="setSub('devolucao')">Devolução / Troca</div>
   <div class="subnav-item" id="sub-extrato" onclick="setSub('extrato')">Extrato (OFX)</div>
   <div class="subnav-item" id="sub-conc" onclick="setSub('conc')">Conciliação</div>
   <div class="subnav-item" id="sub-banco" onclick="setSub('banco')">Conciliação Bancária</div>
@@ -275,6 +271,14 @@ tr:hover td{background:#fafaf8}
 <div id="v-dashboard" class="main" style="display:none"></div>
 <div id="v-vendas" class="main"></div>
 <div id="v-financeiro" style="display:none">
+  <!-- Sub-navegação interna de Contas a Receber -->
+  <div class="subnav" id="receber-nav" style="display:none;border-top:1px solid var(--border)">
+    <div class="subnav-item active" id="subr-contas" onclick="setSubR('contas')">📋 Contas a Receber</div>
+    <div class="subnav-item" id="subr-receb" onclick="setSubR('receb')">💳 Recebimentos</div>
+    <div class="subnav-item" id="subr-boletos" onclick="setSubR('boletos')">🧾 Boletos a Emitir</div>
+    <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança</div>
+    <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
+  </div>
   <div id="v-contas" class="main"></div>
   <div id="v-pagar" class="main" style="display:none"></div>
   <div id="v-receb" class="main" style="display:none"></div>
@@ -339,7 +343,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-39';
+const APP_VERSION = 'v22/06-40';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -603,7 +607,12 @@ function canFinanceiro() {
   return !!currentUser && (currentUser.admin || (currentUser.perms || []).some(p => p.startsWith('fin:')));
 }
 function subAllowed(s) {
-  return !!currentUser && (currentUser.admin || (currentUser.perms || []).includes('fin:' + s));
+  if (!currentUser) return false;
+  if (currentUser.admin) return true;
+  const perms = currentUser.perms || [];
+  // 'contas' é o grupo Contas a Receber (inclui receb/boletos/cobrança/devolução)
+  if (s === 'contas') return ['fin:contas','fin:receb','fin:boletos','fin:cobranca','fin:devolucao'].some(p => perms.includes(p));
+  return perms.includes('fin:' + s);
 }
 function viewAllowed(v) {
   return v === 'financeiro' ? canFinanceiro() : can(v);
@@ -612,7 +621,7 @@ function firstAllowedView() {
   return ['dashboard', 'vendas', 'financeiro', 'cadastro'].find(viewAllowed) || null;
 }
 function firstAllowedSub() {
-  return ['contas', 'pagar', 'receb', 'boletos', 'cobranca', 'devolucao', 'extrato', 'conc', 'banco'].find(subAllowed) || null;
+  return ['contas', 'pagar', 'extrato', 'conc', 'banco'].find(subAllowed) || null;
 }
 
 async function doLogin() {
@@ -902,23 +911,37 @@ function setView(v) {
   if (v === 'cadastro') renderCadastro();
 }
 
+// Abas principais do Financeiro (5). 'contas' é um GRUPO com sub-abas internas.
+const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao'];
+let subReceber = 'contas';
 function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   currentSub = s;
-  ['contas','pagar','receb','boletos','cobranca','devolucao','extrato','conc','banco'].forEach(x => {
-    const btn = document.getElementById('sub-' + x);
-    const view = document.getElementById('v-' + x);
-    if (btn) btn.classList.toggle('active', x === s);
-    if (view) view.style.display = x === s ? 'block' : 'none';
+  ['contas','pagar','extrato','conc','banco'].forEach(x => {
+    document.getElementById('sub-' + x)?.classList.toggle('active', x === s);
   });
+  // Esconde todas as views do financeiro
+  [...RECEBER_GROUP, 'pagar','extrato','conc','banco'].forEach(x => {
+    const v = document.getElementById('v-' + x); if (v) v.style.display = 'none';
+  });
+  // Sub-navegação interna só aparece em Contas a Receber
+  const rnav = document.getElementById('receber-nav');
+  if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
   document.getElementById('conc-pills').style.display = s === 'conc' ? 'flex' : 'none';
-  const renders = {
-    contas: renderContas, pagar: renderPagar, receb: renderRecebimentos,
-    boletos: renderBoletos, cobranca: renderCobranca,
-    devolucao: renderDevolucao, extrato: renderExtrato,
-    conc: renderConc, banco: renderBanco
-  };
+  if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
+  const renders = { pagar: renderPagar, extrato: renderExtrato, conc: renderConc, banco: renderBanco };
+  const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
   if (renders[s]) renders[s]();
+}
+// Sub-abas internas de Contas a Receber
+function setSubR(r) {
+  subReceber = r;
+  RECEBER_GROUP.forEach(x => {
+    document.getElementById('subr-' + x)?.classList.toggle('active', x === r);
+    const v = document.getElementById('v-' + x); if (v) v.style.display = x === r ? 'block' : 'none';
+  });
+  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao };
+  if (renders[r]) renders[r]();
 }
 
 // ════════════════════════════════════════════════════════════════════
