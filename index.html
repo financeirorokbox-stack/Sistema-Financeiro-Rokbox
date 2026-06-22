@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-13';
+const APP_VERSION = 'v22/06-14';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2556,9 +2556,13 @@ function renderDevolucao() {
   const el = document.getElementById('v-devolucao');
   const fQ = (el.querySelector('#dev-q')?.value||'').toLowerCase();
   const fSeg = el.querySelector('#dev-seg')?.value||'';
+  const fEmp = el.querySelector('#dev-emp')?.value||'';
   const segs = [...new Set(devolucoes.map(d=>d.segmento))].sort();
+  const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
   let vis = devolucoes;
   if (fSeg) vis = vis.filter(d=>d.segmento===fSeg);
+  if (fEmp) vis = vis.filter(d=>empresaDoPed(d.pedido)===fEmp || empresaDoPed((String(d.pedidoCredito||'').match(/\d{4,6}/g)||[])[0])===fEmp);
   if (fQ) vis = vis.filter(d=>String(d.pedido).includes(fQ)||d.cliente.toLowerCase().includes(fQ));
 
   // Agrupa por pedido+cliente
@@ -2599,6 +2603,11 @@ function renderDevolucao() {
       <select id="dev-seg" onchange="renderDevolucao()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todos</option>
         ${segs.map(s=>`<option value="${s}" ${s===fSeg?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <span class="f-label">Empresa:</span>
+      <select id="dev-emp" onchange="renderDevolucao()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="dev-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderDevolucao')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
@@ -2761,7 +2770,15 @@ function renderExtrato() {
   const el = document.getElementById('v-extrato');
   const creditos = extratoBancario.filter(t=>t.valor>0);
   const fQ = (el.querySelector('#ext-q')?.value||'').toLowerCase();
-  const visC = fQ ? creditos.filter(t=>t.memo.toLowerCase().includes(fQ)||String(extratoLinks[t.id]?.pedido||'').includes(fQ)) : creditos;
+  const fEmp = el.querySelector('#ext-emp')?.value||'';
+  const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
+  let visC = fQ ? creditos.filter(t=>t.memo.toLowerCase().includes(fQ)||String(extratoLinks[t.id]?.pedido||'').includes(fQ)) : creditos;
+  // Empresa: filtra pelos pedidos vinculados ao crédito (créditos sem vínculo não têm empresa)
+  if (fEmp) visC = visC.filter(t => {
+    const peds = String(extratoLinks[t.id]?.pedido||'').split(',').map(s=>s.trim()).filter(Boolean);
+    return peds.some(pid => empresaDoPed(pid) === fEmp);
+  });
 
   el.innerHTML = `
     <label class="upload-card" id="card-ext" for="file-ext">
@@ -2772,6 +2789,11 @@ function renderExtrato() {
       <input type="file" id="file-ext" accept=".ofx,.qfx">
     </label>
     <div class="filter-bar">
+      <span class="f-label">Empresa:</span>
+      <select id="ext-emp" onchange="renderExtrato()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
+      </select>
       <span class="f-label">Pesquisar créditos:</span>
       <input type="text" id="ext-q" value="${fQ}" placeholder="Descrição ou pedido..." oninput="debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
