@@ -347,7 +347,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-43';
+const APP_VERSION = 'v22/06-44';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -453,7 +453,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -807,6 +807,8 @@ let devolucaoCredito = {};
 let lojaFixes = {};
 let opMapping = {};
 let lojaCadastro = {};
+let empresasCadastro = []; // nomes de empresas (rateio / identificação de relatórios)
+let bancosCadastro = [];   // nomes de bancos (conciliação bancária)
 let vendasFilters = { ano:[], mes:[], dia:[], situacao:[], empresa:[], loja:[], vendedor:[], operacao:[] };
 let globalFilters = { ano:'', mes:'', dia:'', situacao:'', vendedor:'' };
 let results = { ok:[], diff:[], missing:[], extra:[] };
@@ -4537,8 +4539,42 @@ function exportarExcel() {
   XLSX.writeFile(wb, `Financeiro_Rokbox_${mes}.xlsx`);
 }
 
+// ── Cadastro de Empresas e Bancos ───────────────────────────────────
+function seedEmpresas() {
+  if (empresasCadastro.length) return;
+  const seed = new Set();
+  pedidos.forEach(p => { if (p.empresa) seed.add(p.empresa); });
+  Object.values(lojaCadastro).forEach(c => { if (c && c.empresa) seed.add(c.empresa); });
+  empresasCadastro = [...seed].sort();
+  if (empresasCadastro.length) saveData('empresasCadastro', empresasCadastro);
+}
+function getEmpresasList() {
+  const set = new Set(empresasCadastro);
+  pedidos.forEach(p => { if (p.empresa) set.add(p.empresa); });
+  return [...set].sort();
+}
+function addEmpresa() {
+  const inp = document.getElementById('nova-empresa');
+  const v = (inp?.value || '').trim();
+  if (!v) return;
+  if (!empresasCadastro.includes(v)) empresasCadastro.push(v);
+  saveData('empresasCadastro', empresasCadastro);
+  renderCadastro();
+}
+function removeEmpresa(i) { empresasCadastro.splice(i, 1); saveData('empresasCadastro', empresasCadastro); renderCadastro(); }
+function addBanco() {
+  const inp = document.getElementById('novo-banco');
+  const v = (inp?.value || '').trim();
+  if (!v) return;
+  if (!bancosCadastro.includes(v)) bancosCadastro.push(v);
+  saveData('bancosCadastro', bancosCadastro);
+  renderCadastro();
+}
+function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro', bancosCadastro); renderCadastro(); }
+
 function renderCadastro() {
   initLojaCadastro();
+  seedEmpresas();
   const lojas = new Set(Object.keys(lojaCadastro));
   pedidos.forEach(p => { if (p.loja) lojas.add(p.loja); });
   const el = document.getElementById('v-cadastro');
@@ -4551,7 +4587,33 @@ function renderCadastro() {
     combos[k].n++;
   });
 
+  const chip = (nome, fn, i) => `<span class="badge info" style="font-size:12px;padding:5px 10px;display:inline-flex;align-items:center;gap:6px">${nome}<a href="#" onclick="${fn}(${i});return false" style="color:var(--red);text-decoration:none;font-weight:700">✕</a></span>`;
   el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+      <div>
+        <div class="section-title" style="margin-top:0">🏢 Empresas</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Usadas no rateio de Contas a Pagar e na identificação dos relatórios.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          ${empresasCadastro.length ? empresasCadastro.map((e,i)=>chip(e,'removeEmpresa',i)).join('') : '<span style="font-size:12px;color:var(--muted)">Nenhuma empresa cadastrada</span>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <input class="inline-input" id="nova-empresa" placeholder="Nome da empresa" style="width:200px" onkeydown="if(event.key==='Enter')addEmpresa()">
+          <button class="btn primary sm" onclick="addEmpresa()">+ Adicionar</button>
+        </div>
+      </div>
+      <div>
+        <div class="section-title" style="margin-top:0">🏦 Bancos</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bancos usados na conciliação bancária.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          ${bancosCadastro.length ? bancosCadastro.map((b,i)=>chip(b,'removeBanco',i)).join('') : '<span style="font-size:12px;color:var(--muted)">Nenhum banco cadastrado</span>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <input class="inline-input" id="novo-banco" placeholder="Nome do banco (ex.: Itaú, Bradesco)" style="width:220px" onkeydown="if(event.key==='Enter')addBanco()">
+          <button class="btn primary sm" onclick="addBanco()">+ Adicionar</button>
+        </div>
+      </div>
+    </div>
+
     <div class="section-title">Cadastro de Lojas</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Empresa, Operação, Segmento e Natureza de NF por loja. Pedidos Cancelados/Em Aberto mostram "—" independente do cadastro.</p>
     <div class="table-wrap" style="margin-bottom:24px"><table><thead><tr>
@@ -4741,7 +4803,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -4762,6 +4824,8 @@ function delCheckboxHeader(source) {
       });
     }
     else if (k==='lojaCadastro') { initLojaCadastro(); lojaCadastro = {...lojaCadastro,...v}; }
+    else if (k==='empresasCadastro') empresasCadastro = v;
+    else if (k==='bancosCadastro') bancosCadastro = v;
     else if (k==='vendasFilters') vendasFilters = v;
     else if (k==='lojaFixes') lojaFixes = v;
     else if (k==='opMapping') opMapping = v;
