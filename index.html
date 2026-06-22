@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-15';
+const APP_VERSION = 'v22/06-16';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2504,9 +2504,15 @@ async function sincronizarDoDrive() {
     const dados = await resp.json();
 
     const novas = [];
+    // Abas de meses anteriores têm nome de mês; as do mês atual não (ex.: "ATACADO 26").
+    const MESES_ABA = ['janeiro','fevereiro','março','marco','abril','maio','junho',
+      'julho','agosto','setembro','outubro','novembro','dezembro'];
     for (const [nomeAba, rows] of Object.entries(dados)) {
       if (!rows || rows.length < 2) continue;
-      const segmento = nomeAba.toLowerCase().includes('atacado') ? 'Atacado' : 'Varejo';
+      const lowerAba = nomeAba.toLowerCase();
+      // Só o mês atual: ignora abas que contêm nome de mês (meses arquivados)
+      if (MESES_ABA.some(m => lowerAba.includes(m))) continue;
+      const segmento = lowerAba.includes('atacado') ? 'Atacado' : 'Varejo';
       const header = rows[0]; // primeira linha = cabeçalho
 
       rows.slice(1).forEach(row => {
