@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-45';
+const APP_VERSION = 'v22/06-46';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2179,13 +2179,17 @@ function renderPagar() {
     let empresa = getEmpresasList().find(e => fn.includes(e.toLowerCase())) || '';
     if (!empresa) empresa = (prompt('Qual empresa é este relatório de Contas a Pagar?\nEmpresas: ' + (getEmpresasList().join(', ') || '(cadastre em Cadastro → Empresas)'), getEmpresasList()[0] || '') || '').trim();
     novas.forEach(c => { c.empresa = empresa; });
-    // Mescla sem duplicar (chave: empresa + número, ou empresa+fornecedor+vencimento+valor)
-    const chave = c => (c.empresa||'') + '|' + (c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : c.vencimento, c.valor.toFixed(2)].join('|'));
-    const map = {};
-    contasPagar.forEach(c => map[chave(c)] = c);
-    novas.forEach(c => { const k = chave(c); c.rateio = (map[k]?.rateio) || []; map[k] = c; }); // preserva rateio existente
-    contasPagar = Object.values(map);
+    // SUBSTITUI as contas desta empresa pelas novas (o relatório é um retrato atual).
+    // Mantém as contas de OUTRAS empresas e preserva o rateio manual (casa por chave).
+    const chaveC = c => c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : (c.vencimento||''), (c.valor||0).toFixed(2)].join('|');
+    const rateioAnt = {};
+    contasPagar.forEach(c => { if ((c.empresa||'') === empresa && c.rateio && c.rateio.length) rateioAnt[chaveC(c)] = c.rateio; });
+    novas.forEach(c => { const r = rateioAnt[chaveC(c)]; if (r) c.rateio = r; });
+    const antes = contasPagar.filter(c => (c.empresa||'') === empresa).length;
+    contasPagar = contasPagar.filter(c => (c.empresa||'') !== empresa).concat(novas);
     saveData('contasPagar', contasPagar);
+    const stEl = document.getElementById('status-pagar');
+    if (stEl) stEl.textContent = `✓ ${contasPagar.length} contas (${empresa||'sem empresa'}: ${novas.length}${antes?`, substituiu ${antes}`:''})`;
     renderPagar();
   });
 }
