@@ -317,7 +317,11 @@ function parseDate(v) {
   const s = String(v).trim();
   // dd/MM/yyyy
   const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (m1) return new Date(+m1[3], +m1[2]-1, +m1[1]);
+  if (m1) {
+    const dia = +m1[1], mes = +m1[2], ano = +m1[3];
+    if (!dia || !mes || !ano) return null; // 00/00/0000 = sem data
+    return new Date(ano, mes - 1, dia);
+  }
   // yyyy-MM-dd or ISO
   const d = new Date(s);
   return isNaN(d) ? null : d;
@@ -343,7 +347,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-42';
+const APP_VERSION = 'v22/06-43';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2036,12 +2040,14 @@ function parseContasPagarSheet(rows) {
     const categoria = get(r, 'categoria', 'plano de conta', 'plano de contas', 'tipo', 'centro');
     const observacao = get(r, 'observa', 'obs');
     if (!valor && !fornecedor && !descricao) return;
-    // Pago é determinado pela SITUAÇÃO (texto). Aberto/Vencendo/Atrasada/Vencido = NÃO pago.
+    // Pago = tem data real de liquidação (00/00/0000 já vira null) OU situação diz pago.
+    // Em aberto/vencendo/atrasada/vencido sem data = NÃO pago.
     const sl = situacao.toLowerCase();
     let pago;
-    if (/aberto|a pagar|vencendo|vencid|atrasad|pendente|previs/.test(sl)) pago = false;
+    if (dataPag) pago = true;
+    else if (/aberto|a pagar|vencendo|vencid|atrasad|pendente|previs/.test(sl)) pago = false;
     else if (/pago|liquidad|baixad|quitad/.test(sl)) pago = true;
-    else pago = situacao ? false : !!dataPag; // sem situação → cai na data de liquidação
+    else pago = false;
     out.push({
       numero: numero != null ? String(numero) : '',
       fornecedor: fornecedor || '',
