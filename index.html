@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-33';
+const APP_VERSION = 'v22/06-34';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3456,6 +3456,32 @@ function dividirPedido(pedId) {
   alert(`Recebimento de ${fmtVal(r.bruto || r.liq)} dividido entre: ${lista.join(', ')}.`);
 }
 
+// Joga a SOBRA de um pedido em outro (mantém este cheio e manda o resto pro alvo).
+function jogarSobra(pedId) {
+  const ped = pedidos.find(p => String(p.id) === String(pedId));
+  if (!ped) return;
+  const idxs = [];
+  recebimentosConsolidado.forEach((r, i) => {
+    if ((r.gateway === 'PayPal' || r.gateway === 'BraavoPay') && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedId))) idxs.push(i);
+  });
+  if (!idxs.length) { alert('Este pedido não tem recebimento de PayPal/BraavoPay para mover a sobra.'); return; }
+  const i = idxs.reduce((a, b) => (recebimentosConsolidado[b].bruto || 0) > (recebimentosConsolidado[a].bruto || 0) ? b : a, idxs[0]);
+  const r = recebimentosConsolidado[i];
+  const somaBruto = getRecebimentosDoPedido(ped).reduce((s, x) => s + (x.bruto || 0), 0);
+  const sobra = +(somaBruto - getValorConciliacaoPedido(ped)).toFixed(2);
+  const alvo = prompt(`A sobra de ${fmtVal(sobra > 0 ? sobra : 0)} do pedido ${pedId} vai para qual pedido?`, '');
+  if (alvo === null) return;
+  const t = (alvo || '').trim();
+  if (!t) { alert('Informe o número do pedido que recebe a sobra.'); return; }
+  const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+  const ordered = [String(pedId), ...peds.filter(p => p !== String(pedId))];
+  t.split(',').map(s => s.trim()).filter(Boolean).forEach(x => { if (!ordered.includes(x)) ordered.push(x); });
+  r.nped = ordered.join(',');
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderConcResult();
+  alert(`Pronto! O pedido ${pedId} fecha e a sobra foi para o pedido ${t}.`);
+}
+
 // Resolve a diferença de um pedido na aba Por Pedido: acao = 'aceito' | 'cobrar' | null (desfaz)
 function aceitarDifPedido(pedId, acao) {
   if (acao) difAceita[String(pedId)] = acao; else delete difAceita[String(pedId)];
@@ -3528,7 +3554,7 @@ function renderPorPedido() {
         l.status === 'falta'
           ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A diferença é ok, encerrar">✓ Aceitar</button> <button class="btn ghost sm" style="font-size:10px;color:var(--red)" onclick="aceitarDifPedido('${l.ped.id}','cobrar')" title="Falta receber — marcar para cobrar o cliente">💬 Cobrar cliente</button>`
         : l.status === 'sobra'
-          ? ` <button class="btn ghost sm" style="font-size:10px" onclick="dividirPedido('${l.ped.id}')" title="A sobra é de outro pedido — mover/dividir o recebimento">➡ Outro pedido</button> <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A sobra é ok, encerrar">✓ Aceitar</button>`
+          ? ` <button class="btn ghost sm" style="font-size:10px" onclick="jogarSobra('${l.ped.id}')" title="A sobra é de outro pedido — você diz pra qual pedido vai">➡ Jogar sobra em outro pedido</button> <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A sobra é ok, encerrar">✓ Aceitar</button>`
         : (l.status === 'aceito' || l.status === 'cobrar')
           ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',null)">Desfazer</button>`
         : ''
