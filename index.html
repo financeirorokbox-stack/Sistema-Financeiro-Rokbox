@@ -1046,7 +1046,10 @@ function statusForma(pedido, categoria, valor) {
   if (categoria === 'Devolução' || categoria === 'Crédito Cliente') {
     const devPedido = devolucoes.filter(d => {
       if (String(d.pedido) === String(pedido)) return true;
-      const credPeds = String(d.pedidoCredito || '').match(/\d{4,6}/g) || [];
+      // Pedido de crédito EFETIVO: o vínculo manual (devolucaoCredito, feito na aba
+      // Devolução) tem prioridade sobre o que veio na planilha (d.pedidoCredito).
+      const credEfetivo = devolucaoCredito[d.pedido + '|' + d.cliente] || d.pedidoCredito || '';
+      const credPeds = String(credEfetivo).match(/\d{4,6}/g) || [];
       return credPeds.includes(String(pedido));
     });
     if (!devPedido.length) return { recebido: false, detalhe: 'não localizado em Devoluções' };
