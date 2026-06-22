@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-34';
+const APP_VERSION = 'v22/06-35';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -443,7 +443,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','devolucaoAcao','concResults'];
+    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -1191,6 +1191,7 @@ function renderVendas() {
           <div class="ms-dropdown" id="ms-dd-${f}" onclick="event.stopPropagation()"></div>
         </div>
       `).join('')}
+      ${dateFilterHTML()}
       <button class="btn ghost sm" onclick="clearVF()">Limpar</button>
     </div>
 
@@ -1339,6 +1340,74 @@ function clearVF() {
   renderPedidosTable();
 }
 
+// ── Filtro de data reutilizável (multi-seleção Ano/Mês/Dia) ──────────
+// Estado compartilhado entre as abas; cada aba aplica passaData() na sua data natural.
+let dateFilter = { ano: [], mes: [], dia: [] };
+let _dfRenderFn = null;
+let _dfOpen = null;
+function setDateFilterRender(fn) { _dfRenderFn = fn; }
+function _dfOpts(field) {
+  if (field === 'mes') return MESES.map((m, i) => [String(i + 1).padStart(2, '0'), m]);
+  if (field === 'dia') return Array.from({ length: 31 }, (_, i) => { const d = String(i + 1).padStart(2, '0'); return [d, d]; });
+  return ['2024', '2025', '2026', '2027', '2028'].map(a => [a, a]); // ano
+}
+function _dfLabel(field) {
+  const sel = dateFilter[field];
+  if (!sel.length) return 'Todos';
+  if (sel.length === 1) return field === 'mes' ? MESES[+sel[0] - 1] : sel[0];
+  return sel.length + ' sel.';
+}
+function dfToggle(field) {
+  if (_dfOpen && _dfOpen !== field) document.getElementById('df-dd-' + _dfOpen)?.classList.remove('open');
+  const dd = document.getElementById('df-dd-' + field);
+  if (!dd) return;
+  if (dd.classList.contains('open')) { dd.classList.remove('open'); _dfOpen = null; return; }
+  dd.innerHTML = _dfOpts(field).map(([v, lbl]) => `<label class="ms-opt">
+    <input type="checkbox" value="${v}" ${dateFilter[field].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${field}','${v}',this.checked)"> ${lbl}</label>`).join('');
+  dd.classList.add('open'); _dfOpen = field;
+}
+function dfToggleVal(field, value, checked) {
+  if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
+  else dateFilter[field] = dateFilter[field].filter(x => x !== value);
+  const lbl = document.getElementById('df-lbl-' + field);
+  if (lbl) lbl.textContent = _dfLabel(field);
+  saveData('dateFilter', dateFilter);
+  if (_dfRenderFn) _dfRenderFn();
+}
+function dfClear() {
+  dateFilter = { ano: [], mes: [], dia: [] };
+  saveData('dateFilter', dateFilter);
+  if (_dfRenderFn) _dfRenderFn();
+}
+function dfAtivo() { return dateFilter.ano.length || dateFilter.mes.length || dateFilter.dia.length; }
+function passaData(date) {
+  if (!dfAtivo()) return true;
+  if (!date) return false;
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d)) return false;
+  if (dateFilter.ano.length && !dateFilter.ano.includes(String(d.getFullYear()))) return false;
+  if (dateFilter.mes.length && !dateFilter.mes.includes(String(d.getMonth() + 1).padStart(2, '0'))) return false;
+  if (dateFilter.dia.length && !dateFilter.dia.includes(String(d.getDate()).padStart(2, '0'))) return false;
+  return true;
+}
+// HTML do filtro de data para colar na barra de filtros de qualquer aba.
+function dateFilterHTML() {
+  const campo = f => `
+    <span class="f-label">${{ ano: 'Ano', mes: 'Mês', dia: 'Dia' }[f]}:</span>
+    <div class="ms-wrap">
+      <div class="ms-btn" onclick="dfToggle('${f}')"><span id="df-lbl-${f}">${_dfLabel(f)}</span><span>▾</span></div>
+      <div class="ms-dropdown" id="df-dd-${f}" onclick="event.stopPropagation()"></div>
+    </div>`;
+  return ['ano', 'mes', 'dia'].map(campo).join('') +
+    (dfAtivo() ? `<button class="btn ghost sm" style="font-size:11px" onclick="dfClear()">✕ data</button>` : '');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.ms-wrap') && _dfOpen) {
+    document.getElementById('df-dd-' + _dfOpen)?.classList.remove('open');
+    _dfOpen = null;
+  }
+});
+
 function getFilteredPedidos() {
   const busca = (document.getElementById('busca-vendas')?.value || '').toLowerCase();
   return pedidos.filter(p => {
@@ -1352,11 +1421,13 @@ function getFilteredPedidos() {
       if (!vendasFilters.operacao.includes(op)) return false;
     }
     if (busca && !String(p.id).includes(busca) && !p.nome.toLowerCase().includes(busca)) return false;
+    if (dfAtivo() && !passaData(p.data)) return false;
     return true;
   });
 }
 
 function renderPedidosTable() {
+  setDateFilterRender(renderPedidosTable);
   // Salva foco
   const bEl = document.getElementById('busca-vendas');
   const focused = document.activeElement === bEl;
@@ -1473,6 +1544,7 @@ function renderContas() {
 }
 
 function _renderContasImpl(el) {
+  setDateFilterRender(renderContas);
   if (!pedidos.length) {
     el.innerHTML = '<div class="empty"><div class="e-icon">💰</div><strong>Carregue os pedidos</strong> na aba Vendas para ver as contas a receber</div>';
     return;
@@ -1609,6 +1681,7 @@ function _renderContasImpl(el) {
   let vis = linhas;
   if (fCat) vis = vis.filter(l => l.cat === fCat);
   if (fEmp) vis = vis.filter(l => (l.ped.empresa||'') === fEmp);
+  if (dfAtivo()) vis = vis.filter(l => passaData(l.venc));
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
   if (fQ)  vis = vis.filter(l => String(l.f.pedido).includes(fQ) || (l.ped.nome||'').toLowerCase().includes(fQ));
@@ -1648,6 +1721,7 @@ function _renderContasImpl(el) {
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="fc-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      ${dateFilterHTML()}
       <button class="btn primary sm" onclick="exportarModeloCR()" title="Exportar no modelo Contas a Receber (15 colunas)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="reprocessarTudo()" title="Recalcula conciliação e contas a receber com os dados atuais; remove pareamentos antigos">🔄 Atualizar tudo</button>
     </div>
@@ -1931,6 +2005,7 @@ function editarNpedRec(idx) {
 }
 
 function renderRecebimentos() {
+  setDateFilterRender(renderRecebimentos);
   const el = document.getElementById('v-receb');
   const fGw = el.querySelector('#rr-gw')?.value || '';
   const fQ  = (el.querySelector('#rr-q')?.value || '').toLowerCase();
@@ -1943,6 +2018,7 @@ function renderRecebimentos() {
   if (fGw) vis = vis.filter(r=>r.gateway===fGw);
   if (fEmp) vis = vis.filter(r=>empresaDoPed(r.nped)===fEmp);
   if (fQ) vis = vis.filter(r=>(r.nome||'').toLowerCase().includes(fQ)||String(r.nped||'').includes(fQ));
+  if (dfAtivo()) vis = vis.filter(r=>passaData(r.data));
 
   const totalLiq = vis.reduce((s,r)=>s+r.liq,0);
   const totalTaxa = vis.reduce((s,r)=>s+r.taxa,0);
@@ -1973,6 +2049,7 @@ function renderRecebimentos() {
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="rr-q" value="${fQ}" placeholder="Nome ou pedido..." oninput="debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      ${dateFilterHTML()}
       <button class="btn danger sm" onclick="if(confirm('Limpar todos os recebimentos?')){recebimentosConsolidado=[];saveData('recebimentosConsolidado',recebimentosConsolidado);renderRecebimentos()}">🗑 Limpar</button>
     </div>
 
@@ -2212,6 +2289,7 @@ function syncBoletosToRecebimentos() {
 }
 
 function renderBoletos() {
+  setDateFilterRender(renderBoletos);
   const el = document.getElementById('v-boletos');
   const peds = getBoletosPorPedido();
   if (!peds.length) {
@@ -2222,7 +2300,8 @@ function renderBoletos() {
   const fEmp = el.querySelector('#bl-emp')?.value||'';
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
-  const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp));
+  const dataDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.data;
+  const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp) && (!dfAtivo() || passaData(dataDoPed(b.pedido))));
   const totalEmitidos = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])}).length;
 
   el.innerHTML = `
@@ -2234,6 +2313,7 @@ function renderBoletos() {
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="bl-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      ${dateFilterHTML()}
     </div>
     <div class="cards-row">
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
@@ -2378,6 +2458,7 @@ function isBoletoRecebidoFile(file, wb) {
 }
 
 function renderCobranca() {
+  setDateFilterRender(renderCobranca);
   const el = document.getElementById('v-cobranca');
   const emitidos = getBoletosDaForma().filter(b=>boletoStatus[b.key]);
   const today = new Date();
@@ -2411,6 +2492,7 @@ function renderCobranca() {
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">
+      ${dateFilterHTML()}
     </div>`;
 
   setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
@@ -2428,6 +2510,7 @@ function renderCobranca() {
   if (fSt==='avencer') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
   if (fQ) vis = vis.filter(b=>String(b.pedido).includes(fQ)||b.cliente.toLowerCase().includes(fQ));
   if (fEmp) vis = vis.filter(b=>empresaDoPed(b.pedido)===fEmp);
+  if (dfAtivo()) vis = vis.filter(b=>passaData(boletoCobrancaStatus[b.key]?.dataPagamento || b.vencimento));
 
   const pagos=vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
   const atrasados=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
@@ -2697,6 +2780,7 @@ async function sincronizarDoDrive() {
 }
 
 function renderDevolucao() {
+  setDateFilterRender(renderDevolucao);
   const el = document.getElementById('v-devolucao');
   const fQ = (el.querySelector('#dev-q')?.value||'').toLowerCase();
   const fSeg = el.querySelector('#dev-seg')?.value||'';
@@ -2708,6 +2792,7 @@ function renderDevolucao() {
   if (fSeg) vis = vis.filter(d=>d.segmento===fSeg);
   if (fEmp) vis = vis.filter(d=>empresaDoPed(d.pedido)===fEmp || empresaDoPed((String(d.pedidoCredito||'').match(/\d{4,6}/g)||[])[0])===fEmp);
   if (fQ) vis = vis.filter(d=>String(d.pedido).includes(fQ)||d.cliente.toLowerCase().includes(fQ));
+  if (dfAtivo()) vis = vis.filter(d=>passaData(d.dataTroca));
 
   // Agrupa por pedido+cliente
   const grupos = {};
@@ -2755,6 +2840,7 @@ function renderDevolucao() {
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="dev-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderDevolucao')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      ${dateFilterHTML()}
       <button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>
     </div>
     <div class="cards-row">
@@ -2911,6 +2997,7 @@ function syncExtratoToRecebimentos() {
 }
 
 function renderExtrato() {
+  setDateFilterRender(renderExtrato);
   const el = document.getElementById('v-extrato');
   const creditos = extratoBancario.filter(t=>t.valor>0);
   const fQ = (el.querySelector('#ext-q')?.value||'').toLowerCase();
@@ -2923,6 +3010,7 @@ function renderExtrato() {
     const peds = String(extratoLinks[t.id]?.pedido||'').split(',').map(s=>s.trim()).filter(Boolean);
     return peds.some(pid => empresaDoPed(pid) === fEmp);
   });
+  if (dfAtivo()) visC = visC.filter(t => passaData(t.data));
 
   el.innerHTML = `
     <label class="upload-card" id="card-ext" for="file-ext">
@@ -2940,6 +3028,7 @@ function renderExtrato() {
       </select>
       <span class="f-label">Pesquisar créditos:</span>
       <input type="text" id="ext-q" value="${fQ}" placeholder="Descrição ou pedido..." oninput="debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      ${dateFilterHTML()}
       <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
       <button class="btn danger sm" onclick="if(confirm('Limpar extrato?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar</button>
     </div>
@@ -3493,6 +3582,7 @@ let ppFiltroStatus = '';
 function renderPorPedido() {
   const cont = document.getElementById('conc-table');
   if (!cont) return;
+  setDateFilterRender(renderConcResult);
   const fQ = (document.getElementById('cr-q')?.value || '').toLowerCase();
   const linhas = [];
   pedidos.forEach(ped => {
@@ -3515,6 +3605,7 @@ function renderPorPedido() {
   let vis = linhas;
   if (ppFiltroStatus) vis = vis.filter(l => l.status === ppFiltroStatus);
   if (fQ) vis = vis.filter(l => String(l.ped.id).includes(fQ) || (l.ped.nome || '').toLowerCase().includes(fQ));
+  if (dfAtivo()) vis = vis.filter(l => passaData(l.ped.data));
   vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
 
   const badge = st => ({
@@ -3535,6 +3626,7 @@ function renderPorPedido() {
         <option value="aceito" ${ppFiltroStatus === 'aceito' ? 'selected' : ''}>Aceito</option>
         <option value="cobrar" ${ppFiltroStatus === 'cobrar' ? 'selected' : ''}>Cobrar cliente</option>
       </select>
+      ${dateFilterHTML()}
       <span style="font-size:11px;color:var(--muted)">${vis.length} pedido(s)</span>
     </div>`;
   const tabela = vis.length === 0 ? '<div class="empty"><div class="e-icon">✓</div>Nenhum pedido nesta categoria</div>' : `
@@ -4430,7 +4522,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','devolucaoAcao'];
+    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -4461,6 +4553,7 @@ function delCheckboxHeader(source) {
     else if (k==='formaManualMap') formaManualMap = v;
     else if (k==='formaOverrideMap') formaOverrideMap = v;
     else if (k==='difAceita') difAceita = v;
+    else if (k==='dateFilter') dateFilter = v;
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
