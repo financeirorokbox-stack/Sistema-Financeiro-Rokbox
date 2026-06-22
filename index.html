@@ -252,6 +252,17 @@ tr:hover td{background:#fafaf8}
   </div>
 </div>
 
+<!-- MODAL RATEIO -->
+<div class="modal-overlay" id="rateio-modal">
+  <div class="modal-box" style="width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:14px;font-weight:800">✂ Ratear conta entre empresas</div>
+      <button onclick="closeRateio()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="padding:16px 20px;overflow:auto" id="rateio-body"></div>
+  </div>
+</div>
+
 <!-- TOPNAV -->
 <div class="topnav">
   <div class="topnav-item" id="nav-dashboard" onclick="setView('dashboard')" style="font-weight:800;color:var(--accent)">Dashboard</div>
@@ -347,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-44';
+const APP_VERSION = 'v22/06-45';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2056,6 +2067,8 @@ function parseContasPagarSheet(rows) {
       descricao: descricao || '',
       categoria: categoria || '',
       observacao: observacao || '',
+      empresa: '',
+      rateio: [], // [{empresa, valor}]
       vencimento, dataPag: pago ? dataPag : null,
       valor,
       situacao: situacao || (pago ? 'Pago' : 'Em Aberto'),
@@ -2070,13 +2083,16 @@ function renderPagar() {
   const el = document.getElementById('v-pagar');
   const fSt = el.querySelector('#cp-st')?.value || '';
   const fCat = el.querySelector('#cp-cat')?.value || '';
+  const fEmp = el.querySelector('#cp-emp')?.value || '';
   const fQ = (el.querySelector('#cp-q')?.value || '').toLowerCase();
   const cats = [...new Set(contasPagar.map(c => c.categoria).filter(Boolean))].sort();
+  const empresas = [...new Set(contasPagar.map(c => c.empresa).filter(Boolean))].sort();
 
   let vis = contasPagar;
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
   if (fCat) vis = vis.filter(c => c.categoria === fCat);
+  if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
 
@@ -2101,6 +2117,11 @@ function renderPagar() {
         <option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option>
         <option value="pago" ${fSt==='pago'?'selected':''}>Pago</option>
       </select>
+      <span class="f-label">Empresa:</span>
+      <select id="cp-emp" onchange="renderPagar()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
+      </select>
       <span class="f-label">Categoria:</span>
       <select id="cp-cat" onchange="renderPagar()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todas</option>
@@ -2121,20 +2142,25 @@ function renderPagar() {
       ? `<div class="empty"><div class="e-icon">📤</div>${contasPagar.length===0 ? 'Carregue a planilha de Contas a Pagar acima' : 'Nenhum resultado para os filtros'}</div>`
       : `<div class="table-wrap"><table><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th>Vencimento</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Status</th><th>Pagamento</th><th>Observação</th>
+        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
         const stBadge = c.pago
           ? '<span class="badge ok">PAGO</span>'
           : `<span class="badge err">${c.situacao && !/aberto/i.test(c.situacao) ? c.situacao : 'EM ABERTO'}</span>`;
+        const rateioStr = (c.rateio && c.rateio.length)
+          ? c.rateio.map(r=>`${r.empresa} ${fmtVal(r.valor)}`).join('<br>')
+          : '<span style="color:var(--muted)">—</span>';
         return `<tr>
           ${delCheckbox('contasPagar', realIdx)}
           <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
+          <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
           <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}</td>
           <td style="font-size:12px">${c.descricao||'—'}</td>
           <td>${c.categoria?`<span class="badge neu">${c.categoria}</span>`:'—'}</td>
           <td><strong>${fmtVal(c.valor)}</strong></td>
+          <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
           <td>${stBadge}</td>
           <td style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
           <td style="font-size:11px;color:var(--muted)">${c.observacao||'—'}</td>
@@ -2143,20 +2169,103 @@ function renderPagar() {
       </tbody></table></div>`}
   `;
 
-  setupUpload('file-pagar', 'card-pagar', 'status-pagar', ({ wb }) => {
+  setupUpload('file-pagar', 'card-pagar', 'status-pagar', ({ wb, file }) => {
     const sheetName = wb.SheetNames.includes('Worksheet') ? 'Worksheet' : wb.SheetNames[0];
     const rows = sheetToRows(wb, sheetName);
     const novas = parseContasPagarSheet(rows);
     if (!novas.length) { alert('Não encontrei contas na planilha. Verifique se tem as colunas Fornecedor/Descrição, Vencimento e Valor.'); return; }
-    // Mescla sem duplicar (chave: número, ou fornecedor+vencimento+valor)
-    const chave = c => c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : c.vencimento, c.valor.toFixed(2)].join('|');
+    // Empresa do relatório: pelo nome do arquivo (casa com as empresas cadastradas); senão pergunta.
+    const fn = (file?.name || '').toLowerCase();
+    let empresa = getEmpresasList().find(e => fn.includes(e.toLowerCase())) || '';
+    if (!empresa) empresa = (prompt('Qual empresa é este relatório de Contas a Pagar?\nEmpresas: ' + (getEmpresasList().join(', ') || '(cadastre em Cadastro → Empresas)'), getEmpresasList()[0] || '') || '').trim();
+    novas.forEach(c => { c.empresa = empresa; });
+    // Mescla sem duplicar (chave: empresa + número, ou empresa+fornecedor+vencimento+valor)
+    const chave = c => (c.empresa||'') + '|' + (c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : c.vencimento, c.valor.toFixed(2)].join('|'));
     const map = {};
     contasPagar.forEach(c => map[chave(c)] = c);
-    novas.forEach(c => map[chave(c)] = c); // novas sobrescrevem (atualiza status/pagamento)
+    novas.forEach(c => { const k = chave(c); c.rateio = (map[k]?.rateio) || []; map[k] = c; }); // preserva rateio existente
     contasPagar = Object.values(map);
     saveData('contasPagar', contasPagar);
     renderPagar();
   });
+}
+
+// ── Rateio de uma conta a pagar entre empresas (por valor ou %) ──────
+let _rateioIdx = null;
+function openRateio(idx) {
+  const c = contasPagar[idx];
+  if (!c) return;
+  _rateioIdx = idx;
+  const emps = [...new Set([...getEmpresasList(), ...(c.rateio || []).map(r => r.empresa)])];
+  document.getElementById('rateio-body').innerHTML = `
+    <div style="font-size:13px;margin-bottom:2px"><strong>${c.fornecedor || '—'}</strong>${c.descricao ? ' · ' + c.descricao : ''}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Valor da conta: <strong>${fmtVal(c.valor)}</strong>${c.empresa ? ' · Empresa: ' + c.empresa : ''}</div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <span class="f-label">Ratear por:</span>
+      <label style="font-size:12px"><input type="radio" name="rmodo" value="valor" checked onchange="rateioCalc()"> Valor (R$)</label>
+      <label style="font-size:12px"><input type="radio" name="rmodo" value="pct" onchange="rateioCalc()"> Porcentagem (%)</label>
+      <button class="btn ghost sm" style="font-size:11px" onclick="rateioIgual()">Distribuir igualmente</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 120px;gap:8px 12px;align-items:center">
+      ${emps.length ? emps.map(e => {
+        const r = (c.rateio || []).find(x => x.empresa === e);
+        return `<label style="font-size:13px">${e}</label>
+          <input class="inline-input rt-inp" data-emp="${e}" type="number" step="0.01" value="${r ? r.valor.toFixed(2) : ''}" placeholder="0,00" oninput="rateioCalc()" style="width:110px">`;
+      }).join('') : '<div style="grid-column:1/3;font-size:12px;color:var(--amber)">Cadastre empresas em Cadastro → Empresas primeiro.</div>'}
+    </div>
+    <div id="rateio-sum" style="margin-top:14px;font-size:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost sm" onclick="closeRateio()">Cancelar</button>
+      <button class="btn ghost sm" onclick="limparRateio()">Limpar rateio</button>
+      <button class="btn primary sm" onclick="salvarRateio()">Salvar</button>
+    </div>`;
+  document.getElementById('rateio-modal').style.display = 'flex';
+  rateioCalc();
+}
+function closeRateio() { document.getElementById('rateio-modal').style.display = 'none'; _rateioIdx = null; }
+function rateioModo() { return document.querySelector('input[name=rmodo]:checked')?.value || 'valor'; }
+function rateioCalc() {
+  const c = contasPagar[_rateioIdx]; if (!c) return;
+  const modo = rateioModo();
+  let soma = 0;
+  document.querySelectorAll('.rt-inp').forEach(inp => { soma += parseFloat(inp.value) || 0; });
+  const sumEl = document.getElementById('rateio-sum'); if (!sumEl) return;
+  if (modo === 'pct') {
+    const falta = +(100 - soma).toFixed(2);
+    sumEl.innerHTML = `Total: <strong>${soma.toFixed(2)}%</strong> — ${Math.abs(falta) <= 0.01 ? '<span style="color:var(--green)">✓ 100%</span>' : `<span style="color:var(--amber)">faltam ${falta.toFixed(2)}%</span>`}`;
+  } else {
+    const falta = +(c.valor - soma).toFixed(2);
+    sumEl.innerHTML = `Total rateado: <strong>${fmtVal(soma)}</strong> de ${fmtVal(c.valor)} — ${Math.abs(falta) <= 0.01 ? '<span style="color:var(--green)">✓</span>' : `<span style="color:var(--amber)">faltam ${fmtVal(falta)}</span>`}`;
+  }
+}
+function rateioIgual() {
+  const c = contasPagar[_rateioIdx]; if (!c) return;
+  const inps = [...document.querySelectorAll('.rt-inp')];
+  if (!inps.length) return;
+  const modo = rateioModo();
+  const v = modo === 'pct' ? +(100 / inps.length).toFixed(2) : +(c.valor / inps.length).toFixed(2);
+  inps.forEach(i => i.value = v);
+  rateioCalc();
+}
+function limparRateio() {
+  const c = contasPagar[_rateioIdx]; if (c) c.rateio = [];
+  saveData('contasPagar', contasPagar);
+  closeRateio(); renderPagar();
+}
+function salvarRateio() {
+  const c = contasPagar[_rateioIdx]; if (!c) return;
+  const modo = rateioModo();
+  const rateio = [];
+  document.querySelectorAll('.rt-inp').forEach(inp => {
+    let v = parseFloat(inp.value) || 0;
+    if (v <= 0) return;
+    if (modo === 'pct') v = +(c.valor * v / 100).toFixed(2);
+    rateio.push({ empresa: inp.dataset.emp, valor: v });
+  });
+  c.rateio = rateio;
+  saveData('contasPagar', contasPagar);
+  closeRateio();
+  renderPagar();
 }
 
 // ════════════════════════════════════════════════════════════════════
