@@ -263,7 +263,6 @@ tr:hover td{background:#fafaf8}
   <div class="subnav-item active" id="sub-contas" onclick="setSub('contas')">Contas a Receber</div>
   <div class="subnav-item" id="sub-pagar" onclick="setSub('pagar')">Contas a Pagar</div>
   <div class="subnav-item" id="sub-extrato" onclick="setSub('extrato')">Extrato (OFX)</div>
-  <div class="subnav-item" id="sub-conc" onclick="setSub('conc')">Conciliação</div>
   <div class="subnav-item" id="sub-banco" onclick="setSub('banco')">Conciliação Bancária</div>
 </div>
 
@@ -278,6 +277,7 @@ tr:hover td{background:#fafaf8}
     <div class="subnav-item" id="subr-boletos" onclick="setSubR('boletos')">🧾 Boletos a Emitir</div>
     <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança</div>
     <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
+    <div class="subnav-item" id="subr-conc" onclick="setSubR('conc')">✅ Conciliação</div>
   </div>
   <div id="v-contas" class="main"></div>
   <div id="v-pagar" class="main" style="display:none"></div>
@@ -343,7 +343,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-40';
+const APP_VERSION = 'v22/06-41';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -611,7 +611,7 @@ function subAllowed(s) {
   if (currentUser.admin) return true;
   const perms = currentUser.perms || [];
   // 'contas' é o grupo Contas a Receber (inclui receb/boletos/cobrança/devolução)
-  if (s === 'contas') return ['fin:contas','fin:receb','fin:boletos','fin:cobranca','fin:devolucao'].some(p => perms.includes(p));
+  if (s === 'contas') return ['fin:contas','fin:receb','fin:boletos','fin:cobranca','fin:devolucao','fin:conc'].some(p => perms.includes(p));
   return perms.includes('fin:' + s);
 }
 function viewAllowed(v) {
@@ -621,7 +621,7 @@ function firstAllowedView() {
   return ['dashboard', 'vendas', 'financeiro', 'cadastro'].find(viewAllowed) || null;
 }
 function firstAllowedSub() {
-  return ['contas', 'pagar', 'extrato', 'conc', 'banco'].find(subAllowed) || null;
+  return ['contas', 'pagar', 'extrato', 'banco'].find(subAllowed) || null;
 }
 
 async function doLogin() {
@@ -911,25 +911,25 @@ function setView(v) {
   if (v === 'cadastro') renderCadastro();
 }
 
-// Abas principais do Financeiro (5). 'contas' é um GRUPO com sub-abas internas.
-const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao'];
+// Abas principais do Financeiro (4). 'contas' é um GRUPO com sub-abas internas.
+const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao','conc'];
 let subReceber = 'contas';
 function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   currentSub = s;
-  ['contas','pagar','extrato','conc','banco'].forEach(x => {
+  ['contas','pagar','extrato','banco'].forEach(x => {
     document.getElementById('sub-' + x)?.classList.toggle('active', x === s);
   });
   // Esconde todas as views do financeiro
-  [...RECEBER_GROUP, 'pagar','extrato','conc','banco'].forEach(x => {
+  [...RECEBER_GROUP, 'pagar','extrato','banco'].forEach(x => {
     const v = document.getElementById('v-' + x); if (v) v.style.display = 'none';
   });
   // Sub-navegação interna só aparece em Contas a Receber
   const rnav = document.getElementById('receber-nav');
   if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
-  document.getElementById('conc-pills').style.display = s === 'conc' ? 'flex' : 'none';
+  const pills = document.getElementById('conc-pills'); if (pills) pills.style.display = 'none';
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
-  const renders = { pagar: renderPagar, extrato: renderExtrato, conc: renderConc, banco: renderBanco };
+  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco };
   const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
   if (renders[s]) renders[s]();
 }
@@ -940,7 +940,7 @@ function setSubR(r) {
     document.getElementById('subr-' + x)?.classList.toggle('active', x === r);
     const v = document.getElementById('v-' + x); if (v) v.style.display = x === r ? 'block' : 'none';
   });
-  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao };
+  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, conc: renderConc };
   if (renders[r]) renders[r]();
 }
 
@@ -4334,15 +4334,15 @@ function renderDashboard() {
     <!-- Conciliação resumo -->
     <div class="section-title">Conciliação de Pedidos</div>
     <div class="cards-row" style="margin-bottom:8px">
-      <div class="card green" style="cursor:pointer" onclick="setView('financeiro');setSub('conc')">
+      <div class="card green" style="cursor:pointer" onclick="setView('financeiro');setSub('contas');setSubR('conc')">
         <div class="c-label">✓ Conciliados</div><div class="c-val">${results.ok.length}</div>
         <div class="c-sub">${fmtVal(results.ok.reduce((s,x)=>s+x.ped.valor,0))}</div>
       </div>
-      <div class="card amber" style="cursor:pointer" onclick="setView('financeiro');setSub('conc')">
+      <div class="card amber" style="cursor:pointer" onclick="setView('financeiro');setSub('contas');setSubR('conc')">
         <div class="c-label">⚠ Divergentes</div><div class="c-val">${results.diff.length}</div>
         <div class="c-sub">${fmtVal(results.diff.reduce((s,x)=>s+x.ped.valor,0))}</div>
       </div>
-      <div class="card red" style="cursor:pointer" onclick="setView('financeiro');setSub('conc')">
+      <div class="card red" style="cursor:pointer" onclick="setView('financeiro');setSub('contas');setSubR('conc')">
         <div class="c-label">✗ Sem recebimento</div><div class="c-val">${results.missing.length}</div></div>
       <div class="card blue" style="cursor:pointer" onclick="setView('financeiro');setSub('banco')">
         <div class="c-label">↩ Receb. s/ pedido</div><div class="c-val">${results.extra.length}</div></div>
