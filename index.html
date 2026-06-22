@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-28';
+const APP_VERSION = 'v22/06-29';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -443,7 +443,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','devolucaoAcao','concResults'];
+    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','devolucaoAcao','concResults'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -798,6 +798,7 @@ let manualLinks = {};
 let formaManualMap = {}; // forma digitada manualmente em Contas a Receber
 let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categoria do pedido)
 let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para exportação)
+let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
 let activeTab = 'ok';
 let tolValGlobal = 0.10;
@@ -3429,6 +3430,13 @@ function vincularRecebimentosPorValor(pedId) {
   alert(`${candidatos.length} recebimento(s) vinculado(s) ao pedido ${pedId}. Agora aparecem em Recebimentos.`);
 }
 
+// Aceita (ou desfaz) a diferença de um pedido na aba Por Pedido
+function aceitarDifPedido(pedId, on) {
+  if (on) difAceita[String(pedId)] = true; else delete difAceita[String(pedId)];
+  saveData('difAceita', difAceita);
+  renderConcResult();
+}
+
 let ppFiltroStatus = '';
 function renderPorPedido() {
   const cont = document.getElementById('conc-table');
@@ -3448,7 +3456,8 @@ function renderPorPedido() {
     const somaBruto = +recs.reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
     const somaTaxa = +recs.reduce((s, r) => s + (r.taxa || 0), 0).toFixed(2);
     const dif = +(valorPed - somaBruto).toFixed(2);
-    const status = Math.abs(dif) <= 0.5 ? 'quitado' : (dif > 0 ? 'falta' : 'sobra');
+    let status = Math.abs(dif) <= 0.5 ? 'quitado' : (dif > 0 ? 'falta' : 'sobra');
+    if (status !== 'quitado' && difAceita[ped.id]) status = 'aceito'; // diferença aceita pelo usuário
     linhas.push({ ped, valorPed, recs, somaBruto, somaTaxa, dif, status });
   });
   let vis = linhas;
@@ -3456,7 +3465,7 @@ function renderPorPedido() {
   if (fQ) vis = vis.filter(l => String(l.ped.id).includes(fQ) || (l.ped.nome || '').toLowerCase().includes(fQ));
   vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
 
-  const badge = st => st === 'quitado' ? '<span class="badge ok">Quitado</span>' : st === 'falta' ? '<span class="badge err">Falta</span>' : '<span class="badge warn">Sobra</span>';
+  const badge = st => st === 'quitado' ? '<span class="badge ok">Quitado</span>' : st === 'aceito' ? '<span class="badge info">Aceito</span>' : st === 'falta' ? '<span class="badge err">Falta</span>' : '<span class="badge warn">Sobra</span>';
   const head = `
     <div class="filter-bar" style="margin-bottom:12px">
       <span class="f-label">Status:</span>
@@ -3465,6 +3474,7 @@ function renderPorPedido() {
         <option value="quitado" ${ppFiltroStatus === 'quitado' ? 'selected' : ''}>Quitado</option>
         <option value="falta" ${ppFiltroStatus === 'falta' ? 'selected' : ''}>Falta receber</option>
         <option value="sobra" ${ppFiltroStatus === 'sobra' ? 'selected' : ''}>Sobra</option>
+        <option value="aceito" ${ppFiltroStatus === 'aceito' ? 'selected' : ''}>Aceito</option>
       </select>
       <span style="font-size:11px;color:var(--muted)">${vis.length} pedido(s)</span>
     </div>`;
@@ -3480,8 +3490,8 @@ function renderPorPedido() {
       <td><strong>${fmtVal(l.somaBruto)}</strong></td>
       <td style="color:var(--muted)">${fmtVal(l.somaTaxa)}</td>
       <td>${fmtVal(+(l.somaBruto - l.somaTaxa).toFixed(2))}</td>
-      <td style="font-weight:700;color:${l.status === 'quitado' ? 'var(--green)' : l.status === 'falta' ? 'var(--red)' : 'var(--amber)'}">${l.dif === 0 ? '—' : fmtVal(Math.abs(l.dif))}</td>
-      <td>${badge(l.status)}${l.recs.some(r => r.origem === 'por valor') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="vincularRecebimentosPorValor('${l.ped.id}')" title="Gravar o nº do pedido nos recebimentos que casaram por valor">🔗 Vincular</button>` : ''}</td>
+      <td style="font-weight:700;color:${l.status === 'quitado' ? 'var(--green)' : l.status === 'falta' ? 'var(--red)' : l.status === 'aceito' ? 'var(--muted)' : 'var(--amber)'}">${l.dif === 0 ? '—' : fmtVal(Math.abs(l.dif))}</td>
+      <td>${badge(l.status)}${l.recs.some(r => r.origem === 'por valor') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="vincularRecebimentosPorValor('${l.ped.id}')" title="Gravar o nº do pedido nos recebimentos que casaram por valor">🔗 Vincular</button>` : ''}${(l.status === 'falta' || l.status === 'sobra') ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}',true)" title="Aceitar a diferença e tirar este pedido das pendências">✓ Aceitar</button>` : ''}${l.status === 'aceito' ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',false)">Desfazer</button>` : ''}</td>
     </tr>`).join('')}
     </tbody></table></div>`;
   cont.innerHTML = head + tabela;
@@ -4368,7 +4378,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','devolucaoAcao'];
+    'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','devolucaoAcao'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -4398,6 +4408,7 @@ function delCheckboxHeader(source) {
     else if (k==='boletoStatus') boletoStatus = v;
     else if (k==='formaManualMap') formaManualMap = v;
     else if (k==='formaOverrideMap') formaOverrideMap = v;
+    else if (k==='difAceita') difAceita = v;
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
