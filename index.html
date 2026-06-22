@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-36';
+const APP_VERSION = 'v22/06-37';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1951,10 +1951,10 @@ function exportarModeloCR() {
     const competencia = liq ? `01/${String(liq.getMonth() + 1).padStart(2, '0')}/${liq.getFullYear()}` : '';
     const aliquota = l.f.valor ? +(taxa / l.f.valor * 100).toFixed(2) : 0;
     const grupo = grupoReceita(l.f.descricao) || grupoReceita(l.cat) || l.cat || l.f.descricao || '';
-    const desc = `${grupo} Ref. ao pedido de venda n° ${l.f.pedido}`;
+    const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
     rows.push([
       liq || '', l.venc ? new Date(l.venc) : '', String(l.f.pedido), l.ped.nome || '', situacao,
-      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, desc, ''
+      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, grupo, obs
     ]);
   });
   const wb = XLSX.utils.book_new();
