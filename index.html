@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-27';
+const APP_VERSION = 'v22/06-28';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3279,6 +3279,24 @@ function runConc() {
     if (recJaUsados.has(rKey)) return; // já conciliado anteriormente
     newResults.extra.push({rec:r});
   });
+
+  // Reconcilia o motor 1:1 com a realidade por pedido: move para CONCILIADOS os
+  // pedidos quitados pela SOMA de TODOS os recebimentos (caso 1 pedido → N recebimentos).
+  ['diff','missing'].forEach(catKey => {
+    for (let i = newResults[catKey].length - 1; i >= 0; i--) {
+      const ped = newResults[catKey][i].ped;
+      if (!ped) continue;
+      const valEsp = getValorConciliacaoPedido(ped);
+      const recs = getRecebimentosDoPedido(ped);
+      const soma = recs.reduce((s, r) => s + (r.bruto || 0), 0);
+      if (recs.length && soma >= valEsp - tolVal) {
+        const gws = [...new Set(recs.map(r => r.gateway))].join(' + ');
+        newResults.ok.push({ ped, rec: { gateway: gws, bruto: +soma.toFixed(2), liq: +soma.toFixed(2), taxa: +recs.reduce((s, r) => s + (r.taxa || 0), 0).toFixed(2), data: recs[0] && recs[0].data }, tipo: 'soma' });
+        newResults[catKey].splice(i, 1);
+      }
+    }
+  });
+
   results = newResults;
   saveResults();
 
