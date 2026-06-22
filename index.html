@@ -343,7 +343,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-41';
+const APP_VERSION = 'v22/06-42';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2034,14 +2034,21 @@ function parseContasPagarSheet(rows) {
     const dataPag = parseDate(get(r, 'liquida', 'pagamento', 'data de pagamento', 'baixa'));
     const situacao = String(get(r, 'situação', 'situacao', 'status') || '').trim();
     const categoria = get(r, 'categoria', 'plano de conta', 'plano de contas', 'tipo', 'centro');
+    const observacao = get(r, 'observa', 'obs');
     if (!valor && !fornecedor && !descricao) return;
-    const pago = /pago|liquidad|baixad/i.test(situacao) || !!dataPag;
+    // Pago é determinado pela SITUAÇÃO (texto). Aberto/Vencendo/Atrasada/Vencido = NÃO pago.
+    const sl = situacao.toLowerCase();
+    let pago;
+    if (/aberto|a pagar|vencendo|vencid|atrasad|pendente|previs/.test(sl)) pago = false;
+    else if (/pago|liquidad|baixad|quitad/.test(sl)) pago = true;
+    else pago = situacao ? false : !!dataPag; // sem situação → cai na data de liquidação
     out.push({
       numero: numero != null ? String(numero) : '',
       fornecedor: fornecedor || '',
       descricao: descricao || '',
       categoria: categoria || '',
-      vencimento, dataPag,
+      observacao: observacao || '',
+      vencimento, dataPag: pago ? dataPag : null,
       valor,
       situacao: situacao || (pago ? 'Pago' : 'Em Aberto'),
       pago
@@ -2106,10 +2113,13 @@ function renderPagar() {
       ? `<div class="empty"><div class="e-icon">📤</div>${contasPagar.length===0 ? 'Carregue a planilha de Contas a Pagar acima' : 'Nenhum resultado para os filtros'}</div>`
       : `<div class="table-wrap"><table><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th>Vencimento</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Status</th><th>Pagamento</th>
+        <th>Vencimento</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Status</th><th>Pagamento</th><th>Observação</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
+        const stBadge = c.pago
+          ? '<span class="badge ok">PAGO</span>'
+          : `<span class="badge err">${c.situacao && !/aberto/i.test(c.situacao) ? c.situacao : 'EM ABERTO'}</span>`;
         return `<tr>
           ${delCheckbox('contasPagar', realIdx)}
           <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
@@ -2117,8 +2127,9 @@ function renderPagar() {
           <td style="font-size:12px">${c.descricao||'—'}</td>
           <td>${c.categoria?`<span class="badge neu">${c.categoria}</span>`:'—'}</td>
           <td><strong>${fmtVal(c.valor)}</strong></td>
-          <td>${c.pago?'<span class="badge ok">PAGO</span>':'<span class="badge err">EM ABERTO</span>'}</td>
+          <td>${stBadge}</td>
           <td style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
+          <td style="font-size:11px;color:var(--muted)">${c.observacao||'—'}</td>
         </tr>`;
       }).join('')}
       </tbody></table></div>`}
