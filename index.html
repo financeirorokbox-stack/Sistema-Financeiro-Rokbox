@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-25';
+const APP_VERSION = 'v22/06-26';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -984,10 +984,8 @@ function statusForma(pedido, categoria, valor) {
       }
       return { recebido: false, parcial: true, detalhe: `Parcial: ${fmtVal(total)} de ${fmtVal(valor)} — faltam ${fmtVal(falta)}` };
     }
-    // Sem nº de pedido nos recebimentos: tenta um único que bata pelo valor
-    const porValor = recebimentosConsolidado.find(r => r.gateway === gw && Math.abs((r.bruto || r.liq) - valor) <= tol);
-    if (porValor) return { recebido: true, detalhe: fmtDate(porValor.data) + ' (por valor)' };
-    return { recebido: false, detalhe: '—' };
+    // Sem nº de pedido vinculado: não baixa automático — vincule na aba Conciliação → Por Pedido.
+    return { recebido: false, detalhe: 'aguardando vínculo do recebimento' };
   }
   if (categoria === 'Boleto Itaú') {
     const bPed = getBoletosPorPedido().find(bb => String(bb.pedido) === String(pedido));
@@ -2031,7 +2029,8 @@ function renderRecebimentos() {
         if (!existKeys.has(k)) { existKeys.add(k); recebimentosConsolidado.push(r); added++; }
       });
       saveData('recebimentosConsolidado', recebimentosConsolidado);
-      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos)`;
+      const nv = autoVincularPorValor(); // grava nº do pedido (nome batendo) nos novos
+      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''})`;
       syncBoletosToRecebimentos();
       syncExtratoToRecebimentos();
       renderRecebimentos();
@@ -3194,6 +3193,7 @@ async function loadResults() {
 // (manualLinks, extratoLinks, devolucaoCredito, formaOverrideMap), que são reaplicados.
 function reprocessarTudo() {
   if (!confirm('Reprocessar tudo do zero?\n\nIsso recalcula a Conciliação com os dados atuais e remove pareamentos antigos que não valem mais (ex.: pedidos já pagos presos em "Divergentes").\n\nSeus vínculos manuais (extrato, devolução, troca de forma) são mantidos.')) return;
+  const nVinc = autoVincularPorValor(); // grava nº do pedido nos recebimentos por valor (nome batendo)
   results = { ok: [], diff: [], missing: [], extra: [] };
   runConc(); // reconstrói do zero (results vazio) e salva
   // Atualiza as demais telas que dependem disso
@@ -3201,7 +3201,7 @@ function reprocessarTudo() {
   try { renderRecebimentos(); } catch(e) {}
   try { renderExtrato(); } catch(e) {}
   try { renderBanco(); } catch(e) {}
-  alert('Pronto! Conciliação e Contas a Receber recalculados com os dados atuais.');
+  alert(`Pronto! Recalculado com os dados atuais.\n${nVinc} recebimento(s) vinculado(s) automaticamente (nome batendo).\nOs com nome diferente ficam para vincular na mão em Conciliação → Por Pedido.`);
 }
 
 function runConc() {
@@ -3343,6 +3343,43 @@ function getRecebimentosDoPedido(ped) {
       recs.push({ gateway: 'Devolução', bruto: d.valorPago || 0, taxa: 0, liq: d.valorPago || 0, data: d.dataTroca, origem: 'devolução' });
   });
   return recs;
+}
+
+// Normaliza nome (minúsculas, sem acento) e compara nomes de forma tolerante.
+function _normNome(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim(); }
+function nomesBatem(a, b) {
+  a = _normNome(a); b = _normNome(b);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ta = a.split(' '), tb = b.split(' ');
+  return ta[0] === tb[0] && ta[ta.length - 1] === tb[tb.length - 1]; // mesmo 1º e último nome
+}
+
+// Vincula automaticamente (grava o nº do pedido) os recebimentos PayPal/Braavo
+// que casam por VALOR de forma segura: candidato ÚNICO e NOME batendo com o cliente.
+// Os duvidosos (nome diferente ou vários candidatos) ficam para vínculo manual.
+function autoVincularPorValor() {
+  const usados = new Set();
+  recebimentosConsolidado.forEach((r, i) => { if (r.nped) usados.add(i); });
+  let n = 0;
+  pedidos.forEach(ped => {
+    const sit = (ped.situacao || '').toLowerCase();
+    if (SITUACOES_NAO_APLICAVEL.includes(sit)) return;
+    const formas = formaPagamento.filter(f => String(f.pedido) === String(ped.id) && classificaForma(f.descricao).isReceita);
+    formas.forEach(f => {
+      const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
+      if (cat !== 'PayPal' && cat !== 'BraavoPay') return;
+      if (recebimentosConsolidado.some((r, idx) => String(r.nped) === String(ped.id) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
+      const cands = recebimentosConsolidado
+        .map((r, idx) => ({ r, idx }))
+        .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5);
+      if (cands.length === 1 && nomesBatem(cands[0].r.nome, ped.nome)) {
+        cands[0].r.nped = String(ped.id); usados.add(cands[0].idx); n++;
+      }
+    });
+  });
+  if (n > 0) saveData('recebimentosConsolidado', recebimentosConsolidado);
+  return n;
 }
 
 // Grava o nº do pedido nos recebimentos PayPal/Braavo que casaram "por valor"
@@ -4346,6 +4383,7 @@ function delCheckboxHeader(source) {
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
   initLojaCadastro();
+  try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
 
   // Testa conexão Supabase
   try {
