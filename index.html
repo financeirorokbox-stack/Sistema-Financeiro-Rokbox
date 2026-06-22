@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-30';
+const APP_VERSION = 'v22/06-31';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3465,6 +3465,33 @@ function vincularRecebimentosPorValor(pedId) {
   alert(`${candidatos.length} recebimento(s) vinculado(s) ao pedido ${pedId}. Agora aparecem em Recebimentos.`);
 }
 
+// Divide o recebimento de cartão/PayPal de um pedido com outro(s) pedido(s).
+function dividirPedido(pedId) {
+  const idxs = [];
+  recebimentosConsolidado.forEach((r, i) => {
+    if ((r.gateway === 'PayPal' || r.gateway === 'BraavoPay') && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedId))) idxs.push(i);
+  });
+  if (!idxs.length) { alert('Este pedido não tem um recebimento de PayPal/BraavoPay para dividir.'); return; }
+  // se houver vários, pega o de maior valor (provável sobra)
+  const i = idxs.reduce((a, b) => (recebimentosConsolidado[b].bruto || 0) > (recebimentosConsolidado[a].bruto || 0) ? b : a, idxs[0]);
+  const r = recebimentosConsolidado[i];
+  const atual = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+  const novo = prompt(
+    `Recebimento ${r.gateway} de ${fmtVal(r.bruto || r.liq)} (${r.nome || ''}).\n` +
+    `Hoje cobre: ${atual.join(', ') || '(nenhum)'}.\n\n` +
+    `Digite TODOS os pedidos que ele deve cobrir, separados por vírgula.\n` +
+    `Preenche na ordem: o 1º até o valor dele, e o resto vai para o próximo.`,
+    atual.join(',')
+  );
+  if (novo === null) return;
+  const lista = novo.split(',').map(s => s.trim()).filter(Boolean);
+  if (!lista.length) { alert('Informe pelo menos um pedido.'); return; }
+  r.nped = lista.join(',');
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderConcResult();
+  alert(`Recebimento de ${fmtVal(r.bruto || r.liq)} dividido entre: ${lista.join(', ')}.`);
+}
+
 // Aceita (ou desfaz) a diferença de um pedido na aba Por Pedido
 function aceitarDifPedido(pedId, on) {
   if (on) difAceita[String(pedId)] = true; else delete difAceita[String(pedId)];
@@ -3526,7 +3553,7 @@ function renderPorPedido() {
       <td style="color:var(--muted)">${fmtVal(l.somaTaxa)}</td>
       <td>${fmtVal(+(l.somaBruto - l.somaTaxa).toFixed(2))}</td>
       <td style="font-weight:700;color:${l.status === 'quitado' ? 'var(--green)' : l.status === 'falta' ? 'var(--red)' : l.status === 'aceito' ? 'var(--muted)' : 'var(--amber)'}">${l.dif === 0 ? '—' : fmtVal(Math.abs(l.dif))}</td>
-      <td>${badge(l.status)}${l.recs.some(r => r.origem === 'por valor') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="vincularRecebimentosPorValor('${l.ped.id}')" title="Gravar o nº do pedido nos recebimentos que casaram por valor">🔗 Vincular</button>` : ''}${(l.status === 'falta' || l.status === 'sobra') ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}',true)" title="Aceitar a diferença e tirar este pedido das pendências">✓ Aceitar</button>` : ''}${l.status === 'aceito' ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',false)">Desfazer</button>` : ''}</td>
+      <td>${badge(l.status)}${l.recs.some(r => r.origem === 'por valor') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="vincularRecebimentosPorValor('${l.ped.id}')" title="Gravar o nº do pedido nos recebimentos que casaram por valor">🔗 Vincular</button>` : ''}${(l.status === 'falta' || l.status === 'sobra') ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}',true)" title="Aceitar a diferença e tirar este pedido das pendências">✓ Aceitar</button>` : ''}${l.status === 'aceito' ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',false)">Desfazer</button>` : ''}${l.recs.some(r => r.gateway === 'PayPal' || r.gateway === 'BraavoPay') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="dividirPedido('${l.ped.id}')" title="Dividir o recebimento deste pedido com outro pedido (mesma forma)">✂ Dividir</button>` : ''}</td>
     </tr>`).join('')}
     </tbody></table></div>`;
   cont.innerHTML = head + tabela;
