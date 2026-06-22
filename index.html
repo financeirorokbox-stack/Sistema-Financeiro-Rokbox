@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-20';
+const APP_VERSION = 'v22/06-21';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1896,6 +1896,17 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
   });
 }
 
+// Corrige manualmente o nº do pedido de um recebimento (a extração automática às vezes erra)
+function editarNpedRec(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r) return;
+  const novo = prompt('Nº do pedido para este recebimento (deixe vazio para remover):', r.nped || '');
+  if (novo === null) return; // cancelou
+  r.nped = novo.trim() || null;
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+}
+
 function renderRecebimentos() {
   const el = document.getElementById('v-receb');
   const fGw = el.querySelector('#rr-gw')?.value || '';
@@ -1959,7 +1970,8 @@ function renderRecebimentos() {
       <td><strong>${r.gateway}</strong></td>
       <td>${fmtDate(r.data)}</td>
       <td>${r.tipo||'—'}</td>
-      <td>${r.nome||'—'}${r.nped?` <span style="font-size:10px;color:var(--muted)">#${r.nped}</span>`:''}</td>
+      <td>${r.nome||'—'}${r.nped?` <span style="font-size:10px;color:var(--muted)">#${r.nped}</span>`:' <span style="font-size:10px;color:var(--amber)">sem pedido</span>'}
+        <button class="btn ghost sm" style="font-size:10px;padding:1px 5px;margin-left:4px" onclick="editarNpedRec(${realIdx})" title="Editar nº do pedido">✏</button></td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
       <td>${fmtVal(r.liq)}</td>
