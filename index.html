@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-18';
+const APP_VERSION = 'v22/06-19';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1539,6 +1539,39 @@ function _renderContasImpl(el) {
     }
   });
 
+  // ── Crédito de devolução abate o pedido de crédito (qualquer forma) ──
+  // Cobre o caso em que o pedido de crédito NÃO tem linha "Devolução de mercadorias"
+  // (ex.: 39618 com forma PayPal): o crédito (valorPago) paga as linhas em aberto.
+  // Usa o pedido de crédito EFETIVO (vínculo manual tem prioridade sobre a planilha).
+  const credDevPorPedido = {};
+  devolucoes.forEach(d => {
+    const credEfetivo = devolucaoCredito[d.pedido + '|' + d.cliente] || d.pedidoCredito || '';
+    (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => {
+      credDevPorPedido[pc] = (credDevPorPedido[pc] || 0) + (d.valorPago || 0);
+    });
+  });
+  Object.entries(credDevPorPedido).forEach(([pc, credito]) => {
+    // Desconta o que já foi reconhecido por linhas de Devolução (statusForma já marcou pagas)
+    const usadoEmDevLines = linhas
+      .filter(l => String(l.f.pedido) === String(pc) && (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') && l.st.recebido)
+      .reduce((s, l) => s + l.f.valor, 0);
+    let restante = credito - usadoEmDevLines;
+    if (restante <= 0.5) return;
+    // Aplica o restante nas demais linhas em aberto do pedido de crédito
+    linhas
+      .filter(l => String(l.f.pedido) === String(pc) && !l.st.recebido && l.cat !== 'Devolução' && l.cat !== 'Crédito Cliente')
+      .forEach(l => {
+        if (restante <= 0.5) return;
+        if (restante >= l.f.valor - 0.5) {
+          restante -= l.f.valor;
+          l.st = { recebido: true, detalhe: `✓ abatido por crédito de devolução (${fmtVal(credito)})` };
+        } else {
+          l.st = { recebido: false, parcial: true, detalhe: `Parcial: crédito devolução ${fmtVal(restante)} de ${fmtVal(l.f.valor)}` };
+          restante = 0;
+        }
+      });
+  });
+
   // ── Filtros ────────────────────────────────────────────────────────
   const fCat = el.querySelector('#fc-cat')?.value || '';
   const fSt  = el.querySelector('#fc-st')?.value || '';
@@ -2467,7 +2500,7 @@ function resolverDevolucaoNaConciliacao(pedidoOriginal) {
     };
   }
 
-  renderResults();
+  renderConcResult();
 }
 function saveCredito(pedido, cliente, rowIdx) {
   const input1 = document.getElementById('dc-' + rowIdx);
