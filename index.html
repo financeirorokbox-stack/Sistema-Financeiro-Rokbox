@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-11';
+const APP_VERSION = 'v22/06-12';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2825,10 +2825,31 @@ function renderExtrato() {
   setupUpload('file-ext','card-ext','status-ext',({file})=>{
     const reader = new FileReader();
     reader.onload = ev => {
-      extratoBancario = parseOFX(ev.target.result);
+      const novas = parseOFX(ev.target.result);
+      // ACUMULA sem duplicar: usa o FITID do banco quando existe; senão data+valor+descrição.
+      const chave = t => (t.id && !String(t.id).startsWith('ofx-'))
+        ? 'id:' + t.id
+        : 'c:' + [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor, t.memo].join('|');
+      const existentes = new Set(extratoBancario.map(chave));
+      const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
+      let add = 0;
+      novas.forEach(t => {
+        if (existentes.has(chave(t))) return; // já existe — não duplica
+        // Garante id único (evita colisão de 'ofx-N' entre arquivos, que quebraria os vínculos)
+        let id = String(t.id);
+        let n = 1;
+        while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); }
+        t.id = id;
+        idsUsados.add(id);
+        existentes.add(chave(t));
+        extratoBancario.push(t);
+        add++;
+      });
       saveData('extratoBancario', extratoBancario);
       syncExtratoToRecebimentos();
       renderExtrato();
+      const stEl = document.getElementById('status-ext');
+      if (stEl) stEl.textContent = '✓ ' + extratoBancario.length + ' lançamentos (+' + add + ' novos)';
     };
     reader.readAsText(file,'UTF-8');
   });
