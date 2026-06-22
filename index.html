@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-29';
+const APP_VERSION = 'v22/06-30';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -970,14 +970,37 @@ function classificaForma(descricao) {
   // I Cross, etc.
   return { categoria: 'Não é recebimento', isReceita: false };
 }
+// Quanto de um recebimento de gateway é alocado a um pedido. Suporta nped com
+// VÁRIOS pedidos (separados por vírgula): preenche cada um até o valor da sua
+// forma, na ordem, e o que sobra vai para o próximo (1 recebimento → N pedidos).
+function alocRecebGateway(r, pedido) {
+  const gw = r.gateway;
+  const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+  const idx = peds.indexOf(String(pedido));
+  if (idx < 0) return 0;
+  const total = r.bruto || r.liq || 0;
+  if (peds.length === 1) return total;
+  const valorGw = pid => {
+    const fp = formaPagamento.find(f => String(f.pedido) === String(pid) &&
+      (formaOverrideMap[pid] ? formaOverrideMap[pid] === gw : classificaForma(f.descricao).categoria === gw));
+    return fp ? fp.valor : 0;
+  };
+  let remaining = total;
+  for (let k = 0; k < peds.length; k++) {
+    const aloc = Math.min(valorGw(peds[k]), Math.max(0, remaining));
+    if (k === idx) return +aloc.toFixed(2);
+    remaining -= aloc;
+  }
+  return 0;
+}
 function statusForma(pedido, categoria, valor) {
   const tol = 0.5;
   if (categoria === 'PayPal' || categoria === 'BraavoPay') {
     const gw = categoria; // 'PayPal' ou 'BraavoPay'
-    // Soma TODOS os recebimentos deste gateway com o nº deste pedido (1 pedido → N recebimentos)
-    const doPedido = recebimentosConsolidado.filter(r => r.gateway === gw && String(r.nped) === String(pedido));
+    // Recebimentos deste gateway que listam este pedido (suporta vários pedidos por recebimento)
+    const doPedido = recebimentosConsolidado.filter(r => r.gateway === gw && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedido)));
     if (doPedido.length) {
-      const total = doPedido.reduce((s, r) => s + (r.bruto || r.liq || 0), 0);
+      const total = +doPedido.reduce((s, r) => s + alocRecebGateway(r, pedido), 0).toFixed(2);
       const falta = valor - total;
       if (falta <= tol) {
         const sufixo = doPedido.length > 1 ? ` (${doPedido.length} recebimentos)` : '';
@@ -1900,7 +1923,7 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
 function editarNpedRec(idx) {
   const r = recebimentosConsolidado[idx];
   if (!r) return;
-  const novo = prompt('Nº do pedido para este recebimento (deixe vazio para remover):', r.nped || '');
+  const novo = prompt('Nº do pedido para este recebimento.\nPara dividir entre vários pedidos, separe por vírgula (ex.: 39721,39894) — preenche o 1º e o resto vai para o próximo.\nDeixe vazio para remover:', r.nped || '');
   if (novo === null) return; // cancelou
   r.nped = novo.trim() || null;
   saveData('recebimentosConsolidado', recebimentosConsolidado);
@@ -3330,10 +3353,22 @@ function getRecebimentosDoPedido(ped) {
   const recs = [];
   const usados = new Set();
   recebimentosConsolidado.forEach((r, i) => {
-    if (String(r.nped) === pedId) {
-      recs.push({ gateway: r.gateway, bruto: r.bruto || r.liq || 0, taxa: r.taxa || 0, liq: r.liq || 0, data: r.data, origem: 'nº pedido' });
-      usados.add(i);
+    const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!peds.includes(pedId)) return;
+    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay';
+    let bruto, taxa, origem;
+    if (peds.length > 1 && ehGw) {
+      bruto = alocRecebGateway(r, pedId);
+      const frac = (r.bruto || r.liq) ? bruto / (r.bruto || r.liq) : 0;
+      taxa = +((r.taxa || 0) * frac).toFixed(2);
+      origem = 'rateado';
+    } else {
+      bruto = r.bruto || r.liq || 0;
+      taxa = r.taxa || 0;
+      origem = 'nº pedido';
     }
+    recs.push({ gateway: r.gateway, bruto, taxa, liq: +(bruto - taxa).toFixed(2), data: r.data, origem });
+    usados.add(i);
   });
   const formas = formaPagamento.filter(f => String(f.pedido) === pedId && classificaForma(f.descricao).isReceita);
   formas.forEach(f => {
