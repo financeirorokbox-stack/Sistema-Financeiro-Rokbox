@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-17';
+const APP_VERSION = 'v22/06-18';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1965,7 +1965,11 @@ function getBoletosPorPedido() {
 }
 function calcVencimentos(dataSaida, prazoStr) {
   if (!dataSaida || !prazoStr) return [];
-  const base = new Date(dataSaida);
+  // Monta a data como LOCAL (new Date('YYYY-MM-DD') é interpretado como UTC e
+  // volta 1 dia em fusos negativos, ex.: 09/06 + 30 dias virava 08/07 em vez de 09/07).
+  const [ano, mes, dia] = dataSaida.split('-').map(Number);
+  if (!ano || !mes || !dia) return [];
+  const base = new Date(ano, mes - 1, dia);
   if (isNaN(base)) return [];
   return prazoStr.split('/').map(d => {
     const v = new Date(base);
@@ -2120,7 +2124,10 @@ function renderBoletos() {
       const dataSaida = cfg.dataSaida||'';
       const parcelas = getParcelas(ped);
       const allOk = parcelas.length>0 && parcelas.every(p=>boletoStatus[p.key]);
-      const [dsAno,dsMes,dsDia] = dataSaida?dataSaida.split('-'):['','',''];
+      const _ds = cfg._ds || {};
+      const dsAno = _ds.ano || (dataSaida ? dataSaida.split('-')[0] : '');
+      const dsMes = _ds.mes || (dataSaida ? dataSaida.split('-')[1] : '');
+      const dsDia = _ds.dia || (dataSaida ? dataSaida.split('-')[2] : '');
       const anos = [2025,2026,2027,2028];
       const meses = ['01','02','03','04','05','06','07','08','09','10','11','12'];
       const dias = Array.from({length:31},(_,i)=>String(i+1).padStart(2,'0'));
@@ -2134,6 +2141,7 @@ function renderBoletos() {
         <td><select class="inline-input" style="width:120px" onchange="setBoletoConfig('${ped.pedido}','prazo',this.value)">
           <option value="">Prazo...</option>
           ${PRAZO_OPTIONS.map(o=>`<option value="${o}" ${o===prazo?'selected':''}>${o} dias</option>`).join('')}
+          ${prazo && !PRAZO_OPTIONS.includes(prazo) ? `<option value="${prazo}" selected>${prazo} dias</option>` : ''}
           <option value="__custom">+ Personalizado</option>
         </select></td>
         <td><div style="display:flex;gap:3px">
