@@ -261,6 +261,7 @@ tr:hover td{background:#fafaf8}
 </div>
 <div class="subnav" id="sub-fin" style="display:none">
   <div class="subnav-item active" id="sub-contas" onclick="setSub('contas')">Contas a Receber</div>
+  <div class="subnav-item" id="sub-pagar" onclick="setSub('pagar')">Contas a Pagar</div>
   <div class="subnav-item" id="sub-receb" onclick="setSub('receb')">Recebimentos</div>
   <div class="subnav-item" id="sub-boletos" onclick="setSub('boletos')">Boletos a Emitir</div>
   <div class="subnav-item" id="sub-cobranca" onclick="setSub('cobranca')">Cobrança</div>
@@ -275,6 +276,7 @@ tr:hover td{background:#fafaf8}
 <div id="v-vendas" class="main"></div>
 <div id="v-financeiro" style="display:none">
   <div id="v-contas" class="main"></div>
+  <div id="v-pagar" class="main" style="display:none"></div>
   <div id="v-receb" class="main" style="display:none"></div>
   <div id="v-boletos" class="main" style="display:none"></div>
   <div id="v-cobranca" class="main" style="display:none"></div>
@@ -337,7 +339,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-38';
+const APP_VERSION = 'v22/06-39';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -441,7 +443,7 @@ async function deleteData(key) {
 // Exportar/Importar todos os dados (backup)
 async function exportarBackup() {
   const dados = {};
-  const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults'];
   for (const k of keys) {
@@ -563,6 +565,7 @@ const PERM_PRINCIPAIS = [
 ];
 const PERM_FIN = [
   ['fin:contas',    'Financeiro · Contas a Receber'],
+  ['fin:pagar',     'Financeiro · Contas a Pagar'],
   ['fin:receb',     'Financeiro · Recebimentos'],
   ['fin:boletos',   'Financeiro · Boletos a Emitir'],
   ['fin:cobranca',  'Financeiro · Cobrança'],
@@ -609,7 +612,7 @@ function firstAllowedView() {
   return ['dashboard', 'vendas', 'financeiro', 'cadastro'].find(viewAllowed) || null;
 }
 function firstAllowedSub() {
-  return ['contas', 'receb', 'boletos', 'cobranca', 'devolucao', 'extrato', 'conc', 'banco'].find(subAllowed) || null;
+  return ['contas', 'pagar', 'receb', 'boletos', 'cobranca', 'devolucao', 'extrato', 'conc', 'banco'].find(subAllowed) || null;
 }
 
 async function doLogin() {
@@ -798,6 +801,7 @@ let manualLinks = {};
 let formaManualMap = {}; // forma digitada manualmente em Contas a Receber
 let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categoria do pedido)
 let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para exportação)
+let contasPagar = []; // contas a pagar (upload de planilha)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
 let activeTab = 'ok';
@@ -901,7 +905,7 @@ function setView(v) {
 function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   currentSub = s;
-  ['contas','receb','boletos','cobranca','devolucao','extrato','conc','banco'].forEach(x => {
+  ['contas','pagar','receb','boletos','cobranca','devolucao','extrato','conc','banco'].forEach(x => {
     const btn = document.getElementById('sub-' + x);
     const view = document.getElementById('v-' + x);
     if (btn) btn.classList.toggle('active', x === s);
@@ -909,7 +913,7 @@ function setSub(s) {
   });
   document.getElementById('conc-pills').style.display = s === 'conc' ? 'flex' : 'none';
   const renders = {
-    contas: renderContas, receb: renderRecebimentos,
+    contas: renderContas, pagar: renderPagar, receb: renderRecebimentos,
     boletos: renderBoletos, cobranca: renderCobranca,
     devolucao: renderDevolucao, extrato: renderExtrato,
     conc: renderConc, banco: renderBanco
@@ -1983,6 +1987,134 @@ function exportarModeloCR() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Contas_a_Receber_${mes}.xlsx`);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CONTAS A PAGAR
+// ════════════════════════════════════════════════════════════════════
+// Lê a planilha de contas a pagar mapeando colunas pelo nome do cabeçalho.
+function parseContasPagarSheet(rows) {
+  const get = (r, ...nomes) => {
+    for (const k of Object.keys(r)) {
+      const kl = k.toLowerCase().trim();
+      if (nomes.some(n => kl === n || kl.includes(n))) return r[k];
+    }
+    return null;
+  };
+  const out = [];
+  rows.forEach(r => {
+    const valor = num(get(r, 'valor'));
+    const fornecedor = get(r, 'nome', 'fornecedor', 'favorecido', 'credor');
+    const descricao = get(r, 'descri', 'histórico', 'historico');
+    const vencimento = parseDate(get(r, 'vencimento', 'data de vencimento'));
+    const numero = get(r, 'número', 'numero', 'documento', 'nº doc');
+    const dataPag = parseDate(get(r, 'liquida', 'pagamento', 'data de pagamento', 'baixa'));
+    const situacao = String(get(r, 'situação', 'situacao', 'status') || '').trim();
+    const categoria = get(r, 'categoria', 'plano de conta', 'plano de contas', 'tipo', 'centro');
+    if (!valor && !fornecedor && !descricao) return;
+    const pago = /pago|liquidad|baixad/i.test(situacao) || !!dataPag;
+    out.push({
+      numero: numero != null ? String(numero) : '',
+      fornecedor: fornecedor || '',
+      descricao: descricao || '',
+      categoria: categoria || '',
+      vencimento, dataPag,
+      valor,
+      situacao: situacao || (pago ? 'Pago' : 'Em Aberto'),
+      pago
+    });
+  });
+  return out;
+}
+
+function renderPagar() {
+  setDateFilterRender(renderPagar);
+  const el = document.getElementById('v-pagar');
+  const fSt = el.querySelector('#cp-st')?.value || '';
+  const fCat = el.querySelector('#cp-cat')?.value || '';
+  const fQ = (el.querySelector('#cp-q')?.value || '').toLowerCase();
+  const cats = [...new Set(contasPagar.map(c => c.categoria).filter(Boolean))].sort();
+
+  let vis = contasPagar;
+  if (fSt === 'pago') vis = vis.filter(c => c.pago);
+  if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
+  if (fCat) vis = vis.filter(c => c.categoria === fCat);
+  if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
+  if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
+
+  const aberto = vis.filter(c => !c.pago);
+  const pagos = vis.filter(c => c.pago);
+  const vAberto = aberto.reduce((s, c) => s + c.valor, 0);
+  const vPago = pagos.reduce((s, c) => s + c.valor, 0);
+
+  el.innerHTML = `
+    <label class="upload-card" id="card-pagar" for="file-pagar">
+      <div class="u-icon">📤</div>
+      <div class="u-label">Planilha de Contas a Pagar</div>
+      <div class="u-hint">.xls/.xlsx — colunas: Fornecedor, Descrição, Vencimento, Valor, Situação, Liquidação</div>
+      <div class="u-status" id="status-pagar">${contasPagar.length ? '✓ ' + contasPagar.length + ' contas' : 'Nenhum arquivo'}</div>
+      <input type="file" id="file-pagar" accept=".xlsx,.xls" multiple>
+    </label>
+
+    <div class="filter-bar" style="margin-bottom:16px">
+      <span class="f-label">Status:</span>
+      <select id="cp-st" onchange="renderPagar()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="" ${fSt===''?'selected':''}>Todos</option>
+        <option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option>
+        <option value="pago" ${fSt==='pago'?'selected':''}>Pago</option>
+      </select>
+      <span class="f-label">Categoria:</span>
+      <select id="cp-cat" onchange="renderPagar()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todas</option>
+        ${cats.map(c=>`<option value="${c}" ${c===fCat?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <span class="f-label">Pesquisar:</span>
+      <input type="text" id="cp-q" value="${fQ}" placeholder="Fornecedor ou descrição..." oninput="debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      ${dateFilterHTML()}
+      <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
+    </div>
+
+    <div class="cards-row">
+      <div class="card red"><div class="c-label">A Pagar (Em Aberto)</div><div class="c-val">${aberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
+      <div class="card dark"><div class="c-label">Pago</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)}</div></div>
+    </div>
+
+    ${vis.length === 0
+      ? `<div class="empty"><div class="e-icon">📤</div>${contasPagar.length===0 ? 'Carregue a planilha de Contas a Pagar acima' : 'Nenhum resultado para os filtros'}</div>`
+      : `<div class="table-wrap"><table><thead><tr>
+        ${delCheckboxHeader('contasPagar')}
+        <th>Vencimento</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Status</th><th>Pagamento</th>
+      </tr></thead><tbody>
+      ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
+        const realIdx = contasPagar.indexOf(c);
+        return `<tr>
+          ${delCheckbox('contasPagar', realIdx)}
+          <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
+          <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}</td>
+          <td style="font-size:12px">${c.descricao||'—'}</td>
+          <td>${c.categoria?`<span class="badge neu">${c.categoria}</span>`:'—'}</td>
+          <td><strong>${fmtVal(c.valor)}</strong></td>
+          <td>${c.pago?'<span class="badge ok">PAGO</span>':'<span class="badge err">EM ABERTO</span>'}</td>
+          <td style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>`}
+  `;
+
+  setupUpload('file-pagar', 'card-pagar', 'status-pagar', ({ wb }) => {
+    const sheetName = wb.SheetNames.includes('Worksheet') ? 'Worksheet' : wb.SheetNames[0];
+    const rows = sheetToRows(wb, sheetName);
+    const novas = parseContasPagarSheet(rows);
+    if (!novas.length) { alert('Não encontrei contas na planilha. Verifique se tem as colunas Fornecedor/Descrição, Vencimento e Valor.'); return; }
+    // Mescla sem duplicar (chave: número, ou fornecedor+vencimento+valor)
+    const chave = c => c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : c.vencimento, c.valor.toFixed(2)].join('|');
+    const map = {};
+    contasPagar.forEach(c => map[chave(c)] = c);
+    novas.forEach(c => map[chave(c)] = c); // novas sobrescrevem (atualiza status/pagamento)
+    contasPagar = Object.values(map);
+    saveData('contasPagar', contasPagar);
+    renderPagar();
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4445,6 +4577,11 @@ const DELETE_SOURCES = {
     save: () => saveData('pedidos', pedidos),
     delete: (indices) => { pedidos = pedidos.filter((_,i) => !indices.has(i)); saveData('pedidos', pedidos); renderVendas(); }
   },
+  contasPagar: {
+    getArr: () => contasPagar,
+    save: () => saveData('contasPagar', contasPagar),
+    delete: (indices) => { contasPagar = contasPagar.filter((_,i) => !indices.has(i)); saveData('contasPagar', contasPagar); renderPagar(); }
+  },
   formaPagamento: {
     getArr: () => formaPagamento,
     save: () => saveData('formaPagamento', formaPagamento),
@@ -4562,13 +4699,14 @@ function delCheckboxHeader(source) {
   // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos
-  const keys = ['pedidos','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
     if (k==='pedidos') pedidos = v.map(p=>({...p,data:p.data?new Date(p.data):null}));
+    else if (k==='contasPagar') contasPagar = v.map(c=>({...c,vencimento:c.vencimento?new Date(c.vencimento):null,dataPag:c.dataPag?new Date(c.dataPag):null}));
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
     else if (k==='boletoCobrancaStatus') {
