@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-10';
+const APP_VERSION = 'v22/06-11';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1233,13 +1233,21 @@ function renderVendas() {
       situacao: r['Situação']||'',
       vencimento: parseDate(r['Data de vencimento'])
     }));
-    // Acumula sem duplicar (chave: pedido + descrição + valor)
-    const existKey = f => f.pedido + '|' + f.descricao + '|' + f.valor.toFixed(2);
-    const existKeys = new Set(formaPagamento.map(existKey));
-    let added = 0;
-    novas.forEach(f => { if (!existKeys.has(existKey(f))) { formaPagamento.push(f); existKeys.add(existKey(f)); added++; } });
+    // Substitui as linhas de CADA pedido que veio na planilha (atualiza valores e
+    // remove as que saíram), mantendo intactos os pedidos que não estão no arquivo.
+    // Remove duplicatas exatas dentro do próprio arquivo.
+    const seen = new Set();
+    const novasUnicas = novas.filter(f => {
+      const k = f.pedido + '|' + f.descricao + '|' + f.valor.toFixed(2);
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+    const pedidosNaPlanilha = new Set(novasUnicas.map(f => String(f.pedido)));
+    // Tira as linhas antigas só dos pedidos presentes no novo arquivo
+    formaPagamento = formaPagamento.filter(f => !pedidosNaPlanilha.has(String(f.pedido)));
+    formaPagamento.push(...novasUnicas);
     saveData('formaPagamento', formaPagamento);
-    document.getElementById('status-forma').textContent = '✓ ' + formaPagamento.length + ' linhas (+' + added + ' novas)';
+    document.getElementById('status-forma').textContent = '✓ ' + formaPagamento.length + ' linhas (' + pedidosNaPlanilha.size + ' pedidos atualizados)';
     renderPedidosTable();
   });
 
