@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-14';
+const APP_VERSION = 'v22/06-15';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2506,7 +2506,7 @@ async function sincronizarDoDrive() {
     const novas = [];
     for (const [nomeAba, rows] of Object.entries(dados)) {
       if (!rows || rows.length < 2) continue;
-      const segmento = nomeAba.includes('Atacado') ? 'Atacado' : 'Varejo';
+      const segmento = nomeAba.toLowerCase().includes('atacado') ? 'Atacado' : 'Varejo';
       const header = rows[0]; // primeira linha = cabeçalho
 
       rows.slice(1).forEach(row => {
@@ -2580,7 +2580,7 @@ function renderDevolucao() {
         <div style="font-size:24px;margin-bottom:8px">☁</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px">Planilha do Drive</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
-          Busca as abas <strong>Atacado - Junho</strong> e <strong>Varejo - Junho</strong> direto do Google Drive
+          Busca as abas de <strong>Atacado</strong> e <strong>Varejo</strong> direto do Google Drive
         </div>
         <button id="btn-drive-sync" class="btn primary" onclick="sincronizarDoDrive()" style="width:100%">
           ☁ Sincronizar do Drive
