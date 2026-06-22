@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-16';
+const APP_VERSION = 'v22/06-17';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1943,7 +1943,10 @@ function getBoletosPorPedido() {
   const byPedido = {};
   formaPagamento.forEach(f => {
     const desc = (f.descricao || '').toLowerCase();
-    if (!desc.includes('boleto')) return;
+    // Respeita a troca manual de forma: se há override, vale ele; senão, a descrição original.
+    const override = formaOverrideMap[f.pedido];
+    const ehBoleto = override ? (override === 'Boleto Itaú') : desc.includes('boleto');
+    if (!ehBoleto) return;
     if (!byPedido[f.pedido]) {
       const ped = pedidos.find(p => String(p.id) === String(f.pedido));
       byPedido[f.pedido] = {
