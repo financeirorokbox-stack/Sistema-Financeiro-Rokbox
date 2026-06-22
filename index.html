@@ -230,6 +230,7 @@ tr:hover td{background:#fafaf8}
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     <span id="current-user-label" style="font-size:11px;color:var(--muted);font-weight:600"></span>
+    <span id="app-version" style="font-size:10px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 7px" title="Versão carregada — se não bater com a última publicada, force atualizar (Ctrl+Shift+R)"></span>
     <span id="sync-status" style="font-size:11px;color:var(--muted)">⏳ Conectando...</span>
     <button class="btn ghost sm" id="btn-usuarios" style="display:none" onclick="openUsuarios()" title="Gerenciar usuários">👥 Usuários</button>
     <label class="btn ghost sm" style="cursor:pointer" title="Importar backup">
@@ -334,6 +335,9 @@ const SUPABASE_TABLE = 'sistema_dados';
 
 // ID fixo da empresa — todos os dispositivos compartilham os mesmos dados
 const EMPRESA_ID = 'rokbox_financeiro';
+
+// Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
+const APP_VERSION = 'v22/06-10';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3950,6 +3954,9 @@ function delCheckboxHeader(source) {
 // INIT
 // ════════════════════════════════════════════════════════════════════
 (async function init() {
+  // Mostra a versão carregada no topo
+  const _vEl = document.getElementById('app-version');
+  if (_vEl) _vEl.textContent = APP_VERSION;
   // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos
