@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-22';
+const APP_VERSION = 'v22/06-23';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3304,6 +3304,105 @@ function doManualLinkForma(li, pedidoId) {
   renderConcResult();
 }
 
+// Reúne TODOS os recebimentos atribuídos a um pedido (nº pedido, por valor PayPal/Braavo,
+// boleto pago e crédito de devolução), para a visão "Por Pedido" da conciliação.
+function getRecebimentosDoPedido(ped) {
+  const pedId = String(ped.id);
+  const recs = [];
+  const usados = new Set();
+  recebimentosConsolidado.forEach((r, i) => {
+    if (String(r.nped) === pedId) {
+      recs.push({ gateway: r.gateway, bruto: r.bruto || r.liq || 0, taxa: r.taxa || 0, liq: r.liq || 0, data: r.data, origem: 'nº pedido' });
+      usados.add(i);
+    }
+  });
+  const formas = formaPagamento.filter(f => String(f.pedido) === pedId && classificaForma(f.descricao).isReceita);
+  formas.forEach(f => {
+    const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
+    if (cat === 'PayPal' || cat === 'BraavoPay') {
+      if (recs.some(r => r.gateway === cat && Math.abs(r.bruto - f.valor) <= 0.5)) return;
+      const i = recebimentosConsolidado.findIndex((r, idx) => !usados.has(idx) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5);
+      if (i >= 0) {
+        const r = recebimentosConsolidado[i];
+        recs.push({ gateway: r.gateway, bruto: r.bruto || r.liq || 0, taxa: r.taxa || 0, liq: r.liq || 0, data: r.data, origem: 'por valor' });
+        usados.add(i);
+      }
+    }
+  });
+  const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
+  if (bPed) getParcelas(bPed).forEach(p => {
+    const cob = boletoCobrancaStatus[p.key];
+    if (cob && cob.pago) {
+      const vp = cob.valorPago != null ? cob.valorPago : p.valor;
+      recs.push({ gateway: 'Boleto Itaú', bruto: vp, taxa: 0, liq: vp, data: cob.dataPagamento, origem: 'boleto' });
+    }
+  });
+  devolucoes.forEach(d => {
+    const credEf = devolucaoCredito[d.pedido + '|' + d.cliente] || d.pedidoCredito || '';
+    if ((String(credEf).match(/\d{4,6}/g) || []).includes(pedId))
+      recs.push({ gateway: 'Devolução', bruto: d.valorPago || 0, taxa: 0, liq: d.valorPago || 0, data: d.dataTroca, origem: 'devolução' });
+  });
+  return recs;
+}
+
+let ppFiltroStatus = '';
+function renderPorPedido() {
+  const cont = document.getElementById('conc-table');
+  if (!cont) return;
+  const fQ = (document.getElementById('cr-q')?.value || '').toLowerCase();
+  const linhas = [];
+  pedidos.forEach(ped => {
+    const sit = (ped.situacao || '').toLowerCase();
+    if (SITUACOES_NAO_APLICAVEL.includes(sit)) return;
+    const cls = getClassificacao(ped);
+    const op = (cls.operacao || '').toLowerCase();
+    if (op && OPERACOES_SEM_RECEBIMENTO.includes(op)) return;
+    if (op && op !== 'venda' && op !== 'troca' && op !== '') return;
+    if (!pedidoTemRecebimento(ped)) return;
+    const valorPed = getValorConciliacaoPedido(ped);
+    const recs = getRecebimentosDoPedido(ped);
+    const somaBruto = +recs.reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
+    const somaTaxa = +recs.reduce((s, r) => s + (r.taxa || 0), 0).toFixed(2);
+    const dif = +(valorPed - somaBruto).toFixed(2);
+    const status = Math.abs(dif) <= 0.5 ? 'quitado' : (dif > 0 ? 'falta' : 'sobra');
+    linhas.push({ ped, valorPed, recs, somaBruto, somaTaxa, dif, status });
+  });
+  let vis = linhas;
+  if (ppFiltroStatus) vis = vis.filter(l => l.status === ppFiltroStatus);
+  if (fQ) vis = vis.filter(l => String(l.ped.id).includes(fQ) || (l.ped.nome || '').toLowerCase().includes(fQ));
+  vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
+
+  const badge = st => st === 'quitado' ? '<span class="badge ok">Quitado</span>' : st === 'falta' ? '<span class="badge err">Falta</span>' : '<span class="badge warn">Sobra</span>';
+  const head = `
+    <div class="filter-bar" style="margin-bottom:12px">
+      <span class="f-label">Status:</span>
+      <select onchange="ppFiltroStatus=this.value;renderConcResult()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="" ${ppFiltroStatus === '' ? 'selected' : ''}>Todos</option>
+        <option value="quitado" ${ppFiltroStatus === 'quitado' ? 'selected' : ''}>Quitado</option>
+        <option value="falta" ${ppFiltroStatus === 'falta' ? 'selected' : ''}>Falta receber</option>
+        <option value="sobra" ${ppFiltroStatus === 'sobra' ? 'selected' : ''}>Sobra</option>
+      </select>
+      <span style="font-size:11px;color:var(--muted)">${vis.length} pedido(s)</span>
+    </div>`;
+  const tabela = vis.length === 0 ? '<div class="empty"><div class="e-icon">✓</div>Nenhum pedido nesta categoria</div>' : `
+    <div class="table-wrap"><table><thead><tr>
+      <th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Recebimentos (bruto)</th><th>Recebido</th><th>Taxas</th><th>Líquido</th><th>Diferença</th><th>Status</th>
+    </tr></thead><tbody>
+    ${vis.map(l => `<tr>
+      <td><strong>#${l.ped.id}</strong></td>
+      <td>${l.ped.nome || '—'}</td>
+      <td>${fmtVal(l.valorPed)}</td>
+      <td style="font-size:11px">${l.recs.length ? l.recs.map(r => `${r.gateway} ${fmtVal(r.bruto)}${r.taxa ? ` <span style="color:var(--muted)">(taxa ${fmtVal(r.taxa)})</span>` : ''} ${r.origem === 'por valor' ? '<span class="badge warn" style="font-size:9px">por valor</span>' : ''}`).join('<br>') : '<span style="color:var(--amber)">sem recebimento</span>'}</td>
+      <td><strong>${fmtVal(l.somaBruto)}</strong></td>
+      <td style="color:var(--muted)">${fmtVal(l.somaTaxa)}</td>
+      <td>${fmtVal(+(l.somaBruto - l.somaTaxa).toFixed(2))}</td>
+      <td style="font-weight:700;color:${l.status === 'quitado' ? 'var(--green)' : l.status === 'falta' ? 'var(--red)' : 'var(--amber)'}">${l.dif === 0 ? '—' : fmtVal(Math.abs(l.dif))}</td>
+      <td>${badge(l.status)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>`;
+  cont.innerHTML = head + tabela;
+}
+
 function renderConcResult() {
   const el = document.getElementById('conc-result');
   if (!el) return;
@@ -3383,10 +3482,12 @@ function renderConcResult() {
     </div>
 
     <div class="conc-tabs">
-      ${[['ok','✓ Conciliados'],['diff','⚠ Divergentes'],['missing','✗ Sem recebimento'],['extra','↩ Receb. s/ pedido']].map(([t,l])=>`
-        <div class="conc-tab ${t===tab?'active':''}" onclick="activeTab='${t}';renderConcResult()">${l} <span class="cnt">${t==='missing' ? contAbertoCR : results[t].length}</span></div>`).join('')}
+      ${[['porpedido','📋 Por Pedido'],['ok','✓ Conciliados'],['diff','⚠ Divergentes'],['missing','✗ Sem recebimento'],['extra','↩ Receb. s/ pedido']].map(([t,l])=>`
+        <div class="conc-tab ${t===tab?'active':''}" onclick="activeTab='${t}';renderConcResult()">${l}${t==='porpedido'?'':` <span class="cnt">${t==='missing' ? contAbertoCR : results[t].length}</span>`}</div>`).join('')}
     </div>
     <div id="conc-table"></div>`;
+
+  if (tab === 'porpedido') { renderPorPedido(); return; }
 
   const rows = filter(results[tab]);
 
