@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-32';
+const APP_VERSION = 'v22/06-33';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3347,19 +3347,6 @@ function getRecebimentosDoPedido(ped) {
     recs.push({ gateway: r.gateway, bruto, taxa, liq: +(bruto - taxa).toFixed(2), data: r.data, origem });
     usados.add(i);
   });
-  const formas = formaPagamento.filter(f => String(f.pedido) === pedId && classificaForma(f.descricao).isReceita);
-  formas.forEach(f => {
-    const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
-    if (cat === 'PayPal' || cat === 'BraavoPay') {
-      if (recs.some(r => r.gateway === cat && Math.abs(r.bruto - f.valor) <= 0.5)) return;
-      const i = recebimentosConsolidado.findIndex((r, idx) => !usados.has(idx) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5);
-      if (i >= 0) {
-        const r = recebimentosConsolidado[i];
-        recs.push({ gateway: r.gateway, bruto: r.bruto || r.liq || 0, taxa: r.taxa || 0, liq: r.liq || 0, data: r.data, origem: 'por valor' });
-        usados.add(i);
-      }
-    }
-  });
   const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
   if (bPed) getParcelas(bPed).forEach(p => {
     const cob = boletoCobrancaStatus[p.key];
@@ -3469,9 +3456,9 @@ function dividirPedido(pedId) {
   alert(`Recebimento de ${fmtVal(r.bruto || r.liq)} dividido entre: ${lista.join(', ')}.`);
 }
 
-// Aceita (ou desfaz) a diferença de um pedido na aba Por Pedido
-function aceitarDifPedido(pedId, on) {
-  if (on) difAceita[String(pedId)] = true; else delete difAceita[String(pedId)];
+// Resolve a diferença de um pedido na aba Por Pedido: acao = 'aceito' | 'cobrar' | null (desfaz)
+function aceitarDifPedido(pedId, acao) {
+  if (acao) difAceita[String(pedId)] = acao; else delete difAceita[String(pedId)];
   saveData('difAceita', difAceita);
   renderConcResult();
 }
@@ -3496,7 +3483,7 @@ function renderPorPedido() {
     const somaTaxa = +recs.reduce((s, r) => s + (r.taxa || 0), 0).toFixed(2);
     const dif = +(valorPed - somaBruto).toFixed(2);
     let status = Math.abs(dif) <= 0.5 ? 'quitado' : (dif > 0 ? 'falta' : 'sobra');
-    if (status !== 'quitado' && difAceita[ped.id]) status = 'aceito'; // diferença aceita pelo usuário
+    if (status !== 'quitado' && difAceita[ped.id]) status = difAceita[ped.id]; // 'aceito' ou 'cobrar'
     linhas.push({ ped, valorPed, recs, somaBruto, somaTaxa, dif, status });
   });
   let vis = linhas;
@@ -3504,7 +3491,13 @@ function renderPorPedido() {
   if (fQ) vis = vis.filter(l => String(l.ped.id).includes(fQ) || (l.ped.nome || '').toLowerCase().includes(fQ));
   vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
 
-  const badge = st => st === 'quitado' ? '<span class="badge ok">Quitado</span>' : st === 'aceito' ? '<span class="badge info">Aceito</span>' : st === 'falta' ? '<span class="badge err">Falta</span>' : '<span class="badge warn">Sobra</span>';
+  const badge = st => ({
+    quitado: '<span class="badge ok">Quitado</span>',
+    aceito: '<span class="badge info">Aceito</span>',
+    cobrar: '<span class="badge warn">💬 Cobrar cliente</span>',
+    falta: '<span class="badge err">Falta</span>',
+    sobra: '<span class="badge warn">Sobra</span>'
+  }[st] || '');
   const head = `
     <div class="filter-bar" style="margin-bottom:12px">
       <span class="f-label">Status:</span>
@@ -3514,6 +3507,7 @@ function renderPorPedido() {
         <option value="falta" ${ppFiltroStatus === 'falta' ? 'selected' : ''}>Falta receber</option>
         <option value="sobra" ${ppFiltroStatus === 'sobra' ? 'selected' : ''}>Sobra</option>
         <option value="aceito" ${ppFiltroStatus === 'aceito' ? 'selected' : ''}>Aceito</option>
+        <option value="cobrar" ${ppFiltroStatus === 'cobrar' ? 'selected' : ''}>Cobrar cliente</option>
       </select>
       <span style="font-size:11px;color:var(--muted)">${vis.length} pedido(s)</span>
     </div>`;
@@ -3530,7 +3524,15 @@ function renderPorPedido() {
       <td style="color:var(--muted)">${fmtVal(l.somaTaxa)}</td>
       <td>${fmtVal(+(l.somaBruto - l.somaTaxa).toFixed(2))}</td>
       <td style="font-weight:700;color:${l.status === 'quitado' ? 'var(--green)' : l.status === 'falta' ? 'var(--red)' : l.status === 'aceito' ? 'var(--muted)' : 'var(--amber)'}">${l.dif === 0 ? '—' : fmtVal(Math.abs(l.dif))}</td>
-      <td>${badge(l.status)}${l.recs.some(r => r.origem === 'por valor') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="vincularRecebimentosPorValor('${l.ped.id}')" title="Gravar o nº do pedido nos recebimentos que casaram por valor">🔗 Vincular</button>` : ''}${(l.status === 'falta' || l.status === 'sobra') ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}',true)" title="Aceitar a diferença e tirar este pedido das pendências">✓ Aceitar</button>` : ''}${l.status === 'aceito' ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',false)">Desfazer</button>` : ''}${l.recs.some(r => r.gateway === 'PayPal' || r.gateway === 'BraavoPay') ? ` <button class="btn ghost sm" style="font-size:10px" onclick="dividirPedido('${l.ped.id}')" title="Dividir o recebimento deste pedido com outro pedido (mesma forma)">✂ Dividir</button>` : ''}</td>
+      <td style="white-space:nowrap">${badge(l.status)}${
+        l.status === 'falta'
+          ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A diferença é ok, encerrar">✓ Aceitar</button> <button class="btn ghost sm" style="font-size:10px;color:var(--red)" onclick="aceitarDifPedido('${l.ped.id}','cobrar')" title="Falta receber — marcar para cobrar o cliente">💬 Cobrar cliente</button>`
+        : l.status === 'sobra'
+          ? ` <button class="btn ghost sm" style="font-size:10px" onclick="dividirPedido('${l.ped.id}')" title="A sobra é de outro pedido — mover/dividir o recebimento">➡ Outro pedido</button> <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A sobra é ok, encerrar">✓ Aceitar</button>`
+        : (l.status === 'aceito' || l.status === 'cobrar')
+          ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',null)">Desfazer</button>`
+        : ''
+      }</td>
     </tr>`).join('')}
     </tbody></table></div>`;
   cont.innerHTML = head + tabela;
