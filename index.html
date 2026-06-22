@@ -1009,12 +1009,22 @@ function statusForma(pedido, categoria, valor) {
     }
     // Soma o que foi recebido via extrato para este pedido
     let totalRecebido = 0;
+    const valorPixDoPedido = pid => {
+      const fp = formaPagamento.find(f => String(f.pedido) === String(pid) && classificaForma(f.descricao).categoria === 'Pix (Extrato/OFX)');
+      return fp ? fp.valor : 0;
+    };
     linksDoP.forEach(([id]) => {
       const t = extratoBancario.find(x => x.id === id);
-      if (t) {
-        // Se o crédito foi dividido entre 2 pedidos, usa o valor proporcional
-        const pedidosNoLink = extratoLinks[id]?.pedido?.split(',').filter(Boolean) || [String(pedido)];
-        totalRecebido += pedidosNoLink.length > 1 ? t.valor / pedidosNoLink.length : t.valor;
+      if (!t) return;
+      const pedidosNoLink = (extratoLinks[id]?.pedido?.split(',').map(s=>s.trim()).filter(Boolean)) || [String(pedido)];
+      if (pedidosNoLink.length <= 1) {
+        totalRecebido += t.valor;
+      } else {
+        // Crédito dividido entre vários pedidos: dá a cada um a SUA parte,
+        // proporcional ao valor do próprio pedido (não 50/50).
+        const somaValores = pedidosNoLink.reduce((s, pid) => s + valorPixDoPedido(pid), 0);
+        const minhaParte = valorPixDoPedido(pedido);
+        totalRecebido += somaValores > 0 ? t.valor * (minhaParte / somaValores) : t.valor / pedidosNoLink.length;
       }
     });
     const falta = valor - totalRecebido;
