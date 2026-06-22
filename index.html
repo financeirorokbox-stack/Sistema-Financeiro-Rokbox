@@ -337,7 +337,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-26';
+const APP_VERSION = 'v22/06-27';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3373,9 +3373,10 @@ function autoVincularPorValor() {
       const cands = recebimentosConsolidado
         .map((r, idx) => ({ r, idx }))
         .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5);
-      if (cands.length === 1 && nomesBatem(cands[0].r.nome, ped.nome)) {
-        cands[0].r.nped = String(ped.id); usados.add(cands[0].idx); n++;
-      }
+      let escolha = null;
+      if (cands.length === 1) escolha = cands[0]; // valor ÚNICO → vincula direto (mesmo sem nome)
+      else if (cands.length > 1) { const bn = cands.filter(c => nomesBatem(c.r.nome, ped.nome)); if (bn.length === 1) escolha = bn[0]; } // empata pelo nome
+      if (escolha) { escolha.r.nped = String(ped.id); usados.add(escolha.idx); n++; }
     });
   });
   if (n > 0) saveData('recebimentosConsolidado', recebimentosConsolidado);
