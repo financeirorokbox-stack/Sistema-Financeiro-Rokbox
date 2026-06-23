@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v45/06-69';
+const APP_VERSION = 'v46/06-70';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1119,36 +1119,16 @@ function statusForma(pedido, categoria, valor) {
     return { recebido: false, detalhe: 'emitido, aguardando pagamento' };
   }
   if (categoria === 'Pix (Extrato/OFX)') {
-    // Soma TODOS os créditos do extrato vinculados a este pedido
-    const linksDoP = Object.entries(extratoLinks).filter(([id, l]) => {
-      // Suporta múltiplos pedidos por crédito (separados por vírgula)
-      return String(l.pedido).split(',').map(s=>s.trim()).includes(String(pedido));
-    });
-    if (linksDoP.length === 0) {
+    // Soma os recebimentos PIX (Extrato) deste pedido — MESMA fonte da Conciliação de Recebíveis
+    // (inclui os vinculados na mão / "jogar sobra", não só os com extratoLink).
+    const pixRecs = recebimentosConsolidado.filter(r =>
+      r.gateway === 'PIX (Extrato)' && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedido)));
+    if (!pixRecs.length) {
       const porValor = extratoBancario.find(t => t.valor > 0 && Math.abs(t.valor - valor) <= tol && !extratoLinks[t.id]);
       if (porValor) return { recebido: false, detalhe: 'possível match no extrato — vincule na aba Extrato' };
       return { recebido: false, detalhe: 'não localizado no extrato' };
     }
-    // Soma o que foi recebido via extrato para este pedido
-    let totalRecebido = 0;
-    const valorPixDoPedido = pid => {
-      const fp = formaPagamento.find(f => String(f.pedido) === String(pid) && classificaForma(f.descricao).categoria === 'Pix (Extrato/OFX)');
-      return fp ? fp.valor : 0;
-    };
-    linksDoP.forEach(([id]) => {
-      const t = extratoBancario.find(x => x.id === id);
-      if (!t) return;
-      const pedidosNoLink = (extratoLinks[id]?.pedido?.split(',').map(s=>s.trim()).filter(Boolean)) || [String(pedido)];
-      if (pedidosNoLink.length <= 1) {
-        totalRecebido += t.valor;
-      } else {
-        // Crédito dividido entre vários pedidos: dá a cada um a SUA parte,
-        // proporcional ao valor do próprio pedido (não 50/50).
-        const somaValores = pedidosNoLink.reduce((s, pid) => s + valorPixDoPedido(pid), 0);
-        const minhaParte = valorPixDoPedido(pedido);
-        totalRecebido += somaValores > 0 ? t.valor * (minhaParte / somaValores) : t.valor / pedidosNoLink.length;
-      }
-    });
+    const totalRecebido = +pixRecs.reduce((s, r) => s + alocRecebGateway(r, pedido), 0).toFixed(2);
     const falta = valor - totalRecebido;
     if (falta <= tol) {
       return { recebido: true, detalhe: `✓ ${fmtVal(totalRecebido)} via Pix` };
