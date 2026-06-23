@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v59/06-83';
+const APP_VERSION = 'v60/06-84';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -465,7 +465,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -845,6 +845,7 @@ let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
 let repasseLinks = {};       // { extratoId: { gateway, total, data, itens:[recKey] } } — depósito de operadora (PayPal/Braavo) → recebimentos que ele cobre
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
+let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let devolucoes = [];
@@ -2450,7 +2451,13 @@ function editarNpedRec(idx) {
   if (!r) return;
   const novo = prompt('Nº do pedido para este recebimento.\nPara dividir entre vários pedidos, separe por vírgula (ex.: 39721,39894) — preenche o 1º e o resto vai para o próximo.\nDeixe vazio para remover:', r.nped || '');
   if (novo === null) return; // cancelou
-  r.nped = novo.trim() || null;
+  const valor = novo.trim();
+  r.nped = valor || null;
+  // Memória do que é MANUAL: zerou → o automático não pode re-vincular; vinculou → libera.
+  const bk = recBaseKey(r);
+  if (!valor) { if (!recebDesvinculado.includes(bk)) recebDesvinculado.push(bk); }
+  else { recebDesvinculado = recebDesvinculado.filter(k => k !== bk); }
+  saveData('recebDesvinculado', recebDesvinculado);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRecebimentos();
 }
@@ -4021,7 +4028,7 @@ function autoVincularPorValor() {
       if (recebimentosConsolidado.some((r, idx) => String(r.nped) === String(ped.id) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
       const cands = recebimentosConsolidado
         .map((r, idx) => ({ r, idx }))
-        .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5);
+        .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5 && !recebFoiDesvinculadoManual(r));
       let escolha = null;
       if (cands.length === 1) escolha = cands[0]; // valor ÚNICO → vincula direto (mesmo sem nome)
       else if (cands.length > 1) { const bn = cands.filter(c => nomesBatem(c.r.nome, ped.nome)); if (bn.length === 1) escolha = bn[0]; } // empata pelo nome
@@ -4565,6 +4572,8 @@ function vincularRecebSemPedido(realIdx) {
   const v = (document.getElementById('ep-' + realIdx)?.value || '').trim();
   if (!v) return;
   r.nped = v.split(',').map(s => s.trim()).filter(Boolean).join(',');
+  recebDesvinculado = recebDesvinculado.filter(k => k !== recBaseKey(r)); // vinculou de novo → libera o automático
+  saveData('recebDesvinculado', recebDesvinculado);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderConcResult();
 }
@@ -5082,6 +5091,11 @@ function recKeyGlobal(r) {
 // Recebimento marcado como excluído pelo usuário (some das listas e não volta ao reprocessar).
 // Recebimento marcado como "período anterior" (sai das pendências, mas continua contando no depósito do banco).
 function recebPeriodoAnterior(r) { return recebPeriodoAnt.includes(recKeyGlobal(r)); }
+// Chave SEM o nº do pedido (estável quando o usuário vincula/desvincula). Para proteger ações manuais.
+function recBaseKey(r) {
+  return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0,10) : '', (r.bruto||0).toFixed(2), (r.nome||'').trim().toLowerCase()].join('|');
+}
+function recebFoiDesvinculadoManual(r) { return recebDesvinculado.includes(recBaseKey(r)); }
 
 // ── Fechamento por dia (conciliação bancária) ──
 function diaKey(date) { const d = date instanceof Date ? date : new Date(date); return isNaN(d) ? null : d.toISOString().slice(0,10); }
@@ -5678,7 +5692,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -5719,6 +5733,7 @@ function delCheckboxHeader(source) {
     else if (k==='repasseLinks') repasseLinks = v;
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
+    else if (k==='recebDesvinculado') recebDesvinculado = v || [];
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
