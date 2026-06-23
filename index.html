@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v38/06-62';
+const APP_VERSION = 'v39/06-63';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4680,6 +4680,7 @@ function renderBanco() {
       </select>
       ${dateFilterHTML()}
       <button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Conciliar débitos automáticos</button>
+      <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Conciliar repasses automáticos</button>
     </div>
 
     <div class="filter-bar" style="margin-bottom:16px">
@@ -4946,6 +4947,30 @@ function cbDesfazerRepasse(extId) {
   delete repasseLinks[extId];
   saveData('repasseLinks', repasseLinks);
   renderBanco();
+}
+// Concilia automaticamente os repasses (PayPal/Braavo/Boleto) que batem EXATO — útil ao entrar dados novos.
+function cbAutoRepasses() {
+  const selEl = document.getElementById('cb-banco');
+  const bancoSel = selEl ? selEl.value : '__todos';
+  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+  const usados = repasseUsados();
+  let n = 0;
+  extratoBancario
+    .filter(t => t.valor > 0 && !extratoLinks[t.id] && !repasseLinks[t.id] && matchBanco(t) && gatewayDoCredito(t))
+    .sort((a,b) => (a.data||0)-(b.data||0)) // depósitos mais antigos primeiro consomem recebimentos mais antigos
+    .forEach(t => {
+      const gw = gatewayDoCredito(t);
+      const valor = Math.abs(t.valor);
+      const { itens, soma } = acumularRepasse(gw, valor, usados);
+      if (itens.length && Math.abs(soma - valor) <= 0.02) {
+        repasseLinks[t.id] = { gateway: gw, total: soma, data: t.data, itens: itens.map(recKeyGlobal) };
+        itens.forEach(r => usados.add(recKeyGlobal(r)));
+        n++;
+      }
+    });
+  saveData('repasseLinks', repasseLinks);
+  renderBanco();
+  alert(n ? `${n} repasse(s) conciliado(s) automaticamente.` : 'Nenhum repasse bateu exatamente — concilie manualmente os que sobraram (o texto do extrato pode não citar a operadora).');
 }
 // Vincula um débito do extrato a UMA ou VÁRIAS Contas a Pagar (marca como pagas, pela data do banco).
 function cbVincularDebito(extId, alvo) {
