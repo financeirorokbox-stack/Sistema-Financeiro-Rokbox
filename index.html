@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v36/06-60';
+const APP_VERSION = 'v37/06-61';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4658,6 +4658,8 @@ function renderBanco() {
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
   const usadosRepasse = repasseUsados();
+  // Operadoras com recebimentos pendentes (PayPal, Braavo, Boleto Itaú) — para o seletor de repasse no crédito.
+  const gwsPend = [...new Set(recebimentosConsolidado.filter(r => (r.liq||0) > 0 && !usadosRepasse.has(recKeyGlobal(r))).map(r => r.gateway))].sort();
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
   const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
   const empresasListCb = getEmpresasList();
@@ -4729,12 +4731,16 @@ function renderBanco() {
                   conc = `<span class="saved-label" title="${rep.gateway} — ${rep.itens.length} recebimentos">✓ Repasse ${rep.gateway}: ${rep.itens.length} pedidos (${fmtVal(rep.total)})</span>
                      ${Math.abs(dif)>0.02?`<span style="color:var(--amber);font-size:10px">dif ${fmtVal(dif)}</span>`:''}
                      <button class="btn ghost sm" onclick="cbDesfazerRepasse('${t.id}')">Desfazer</button>`;
-                } else if (gw) {
-                  const prev = acumularRepasse(gw, Math.abs(t.valor), usadosRepasse);
-                  conc = prev.n
-                    ? `<button class="btn primary sm" onclick="cbConciliarRepasse('${t.id}')" title="Soma os recebimentos pendentes de ${gw} até bater o depósito">⚡ Conciliar repasse ${gw} (~${prev.n} pedidos · ${fmtVal(prev.soma)})</button>`
-                    : `<span style="color:var(--muted);font-size:11px">sem recebimentos ${gw} pendentes</span>
-                       <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
+                } else if (gwsPend.length) {
+                  // Seletor da operadora (já vem marcado o que o texto sugere); acumula por data até bater.
+                  const prev = gw ? acumularRepasse(gw, Math.abs(t.valor), usadosRepasse) : null;
+                  conc = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                      <select id="cb-rep-gw-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                        ${gwsPend.map(g=>`<option value="${g.replace(/"/g,'&quot;')}" ${g===gw?'selected':''}>${gwLabel(g)}</option>`).join('')}
+                      </select>
+                      <button class="btn primary sm" onclick="cbConciliarRepasse('${t.id}')" title="Acumula os recebimentos pendentes da operadora (mais antigo → novo) até bater o depósito">⚡ Conciliar repasse${prev&&prev.n?` (~${prev.n} · ${fmtVal(prev.soma)})`:''}</button>
+                      <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a um pedido específico (PIX)">↪ Extrato</button>
+                    </div>`;
                 } else {
                   conc = `<span style="color:var(--amber);font-size:11px">pendente</span>
                      <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
@@ -4884,11 +4890,19 @@ function recKeyGlobal(r) {
   return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0,10) : '', (r.bruto||0).toFixed(2), (r.nome||'').trim().toLowerCase(), r.nped||''].join('|');
 }
 // Identifica a operadora pelo texto do crédito do extrato.
+// (Braavo é a fintech do iFood → o depósito costuma vir como "iFood"; boletos vêm como "boleto/cobrança".)
 function gatewayDoCredito(t) {
   const m = (t.memo || '').toLowerCase();
   if (m.includes('paypal') || m.includes('pay pal')) return 'PayPal';
-  if (m.includes('braavo')) return 'BraavoPay';
+  if (m.includes('braavo') || m.includes('ifood') || m.includes('i food')) return 'BraavoPay';
+  if (m.includes('boleto') || m.includes('cobranca') || m.includes('cobrança') || m.includes('liquidacao') || m.includes('liquidação')) return 'Boleto Itaú';
   return '';
+}
+// Rótulo amigável da operadora.
+function gwLabel(g) {
+  if (g === 'BraavoPay') return 'Braavo (iFood)';
+  if (g === 'Boleto Itaú') return 'Boleto';
+  return g;
 }
 // Acumula recebimentos pendentes da operadora (mais antigo → mais novo) até bater o valor do depósito.
 function acumularRepasse(gw, valor, usados) {
@@ -4912,8 +4926,9 @@ function repasseUsados() {
 function cbConciliarRepasse(extId) {
   const t = extratoBancario.find(x => x.id === extId);
   if (!t) return;
-  const gw = gatewayDoCredito(t);
-  if (!gw) { alert('Não identifiquei a operadora neste crédito.'); return; }
+  const selEl = document.getElementById('cb-rep-gw-' + extId);
+  const gw = (selEl && selEl.value) || gatewayDoCredito(t);
+  if (!gw) { alert('Escolha a operadora.'); return; }
   const valor = Math.abs(t.valor);
   const { itens, soma, n } = acumularRepasse(gw, valor, repasseUsados());
   if (!n) { alert(`Não há recebimentos pendentes de ${gw} para conciliar.`); return; }
