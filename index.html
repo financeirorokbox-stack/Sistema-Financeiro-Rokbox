@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v51/06-75';
+const APP_VERSION = 'v52/06-76';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1045,6 +1045,10 @@ function classificaForma(descricao) {
   if (dl === '-' || dl === '') return { categoria: 'Não aplicável', isReceita: false };
   if (dl.startsWith('devoluç') || dl.startsWith('devolu') || dl.includes('devolução de mercadoria')) return { categoria: 'Devolução', isReceita: true };
   if (dl.startsWith('crédito cliente') || dl.startsWith('credito cliente')) return { categoria: 'Crédito Cliente', isReceita: true };
+  // Cartão / online (Rede, Cielo, Pagar.me, PagSeguro, etc.): é receita, mesmo sem conciliação automática.
+  if (dl.startsWith('online -') || dl.startsWith('online-')) return { categoria: 'Cartão', isReceita: true };
+  if (dl === 'dinheiro' || dl.startsWith('dinheiro')) return { categoria: 'Dinheiro', isReceita: true };
+  if (dl.startsWith('depós') || dl.startsWith('depos')) return { categoria: 'Depósito', isReceita: true };
   // I Cross, etc.
   return { categoria: 'Não é recebimento', isReceita: false };
 }
@@ -1184,6 +1188,10 @@ function statusForma(pedido, categoria, valor) {
     if (totalDevolvido >= valor - tol) return { recebido: true, detalhe: `Devolução registrada: ${fmtVal(totalDevolvido)}` };
     if (totalDevolvido > 0) return { recebido: false, parcial: true, detalhe: `Parcial: devolvido ${fmtVal(totalDevolvido)} de ${fmtVal(valor)}` };
     return { recebido: false, detalhe: 'devolução sem valor registrado' };
+  }
+  if (categoria === 'Cartão' || categoria === 'Dinheiro' || categoria === 'Depósito') {
+    // Sem conciliação automática (não há relatório de operadora de cartão / dinheiro no sistema).
+    return { recebido: false, detalhe: `${categoria} — conferir manualmente` };
   }
   return { recebido: null, detalhe: '' };
 }
