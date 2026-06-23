@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v55/06-79';
+const APP_VERSION = 'v56/06-80';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4163,18 +4163,21 @@ function renderPorPedido() {
   vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
 
   // ── Double-check: somatórias para conferência ──
-  const totPedidos   = +linhas.reduce((s, l) => s + l.valorPed, 0).toFixed(2);
+  const totBruto     = +linhas.reduce((s, l) => s + (l.ped.valor || 0), 0).toFixed(2); // valor de venda (bruto)
+  const totLiquido   = +linhas.reduce((s, l) => s + l.valorPed, 0).toFixed(2);          // a receber (já desconta devolução)
+  const devAbatida   = +(totBruto - totLiquido).toFixed(2);                              // devoluções/créditos abatidos
   const totRecebido  = +linhas.reduce((s, l) => s + l.somaBruto, 0).toFixed(2);
-  const difTot       = +(totPedidos - totRecebido).toFixed(2);
+  const difTot       = +(totLiquido - totRecebido).toFixed(2);
   const difOk        = Math.abs(difTot) <= 0.5;
   const totRecebGeral = +recebimentosConsolidado.reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
   const totSemPedido  = +recebimentosConsolidado.filter(r => !r.nped && !recebPeriodoAnterior(r)).reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
   const cards = `
     <div class="cards-row" style="margin-bottom:10px">
-      <div class="card blue"><div class="c-label">Total Pedidos (Venda/Troca)</div><div class="c-val">${fmtVal(totPedidos)}</div><div class="c-sub">${linhas.length} pedido(s)</div></div>
-      <div class="card green"><div class="c-label">Total Recebido (nos pedidos)</div><div class="c-val">${fmtVal(totRecebido)}</div></div>
-      <div class="card ${difOk ? 'dark' : 'amber'}"><div class="c-label">Diferença</div><div class="c-val" style="color:${difOk ? 'var(--green)' : 'var(--amber)'}">${difTot === 0 ? '✓ 0' : fmtVal(Math.abs(difTot))}</div><div class="c-sub">${difOk ? '✓ bate' : (difTot > 0 ? 'falta receber' : 'sobra')}</div></div>
-      <div class="card dark"><div class="c-label">Recebimentos (total geral)</div><div class="c-val">${fmtVal(totRecebGeral)}</div><div class="c-sub">sem pedido: ${fmtVal(totSemPedido)}</div></div>
+      <div class="card blue"><div class="c-label">Pedidos (bruto)</div><div class="c-val">${fmtVal(totBruto)}</div><div class="c-sub">${linhas.length} pedido(s)</div></div>
+      ${devAbatida ? `<div class="card amber"><div class="c-label">Devoluções abatidas</div><div class="c-val">${fmtVal(devAbatida)}</div></div>` : ''}
+      <div class="card dark"><div class="c-label">A receber (líquido)</div><div class="c-val">${fmtVal(totLiquido)}</div><div class="c-sub">bruto − devoluções</div></div>
+      <div class="card green"><div class="c-label">Recebido (nos pedidos)</div><div class="c-val">${fmtVal(totRecebido)}</div><div class="c-sub">geral: ${fmtVal(totRecebGeral)} · sem pedido: ${fmtVal(totSemPedido)}</div></div>
+      <div class="card ${difOk ? 'dark' : 'amber'}"><div class="c-label">Diferença (líquido − recebido)</div><div class="c-val" style="color:${difOk ? 'var(--green)' : 'var(--amber)'}">${difTot === 0 ? '✓ 0' : fmtVal(Math.abs(difTot))}</div><div class="c-sub">${difOk ? '✓ bate' : (difTot > 0 ? 'falta receber' : 'sobra')}</div></div>
     </div>`;
 
   const badge = st => ({
