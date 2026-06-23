@@ -237,6 +237,7 @@ tr:hover td{background:#fafaf8}
       📂 <input type="file" accept=".json" style="display:none" onchange="importarBackup(this.files[0])">
     </label>
     <button class="btn ghost sm" onclick="exportarBackup()" title="Exportar backup">💾 Backup</button>
+    <button class="btn ghost sm" id="btn-zerar" style="display:none;color:var(--red)" onclick="zerarSistema()" title="Apagar TODOS os dados e começar do zero (admin)">🧨 Zerar</button>
     <button class="btn ghost sm" onclick="doLogout()">Sair</button>
   </div>
 </div>
@@ -358,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v47/06-71';
+const APP_VERSION = 'v48/06-72';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -482,6 +483,31 @@ async function importarBackup(file) {
     await saveData(k, v);
   }
   alert('Backup importado! Recarregando...');
+  location.reload();
+}
+
+// 🧨 Zera TODOS os dados (local + Supabase) para começar do zero. Preserva usuários/login. Só admin.
+async function zerarSistema() {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode zerar o sistema.'); return; }
+  if (!confirm('🧨 ZERAR O SISTEMA?\n\nIsto APAGA TODOS os dados — pedidos, recebimentos, contas a pagar, extrato, devoluções, conciliações e cadastros — no seu aparelho E na nuvem (todos os dispositivos).\n\nSeus usuários/login são mantidos.\n\nRECOMENDO clicar em 💾 Backup antes. Continuar?')) return;
+  const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
+  if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
+  const KEYS = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+    'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
+    'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
+    'extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+  // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
+  for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
+  // 2) Apaga as linhas desta empresa no Supabase
+  try { await sbFetch('DELETE', null, `?device_id=eq.${getDeviceId()}`); } catch(e) { console.warn('zerar Supabase:', e.message); }
+  // 3) Limpa o localStorage do app (preserva usuários e credenciais)
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(LS_PREFIX) && k !== LS_PREFIX + 'usuarios' && k !== LS_PREFIX + 'auth_credentials')
+      .forEach(k => localStorage.removeItem(k));
+  } catch(e) {}
+  alert('✅ Sistema zerado! Recarregando do zero...');
   location.reload();
 }
 function parseCSV(text) {
@@ -694,6 +720,8 @@ function applyPermissions() {
   if (lbl) lbl.textContent = u.user ? '👤 ' + u.user : '';
   const adminBtn = document.getElementById('btn-usuarios');
   if (adminBtn) adminBtn.style.display = u.admin ? 'inline-flex' : 'none';
+  const zerarBtn = document.getElementById('btn-zerar');
+  if (zerarBtn) zerarBtn.style.display = u.admin ? 'inline-flex' : 'none';
 
   const navVis = {
     dashboard: viewAllowed('dashboard'),
