@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v33/06-57';
+const APP_VERSION = 'v34/06-58';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2089,6 +2089,52 @@ function parseContasPagarSheet(rows) {
   return out;
 }
 
+// ── Lista-mestre de categorias de despesa (planilha "Categoria Despesas.xlsx") ──
+// Grupo → subcategorias. Base para o fluxo de caixa por categoria.
+const CATEGORIAS_DESPESA = {
+  'ADMINISTRATIVA FIXA': ['AGUA','ALIMENTAÇÃO','ALUGUEL/ IPTU/ COND.','CONTADOR','ENERGIA','LIMPEZA/ FAXINA','SEGURO','SEGURANÇA DO TRABALHO','TELEFONE/ INTERNET'],
+  'ADMINISTRATIVA VAR.': ['CONSULTA CHEQUE/ SERASA','SEGURO CARRO','DOAÇÃO','EQUIPAMENTOS','ESTACIONAMENTO','GASOLINA','MANUTENÇÃO','MATERIAL DE ESCRITÓRIO','MERCADO','OUTRAS DESPESAS'],
+  'CMV': ['AVIAMENTOS','BOJO','CMV - PROVISAO','CONSUMO','CORTE','ENCAIXE','ESTAMPARIA','ETIQUETA E TAG','MÃO DE OBRA','MEIAS','MODELAGEM','MODELISTA','PEDIDOS','PILOTAGEM','PILOTO','PRODUTO ACABADO','SACOLAS/ EMBALAGENS/ CABIDES','TECIDO','MÁSCARAS'],
+  'CMV PL': ['MÃO DE OBRA PL','TECIDO PL','ESTAMPARIA PL','AVIAMENTOS PL','PRODUTO ACABADO PL'],
+  'CMV WL': ['MÃO DE OBRA WL','TECIDO WL','ESTAMPARIA WL','AVIAMENTOS WL','PRODUTO ACABADO WL'],
+  'COMERCIAL': ['BAZAR','BUFFET','CLIENTE','CONFRATERNIZAÇÃO','CURSOS','REGISTRO RK'],
+  'COMISSÃO': ['SITE','COMISSÃO'],
+  'DESPESAS FINANCEIRAS': ['TARIFAS','EMPRÉSTIMO'],
+  'DEVOLUÇÃO': ['ESTORNO'],
+  'FRETE S/ VENDAS': ['CORREIOS','FRETE CLIENTE'],
+  'IMPOSTO_FAT': ['SIMPLES','SIMPLES PL'],
+  'IMPOSTOS': ['DARF IRRF','ISS'],
+  'IMPOSTOS/ TAXAS': ['TFE','GARE ICMS','ICMS DIFAL'],
+  'INFORMATICA': ['EQUIPAMENTOS DE INF.','MANUTENÇÃO INFORMATICA','MARKETPLACE','SISTEMAS'],
+  'INVESTIMENTO': ['INVESTIMENTO - RKBX','INVESTIMENTO - ROKBOX','REFORMA','INVESTIMENTO - RK CONFECÇÃO'],
+  'LOGÍSTICA': ['LOGGI/ UBER/ 99','MOTOBOY/ TRANSPORTADORA'],
+  'MARKETING': ['ASS DE IMPRENSA','AUXILIO DE FOTOS','CRIAÇÃO/ DIVULGAÇÃO/ DIGITAL','DIVERSOS','EVENTO','GRÁFICA','MODELOS/ BLOGUEIRA','PESSOAS','SESSÃO FOTOS','COMISSÃO ATLETA','INVEST CAMPANHAS'],
+  'PESSOAL': ['13º','CONSULTOR','EXAME MEDICO','EXTRAS','FÉRIAS','FGTS','INSS','IR SALÁRIO','REPRESENTANTE','RESCISÃO','SALÁRIOS','VALE ALIMENTAÇÃO','VALE TRANSPORTE','SEGURO ESTAGIARIOS','BENEFÍCIOS'],
+  'SÓCIOS': ['CONVÊNIO MÉDICO','APORTE SÓCIO','BENEFÍCIOS SOCIOS','DISTRIBUIÇÃO DE LUCROS','PRÓ LABORE','DESPESAS','SALARIO SOCIO'],
+  'RETIRADA SÓCIOS': ['RETIRADA SÓCIOS']
+};
+// Mapa reverso normalizado (subcategoria/grupo → grupo) para classificar no fluxo.
+const GRUPO_DE_CATEGORIA = (() => {
+  const m = {};
+  for (const [g, subs] of Object.entries(CATEGORIAS_DESPESA)) {
+    m[_normNome(g)] = g;
+    subs.forEach(s => { m[_normNome(s)] = g; });
+  }
+  return m;
+})();
+// Grupo de uma categoria (para somar no fluxo); '' se não reconhecida.
+function grupoDespesa(cat) { return GRUPO_DE_CATEGORIA[_normNome(cat)] || ''; }
+// <optgroup> com a lista-mestre + um grupo "Outras (histórico)" com categorias que aparecem nos dados mas não na planilha.
+function optionsCategoriasDespesaHTML(extras) {
+  let html = '';
+  for (const [g, subs] of Object.entries(CATEGORIAS_DESPESA)) {
+    html += `<optgroup label="${g}">` + subs.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('') + `</optgroup>`;
+  }
+  const conhecidas = new Set(Object.keys(GRUPO_DE_CATEGORIA));
+  const outras = [...new Set((extras||[]).filter(c => c && !conhecidas.has(_normNome(c))))].sort();
+  if (outras.length) html += `<optgroup label="Outras (histórico)">` + outras.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('') + `</optgroup>`;
+  return html;
+}
 // Categoria de uma Conta a Pagar: usa a coluna Categoria do relatório; se vazia, usa a Descrição
 // (o relatório do usuário traz a categoria — ÁGUA, ALUGUEL, TARIFAS... — na coluna Descrição).
 function catContaPagar(c) {
@@ -4611,7 +4657,7 @@ function renderBanco() {
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
-  const catsDespesa = [...new Set([...contasPagar.map(catContaPagar).filter(Boolean), 'TARIFAS','DESPESAS FINANCEIRAS','IMPOSTOS','OUTRAS DESPESAS'])].sort();
+  const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
   const empresasListCb = getEmpresasList();
 
   el.innerHTML = `
@@ -4728,7 +4774,7 @@ function renderBanco() {
                       <div id="cb-desp-box-${t.id}" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;padding:8px;display:none">
                         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                           <select id="cb-cat-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-                            ${catsDespesa.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('')}
+                            ${optsCatDespesa}
                           </select>
                           <select id="cb-emp-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
                             <option value="">— empresa —</option>
