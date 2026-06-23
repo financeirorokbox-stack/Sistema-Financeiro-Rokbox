@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v34/06-58';
+const APP_VERSION = 'v35/06-59';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -464,7 +464,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -815,6 +815,7 @@ let extratoBancario = [];
 let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
+let repasseLinks = {};       // { extratoId: { gateway, total, data, itens:[recKey] } } — depósito de operadora (PayPal/Braavo) → recebimentos que ele cobre
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -4640,7 +4641,7 @@ function renderBanco() {
   let visT = extratoBancario.filter(matchBanco);
   if (dfAtivo()) visT = visT.filter(t => passaData(t.data));
 
-  const conciliado = t => t.valor >= 0 ? !!extratoLinks[t.id] : !!debitoLinks[t.id];
+  const conciliado = t => t.valor >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id]) : !!debitoLinks[t.id];
   const entradas = visT.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0);
   const saidas = visT.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0);
   const pendentes = visT.filter(t=>!conciliado(t)).length;
@@ -4656,6 +4657,7 @@ function renderBanco() {
   // Contas a Pagar já usadas por algum débito (não oferecer de novo)
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
+  const usadosRepasse = repasseUsados();
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
   const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
   const empresasListCb = getEmpresasList();
@@ -4718,10 +4720,25 @@ function renderBanco() {
               let conc;
               if (isCred) {
                 const link = extratoLinks[t.id];
-                conc = link
-                  ? `<span class="saved-label">✓ ${String(link.pedido).split(',').map(p=>'#'+p.trim()).join(' + ')}</span>`
-                  : `<span style="color:var(--amber);font-size:11px">pendente</span>
+                const rep = repasseLinks[t.id];
+                const gw = gatewayDoCredito(t);
+                if (link) {
+                  conc = `<span class="saved-label">✓ ${String(link.pedido).split(',').map(p=>'#'+p.trim()).join(' + ')}</span>`;
+                } else if (rep) {
+                  const dif = (rep.total||0) - Math.abs(t.valor);
+                  conc = `<span class="saved-label" title="${rep.gateway} — ${rep.itens.length} recebimentos">✓ Repasse ${rep.gateway}: ${rep.itens.length} pedidos (${fmtVal(rep.total)})</span>
+                     ${Math.abs(dif)>0.02?`<span style="color:var(--amber);font-size:10px">dif ${fmtVal(dif)}</span>`:''}
+                     <button class="btn ghost sm" onclick="cbDesfazerRepasse('${t.id}')">Desfazer</button>`;
+                } else if (gw) {
+                  const prev = acumularRepasse(gw, Math.abs(t.valor), usadosRepasse);
+                  conc = prev.n
+                    ? `<button class="btn primary sm" onclick="cbConciliarRepasse('${t.id}')" title="Soma os recebimentos pendentes de ${gw} até bater o depósito">⚡ Conciliar repasse ${gw} (~${prev.n} pedidos · ${fmtVal(prev.soma)})</button>`
+                    : `<span style="color:var(--muted);font-size:11px">sem recebimentos ${gw} pendentes</span>
+                       <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
+                } else {
+                  conc = `<span style="color:var(--amber);font-size:11px">pendente</span>
                      <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
+                }
               } else {
                 const link = debitoLinks[t.id];
                 if (link) {
@@ -4863,6 +4880,59 @@ function cbSomaDebito(extId, alvo) {
   const dif = Math.abs(soma - alvo);
   const cor = dif <= 0.02 ? 'var(--green)' : (dif <= 1 ? 'var(--amber)' : 'var(--red)');
   lbl.innerHTML = `Flegado: <strong style="color:${cor}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}`;
+}
+// ── Repasses de operadora (PayPal/Braavo): 1 depósito no banco cobre vários recebimentos ──
+// Chave estável de um recebimento (para amarrar a um depósito sem reusar).
+function recKeyGlobal(r) {
+  return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0,10) : '', (r.bruto||0).toFixed(2), (r.nome||'').trim().toLowerCase(), r.nped||''].join('|');
+}
+// Identifica a operadora pelo texto do crédito do extrato.
+function gatewayDoCredito(t) {
+  const m = (t.memo || '').toLowerCase();
+  if (m.includes('paypal') || m.includes('pay pal')) return 'PayPal';
+  if (m.includes('braavo')) return 'BraavoPay';
+  return '';
+}
+// Acumula recebimentos pendentes da operadora (mais antigo → mais novo) até bater o valor do depósito.
+function acumularRepasse(gw, valor, usados) {
+  const cands = recebimentosConsolidado
+    .filter(r => r.gateway === gw && (r.liq||0) > 0 && !usados.has(recKeyGlobal(r)))
+    .sort((a,b) => (a.data||0)-(b.data||0));
+  const itens = []; let soma = 0;
+  for (const r of cands) {
+    if (soma >= valor - 0.02) break;
+    itens.push(r); soma += (r.liq||0);
+  }
+  return { itens, soma, n: itens.length, totalPend: cands.length };
+}
+// Conjunto de recebimentos já amarrados a algum depósito.
+function repasseUsados() {
+  const s = new Set();
+  Object.values(repasseLinks).forEach(l => (l.itens||[]).forEach(k => s.add(k)));
+  return s;
+}
+// Concilia o depósito da operadora: acumula por data e pede confirmação.
+function cbConciliarRepasse(extId) {
+  const t = extratoBancario.find(x => x.id === extId);
+  if (!t) return;
+  const gw = gatewayDoCredito(t);
+  if (!gw) { alert('Não identifiquei a operadora neste crédito.'); return; }
+  const valor = Math.abs(t.valor);
+  const { itens, soma, n } = acumularRepasse(gw, valor, repasseUsados());
+  if (!n) { alert(`Não há recebimentos pendentes de ${gw} para conciliar.`); return; }
+  const dif = soma - valor;
+  const msg = Math.abs(dif) <= 0.02
+    ? `${gw}: ${n} recebimento(s) somam ${fmtVal(soma)} e batem com o depósito de ${fmtVal(valor)}.\n\nConciliar?`
+    : `${gw}: ${n} recebimento(s) somam ${fmtVal(soma)} — depósito de ${fmtVal(valor)} (diferença ${fmtVal(dif)}).\n\nConciliar mesmo assim?`;
+  if (!confirm(msg)) return;
+  repasseLinks[extId] = { gateway: gw, total: soma, data: t.data, itens: itens.map(recKeyGlobal) };
+  saveData('repasseLinks', repasseLinks);
+  renderBanco();
+}
+function cbDesfazerRepasse(extId) {
+  delete repasseLinks[extId];
+  saveData('repasseLinks', repasseLinks);
+  renderBanco();
 }
 // Vincula um débito do extrato a UMA ou VÁRIAS Contas a Pagar (marca como pagas, pela data do banco).
 function cbVincularDebito(extId, alvo) {
@@ -5329,7 +5399,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -5367,6 +5437,7 @@ function delCheckboxHeader(source) {
     else if (k==='dateFilter') { if (v) dateFilters._legado = v; } // compat: filtro antigo único
     else if (k==='debitoLinks') debitoLinks = v;
     else if (k==='extratoContaBanco') extratoContaBanco = v;
+    else if (k==='repasseLinks') repasseLinks = v;
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
