@@ -288,7 +288,7 @@ tr:hover td{background:#fafaf8}
     <div class="subnav-item" id="subr-boletos" onclick="setSubR('boletos')">🧾 Boletos a Emitir</div>
     <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança</div>
     <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
-    <div class="subnav-item" id="subr-conc" onclick="setSubR('conc')">✅ Conciliação</div>
+    <div class="subnav-item" id="subr-conc" onclick="setSubR('conc')">✅ Conciliação de Recebíveis</div>
   </div>
   <div id="v-contas" class="main"></div>
   <div id="v-pagar" class="main" style="display:none"></div>
@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v39/06-63';
+const APP_VERSION = 'v40/06-64';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -590,7 +590,7 @@ const PERM_FIN = [
   ['fin:cobranca',  'Financeiro · Cobrança'],
   ['fin:devolucao', 'Financeiro · Devolução / Troca'],
   ['fin:extrato',   'Financeiro · Extrato (OFX)'],
-  ['fin:conc',      'Financeiro · Conciliação'],
+  ['fin:conc',      'Financeiro · Conciliação de Recebíveis'],
   ['fin:banco',     'Financeiro · Conciliação Bancária'],
 ];
 const ALL_PERMS = [...PERM_PRINCIPAIS, ...PERM_FIN];
@@ -4153,7 +4153,7 @@ function renderConcResult() {
     <div class="filter-bar">
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cr-q" value="${fQ}" placeholder="Pedido ou nome..." oninput="debounceRender('renderConcResult')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-      <button class="btn primary sm" onclick="reprocessarTudo()" title="Recalcula tudo com os dados atuais (vincula automáticos e atualiza)">🔄 Atualizar tudo</button>
+      <button class="btn primary sm" onclick="reprocessarTudo()" title="Refaz a conciliação com os dados atuais: vincula automaticamente os pedidos/recebimentos novos e mantém os vínculos manuais">🔄 Reconciliar</button>
     </div>
     <div class="conc-tabs">
       ${[['porpedido','📋 Por Pedido'],['extra','↩ Recebimentos sem pedido']].map(([t,l])=>`
