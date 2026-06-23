@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v50/06-74';
+const APP_VERSION = 'v51/06-75';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1814,6 +1814,19 @@ function _renderContasImpl(el) {
   });
   const difVT = +(totalCR - totalVT).toFixed(2);
   const bateVT = Math.abs(difVT) <= 0.5;
+  // Pedidos cuja soma das formas não fecha o valor do pedido (origem da diferença).
+  const somaFormaPorPed = {};
+  linhas.forEach(l => { const id = String(l.ped.id); somaFormaPorPed[id] = (somaFormaPorPed[id]||0) + (l.f.valor||0); });
+  const pedidosNaoFecham = [];
+  pedidos.forEach(p => {
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return;
+    const op = (getClassificacao(p).operacao||'').toLowerCase();
+    if (op !== 'venda' && op !== 'troca') return;
+    const soma = +(somaFormaPorPed[String(p.id)] || 0).toFixed(2);
+    const dif = +(soma - (p.valor||0)).toFixed(2);
+    if (Math.abs(dif) > 0.5) pedidosNaoFecham.push({ id: p.id, nome: p.nome, valor: p.valor||0, soma, dif });
+  });
+  pedidosNaoFecham.sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif));
 
   el.innerHTML = `
     <div class="filter-bar" style="margin-bottom:16px">
@@ -1854,7 +1867,11 @@ function _renderContasImpl(el) {
     <div style="font-size:12px;margin-bottom:12px;color:${bateVT?'var(--green)':'var(--amber)'}">
       ${bateVT
         ? `✓ Total a Receber bate com a soma de Venda/Troca (${fmtVal(totalVT)}).`
-        : `⚠ Total a Receber (${fmtVal(totalCR)}) difere da soma de Venda/Troca (${fmtVal(totalVT)}) em <strong>${fmtVal(difVT)}</strong> — verifique formas de pagamento que não fecham o valor do pedido.`}
+        : `⚠ Total a Receber (${fmtVal(totalCR)}) difere da soma de Venda/Troca (${fmtVal(totalVT)}) em <strong>${fmtVal(difVT)}</strong> — formas de pagamento que não fecham o valor do pedido.
+           ${pedidosNaoFecham.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-weight:700">Ver ${pedidosNaoFecham.length} pedido(s) que não fecham</summary>
+             <div class="table-wrap" style="margin-top:6px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Soma Formas</th><th>Diferença</th></tr></thead><tbody>
+             ${pedidosNaoFecham.map(d=>`<tr><td><strong>#${d.id}</strong></td><td>${d.nome||'—'}</td><td>${fmtVal(d.valor)}</td><td>${fmtVal(d.soma)}</td><td style="color:${d.dif<0?'var(--red)':'var(--amber)'};font-weight:600">${fmtVal(d.dif)}</td></tr>`).join('')}
+             </tbody></table></div></details>` : ''}`}
     </div>
     ${vis.length === 0 ? `<div class="empty"><div class="e-icon">${linhas.length === 0 ? '💰' : '🔍'}</div>
       ${linhas.length === 0
