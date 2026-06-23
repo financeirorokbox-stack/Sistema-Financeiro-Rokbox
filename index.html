@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v22/06-46';
+const APP_VERSION = 'v23/06-47';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1442,9 +1442,10 @@ function _dfLabel(field) {
   if (sel.length === 1) return field === 'mes' ? MESES[+sel[0] - 1] : sel[0];
   return sel.length + ' sel.';
 }
-function dfToggle(field) {
-  if (_dfOpen && _dfOpen !== field) document.getElementById('df-dd-' + _dfOpen)?.classList.remove('open');
-  const dd = document.getElementById('df-dd-' + field);
+function dfToggle(field, btn) {
+  // Fecha qualquer outro dropdown aberto (em qualquer aba).
+  document.querySelectorAll('.ms-dropdown.open').forEach(d => d.classList.remove('open'));
+  const dd = btn.closest('.ms-wrap').querySelector('.ms-dropdown');
   if (!dd) return;
   if (dd.classList.contains('open')) { dd.classList.remove('open'); _dfOpen = null; return; }
   dd.innerHTML = _dfOpts(field).map(([v, lbl]) => `<label class="ms-opt">
@@ -1454,8 +1455,8 @@ function dfToggle(field) {
 function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
   else dateFilter[field] = dateFilter[field].filter(x => x !== value);
-  const lbl = document.getElementById('df-lbl-' + field);
-  if (lbl) lbl.textContent = _dfLabel(field);
+  // Atualiza o rótulo desse campo em todas as abas (IDs repetem entre abas).
+  document.querySelectorAll(`.df-lbl[data-df="${field}"]`).forEach(l => l.textContent = _dfLabel(field));
   saveData('dateFilter', dateFilter);
   if (_dfRenderFn) _dfRenderFn();
 }
@@ -1480,15 +1481,15 @@ function dateFilterHTML() {
   const campo = f => `
     <span class="f-label">${{ ano: 'Ano', mes: 'Mês', dia: 'Dia' }[f]}:</span>
     <div class="ms-wrap">
-      <div class="ms-btn" onclick="dfToggle('${f}')"><span id="df-lbl-${f}">${_dfLabel(f)}</span><span>▾</span></div>
-      <div class="ms-dropdown" id="df-dd-${f}" onclick="event.stopPropagation()"></div>
+      <div class="ms-btn" onclick="dfToggle('${f}', this)"><span class="df-lbl" data-df="${f}">${_dfLabel(f)}</span><span>▾</span></div>
+      <div class="ms-dropdown" onclick="event.stopPropagation()"></div>
     </div>`;
   return ['ano', 'mes', 'dia'].map(campo).join('') +
     (dfAtivo() ? `<button class="btn ghost sm" style="font-size:11px" onclick="dfClear()">✕ data</button>` : '');
 }
 document.addEventListener('click', e => {
-  if (!e.target.closest('.ms-wrap') && _dfOpen) {
-    document.getElementById('df-dd-' + _dfOpen)?.classList.remove('open');
+  if (!e.target.closest('.ms-wrap')) {
+    document.querySelectorAll('.ms-dropdown.open').forEach(d => d.classList.remove('open'));
     _dfOpen = null;
   }
 });
