@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v61/06-85';
+const APP_VERSION = 'v62/06-86';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1217,17 +1217,22 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
     // ── Formato oficial PayPal (export CSV: Bruto/Tarifa/Líquido) ──
     if ('Bruto' in r && 'Líquido' in r && 'ID da transação' in r) {
       const tipo = String(r['Tipo'] || '');
+      const tl = tipo.toLowerCase();
       const bruto = num(r['Bruto']);
-      // Ignora retiradas, taxas isoladas, estornos e valores não positivos
-      if (tipo.toLowerCase().includes('retirada')) return;
-      if (bruto <= 0) return;
+      // Ignora retiradas/saques (não é venda nem reembolso de cliente).
+      if (tl.includes('retirada') || tl.includes('saque')) return;
       const status = String(r['Status'] || '').toLowerCase();
-      // Só entram recebimentos CONCLUÍDOS (ignora pendente, em espera, estornado, negado, cancelado, devolvido...).
+      // Só entram CONCLUÍDOS (ignora pendente, em espera, negado, cancelado, devolvido...).
       if (!(status.includes('conclu') || status.includes('complet'))) return;
+      // Reembolso/estorno: ENTRA com valor NEGATIVO para ABATER o que foi pago.
+      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || bruto < 0;
+      if (!ehReembolso && bruto <= 0) return; // outros valores não positivos que não são reembolso
 
-      const taxa = Math.abs(num(r['Tarifa']));
+      const taxa = ehReembolso ? num(r['Tarifa']) : Math.abs(num(r['Tarifa']));
       const liq  = num(r['Líquido']);
       const data = parseDate(r['Data']);
+      const txnId = String(r['ID da transação'] || '');
+      const refId = String(r['ID da transação de referência'] || r['ID de transação de referência'] || r['Código de referência'] || '');
 
       // Tenta extrair o número do pedido do "Assunto" ou "Título do produto"
       let nped = null;
@@ -1237,7 +1242,7 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
 
       target.push({
         gateway: gatewayName, bruto, taxa, liq, data, nped,
-        nome: r['Nome'] || '', tipo, status
+        nome: r['Nome'] || '', tipo, status, _txnId: txnId, _refId: refId, _reembolso: ehReembolso
       });
       return;
     }
@@ -1257,6 +1262,14 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
     if (status.includes('cancel') || status.includes('reprovad')) return;
 
     target.push({ gateway: gatewayName, bruto, taxa, liq, data, nped, nome, tipo, status });
+  });
+  // Liga cada reembolso PayPal ao pedido do PAGAMENTO original (pela ID de referência ou nome+valor) para ABATER.
+  const _pool = target.concat(recebimentosConsolidado);
+  target.forEach(rb => {
+    if (!rb._reembolso || rb.nped) return;
+    let orig = rb._refId ? _pool.find(x => x._txnId && x._txnId === rb._refId) : null;
+    if (!orig) orig = _pool.find(x => !x._reembolso && (x.bruto || 0) > 0 && Math.abs((x.bruto || 0) + (rb.bruto || 0)) <= 0.02 && nomesBatem(x.nome, rb.nome));
+    if (orig && orig.nped) rb.nped = orig.nped;
   });
 }
 
@@ -2412,17 +2425,22 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
     // ── Formato oficial PayPal (export CSV: Bruto/Tarifa/Líquido) ──
     if ('Bruto' in r && 'Líquido' in r && 'ID da transação' in r) {
       const tipo = String(r['Tipo'] || '');
+      const tl = tipo.toLowerCase();
       const bruto = num(r['Bruto']);
-      // Ignora retiradas, taxas isoladas, estornos e valores não positivos
-      if (tipo.toLowerCase().includes('retirada')) return;
-      if (bruto <= 0) return;
+      // Ignora retiradas/saques (não é venda nem reembolso de cliente).
+      if (tl.includes('retirada') || tl.includes('saque')) return;
       const status = String(r['Status'] || '').toLowerCase();
-      // Só entram recebimentos CONCLUÍDOS (ignora pendente, em espera, estornado, negado, cancelado, devolvido...).
+      // Só entram CONCLUÍDOS (ignora pendente, em espera, negado, cancelado, devolvido...).
       if (!(status.includes('conclu') || status.includes('complet'))) return;
+      // Reembolso/estorno: ENTRA com valor NEGATIVO para ABATER o que foi pago.
+      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || bruto < 0;
+      if (!ehReembolso && bruto <= 0) return; // outros valores não positivos que não são reembolso
 
-      const taxa = Math.abs(num(r['Tarifa']));
+      const taxa = ehReembolso ? num(r['Tarifa']) : Math.abs(num(r['Tarifa']));
       const liq  = num(r['Líquido']);
       const data = parseDate(r['Data']);
+      const txnId = String(r['ID da transação'] || '');
+      const refId = String(r['ID da transação de referência'] || r['ID de transação de referência'] || r['Código de referência'] || '');
 
       // Tenta extrair o número do pedido do "Assunto" ou "Título do produto"
       let nped = null;
@@ -2432,7 +2450,7 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
 
       target.push({
         gateway: gatewayName, bruto, taxa, liq, data, nped,
-        nome: r['Nome'] || '', tipo, status
+        nome: r['Nome'] || '', tipo, status, _txnId: txnId, _refId: refId, _reembolso: ehReembolso
       });
       return;
     }
@@ -2452,6 +2470,14 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
     if (status.includes('cancel') || status.includes('reprovad')) return;
 
     target.push({ gateway: gatewayName, bruto, taxa, liq, data, nped, nome, tipo, status });
+  });
+  // Liga cada reembolso PayPal ao pedido do PAGAMENTO original (pela ID de referência ou nome+valor) para ABATER.
+  const _pool = target.concat(recebimentosConsolidado);
+  target.forEach(rb => {
+    if (!rb._reembolso || rb.nped) return;
+    let orig = rb._refId ? _pool.find(x => x._txnId && x._txnId === rb._refId) : null;
+    if (!orig) orig = _pool.find(x => !x._reembolso && (x.bruto || 0) > 0 && Math.abs((x.bruto || 0) + (rb.bruto || 0)) <= 0.02 && nomesBatem(x.nome, rb.nome));
+    if (orig && orig.nped) rb.nped = orig.nped;
   });
 }
 
