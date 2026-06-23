@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v56/06-80';
+const APP_VERSION = 'v57/06-81';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1221,7 +1221,8 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       if (tipo.toLowerCase().includes('retirada')) return;
       if (bruto <= 0) return;
       const status = String(r['Status'] || '').toLowerCase();
-      if (status.includes('cancel') || status.includes('estornad') || status.includes('negad')) return;
+      // Só entram recebimentos CONCLUÍDOS (ignora pendente, em espera, estornado, negado, cancelado, devolvido...).
+      if (!(status.includes('conclu') || status.includes('complet'))) return;
 
       const taxa = Math.abs(num(r['Tarifa']));
       const liq  = num(r['Líquido']);
@@ -2405,7 +2406,8 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       if (tipo.toLowerCase().includes('retirada')) return;
       if (bruto <= 0) return;
       const status = String(r['Status'] || '').toLowerCase();
-      if (status.includes('cancel') || status.includes('estornad') || status.includes('negad')) return;
+      // Só entram recebimentos CONCLUÍDOS (ignora pendente, em espera, estornado, negado, cancelado, devolvido...).
+      if (!(status.includes('conclu') || status.includes('complet'))) return;
 
       const taxa = Math.abs(num(r['Tarifa']));
       const liq  = num(r['Líquido']);
@@ -4167,17 +4169,18 @@ function renderPorPedido() {
   const totLiquido   = +linhas.reduce((s, l) => s + l.valorPed, 0).toFixed(2);          // a receber (já desconta devolução)
   const devAbatida   = +(totBruto - totLiquido).toFixed(2);                              // devoluções/créditos abatidos
   const totRecebido  = +linhas.reduce((s, l) => s + l.somaBruto, 0).toFixed(2);
-  const difTot       = +(totLiquido - totRecebido).toFixed(2);
+  const totQuitado   = +(totRecebido + devAbatida).toFixed(2); // recebido + devolução = bruto com devolução
+  const difTot       = +(totBruto - totQuitado).toFixed(2);    // bruto − (recebido + devolução)
   const difOk        = Math.abs(difTot) <= 0.5;
   const totRecebGeral = +recebimentosConsolidado.reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
   const totSemPedido  = +recebimentosConsolidado.filter(r => !r.nped && !recebPeriodoAnterior(r)).reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
   const cards = `
     <div class="cards-row" style="margin-bottom:10px">
       <div class="card blue"><div class="c-label">Pedidos (bruto)</div><div class="c-val">${fmtVal(totBruto)}</div><div class="c-sub">${linhas.length} pedido(s)</div></div>
-      ${devAbatida ? `<div class="card amber"><div class="c-label">Devoluções abatidas</div><div class="c-val">${fmtVal(devAbatida)}</div></div>` : ''}
-      <div class="card dark"><div class="c-label">A receber (líquido)</div><div class="c-val">${fmtVal(totLiquido)}</div><div class="c-sub">bruto − devoluções</div></div>
-      <div class="card green"><div class="c-label">Recebido (nos pedidos)</div><div class="c-val">${fmtVal(totRecebido)}</div><div class="c-sub">geral: ${fmtVal(totRecebGeral)} · sem pedido: ${fmtVal(totSemPedido)}</div></div>
-      <div class="card ${difOk ? 'dark' : 'amber'}"><div class="c-label">Diferença (líquido − recebido)</div><div class="c-val" style="color:${difOk ? 'var(--green)' : 'var(--amber)'}">${difTot === 0 ? '✓ 0' : fmtVal(Math.abs(difTot))}</div><div class="c-sub">${difOk ? '✓ bate' : (difTot > 0 ? 'falta receber' : 'sobra')}</div></div>
+      <div class="card green"><div class="c-label">Recebido (dinheiro)</div><div class="c-val">${fmtVal(totRecebido)}</div><div class="c-sub">geral: ${fmtVal(totRecebGeral)} · sem pedido: ${fmtVal(totSemPedido)}</div></div>
+      <div class="card amber"><div class="c-label">Devoluções</div><div class="c-val">${fmtVal(devAbatida)}</div></div>
+      <div class="card dark"><div class="c-label">Recebido + Devolução</div><div class="c-val">${fmtVal(totQuitado)}</div><div class="c-sub">deve igualar o bruto</div></div>
+      <div class="card ${difOk ? 'dark' : 'amber'}"><div class="c-label">Diferença (bruto − quitado)</div><div class="c-val" style="color:${difOk ? 'var(--green)' : 'var(--amber)'}">${difTot === 0 ? '✓ 0' : fmtVal(Math.abs(difTot))}</div><div class="c-sub">${difOk ? '✓ conciliado' : (difTot > 0 ? 'falta receber' : 'sobra')}</div></div>
     </div>`;
 
   const badge = st => ({
