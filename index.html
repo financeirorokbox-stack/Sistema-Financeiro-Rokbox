@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v27/06-51';
+const APP_VERSION = 'v28/06-52';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4681,7 +4681,7 @@ function renderBanco() {
                           const exato=d<=0.02;
                           return `<label style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
                             <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveContaPagar(c))}" data-v="${c.valor||0}" ${exato?'checked':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
-                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
                             <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
                           </label>`;
                         }).join('')}
