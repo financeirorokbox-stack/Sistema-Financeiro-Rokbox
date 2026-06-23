@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v32/06-56';
+const APP_VERSION = 'v33/06-57';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2089,6 +2089,11 @@ function parseContasPagarSheet(rows) {
   return out;
 }
 
+// Categoria de uma Conta a Pagar: usa a coluna Categoria do relatório; se vazia, usa a Descrição
+// (o relatório do usuário traz a categoria — ÁGUA, ALUGUEL, TARIFAS... — na coluna Descrição).
+function catContaPagar(c) {
+  return (c.categoria || '').trim() || (c.descricao || '').trim();
+}
 function renderPagar() {
   setDateFilterRender(renderPagar);
   const el = document.getElementById('v-pagar');
@@ -2096,13 +2101,13 @@ function renderPagar() {
   const fCat = el.querySelector('#cp-cat')?.value || '';
   const fEmp = el.querySelector('#cp-emp')?.value || '';
   const fQ = (el.querySelector('#cp-q')?.value || '').toLowerCase();
-  const cats = [...new Set(contasPagar.map(c => c.categoria).filter(Boolean))].sort();
+  const cats = [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].sort();
   const empresas = [...new Set(contasPagar.map(c => c.empresa).filter(Boolean))].sort();
 
   let vis = contasPagar;
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
-  if (fCat) vis = vis.filter(c => c.categoria === fCat);
+  if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
@@ -2153,7 +2158,7 @@ function renderPagar() {
       ? `<div class="empty"><div class="e-icon">📤</div>${contasPagar.length===0 ? 'Carregue a planilha de Contas a Pagar acima' : 'Nenhum resultado para os filtros'}</div>`
       : `<div class="table-wrap"><table><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
+        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Categoria</th><th>Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
@@ -2168,8 +2173,7 @@ function renderPagar() {
           <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
           <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
           <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}</td>
-          <td style="font-size:12px">${c.descricao||'—'}</td>
-          <td>${c.categoria?`<span class="badge neu">${c.categoria}</span>`:'—'}</td>
+          <td>${catContaPagar(c)?`<span class="badge neu">${catContaPagar(c)}</span>`:'—'}</td>
           <td><strong>${fmtVal(c.valor)}</strong></td>
           <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
           <td>${stBadge}</td>
@@ -4607,7 +4611,7 @@ function renderBanco() {
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
-  const catsDespesa = [...new Set([...contasPagar.map(c=>c.categoria).filter(Boolean), 'Tarifas Bancárias','Juros','IOF','Impostos','Outras saídas'])].sort();
+  const catsDespesa = [...new Set([...contasPagar.map(catContaPagar).filter(Boolean), 'TARIFAS','DESPESAS FINANCEIRAS','IMPOSTOS','OUTRAS DESPESAS'])].sort();
   const empresasListCb = getEmpresasList();
 
   el.innerHTML = `
