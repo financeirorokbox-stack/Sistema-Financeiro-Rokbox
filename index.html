@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v44/06-68';
+const APP_VERSION = 'v45/06-69';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -464,7 +464,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -817,6 +817,7 @@ let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
 let repasseLinks = {};       // { extratoId: { gateway, total, data, itens:[recKey] } } — depósito de operadora (PayPal/Braavo) → recebimentos que ele cobre
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
+let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let devolucoes = [];
 let devolucaoCredito = {};
@@ -4779,13 +4780,20 @@ function renderBanco() {
           const ent = lancs.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0);
           const sai = lancs.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0);
           const dataLabel = dk==='sem-data' ? 'Sem data' : fmtDate(new Date(dk+'T00:00:00'));
+          const fechado = dk !== 'sem-data' && diasFechados.includes(dk);
+          const ehAdmin = !!(currentUser && currentUser.admin);
+          const btnFecho = dk === 'sem-data' ? ''
+            : fechado
+              ? `<span class="badge neu" style="background:var(--amber);color:#222">🔒 Dia fechado</span>${ehAdmin?`<button class="btn ghost sm" onclick="reabrirDia('${dk}')">🔓 Reabrir</button>`:''}`
+              : (ehAdmin?`<button class="btn ghost sm" onclick="fecharDia('${dk}')" title="Fecha este dia: trava alterações e exclusões">🔒 Fechar dia</button>`:'');
           return `
           <div style="margin-bottom:18px">
-            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px 8px 0 0;font-size:13px;font-weight:700">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px 8px 0 0;font-size:13px;font-weight:700${fechado?';opacity:.85':''}">
               <span>📅 ${dataLabel}</span>
               <span style="color:var(--green);font-weight:600">+ ${fmtVal(ent)}</span>
               <span style="color:var(--red);font-weight:600">− ${fmtVal(sai)}</span>
-              <span style="margin-left:auto;color:${ent-sai>=0?'var(--text)':'var(--amber)'}">Saldo do dia: ${fmtVal(ent-sai)}</span>
+              <span style="color:${ent-sai>=0?'var(--text)':'var(--amber)'}">Saldo do dia: ${fmtVal(ent-sai)}</span>
+              <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${btnFecho}</span>
             </div>
             <div class="table-wrap" style="border-radius:0 0 8px 8px"><table><thead><tr>
               <th>Descrição</th><th>Valor</th><th>Tipo</th><th style="min-width:260px">Conciliação</th>
@@ -4794,7 +4802,20 @@ function renderBanco() {
               const isCred = t.valor >= 0;
               const tipo = isCred ? '<span class="badge ok">Crédito</span>' : '<span class="badge err">Débito</span>';
               let conc;
-              if (isCred) {
+              if (fechado) {
+                // Dia fechado → só leitura (sem botões).
+                if (isCred) {
+                  const link = extratoLinks[t.id], rep = repasseLinks[t.id];
+                  conc = link ? `<span class="saved-label">✓ ${String(link.pedido).split(',').map(p=>'#'+p.trim()).join(' + ')}</span>`
+                       : rep ? `<span class="saved-label">✓ Repasse ${rep.gateway} (${fmtVal(rep.total)})</span>`
+                       : `<span style="color:var(--muted);font-size:11px">não conciliado</span>`;
+                } else {
+                  const link = debitoLinks[t.id];
+                  if (link) { const its = debLinkItens(link); const tt = its.reduce((s,i)=>s+(i.valor||0),0); conc = `<span class="saved-label">✓ ${its.length>1?its.length+' contas':(its[0]?.fornecedor||'conta')} (${fmtVal(tt)})</span>`; }
+                  else conc = `<span style="color:var(--muted);font-size:11px">não conciliado</span>`;
+                }
+                conc = `🔒 ${conc}`;
+              } else if (isCred) {
                 const link = extratoLinks[t.id];
                 const rep = repasseLinks[t.id];
                 const gw = gatewayDoCredito(t);
@@ -4966,6 +4987,29 @@ function recKeyGlobal(r) {
 // Recebimento marcado como excluído pelo usuário (some das listas e não volta ao reprocessar).
 // Recebimento marcado como "período anterior" (sai das pendências, mas continua contando no depósito do banco).
 function recebPeriodoAnterior(r) { return recebPeriodoAnt.includes(recKeyGlobal(r)); }
+
+// ── Fechamento por dia (conciliação bancária) ──
+function diaKey(date) { const d = date instanceof Date ? date : new Date(date); return isNaN(d) ? null : d.toISOString().slice(0,10); }
+function diaFechado(date) { const k = diaKey(date); return !!k && diasFechados.includes(k); }
+// Bloqueia uma ação se o dia da data estiver fechado. Retorna true (bloqueado) e avisa.
+function bloqueadoPorFechamento(date) {
+  if (diaFechado(date)) { alert('🔒 Este dia está FECHADO. Para alterar, um administrador precisa reabrir o dia na Conciliação Bancária.'); return true; }
+  return false;
+}
+function fecharDia(dk) {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode fechar o dia.'); return; }
+  if (!confirm(`Fechar o dia ${fmtDate(new Date(dk+'T00:00:00'))}?\n\nDepois de fechado, nada deste dia pode ser alterado nem excluído (pedidos, recebimentos, contas a pagar, conciliações). Você pode reabrir depois.`)) return;
+  if (!diasFechados.includes(dk)) diasFechados.push(dk);
+  saveData('diasFechados', diasFechados);
+  renderBanco();
+}
+function reabrirDia(dk) {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode reabrir o dia.'); return; }
+  if (!confirm(`Reabrir o dia ${fmtDate(new Date(dk+'T00:00:00'))}? Voltará a permitir alterações e exclusões.`)) return;
+  diasFechados = diasFechados.filter(k => k !== dk);
+  saveData('diasFechados', diasFechados);
+  renderBanco();
+}
 // Identifica a operadora pelo texto do crédito do extrato.
 // (Braavo é a fintech do iFood → o depósito costuma vir como "iFood"; boletos vêm como "boleto/cobrança".)
 function gatewayDoCredito(t) {
@@ -5004,6 +5048,7 @@ function repasseUsados() {
 function cbConciliarRepasse(extId) {
   const t = extratoBancario.find(x => x.id === extId);
   if (!t) return;
+  if (bloqueadoPorFechamento(t.data)) return;
   const selEl = document.getElementById('cb-rep-gw-' + extId);
   const gw = (selEl && selEl.value) || gatewayDoCredito(t);
   if (!gw) { alert('Escolha a operadora.'); return; }
@@ -5020,6 +5065,8 @@ function cbConciliarRepasse(extId) {
   renderBanco();
 }
 function cbDesfazerRepasse(extId) {
+  const t = extratoBancario.find(x => x.id === extId);
+  if (t && bloqueadoPorFechamento(t.data)) return;
   delete repasseLinks[extId];
   saveData('repasseLinks', repasseLinks);
   renderBanco();
@@ -5032,7 +5079,7 @@ function cbAutoRepasses() {
   const usados = repasseUsados();
   let n = 0;
   extratoBancario
-    .filter(t => t.valor > 0 && !extratoLinks[t.id] && !repasseLinks[t.id] && matchBanco(t) && gatewayDoCredito(t))
+    .filter(t => t.valor > 0 && !extratoLinks[t.id] && !repasseLinks[t.id] && matchBanco(t) && gatewayDoCredito(t) && !diaFechado(t.data))
     .sort((a,b) => (a.data||0)-(b.data||0)) // depósitos mais antigos primeiro consomem recebimentos mais antigos
     .forEach(t => {
       const gw = gatewayDoCredito(t);
@@ -5053,6 +5100,7 @@ function cbVincularDebito(extId, alvo) {
   const checks = [...document.querySelectorAll('.cb-deb-pick-' + extId + ':checked')];
   if (!checks.length) { alert('Marque pelo menos uma conta.'); return; }
   const t = extratoBancario.find(x => x.id === extId);
+  if (t && bloqueadoPorFechamento(t.data)) return;
   const itens = [];
   checks.forEach(cb => {
     const chave = decodeURIComponent(cb.value);
@@ -5091,6 +5139,8 @@ function cbVincularDebito(extId, alvo) {
 }
 // Desfaz o vínculo: reverte "pago", o valor alterado e remove contas criadas por este vínculo.
 function cbDesfazerDebito(extId) {
+  const _t = extratoBancario.find(x => x.id === extId);
+  if (_t && bloqueadoPorFechamento(_t.data)) return;
   debLinkItens(debitoLinks[extId]).forEach(it => {
     const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
     if (it.criada) { // despesa criada na conciliação → remove de Contas a Pagar
@@ -5122,6 +5172,7 @@ function cbLancarDespesa(extId, alvo) {
   const empresa = empEl ? empEl.value : '';
   if (!categoria) { alert('Escolha uma categoria.'); return; }
   const t = extratoBancario.find(x => x.id === extId);
+  if (t && bloqueadoPorFechamento(t.data)) return;
   const conta = {
     numero: '', fornecedor: (t && t.memo) || 'Tarifa', descricao: (t && t.memo) || categoria,
     categoria, observacao: 'Lançado pela conciliação bancária', empresa, rateio: [],
@@ -5143,9 +5194,9 @@ function cbAtribuirBanco() {
   const selEl = document.getElementById('cb-banco');
   const bancoSel = selEl ? selEl.value : '__todos';
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
-  let alvo = extratoBancario.filter(matchBanco);
+  let alvo = extratoBancario.filter(matchBanco).filter(t => !diaFechado(t.data));
   if (dfAtivo()) alvo = alvo.filter(t => passaData(t.data));
-  if (!alvo.length) { alert('Nenhum lançamento no filtro atual.'); return; }
+  if (!alvo.length) { alert('Nenhum lançamento no filtro atual (dias fechados são ignorados).'); return; }
   if (!confirm(`Nomear o banco "${banco}" em ${alvo.length} lançamento(s) do filtro atual?`)) return;
   alvo.forEach(t => { t.banco = banco; });
   saveData('extratoBancario', extratoBancario);
@@ -5160,7 +5211,7 @@ function cbAutoDebitos() {
   const usados = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usados.add(it.chave)));
   let n = 0;
-  extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t)).forEach(t => {
+  extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t) && !diaFechado(t.data)).forEach(t => {
     const alvo = Math.abs(t.valor);
     const cand = contasPagar.filter(c => !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02);
     if (cand.length === 1) {
@@ -5463,8 +5514,27 @@ function toggleSelectAllDel(source, checked) {
   updateDeleteBar();
 }
 
+// Data do registro de cada fonte (para checar fechamento por dia).
+const DATA_REGISTRO = {
+  pedidos: p => p && p.data,
+  contasPagar: c => c && (c.dataPag || c.vencimento),
+  formaPagamento: f => f && f.vencimento,
+  recebimentos: r => r && r.data,
+  extrato: t => t && t.data,
+  devolucoes: d => d && d.dataTroca
+};
 async function executarExclusao() {
   if (!deleteSelection.size) return;
+  // Bloqueia exclusão de itens em dias FECHADOS.
+  let bloqueados = 0;
+  deleteSelection.forEach(key => {
+    const [src, idx] = key.split(':');
+    const arr = DELETE_SOURCES[src]?.getArr() || [];
+    const item = arr[+idx];
+    const data = DATA_REGISTRO[src] ? DATA_REGISTRO[src](item) : null;
+    if (data && diaFechado(data)) bloqueados++;
+  });
+  if (bloqueados) { alert(`🔒 ${bloqueados} registro(s) estão em dia(s) FECHADO(s) e não podem ser excluídos. Reabra o dia (admin) na Conciliação Bancária para excluir.`); return; }
   if (!confirm(`Excluir ${deleteSelection.size} registro(s)? Esta ação não pode ser desfeita.`)) return;
 
   // Agrupa por fonte
@@ -5513,7 +5583,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -5553,6 +5623,7 @@ function delCheckboxHeader(source) {
     else if (k==='extratoContaBanco') extratoContaBanco = v;
     else if (k==='repasseLinks') repasseLinks = v;
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
+    else if (k==='diasFechados') diasFechados = v || [];
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
