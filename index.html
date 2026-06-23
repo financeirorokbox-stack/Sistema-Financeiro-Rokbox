@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v46/06-70';
+const APP_VERSION = 'v47/06-71';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3745,6 +3745,9 @@ async function loadResults() {
 // (manualLinks, extratoLinks, devolucaoCredito, formaOverrideMap), que são reaplicados.
 function reprocessarTudo() {
   if (!confirm('Reprocessar tudo do zero?\n\nIsso recalcula a Conciliação com os dados atuais e remove pareamentos antigos que não valem mais (ex.: pedidos já pagos presos em "Divergentes").\n\nSeus vínculos manuais (extrato, devolução, troca de forma) são mantidos.')) return;
+  // Re-sincroniza os PIX do extrato: recebimentos PIX passam a refletir só os vínculos ATUAIS
+  // (créditos cujo vínculo foi removido deixam de contar → o pedido volta a ficar em aberto).
+  try { syncExtratoToRecebimentos(); } catch(e) {}
   const nVinc = autoVincularPorValor(); // grava nº do pedido nos recebimentos por valor (nome batendo)
   results = { ok: [], diff: [], missing: [], extra: [] };
   runConc(); // reconstrói do zero (results vazio) e salva
