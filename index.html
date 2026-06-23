@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v29/06-53';
+const APP_VERSION = 'v30/06-54';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4598,6 +4598,9 @@ function renderBanco() {
   // Contas a Pagar já usadas por algum débito (não oferecer de novo)
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
+  // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
+  const catsDespesa = [...new Set([...contasPagar.map(c=>c.categoria).filter(Boolean), 'Tarifas Bancárias','Juros','IOF','Impostos','Outras saídas'])].sort();
+  const empresasListCb = getEmpresasList();
 
   el.innerHTML = `
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Conciliação Bancária — dia a dia</div>
@@ -4677,15 +4680,11 @@ function renderBanco() {
                     .map(c => ({c, d: Math.abs((c.valor||0)-alvo)}))
                     .sort((a,b)=>a.d-b.d)
                     .slice(0,20);
-                  if (!cand.length) {
-                    conc = '<span style="color:var(--muted);font-size:11px">sem contas a pagar disponíveis</span>';
-                  } else {
-                    const nExatos = cand.filter(x=>x.d<=0.02).length;
-                    const somaIni = cand.filter(x=>x.d<=0.02).reduce((s,x)=>s+(x.c.valor||0),0);
-                    const difIni = Math.abs(somaIni-alvo);
-                    const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
-                    conc = `<div style="min-width:200px;max-width:380px">
-                      <button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')">▾ Escolher contas (${cand.length})${nExatos?` · ⚡${nExatos}`:''}</button>
+                  const nExatos = cand.filter(x=>x.d<=0.02).length;
+                  const somaIni = cand.filter(x=>x.d<=0.02).reduce((s,x)=>s+(x.c.valor||0),0);
+                  const difIni = Math.abs(somaIni-alvo);
+                  const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
+                  const listaContas = cand.length ? `
                       <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
                         ${cand.map(({c,d})=>{
@@ -4701,9 +4700,30 @@ function renderBanco() {
                         <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
                         <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularDebito('${t.id}',${alvo})">Vincular flegados</button>
                       </div>
+                      </div>` : '';
+                  // Box "Despesa nova" (tarifa etc.): cria uma Conta a Pagar já paga com a categoria escolhida.
+                  const boxDespesa = `
+                      <div id="cb-desp-box-${t.id}" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;padding:8px;display:none">
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                          <select id="cb-cat-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                            ${catsDespesa.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('')}
+                          </select>
+                          <select id="cb-emp-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                            <option value="">— empresa —</option>
+                            ${empresasListCb.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">${e}</option>`).join('')}
+                          </select>
+                          <button class="btn primary sm" onclick="cbLancarDespesa('${t.id}',${alvo})">Lançar ${fmtVal(alvo)}</button>
+                        </div>
+                        <div style="font-size:10px;color:var(--muted);margin-top:4px">Cria a conta paga em Contas a Pagar com o valor e a data do extrato.</div>
+                      </div>`;
+                  conc = `<div style="min-width:200px;max-width:380px">
+                      <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        ${cand.length?`<button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')">▾ Escolher contas (${cand.length})${nExatos?` · ⚡${nExatos}`:''}</button>`:''}
+                        <button class="btn ghost sm" onclick="cbToggleDespBox('${t.id}')">➕ Despesa nova</button>
                       </div>
+                      ${listaContas}
+                      ${boxDespesa}
                     </div>`;
-                  }
                 }
               }
               return `<tr>
@@ -4784,26 +4804,73 @@ function cbVincularDebito(extId, alvo) {
   });
   if (!itens.length) { alert('Contas a pagar não encontradas.'); return; }
   const tot = itens.reduce((s, i) => s + (i.valor || 0), 0);
-  if (alvo != null && Math.abs(tot - alvo) > 0.02 &&
+  // 1 débito → 1 conta: o valor do EXTRATO manda. Atualiza a conta para o valor do banco (guarda o anterior).
+  if (alvo != null && itens.length === 1) {
+    const it = itens[0];
+    if (Math.abs((it.valor || 0) - alvo) > 0.005) {
+      const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+      if (conta) {
+        it.valorAnt = conta.valor;     // para desfazer
+        it.chaveAnt = it.chave;        // chave muda quando o valor muda
+        conta.valor = alvo;
+        it.chave = chaveContaPagar(conta); // chave recalculada com o novo valor
+        it.valor = alvo;
+      }
+    }
+  } else if (alvo != null && Math.abs(tot - alvo) > 0.02 &&
       !confirm(`A soma das contas flegadas (${fmtVal(tot)}) é diferente do débito (${fmtVal(alvo)}). Vincular mesmo assim?`)) {
     // reverte o que acabamos de marcar antes de sair
     itens.forEach(i => { if (i.setPago) { const c = contasPagar.find(x => chaveContaPagar(x) === i.chave); if (c) { c.pago = false; c.dataPag = null; } } });
     return;
   }
-  debitoLinks[extId] = { itens, total: tot };
+  const totFinal = itens.reduce((s, i) => s + (i.valor || 0), 0);
+  debitoLinks[extId] = { itens, total: totFinal };
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
 }
-// Desfaz o vínculo; reverte o "pago" apenas das contas que este vínculo marcou.
+// Desfaz o vínculo: reverte "pago", o valor alterado e remove contas criadas por este vínculo.
 function cbDesfazerDebito(extId) {
   debLinkItens(debitoLinks[extId]).forEach(it => {
-    if (it.setPago) {
-      const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
-      if (conta) { conta.pago = false; conta.dataPag = null; }
+    const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+    if (it.criada) { // despesa criada na conciliação → remove de Contas a Pagar
+      const idx = contasPagar.findIndex(c => chaveContaPagar(c) === it.chave);
+      if (idx >= 0) contasPagar.splice(idx, 1);
+      return;
+    }
+    if (conta) {
+      if (it.setPago) { conta.pago = false; conta.dataPag = null; }
+      if (it.valorAnt !== undefined) conta.valor = it.valorAnt; // restaura valor anterior ao extrato
     }
   });
   delete debitoLinks[extId];
+  saveData('contasPagar', contasPagar);
+  saveData('debitoLinks', debitoLinks);
+  renderBanco();
+}
+// Mostra/esconde o box de "Despesa nova".
+function cbToggleDespBox(extId) {
+  const box = document.getElementById('cb-desp-box-' + extId);
+  if (!box) return;
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+// Lança uma despesa (tarifa etc.) a partir de um débito: cria Conta a Pagar já paga com a categoria escolhida.
+function cbLancarDespesa(extId, alvo) {
+  const catEl = document.getElementById('cb-cat-' + extId);
+  const empEl = document.getElementById('cb-emp-' + extId);
+  const categoria = catEl ? catEl.value : '';
+  const empresa = empEl ? empEl.value : '';
+  if (!categoria) { alert('Escolha uma categoria.'); return; }
+  const t = extratoBancario.find(x => x.id === extId);
+  const conta = {
+    numero: '', fornecedor: (t && t.memo) || 'Tarifa', descricao: (t && t.memo) || categoria,
+    categoria, observacao: 'Lançado pela conciliação bancária', empresa, rateio: [],
+    vencimento: t ? t.data : null, dataPag: t ? t.data : null,
+    valor: alvo || (t ? Math.abs(t.valor) : 0), situacao: 'Pago', pago: true, _origemExtrato: true
+  };
+  contasPagar.push(conta);
+  const chave = chaveContaPagar(conta);
+  debitoLinks[extId] = { itens: [{ chave, fornecedor: conta.fornecedor, valor: conta.valor, setPago: false, criada: true }], total: conta.valor };
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
