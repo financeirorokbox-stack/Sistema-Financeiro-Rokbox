@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v43/06-67';
+const APP_VERSION = 'v44/06-68';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1165,7 +1165,7 @@ function statusForma(pedido, categoria, valor) {
       if (String(d.pedido) === String(pedido)) return true;
       // Pedido de crédito EFETIVO: o vínculo manual (devolucaoCredito, feito na aba
       // Devolução) tem prioridade sobre o que veio na planilha (d.pedidoCredito).
-      const credEfetivo = devolucaoCredito[d.pedido + '|' + d.cliente] || d.pedidoCredito || '';
+      const credEfetivo = credDevolucao(d);
       const credPeds = String(credEfetivo).match(/\d{4,6}/g) || [];
       return credPeds.includes(String(pedido));
     });
@@ -1739,7 +1739,7 @@ function _renderContasImpl(el) {
   // Usa o pedido de crédito EFETIVO (vínculo manual tem prioridade sobre a planilha).
   const credDevPorPedido = {};
   devolucoes.forEach(d => {
-    const credEfetivo = devolucaoCredito[d.pedido + '|' + d.cliente] || d.pedidoCredito || '';
+    const credEfetivo = credDevolucao(d);
     (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => {
       credDevPorPedido[pc] = (credDevPorPedido[pc] || 0) + (d.valorPago || 0);
     });
@@ -3086,15 +3086,27 @@ function resolverDevolucaoNaConciliacao(pedidoOriginal) {
 
   renderConcResult();
 }
+// Pedido de crédito EFETIVO da devolução: vínculo manual; '' quando vazio/em edição (troca ainda não feita).
+function credDevolucao(d) {
+  const raw = devolucaoCredito[d.pedido + '|' + d.cliente];
+  if (raw === '__editando__' || raw === '__vazio__') return '';
+  return raw || d.pedidoCredito || '';
+}
 function saveCredito(pedido, cliente, rowIdx) {
   const input1 = document.getElementById('dc-' + rowIdx);
   const input2 = document.getElementById('dc2-' + rowIdx);
   const v1 = input1 ? input1.value.trim() : '';
   const v2 = input2 ? input2.value.trim() : '';
-  if (!v1) { alert('Digite pelo menos o 1º pedido de crédito.'); return; }
   const key = pedido + '|' + cliente;
   const val = [v1, v2].filter(Boolean).join(',');
-  devolucaoCredito[key] = val;
+  devolucaoCredito[key] = val || '__vazio__'; // sem nada = troca ainda não feita
+  saveData('devolucaoCredito', devolucaoCredito);
+  resolverDevolucaoNaConciliacao(pedido);
+  renderDevolucao();
+}
+// Deixa o pedido de crédito vazio (troca ainda não feita). Reversível: é só editar e preencher depois.
+function deixarCreditoVazio(pedido, cliente) {
+  devolucaoCredito[pedido + '|' + cliente] = '__vazio__';
   saveData('devolucaoCredito', devolucaoCredito);
   resolverDevolucaoNaConciliacao(pedido);
   renderDevolucao();
@@ -3262,22 +3274,26 @@ function renderDevolucao() {
     ${Object.values(grupos).map((d,ri)=>{
       const rawCred = devolucaoCredito[d.pedido+'|'+d.cliente];
       const editando = rawCred === '__editando__';
-      const cred = editando ? '' : (rawCred || d.pedidoCredito || '');
+      const vazio = rawCred === '__vazio__';
+      const cred = (editando || vazio) ? '' : (rawCred || d.pedidoCredito || '');
       // Suporta 2 pedidos separados por vírgula
       const credList = cred ? cred.split(',').map(s=>s.trim()).filter(Boolean) : [];
+      const pEsc = d.pedido.replace(/'/g,"\\'"), cEsc = d.cliente.replace(/'/g,"\\'");
       const creditCell = credList.length > 0 && !editando
         ? `${credList.map(c=>`<strong>#${c}</strong>`).join(' + ')}
-           <button class="btn ghost sm" onclick="editCredito('${d.pedido.replace(/'/g,"\\'")}','${d.cliente.replace(/'/g,"\\'")}')">Trocar</button>`
+           <button class="btn ghost sm" onclick="editCredito('${pEsc}','${cEsc}')">Trocar</button>`
         : `<div style="display:flex;flex-direction:column;gap:4px">
+             ${vazio ? `<span style="font-size:10px;color:var(--amber)">sem crédito ainda (troca não feita)</span>` : ''}
              <div style="display:flex;gap:4px;align-items:center">
                <input class="inline-input" style="width:90px" type="number" placeholder="Pedido 1" id="dc-${ri}"
-                 onkeydown="if(event.key==='Enter')saveCredito('${d.pedido.replace(/'/g,"\\'")}','${d.cliente.replace(/'/g,"\\'")}',${ri})"
-                 value="${editando && credList[0] ? credList[0] : (d.pedidoCredito||'')}">
+                 onkeydown="if(event.key==='Enter')saveCredito('${pEsc}','${cEsc}',${ri})"
+                 value="${editando && credList[0] ? credList[0] : (vazio ? '' : (d.pedidoCredito||''))}">
                <input class="inline-input" style="width:90px" type="number" placeholder="Pedido 2" id="dc2-${ri}"
                  value="${editando && credList[1] ? credList[1] : ''}">
-               <button class="btn primary sm" onclick="saveCredito('${d.pedido.replace(/'/g,"\\'")}','${d.cliente.replace(/'/g,"\\'")}',${ri})">OK</button>
+               <button class="btn primary sm" onclick="saveCredito('${pEsc}','${cEsc}',${ri})">OK</button>
+               <button class="btn ghost sm" onclick="deixarCreditoVazio('${pEsc}','${cEsc}')" title="Troca ainda não feita — deixar sem pedido de crédito">Deixar vazio</button>
                ${(editando || rawCred === undefined) && d.pedidoCredito
-                 ? `<button class="btn ghost sm" onclick="cancelarEditCredito('${d.pedido.replace(/'/g,"\\'")}','${d.cliente.replace(/'/g,"\\'")}')">Cancelar</button>`
+                 ? `<button class="btn ghost sm" onclick="cancelarEditCredito('${pEsc}','${cEsc}')">Cancelar</button>`
                  : ''}
              </div>
            </div>`;
@@ -3290,7 +3306,7 @@ function renderDevolucao() {
         <td>${d.vendedor||'—'}</td>
         <td><strong>${fmtVal(d._valorTotal)}</strong></td>
         <td id="dc-cell-${ri}">${creditCell}</td>
-        <td>${getConciliacaoDevolucao({...d, pedidoCredito: credList[0] || d.pedidoCredito})}</td>
+        <td>${getConciliacaoDevolucao({...d, pedidoCredito: cred})}</td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`}`;
@@ -3910,7 +3926,7 @@ function getRecebimentosDoPedido(ped) {
     }
   });
   devolucoes.forEach(d => {
-    const credEf = devolucaoCredito[d.pedido + '|' + d.cliente] || d.pedidoCredito || '';
+    const credEf = credDevolucao(d);
     if ((String(credEf).match(/\d{4,6}/g) || []).includes(pedId))
       recs.push({ gateway: 'Devolução', bruto: d.valorPago || 0, taxa: 0, liq: d.valorPago || 0, data: d.dataTroca, origem: 'devolução' });
   });
@@ -5222,7 +5238,7 @@ function exportarExcel() {
   if (devolucoes.length) {
     const devRows = [['Segmento','Pedido','Cliente','Vendedor','Valor Pago','Pedido Crédito','Status']];
     devolucoes.forEach(d => {
-      const cred = devolucaoCredito[d.pedido+'|'+d.cliente] || d.pedidoCredito || '';
+      const cred = credDevolucao(d);
       devRows.push([d.segmento,d.pedido,d.cliente,d.vendedor,d.valorPago,cred,d.status]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(devRows), 'Devoluções');
