@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v42/06-66';
+const APP_VERSION = 'v43/06-67';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2536,7 +2536,7 @@ function renderRecebimentos() {
 // BOLETOS
 // ════════════════════════════════════════════════════════════════════
 function getBoletosPorPedido() {
-  if (!formaPagamento.length) return [];
+  if (!formaPagamento.length && !Object.keys(formaOverrideMap).length) return [];
   const byPedido = {};
   formaPagamento.forEach(f => {
     const desc = (f.descricao || '').toLowerCase();
@@ -2557,6 +2557,20 @@ function getBoletosPorPedido() {
     }
     byPedido[f.pedido].valorTotal += f.valor;
     byPedido[f.pedido].linhas.push(f);
+  });
+  // Pedidos com override "Boleto Itaú" mas SEM linha de Forma de Pagamento → inclui pelo valor do pedido.
+  Object.keys(formaOverrideMap).forEach(pid => {
+    if (formaOverrideMap[pid] !== 'Boleto Itaú' || byPedido[pid]) return;
+    const ped = pedidos.find(p => String(p.id) === String(pid));
+    if (!ped) return;
+    byPedido[pid] = {
+      pedido: String(pid),
+      cliente: ped.nome || '',
+      loja: ped.loja || '',
+      situacao: ped.situacao || '',
+      valorTotal: ped.valor || 0,
+      linhas: []
+    };
   });
   return Object.values(byPedido).sort((a,b) => Number(b.pedido) - Number(a.pedido));
 }
@@ -4000,26 +4014,40 @@ function dividirPedido(pedId) {
 function jogarSobra(pedId) {
   const ped = pedidos.find(p => String(p.id) === String(pedId));
   if (!ped) return;
-  const idxs = [];
-  recebimentosConsolidado.forEach((r, i) => {
-    if ((r.gateway === 'PayPal' || r.gateway === 'BraavoPay') && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedId))) idxs.push(i);
-  });
-  if (!idxs.length) { alert('Este pedido não tem recebimento de PayPal/BraavoPay para mover a sobra.'); return; }
-  const i = idxs.reduce((a, b) => (recebimentosConsolidado[b].bruto || 0) > (recebimentosConsolidado[a].bruto || 0) ? b : a, idxs[0]);
-  const r = recebimentosConsolidado[i];
   const somaBruto = getRecebimentosDoPedido(ped).reduce((s, x) => s + (x.bruto || 0), 0);
   const sobra = +(somaBruto - getValorConciliacaoPedido(ped)).toFixed(2);
-  const alvo = prompt(`A sobra de ${fmtVal(sobra > 0 ? sobra : 0)} do pedido ${pedId} vai para qual pedido?`, '');
-  if (alvo === null) return;
-  const t = (alvo || '').trim();
-  if (!t) { alert('Informe o número do pedido que recebe a sobra.'); return; }
-  const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
-  const ordered = [String(pedId), ...peds.filter(p => p !== String(pedId))];
-  t.split(',').map(s => s.trim()).filter(Boolean).forEach(x => { if (!ordered.includes(x)) ordered.push(x); });
-  r.nped = ordered.join(',');
+  if (sobra <= 0.01) { alert('Este pedido não tem sobra para mover.'); return; }
+  const alvo = (prompt(`A sobra de ${fmtVal(sobra)} do pedido ${pedId} vai para qual pedido?`, '') || '').trim();
+  if (!alvo) return;
+  if (String(alvo) === String(pedId)) { alert('O pedido de destino tem que ser diferente.'); return; }
+  const alvoPed = pedidos.find(p => String(p.id) === String(alvo));
+  if (!alvoPed && !confirm(`O pedido ${alvo} não está carregado no sistema. Mover a sobra mesmo assim?`)) return;
+  // Acha um recebimento SÓ deste pedido que comporte a sobra inteira (preferindo o de menor taxa, ex.: PIX).
+  let i = -1;
+  recebimentosConsolidado.forEach((r, idx) => {
+    const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (peds.length !== 1 || peds[0] !== String(pedId) || (r.bruto || 0) < sobra - 0.01) return;
+    if (i < 0) { i = idx; return; }
+    const cur = recebimentosConsolidado[i];
+    const taxaRate = x => (x.bruto ? (x.taxa || 0) / x.bruto : 0);
+    if (taxaRate(r) < taxaRate(cur) || (taxaRate(r) === taxaRate(cur) && (r.bruto || 0) < (cur.bruto || 0))) i = idx;
+  });
+  if (i < 0) { alert(`Não achei um único recebimento do pedido ${pedId} que comporte a sobra de ${fmtVal(sobra)} inteira. Faça o ajuste manual (ou vincule o recebimento ao outro pedido na aba "Recebimentos sem pedido").`); return; }
+  const r = recebimentosConsolidado[i];
+  // Recorta a sobra do recebimento (taxa proporcional) e cria a parte movida para o pedido destino.
+  const frac = sobra / (r.bruto || sobra);
+  const taxaMov = +((r.taxa || 0) * frac).toFixed(2);
+  recebimentosConsolidado.push({
+    gateway: r.gateway, bruto: sobra, taxa: taxaMov, liq: +(sobra - taxaMov).toFixed(2),
+    data: r.data, nped: String(alvo), nome: alvoPed ? alvoPed.nome : (r.nome || ''),
+    tipo: r.tipo, status: 'pago', _sobraDe: String(pedId)
+  });
+  r.bruto = +((r.bruto || 0) - sobra).toFixed(2);
+  r.taxa = +((r.taxa || 0) - taxaMov).toFixed(2);
+  r.liq = +(r.bruto - r.taxa).toFixed(2);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderConcResult();
-  alert(`Pronto! O pedido ${pedId} fecha e a sobra foi para o pedido ${t}.`);
+  alert(`Pronto! Movi ${fmtVal(sobra)} do pedido ${pedId} para o pedido ${alvo}. O ${pedId} fecha e o ${alvo} recebe a sobra.`);
 }
 
 // Resolve a diferença de um pedido na aba Por Pedido: acao = 'aceito' | 'cobrar' | null (desfaz)
