@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v37/06-61';
+const APP_VERSION = 'v38/06-62';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4658,8 +4658,9 @@ function renderBanco() {
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
   const usadosRepasse = repasseUsados();
-  // Operadoras com recebimentos pendentes (PayPal, Braavo, Boleto Itaú) — para o seletor de repasse no crédito.
-  const gwsPend = [...new Set(recebimentosConsolidado.filter(r => (r.liq||0) > 0 && !usadosRepasse.has(recKeyGlobal(r))).map(r => r.gateway))].sort();
+  // Repasse é só destas operadoras: PayPal, Braavo (iFood) e Boleto Itaú (boletos recebidos).
+  const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú'];
+  const gwsPend = GW_REPASSE.filter(g => recebimentosConsolidado.some(r => r.gateway === g && (r.liq||0) > 0 && !usadosRepasse.has(recKeyGlobal(r))));
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
   const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
   const empresasListCb = getEmpresasList();
@@ -4901,7 +4902,7 @@ function gatewayDoCredito(t) {
 // Rótulo amigável da operadora.
 function gwLabel(g) {
   if (g === 'BraavoPay') return 'Braavo (iFood)';
-  if (g === 'Boleto Itaú') return 'Boleto';
+  if (g === 'Boleto Itaú') return 'Boleto Itaú (Recebidos)';
   return g;
 }
 // Acumula recebimentos pendentes da operadora (mais antigo → mais novo) até bater o valor do depósito.
