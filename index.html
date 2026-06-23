@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v25/06-49';
+const APP_VERSION = 'v26/06-50';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3289,14 +3289,28 @@ function parseOFXConta(text) {
   const key = [g('BANKID'), g('ACCTID')].filter(Boolean).join('/');
   return key || '';
 }
+// Tenta identificar o banco pelo NOME DO ARQUIVO (ex.: "Itaú - Rokbox - jun26.ofx" → "Itaú - Rokbox").
+// Tolerante a acento/maiúsculas; escolhe o nome cadastrado mais longo que aparece no arquivo.
+function bancoDoNomeArquivo(filename) {
+  const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const fn = norm(filename);
+  let achado = '';
+  bancosCadastro.forEach(b => {
+    if (norm(b) && fn.includes(norm(b)) && b.length > achado.length) achado = b;
+  });
+  return achado;
+}
 // Escolhe (uma vez por conta) a qual banco cadastrado o arquivo OFX pertence; lembra a escolha.
-function escolherBancoDoArquivo(acctKey) {
+function escolherBancoDoArquivo(acctKey, filename) {
   if (acctKey && extratoContaBanco[acctKey]) return extratoContaBanco[acctKey];
   const lista = bancosCadastro.slice();
   let banco = '';
   if (lista.length) {
+    // Sugere como padrão o banco que casa com o nome do arquivo (ex.: "Itaú - Rokbox - jun26.ofx").
+    const sugerido = bancoDoNomeArquivo(filename);
+    const idxSug = sugerido ? lista.indexOf(sugerido) + 1 : 1;
     const opcoes = lista.map((b, i) => `${i + 1}) ${b}`).join('\n');
-    const r = prompt(`De qual banco é este extrato?\n\n${opcoes}\n\nDigite o número (ou o nome de um novo banco):`, '1');
+    const r = prompt(`De qual banco é este extrato?\n\n${opcoes}\n\nDigite o número (ou o nome de um novo banco):`, String(idxSug));
     if (r != null) {
       const n = parseInt(r, 10);
       banco = (!isNaN(n) && n >= 1 && n <= lista.length) ? lista[n - 1] : r.trim();
@@ -3478,8 +3492,8 @@ function renderExtrato() {
     const reader = new FileReader();
     reader.onload = ev => {
       const novas = parseOFX(ev.target.result);
-      // Identifica o banco deste arquivo (separa a conciliação por banco).
-      const banco = escolherBancoDoArquivo(parseOFXConta(ev.target.result));
+      // Pergunta o banco (o usuário gosta de confirmar), já sugerindo o que casa com o nome do arquivo.
+      const banco = escolherBancoDoArquivo(parseOFXConta(ev.target.result), file.name);
       // ACUMULA sem duplicar: usa o FITID do banco quando existe; senão data+valor+descrição.
       const chave = t => (t.id && !String(t.id).startsWith('ofx-'))
         ? 'id:' + t.id
