@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v35/06-59';
+const APP_VERSION = 'v36/06-60';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4750,19 +4750,16 @@ function renderBanco() {
                      <button class="btn ghost sm" onclick="cbDesfazerDebito('${t.id}')">Desfazer</button>`;
                 } else {
                   const alvo = Math.abs(t.valor);
-                  // Em aberto (não pago) e não usadas por outro débito.
+                  // QUALQUER conta em aberto (não paga e não usada por outro débito), qualquer valor.
                   const abertas = contasPagar.filter(c => !c.pago && !usadasDeb.has(chaveContaPagar(c)));
-                  // Escopo: contas com vencimento NA SEMANA do débito (segunda a domingo) + as sem data.
-                  let lista = abertas, escopoSemana = false, wkLbl = '';
-                  if (t.data instanceof Date && !isNaN(t.data)) {
-                    const [wkIni, wkFim] = semanaDe(t.data);
-                    const naSemana = abertas.filter(c => (c.vencimento && c.vencimento>=wkIni && c.vencimento<=wkFim) || !c.vencimento);
-                    if (naSemana.length) { lista = naSemana; escopoSemana = true; wkLbl = ` · semana ${fmtDate(wkIni)}–${fmtDate(wkFim)}`; }
-                  }
-                  // Sem filtrar por valor: mostra tudo, ordenado por vencimento (para somar e bater o pago).
-                  const cand = lista
-                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo)}))
-                    .sort((a,b) => (a.c.vencimento||0)-(b.c.vencimento||0));
+                  // Mostra as da SEMANA do débito primeiro (atalho), mas a lista inclui todas — use a busca.
+                  let wkIni = null, wkFim = null;
+                  if (t.data instanceof Date && !isNaN(t.data)) { [wkIni, wkFim] = semanaDe(t.data); }
+                  const naSemana = c => wkIni && c.vencimento && c.vencimento >= wkIni && c.vencimento <= wkFim;
+                  const nSemana = abertas.filter(naSemana).length;
+                  const cand = abertas
+                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo), wk: naSemana(c) ? 0 : 1}))
+                    .sort((a,b) => a.wk - b.wk || (a.c.vencimento||0)-(b.c.vencimento||0));
                   const nExatos = cand.filter(x=>x.d<=0.02).length;
                   const somaIni = cand.filter(x=>x.d<=0.02).reduce((s,x)=>s+(x.c.valor||0),0);
                   const difIni = Math.abs(somaIni-alvo);
@@ -4803,7 +4800,7 @@ function renderBanco() {
                       </div>`;
                   conc = `<div style="min-width:200px;max-width:380px">
                       <div style="display:flex;gap:6px;flex-wrap:wrap">
-                        ${cand.length?`<button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')" title="${escopoSemana?'Contas em aberto com vencimento na semana do débito':'Todas as contas em aberto'}">▾ Em aberto (${cand.length})${escopoSemana?wkLbl:''}${nExatos?` · ⚡${nExatos}`:''}</button>`:''}
+                        ${cand.length?`<button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')" title="Todas as contas em aberto (qualquer valor). As da semana do débito aparecem primeiro. Use a busca.">▾ Em aberto (${cand.length})${nSemana?` · semana ${nSemana}`:''}${nExatos?` · ⚡${nExatos}`:''}</button>`:''}
                         <button class="btn ghost sm" onclick="cbToggleDespBox('${t.id}')">➕ Despesa nova</button>
                       </div>
                       ${listaContas}
