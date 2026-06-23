@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v31/06-55';
+const APP_VERSION = 'v32/06-56';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4702,10 +4702,12 @@ function renderBanco() {
                   const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
                   const listaContas = cand.length ? `
                       <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
+                      <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
                         ${cand.map(({c,d})=>{
                           const exato=d<=0.02;
-                          return `<label style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
+                          const busca=`${c.fornecedor||''} ${c.descricao||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''}`.toLowerCase().replace(/"/g,'&quot;');
+                          return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
                             <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveContaPagar(c))}" data-v="${c.valor||0}" ${exato?'checked':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
                             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
                             <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
@@ -4793,6 +4795,14 @@ function cbToggleDebList(extId) {
   const box = document.getElementById('cb-deb-box-' + extId);
   if (!box) return;
   box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+// Filtra as linhas da lista de contas de um débito pelo texto digitado (sem re-render).
+function cbFiltrarDebList(extId) {
+  const q = (document.getElementById('cb-deb-q-' + extId)?.value || '').toLowerCase().trim();
+  document.querySelectorAll('.cb-deb-row-' + extId).forEach(row => {
+    const txt = row.getAttribute('data-busca') || '';
+    row.style.display = (!q || txt.includes(q)) ? 'flex' : 'none';
+  });
 }
 // Atualiza o rótulo "Flegado: X / Y" conforme as contas marcadas.
 function cbSomaDebito(extId, alvo) {
