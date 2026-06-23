@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v40/06-64';
+const APP_VERSION = 'v42/06-66';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -464,7 +464,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -816,6 +816,8 @@ let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
 let repasseLinks = {};       // { extratoId: { gateway, total, data, itens:[recKey] } } — depósito de operadora (PayPal/Braavo) → recebimentos que ele cobre
+let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
+let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -4154,17 +4156,18 @@ function renderConcResult() {
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cr-q" value="${fQ}" placeholder="Pedido ou nome..." oninput="debounceRender('renderConcResult')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       <button class="btn primary sm" onclick="reprocessarTudo()" title="Refaz a conciliação com os dados atuais: vincula automaticamente os pedidos/recebimentos novos e mantém os vínculos manuais">🔄 Reconciliar</button>
+      ${tab==='extra' && recebimentosConsolidado.some(r=>!r.nped&&recebPeriodoAnterior(r)) ? `<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ${_verPeriodoAnt?'checked':''} onchange="_verPeriodoAnt=this.checked;renderConcResult()"> 📦 mostrar período anterior (${recebimentosConsolidado.filter(r=>!r.nped&&recebPeriodoAnterior(r)).length})</label>`:''}
     </div>
     <div class="conc-tabs">
       ${[['porpedido','📋 Por Pedido'],['extra','↩ Recebimentos sem pedido']].map(([t,l])=>`
-        <div class="conc-tab ${t===tab?'active':''}" onclick="activeTab='${t}';renderConcResult()">${l}${t==='extra'?` <span class="cnt">${recebimentosConsolidado.filter(r=>!r.nped).length}</span>`:''}</div>`).join('')}
+        <div class="conc-tab ${t===tab?'active':''}" onclick="activeTab='${t}';renderConcResult()">${l}${t==='extra'?` <span class="cnt">${recebimentosConsolidado.filter(r=>!r.nped&&!recebPeriodoAnterior(r)).length}</span>`:''}</div>`).join('')}
     </div>
     <div id="conc-table"></div>`;
 
   if (tab === 'porpedido') { renderPorPedido(); return; }
 
   const rows = tab === 'extra'
-    ? filter(recebimentosConsolidado.filter(r => !r.nped).map(r => ({ rec: r })))
+    ? filter(recebimentosConsolidado.filter(r => !r.nped && (_verPeriodoAnt || !recebPeriodoAnterior(r))).map(r => ({ rec: r })))
     : filter(results[tab]);
 
   if (!rows.length) {
@@ -4336,13 +4339,19 @@ function renderConcResult() {
 
     } else {
       const realIdx = recebimentosConsolidado.indexOf(item.rec);
-      html += `<tr>
+      const ehAnt = recebPeriodoAnterior(item.rec);
+      const acao = ehAnt
+        ? `<span class="badge neu" title="Continua contando no depósito do banco, mas fora das pendências">📦 período anterior</span>
+           <button class="btn ghost sm" onclick="desmarcarPeriodoAnterior(${realIdx})">Desmarcar</button>`
+        : `<input class="inline-input" id="ep-${realIdx}" placeholder="Nº pedido (vírgula p/ vários)" style="width:160px"
+              onkeydown="if(event.key==='Enter')vincularRecebSemPedido(${realIdx})">
+           <button class="btn primary sm" onclick="vincularRecebSemPedido(${realIdx})">Vincular</button>
+           <button class="btn ghost sm" onclick="marcarPeriodoAnterior(${realIdx})" title="Pedido de período anterior (fora deste sistema): sai das pendências mas continua contando no depósito do banco. Reversível.">📦 Período anterior</button>`;
+      html += `<tr${ehAnt?' style="opacity:.6"':''}>
         <td>${item.rec.gateway}</td><td>${fmtDate(item.rec.data)}</td>
         <td>${fmtVal(item.rec.bruto)}</td><td>${fmtVal(item.rec.taxa)}</td><td>${fmtVal(item.rec.liq)}</td>
         <td>${item.rec.nome||'—'}</td>
-        <td><input class="inline-input" id="ep-${realIdx}" placeholder="Nº pedido (vírgula p/ vários)" style="width:160px"
-              onkeydown="if(event.key==='Enter')vincularRecebSemPedido(${realIdx})">
-           <button class="btn primary sm" onclick="vincularRecebSemPedido(${realIdx})">Vincular</button></td>
+        <td>${acao}</td>
       </tr>`;
     }
   });
@@ -4417,6 +4426,25 @@ function vincularRecebSemPedido(realIdx) {
   if (!v) return;
   r.nped = v.split(',').map(s => s.trim()).filter(Boolean).join(',');
   saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderConcResult();
+}
+// Marca um recebimento "sem pedido" como de PERÍODO ANTERIOR: sai das pendências mas CONTINUA no array
+// (logo segue contando no depósito do banco). Reversível. NÃO apaga o recebimento.
+function marcarPeriodoAnterior(realIdx) {
+  const r = recebimentosConsolidado[realIdx];
+  if (!r) return;
+  if (!confirm(`Marcar como período anterior?\n\n${r.gateway} · ${fmtVal(r.liq)} · ${r.nome || 'sem nome'} · ${r.data ? fmtDate(r.data) : 'sem data'}\n\nSai da lista de pendências (pedido fora deste sistema), MAS continua contando no depósito do banco. Você pode desmarcar depois.`)) return;
+  const chave = recKeyGlobal(r);
+  if (!recebPeriodoAnt.includes(chave)) recebPeriodoAnt.push(chave);
+  saveData('recebPeriodoAnt', recebPeriodoAnt);
+  renderConcResult();
+}
+function desmarcarPeriodoAnterior(realIdx) {
+  const r = recebimentosConsolidado[realIdx];
+  if (!r) return;
+  const chave = recKeyGlobal(r);
+  recebPeriodoAnt = recebPeriodoAnt.filter(k => k !== chave);
+  saveData('recebPeriodoAnt', recebPeriodoAnt);
   renderConcResult();
 }
 function doLinkExtra(idx) {
@@ -4891,6 +4919,9 @@ function cbSomaDebito(extId, alvo) {
 function recKeyGlobal(r) {
   return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0,10) : '', (r.bruto||0).toFixed(2), (r.nome||'').trim().toLowerCase(), r.nped||''].join('|');
 }
+// Recebimento marcado como excluído pelo usuário (some das listas e não volta ao reprocessar).
+// Recebimento marcado como "período anterior" (sai das pendências, mas continua contando no depósito do banco).
+function recebPeriodoAnterior(r) { return recebPeriodoAnt.includes(recKeyGlobal(r)); }
 // Identifica a operadora pelo texto do crédito do extrato.
 // (Braavo é a fintech do iFood → o depósito costuma vir como "iFood"; boletos vêm como "boleto/cobrança".)
 function gatewayDoCredito(t) {
@@ -4908,6 +4939,7 @@ function gwLabel(g) {
 }
 // Acumula recebimentos pendentes da operadora (mais antigo → mais novo) até bater o valor do depósito.
 function acumularRepasse(gw, valor, usados) {
+  // NÃO filtra os "período anterior": eles continuam contando no depósito do banco.
   const cands = recebimentosConsolidado
     .filter(r => r.gateway === gw && (r.liq||0) > 0 && !usados.has(recKeyGlobal(r)))
     .sort((a,b) => (a.data||0)-(b.data||0));
@@ -5437,7 +5469,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -5476,6 +5508,7 @@ function delCheckboxHeader(source) {
     else if (k==='debitoLinks') debitoLinks = v;
     else if (k==='extratoContaBanco') extratoContaBanco = v;
     else if (k==='repasseLinks') repasseLinks = v;
+    else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
