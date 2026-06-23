@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v23/06-47';
+const APP_VERSION = 'v24/06-48';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -464,7 +464,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults','debitoLinks','extratoContaBanco'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -813,6 +813,8 @@ let boletoConfig = {};
 let boletoCobrancaStatus = {};
 let extratoBancario = [];
 let extratoLinks = {};
+let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
+let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -3281,6 +3283,37 @@ function parseOFX(text) {
   });
   return out;
 }
+// Identifica a conta bancária do arquivo OFX (BANKID + ACCTID), para mapear ao banco cadastrado.
+function parseOFXConta(text) {
+  const g = tag => { const m = text.match(new RegExp('<' + tag + '>([^<\\r\\n]*)', 'i')); return m ? m[1].trim() : ''; };
+  const key = [g('BANKID'), g('ACCTID')].filter(Boolean).join('/');
+  return key || '';
+}
+// Escolhe (uma vez por conta) a qual banco cadastrado o arquivo OFX pertence; lembra a escolha.
+function escolherBancoDoArquivo(acctKey) {
+  if (acctKey && extratoContaBanco[acctKey]) return extratoContaBanco[acctKey];
+  const lista = bancosCadastro.slice();
+  let banco = '';
+  if (lista.length) {
+    const opcoes = lista.map((b, i) => `${i + 1}) ${b}`).join('\n');
+    const r = prompt(`De qual banco é este extrato?\n\n${opcoes}\n\nDigite o número (ou o nome de um novo banco):`, '1');
+    if (r != null) {
+      const n = parseInt(r, 10);
+      banco = (!isNaN(n) && n >= 1 && n <= lista.length) ? lista[n - 1] : r.trim();
+    }
+  } else {
+    banco = (prompt('De qual banco é este extrato? (digite o nome)', '') || '').trim();
+  }
+  if (banco) {
+    if (!bancosCadastro.includes(banco)) { bancosCadastro.push(banco); saveData('bancosCadastro', bancosCadastro); }
+    if (acctKey) { extratoContaBanco[acctKey] = banco; saveData('extratoContaBanco', extratoContaBanco); }
+  }
+  return banco;
+}
+// Chave estável de uma Conta a Pagar (mesma lógica do re-upload), para vincular débitos do extrato.
+function chaveContaPagar(c) {
+  return c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : (c.vencimento||''), (c.valor||0).toFixed(2)].join('|');
+}
 function linkExtrato(id) {
   const sel = document.getElementById('ex-sel-' + id);
   const pedido = sel.value;
@@ -3445,22 +3478,27 @@ function renderExtrato() {
     const reader = new FileReader();
     reader.onload = ev => {
       const novas = parseOFX(ev.target.result);
+      // Identifica o banco deste arquivo (separa a conciliação por banco).
+      const banco = escolherBancoDoArquivo(parseOFXConta(ev.target.result));
       // ACUMULA sem duplicar: usa o FITID do banco quando existe; senão data+valor+descrição.
       const chave = t => (t.id && !String(t.id).startsWith('ofx-'))
         ? 'id:' + t.id
         : 'c:' + [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor, t.memo].join('|');
-      const existentes = new Set(extratoBancario.map(chave));
+      const porChave = {};
+      extratoBancario.forEach(t => { porChave[chave(t)] = t; });
       const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
       let add = 0;
       novas.forEach(t => {
-        if (existentes.has(chave(t))) return; // já existe — não duplica
+        const existe = porChave[chave(t)];
+        if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // já existe — só completa o banco
         // Garante id único (evita colisão de 'ofx-N' entre arquivos, que quebraria os vínculos)
         let id = String(t.id);
         let n = 1;
         while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); }
         t.id = id;
+        t.banco = banco;
         idsUsados.add(id);
-        existentes.add(chave(t));
+        porChave[chave(t)] = t;
         extratoBancario.push(t);
         add++;
       });
@@ -4512,24 +4550,121 @@ function renderBanco() {
   const semVinculo = creditosExtrato.filter(t => !extratoLinks[t.id]);
   const totalSemVinculo = semVinculo.reduce((s,t)=>s+t.valor,0);
 
-  const fQ = (el.querySelector('#banco-q')?.value||'').toLowerCase();
-  const visCreditos = fQ ? semVinculo.filter(t=>(t.memo||'').toLowerCase().includes(fQ)) : semVinculo;
+  // ── Visão diária por banco (créditos e débitos) ──
+  const bancosTodos = [...new Set(extratoBancario.map(t => t.banco || ''))];
+  const temSemBanco = bancosTodos.includes('');
+  const bancosNomeados = bancosTodos.filter(Boolean).sort();
+  const bancoSel = el.querySelector('#cb-banco') ? el.querySelector('#cb-banco').value : '__todos';
+  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+  let visT = extratoBancario.filter(matchBanco);
+  if (dfAtivo()) visT = visT.filter(t => passaData(t.data));
 
+  const conciliado = t => t.valor >= 0 ? !!extratoLinks[t.id] : !!debitoLinks[t.id];
+  const entradas = visT.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0);
+  const saidas = visT.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0);
+  const pendentes = visT.filter(t=>!conciliado(t)).length;
+
+  // Agrupa por dia (YYYY-MM-DD), mais recente primeiro
+  const dias = {};
+  visT.forEach(t => {
+    const k = t.data instanceof Date && !isNaN(t.data) ? t.data.toISOString().slice(0,10) : 'sem-data';
+    (dias[k] = dias[k] || []).push(t);
+  });
+  const diasOrd = Object.keys(dias).sort((a,b)=> a<b?1:a>b?-1:0);
+
+  // Contas a Pagar já usadas por algum débito (não oferecer de novo)
+  const usadasDeb = new Set(Object.values(debitoLinks).map(l=>l.chave));
+
+  setDateFilterRender(renderBanco);
   el.innerHTML = `
-    <div style="font-size:16px;font-weight:800;margin-bottom:4px">Conciliação Bancária</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">
-      Verifique se o total depositado pelas operadoras no banco bate com o que foi recebido nas planilhas.
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px">Conciliação Bancária — dia a dia</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+      Cada dia mostra entradas (créditos) e saídas (débitos) do banco. Débitos batem com Contas a Pagar; créditos com pedidos (vincule na aba Extrato).
     </div>
 
-    <!-- Resumo do extrato -->
-    <div class="cards-row" style="margin-bottom:24px">
-      <div class="card blue"><div class="c-label">Total créditos no extrato</div><div class="c-val">${fmtVal(totalExtrato)}</div><div class="c-sub">${creditosExtrato.length} lançamentos</div></div>
-      <div class="card green"><div class="c-label">PIX vinculados a pedidos</div><div class="c-val">${pixVinculados}</div><div class="c-sub">${fmtVal(pixValor)}</div></div>
-      <div class="card amber"><div class="c-label">Depósitos de operadoras</div><div class="c-val">${fmtVal(totalSemVinculo)}</div><div class="c-sub">${semVinculo.length} lançamentos</div></div>
+    <div class="filter-bar" style="margin-bottom:16px">
+      <span class="f-label">Banco:</span>
+      <select id="cb-banco" onchange="renderBanco()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>
+        ${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}
+        ${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}
+      </select>
+      ${dateFilterHTML()}
+      <button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Conciliar débitos automáticos</button>
     </div>
 
-    <!-- Comparativo por operadora -->
-    <div class="section-title">Comparativo: Planilhas × Banco</div>
+    <div class="cards-row" style="margin-bottom:20px">
+      <div class="card green"><div class="c-label">Entradas (créditos)</div><div class="c-val">${fmtVal(entradas)}</div></div>
+      <div class="card red"><div class="c-label">Saídas (débitos)</div><div class="c-val">${fmtVal(saidas)}</div></div>
+      <div class="card ${entradas-saidas>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(entradas-saidas)}</div></div>
+      <div class="card ${pendentes?'amber':'dark'}"><div class="c-label">Pendentes</div><div class="c-val">${pendentes}</div></div>
+    </div>
+
+    ${visT.length===0
+      ? '<div class="empty"><div class="e-icon">🏦</div>Nenhum lançamento. Carregue um extrato OFX na aba Extrato.</div>'
+      : diasOrd.map(dk => {
+          const lancs = dias[dk].slice().sort((a,b)=>b.valor-a.valor); // créditos primeiro
+          const ent = lancs.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0);
+          const sai = lancs.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0);
+          const dataLabel = dk==='sem-data' ? 'Sem data' : fmtDate(new Date(dk+'T00:00:00'));
+          return `
+          <div style="margin-bottom:18px">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px 8px 0 0;font-size:13px;font-weight:700">
+              <span>📅 ${dataLabel}</span>
+              <span style="color:var(--green);font-weight:600">+ ${fmtVal(ent)}</span>
+              <span style="color:var(--red);font-weight:600">− ${fmtVal(sai)}</span>
+              <span style="margin-left:auto;color:${ent-sai>=0?'var(--text)':'var(--amber)'}">Saldo do dia: ${fmtVal(ent-sai)}</span>
+            </div>
+            <div class="table-wrap" style="border-radius:0 0 8px 8px"><table><thead><tr>
+              <th>Descrição</th><th>Valor</th><th>Tipo</th><th style="min-width:260px">Conciliação</th>
+            </tr></thead><tbody>
+            ${lancs.map(t => {
+              const isCred = t.valor >= 0;
+              const tipo = isCred ? '<span class="badge ok">Crédito</span>' : '<span class="badge err">Débito</span>';
+              let conc;
+              if (isCred) {
+                const link = extratoLinks[t.id];
+                conc = link
+                  ? `<span class="saved-label">✓ ${String(link.pedido).split(',').map(p=>'#'+p.trim()).join(' + ')}</span>`
+                  : `<span style="color:var(--amber);font-size:11px">pendente</span>
+                     <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
+              } else {
+                const link = debitoLinks[t.id];
+                if (link) {
+                  conc = `<span class="saved-label">✓ ${(link.fornecedor||'conta')} (${fmtVal(link.valor||0)})</span>
+                     <button class="btn ghost sm" onclick="cbDesfazerDebito('${t.id}')">Desfazer</button>`;
+                } else {
+                  const alvo = Math.abs(t.valor);
+                  const cand = contasPagar
+                    .filter(c => !usadasDeb.has(chaveContaPagar(c)))
+                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo)}))
+                    .sort((a,b)=>a.d-b.d)
+                    .slice(0,15);
+                  if (!cand.length) {
+                    conc = '<span style="color:var(--muted);font-size:11px">sem contas a pagar disponíveis</span>';
+                  } else {
+                    conc = `<div style="display:flex;gap:6px;align-items:center">
+                      <select id="cb-deb-${t.id}" style="flex:1;max-width:240px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                        ${cand.map(({c,d})=>`<option value="${encodeURIComponent(chaveContaPagar(c))}">${d<=0.02?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)} — ${fmtVal(c.valor||0)}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</option>`).join('')}
+                      </select>
+                      <button class="btn primary sm" onclick="cbVincularDebito('${t.id}')">Vincular</button>
+                    </div>`;
+                  }
+                }
+              }
+              return `<tr>
+                <td>${t.memo||'—'}</td>
+                <td style="color:${isCred?'var(--green)':'var(--red)'};font-weight:600">${fmtVal(t.valor)}</td>
+                <td>${tipo}</td>
+                <td>${conc}</td>
+              </tr>`;
+            }).join('')}
+            </tbody></table></div>
+          </div>`;
+        }).join('')}
+
+    <!-- Comparativo por operadora (mantido) -->
+    <div class="section-title" style="margin-top:8px">Comparativo: Planilhas × Banco (operadoras)</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
       Compare o total líquido das planilhas com o que entrou no banco. A diferença pode ser timing de repasse ou taxa.
     </div>
@@ -4538,7 +4673,6 @@ function renderBanco() {
       <th>Entrou no banco?</th><th>Diferença</th>
     </tr></thead><tbody>
     ${Object.entries(porGw).sort((a,b)=>b[1].liq-a[1].liq).map(([gw, d]) => {
-      // Tenta encontrar depósito correspondente no extrato sem vínculo
       const depositoBanco = semVinculo
         .filter(t => (t.memo||'').toLowerCase().includes(gw.toLowerCase().split(' ')[0].toLowerCase()))
         .reduce((s,t)=>s+t.valor,0);
@@ -4555,31 +4689,57 @@ function renderBanco() {
       </tr>`;
     }).join('')}
     </tbody></table></div>
-
-    <!-- Créditos sem vínculo no extrato -->
-    <div class="section-title">Créditos no extrato sem vínculo com pedido</div>
-    <div class="filter-bar" style="margin-bottom:10px">
-      <span class="f-label">Pesquisar:</span>
-      <input type="text" id="banco-q" value="${fQ}" placeholder="Descrição do lançamento..." oninput="debounceRender('renderBanco')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-    </div>
-    ${visCreditos.length === 0
-      ? '<div class="empty"><div class="e-icon">✓</div>Todos os créditos estão vinculados</div>'
-      : `<div class="table-wrap"><table><thead><tr>
-          <th>Data</th><th>Descrição</th><th>Valor</th><th>Identificação</th>
-        </tr></thead><tbody>
-        ${visCreditos.sort((a,b)=>(b.data||0)-(a.data||0)).map(t=>{
-          const origem = Object.keys(porGw).find(gw =>
-            (t.memo||'').toLowerCase().includes(gw.toLowerCase().split(' ')[0].toLowerCase())
-          );
-          return `<tr>
-            <td>${fmtDate(t.data)}</td>
-            <td>${t.memo}</td>
-            <td><strong>${fmtVal(t.valor)}</strong></td>
-            <td>${origem?`<span class="badge info">Depósito ${origem}</span>`:'<span class="badge neu">—</span>'}</td>
-          </tr>`;
-        }).join('')}
-        </tbody></table></div>`}
   `;
+}
+
+// Vincula um débito do extrato a uma Conta a Pagar (marca como paga, pela data do banco).
+function cbVincularDebito(extId) {
+  const sel = document.getElementById('cb-deb-' + extId);
+  if (!sel || !sel.value) return;
+  const chave = decodeURIComponent(sel.value);
+  const conta = contasPagar.find(c => chaveContaPagar(c) === chave);
+  if (!conta) { alert('Conta a pagar não encontrada.'); return; }
+  const t = extratoBancario.find(x => x.id === extId);
+  const setPago = !conta.pago; // só marca se ainda não estava paga
+  if (setPago) { conta.pago = true; conta.dataPag = t ? t.data : conta.dataPag; saveData('contasPagar', contasPagar); }
+  debitoLinks[extId] = { chave, fornecedor: conta.fornecedor || conta.descricao || '', valor: conta.valor || 0, setPago };
+  saveData('debitoLinks', debitoLinks);
+  renderBanco();
+}
+// Desfaz o vínculo; reverte o "pago" apenas se foi este vínculo que marcou.
+function cbDesfazerDebito(extId) {
+  const link = debitoLinks[extId];
+  if (link && link.setPago) {
+    const conta = contasPagar.find(c => chaveContaPagar(c) === link.chave);
+    if (conta) { conta.pago = false; conta.dataPag = null; saveData('contasPagar', contasPagar); }
+  }
+  delete debitoLinks[extId];
+  saveData('debitoLinks', debitoLinks);
+  renderBanco();
+}
+// Concilia automaticamente débitos do banco selecionado que batem com exatamente uma Conta a Pagar pelo valor.
+function cbAutoDebitos() {
+  const selEl = document.getElementById('cb-banco');
+  const bancoSel = selEl ? selEl.value : '__todos';
+  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+  const usados = new Set(Object.values(debitoLinks).map(l => l.chave));
+  let n = 0;
+  extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t)).forEach(t => {
+    const alvo = Math.abs(t.valor);
+    const cand = contasPagar.filter(c => !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02);
+    if (cand.length === 1) {
+      const c = cand[0];
+      const setPago = !c.pago;
+      if (setPago) { c.pago = true; c.dataPag = t.data; }
+      const chave = chaveContaPagar(c);
+      debitoLinks[t.id] = { chave, fornecedor: c.fornecedor || c.descricao || '', valor: c.valor || 0, setPago };
+      usados.add(chave); n++;
+    }
+  });
+  saveData('contasPagar', contasPagar);
+  saveData('debitoLinks', debitoLinks);
+  renderBanco();
+  alert(n ? `${n} débito(s) conciliado(s) automaticamente.` : 'Nenhum débito com correspondência única (mesmo valor) encontrado.');
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4917,7 +5077,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','debitoLinks','extratoContaBanco'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -4952,6 +5112,8 @@ function delCheckboxHeader(source) {
     else if (k==='formaOverrideMap') formaOverrideMap = v;
     else if (k==='difAceita') difAceita = v;
     else if (k==='dateFilter') dateFilter = v;
+    else if (k==='debitoLinks') debitoLinks = v;
+    else if (k==='extratoContaBanco') extratoContaBanco = v;
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
