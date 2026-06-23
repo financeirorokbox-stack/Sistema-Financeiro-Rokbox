@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v28/06-52';
+const APP_VERSION = 'v29/06-53';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -464,7 +464,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','concResults','debitoLinks','extratoContaBanco'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -1428,11 +1428,18 @@ function clearVF() {
 }
 
 // ── Filtro de data reutilizável (multi-seleção Ano/Mês/Dia) ──────────
-// Estado compartilhado entre as abas; cada aba aplica passaData() na sua data natural.
+// Cada aba tem o SEU filtro (dateFilters[chave]); `dateFilter` aponta para o da aba ativa.
+let dateFilters = {};
 let dateFilter = { ano: [], mes: [], dia: [] };
 let _dfRenderFn = null;
 let _dfOpen = null;
-function setDateFilterRender(fn) { _dfRenderFn = fn; }
+// Registra a função de render da aba e troca o filtro ativo para o desta aba (chave = nome da função).
+function setDateFilterRender(fn) {
+  _dfRenderFn = fn;
+  const key = (fn && fn.name) ? fn.name : '_';
+  if (!dateFilters[key]) dateFilters[key] = { ano: [], mes: [], dia: [] };
+  dateFilter = dateFilters[key];
+}
 function _dfOpts(field) {
   if (field === 'mes') return MESES.map((m, i) => [String(i + 1).padStart(2, '0'), m]);
   if (field === 'dia') return Array.from({ length: 31 }, (_, i) => { const d = String(i + 1).padStart(2, '0'); return [d, d]; });
@@ -1457,14 +1464,15 @@ function dfToggle(field, btn) {
 function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
   else dateFilter[field] = dateFilter[field].filter(x => x !== value);
-  // Atualiza o rótulo desse campo em todas as abas (IDs repetem entre abas).
+  // Atualiza o rótulo desse campo (IDs repetem entre abas; será corrigido no próximo render de cada aba).
   document.querySelectorAll(`.df-lbl[data-df="${field}"]`).forEach(l => l.textContent = _dfLabel(field));
-  saveData('dateFilter', dateFilter);
+  saveData('dateFilters', dateFilters);
   if (_dfRenderFn) _dfRenderFn();
 }
 function dfClear() {
-  dateFilter = { ano: [], mes: [], dia: [] };
-  saveData('dateFilter', dateFilter);
+  // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
+  dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = [];
+  saveData('dateFilters', dateFilters);
   if (_dfRenderFn) _dfRenderFn();
 }
 function dfAtivo() { return dateFilter.ano.length || dateFilter.mes.length || dateFilter.dia.length; }
@@ -4540,6 +4548,7 @@ function renderDashboard() {
 // CONCILIAÇÃO BANCÁRIA
 // ════════════════════════════════════════════════════════════════════
 function renderBanco() {
+  setDateFilterRender(renderBanco); // troca para o filtro de data desta aba ANTES de usar passaData
   const el = document.getElementById('v-banco');
 
   // Agrupa créditos do extrato por gateway/origem (não vinculados a pedido individual)
@@ -4590,7 +4599,6 @@ function renderBanco() {
   const usadasDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
 
-  setDateFilterRender(renderBanco);
   el.innerHTML = `
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Conciliação Bancária — dia a dia</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
@@ -4672,10 +4680,13 @@ function renderBanco() {
                   if (!cand.length) {
                     conc = '<span style="color:var(--muted);font-size:11px">sem contas a pagar disponíveis</span>';
                   } else {
+                    const nExatos = cand.filter(x=>x.d<=0.02).length;
                     const somaIni = cand.filter(x=>x.d<=0.02).reduce((s,x)=>s+(x.c.valor||0),0);
                     const difIni = Math.abs(somaIni-alvo);
                     const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
-                    conc = `<div style="min-width:300px;max-width:380px">
+                    conc = `<div style="min-width:200px;max-width:380px">
+                      <button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')">▾ Escolher contas (${cand.length})${nExatos?` · ⚡${nExatos}`:''}</button>
+                      <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
                         ${cand.map(({c,d})=>{
                           const exato=d<=0.02;
@@ -4689,6 +4700,7 @@ function renderBanco() {
                       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
                         <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
                         <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularDebito('${t.id}',${alvo})">Vincular flegados</button>
+                      </div>
                       </div>
                     </div>`;
                   }
@@ -4739,6 +4751,12 @@ function debLinkItens(link) {
   if (!link) return [];
   if (Array.isArray(link.itens)) return link.itens;
   return link.chave ? [{ chave: link.chave, fornecedor: link.fornecedor, valor: link.valor, setPago: link.setPago }] : [];
+}
+// Mostra/esconde a lista de contas de um débito (sem re-render → marcar flegs não fecha a lista).
+function cbToggleDebList(extId) {
+  const box = document.getElementById('cb-deb-box-' + extId);
+  if (!box) return;
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
 }
 // Atualiza o rótulo "Flegado: X / Y" conforme as contas marcadas.
 function cbSomaDebito(extId, alvo) {
@@ -5168,7 +5186,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilter','devolucaoAcao','debitoLinks','extratoContaBanco'];
+    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -5202,7 +5220,8 @@ function delCheckboxHeader(source) {
     else if (k==='formaManualMap') formaManualMap = v;
     else if (k==='formaOverrideMap') formaOverrideMap = v;
     else if (k==='difAceita') difAceita = v;
-    else if (k==='dateFilter') dateFilter = v;
+    else if (k==='dateFilters') { dateFilters = v || {}; }
+    else if (k==='dateFilter') { if (v) dateFilters._legado = v; } // compat: filtro antigo único
     else if (k==='debitoLinks') debitoLinks = v;
     else if (k==='extratoContaBanco') extratoContaBanco = v;
   }
