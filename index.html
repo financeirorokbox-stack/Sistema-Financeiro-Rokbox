@@ -358,7 +358,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v26/06-50';
+const APP_VERSION = 'v27/06-51';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4587,7 +4587,8 @@ function renderBanco() {
   const diasOrd = Object.keys(dias).sort((a,b)=> a<b?1:a>b?-1:0);
 
   // Contas a Pagar já usadas por algum débito (não oferecer de novo)
-  const usadasDeb = new Set(Object.values(debitoLinks).map(l=>l.chave));
+  const usadasDeb = new Set();
+  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
 
   setDateFilterRender(renderBanco);
   el.innerHTML = `
@@ -4655,7 +4656,11 @@ function renderBanco() {
               } else {
                 const link = debitoLinks[t.id];
                 if (link) {
-                  conc = `<span class="saved-label">✓ ${(link.fornecedor||'conta')} (${fmtVal(link.valor||0)})</span>
+                  const itens = debLinkItens(link);
+                  const tot = itens.reduce((s,i)=>s+(i.valor||0),0);
+                  const nomes = itens.map(i=>i.fornecedor||'conta').join(', ');
+                  const rotulo = itens.length>1 ? `${itens.length} contas` : (itens[0]?.fornecedor||'conta');
+                  conc = `<span class="saved-label" title="${nomes.replace(/"/g,'&quot;')}">✓ ${rotulo} (${fmtVal(tot)})</span>
                      <button class="btn ghost sm" onclick="cbDesfazerDebito('${t.id}')">Desfazer</button>`;
                 } else {
                   const alvo = Math.abs(t.valor);
@@ -4663,15 +4668,28 @@ function renderBanco() {
                     .filter(c => !usadasDeb.has(chaveContaPagar(c)))
                     .map(c => ({c, d: Math.abs((c.valor||0)-alvo)}))
                     .sort((a,b)=>a.d-b.d)
-                    .slice(0,15);
+                    .slice(0,20);
                   if (!cand.length) {
                     conc = '<span style="color:var(--muted);font-size:11px">sem contas a pagar disponíveis</span>';
                   } else {
-                    conc = `<div style="display:flex;gap:6px;align-items:center">
-                      <select id="cb-deb-${t.id}" style="flex:1;max-width:240px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-                        ${cand.map(({c,d})=>`<option value="${encodeURIComponent(chaveContaPagar(c))}">${d<=0.02?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)} — ${fmtVal(c.valor||0)}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</option>`).join('')}
-                      </select>
-                      <button class="btn primary sm" onclick="cbVincularDebito('${t.id}')">Vincular</button>
+                    const somaIni = cand.filter(x=>x.d<=0.02).reduce((s,x)=>s+(x.c.valor||0),0);
+                    const difIni = Math.abs(somaIni-alvo);
+                    const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
+                    conc = `<div style="min-width:300px;max-width:380px">
+                      <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
+                        ${cand.map(({c,d})=>{
+                          const exato=d<=0.02;
+                          return `<label style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
+                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveContaPagar(c))}" data-v="${c.valor||0}" ${exato?'checked':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
+                            <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
+                          </label>`;
+                        }).join('')}
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                        <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
+                        <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularDebito('${t.id}',${alvo})">Vincular flegados</button>
+                      </div>
                     </div>`;
                   }
                 }
@@ -4716,28 +4734,59 @@ function renderBanco() {
   `;
 }
 
-// Vincula um débito do extrato a uma Conta a Pagar (marca como paga, pela data do banco).
-function cbVincularDebito(extId) {
-  const sel = document.getElementById('cb-deb-' + extId);
-  if (!sel || !sel.value) return;
-  const chave = decodeURIComponent(sel.value);
-  const conta = contasPagar.find(c => chaveContaPagar(c) === chave);
-  if (!conta) { alert('Conta a pagar não encontrada.'); return; }
+// Normaliza um vínculo de débito para lista de itens (compat. com vínculo antigo de 1 conta).
+function debLinkItens(link) {
+  if (!link) return [];
+  if (Array.isArray(link.itens)) return link.itens;
+  return link.chave ? [{ chave: link.chave, fornecedor: link.fornecedor, valor: link.valor, setPago: link.setPago }] : [];
+}
+// Atualiza o rótulo "Flegado: X / Y" conforme as contas marcadas.
+function cbSomaDebito(extId, alvo) {
+  const checks = [...document.querySelectorAll('.cb-deb-pick-' + extId + ':checked')];
+  const soma = checks.reduce((s, c) => s + parseFloat(c.dataset.v || '0'), 0);
+  const lbl = document.getElementById('cb-deb-soma-' + extId);
+  if (!lbl) return;
+  const dif = Math.abs(soma - alvo);
+  const cor = dif <= 0.02 ? 'var(--green)' : (dif <= 1 ? 'var(--amber)' : 'var(--red)');
+  lbl.innerHTML = `Flegado: <strong style="color:${cor}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}`;
+}
+// Vincula um débito do extrato a UMA ou VÁRIAS Contas a Pagar (marca como pagas, pela data do banco).
+function cbVincularDebito(extId, alvo) {
+  const checks = [...document.querySelectorAll('.cb-deb-pick-' + extId + ':checked')];
+  if (!checks.length) { alert('Marque pelo menos uma conta.'); return; }
   const t = extratoBancario.find(x => x.id === extId);
-  const setPago = !conta.pago; // só marca se ainda não estava paga
-  if (setPago) { conta.pago = true; conta.dataPag = t ? t.data : conta.dataPag; saveData('contasPagar', contasPagar); }
-  debitoLinks[extId] = { chave, fornecedor: conta.fornecedor || conta.descricao || '', valor: conta.valor || 0, setPago };
+  const itens = [];
+  checks.forEach(cb => {
+    const chave = decodeURIComponent(cb.value);
+    const conta = contasPagar.find(c => chaveContaPagar(c) === chave);
+    if (!conta) return;
+    const setPago = !conta.pago; // só marca se ainda não estava paga
+    if (setPago) { conta.pago = true; conta.dataPag = t ? t.data : conta.dataPag; }
+    itens.push({ chave, fornecedor: conta.fornecedor || conta.descricao || '', valor: conta.valor || 0, setPago });
+  });
+  if (!itens.length) { alert('Contas a pagar não encontradas.'); return; }
+  const tot = itens.reduce((s, i) => s + (i.valor || 0), 0);
+  if (alvo != null && Math.abs(tot - alvo) > 0.02 &&
+      !confirm(`A soma das contas flegadas (${fmtVal(tot)}) é diferente do débito (${fmtVal(alvo)}). Vincular mesmo assim?`)) {
+    // reverte o que acabamos de marcar antes de sair
+    itens.forEach(i => { if (i.setPago) { const c = contasPagar.find(x => chaveContaPagar(x) === i.chave); if (c) { c.pago = false; c.dataPag = null; } } });
+    return;
+  }
+  debitoLinks[extId] = { itens, total: tot };
+  saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
 }
-// Desfaz o vínculo; reverte o "pago" apenas se foi este vínculo que marcou.
+// Desfaz o vínculo; reverte o "pago" apenas das contas que este vínculo marcou.
 function cbDesfazerDebito(extId) {
-  const link = debitoLinks[extId];
-  if (link && link.setPago) {
-    const conta = contasPagar.find(c => chaveContaPagar(c) === link.chave);
-    if (conta) { conta.pago = false; conta.dataPag = null; saveData('contasPagar', contasPagar); }
-  }
+  debLinkItens(debitoLinks[extId]).forEach(it => {
+    if (it.setPago) {
+      const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+      if (conta) { conta.pago = false; conta.dataPag = null; }
+    }
+  });
   delete debitoLinks[extId];
+  saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
 }
@@ -4763,7 +4812,8 @@ function cbAutoDebitos() {
   const selEl = document.getElementById('cb-banco');
   const bancoSel = selEl ? selEl.value : '__todos';
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
-  const usados = new Set(Object.values(debitoLinks).map(l => l.chave));
+  const usados = new Set();
+  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usados.add(it.chave)));
   let n = 0;
   extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t)).forEach(t => {
     const alvo = Math.abs(t.valor);
@@ -4773,7 +4823,7 @@ function cbAutoDebitos() {
       const setPago = !c.pago;
       if (setPago) { c.pago = true; c.dataPag = t.data; }
       const chave = chaveContaPagar(c);
-      debitoLinks[t.id] = { chave, fornecedor: c.fornecedor || c.descricao || '', valor: c.valor || 0, setPago };
+      debitoLinks[t.id] = { itens: [{ chave, fornecedor: c.fornecedor || c.descricao || '', valor: c.valor || 0, setPago }], total: c.valor || 0 };
       usados.add(chave); n++;
     }
   });
