@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v62/06-86';
+const APP_VERSION = 'v63/06-87';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1816,6 +1816,7 @@ function _renderContasImpl(el) {
   if (dfAtivo()) vis = vis.filter(l => passaData(l.venc));
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
+  if (fSt === 'semforma') vis = vis.filter(l => l.semForma);
   if (fQ)  vis = vis.filter(l => String(l.f.pedido).includes(fQ) || (l.ped.nome||'').toLowerCase().includes(fQ));
   if (fOp) vis = vis.filter(l => {
     const cls = getClassificacao(l.ped);
@@ -1874,6 +1875,7 @@ function _renderContasImpl(el) {
         <option value="" ${fSt===''?'selected':''}>Todos</option>
         <option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option>
         <option value="pago"   ${fSt==='pago'?'selected':''}>Pago</option>
+        <option value="semforma" ${fSt==='semforma'?'selected':''}>Sem forma de recebimento</option>
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="fc-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
@@ -2485,7 +2487,17 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
 function editarNpedRec(idx) {
   const r = recebimentosConsolidado[idx];
   if (!r) return;
-  const novo = prompt('Nº do pedido para este recebimento.\nPara dividir entre vários pedidos, separe por vírgula (ex.: 39721,39894) — preenche o 1º e o resto vai para o próximo.\nDeixe vazio para remover:', r.nped || '');
+  // Sugere pedidos LIVRES (Venda/Troca, ainda não usados) do mesmo cliente, para facilitar.
+  const npedUsados = new Set();
+  recebimentosConsolidado.forEach(x => String(x.nped||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>npedUsados.add(p)));
+  const sug = pedidos.filter(p => {
+    if (npedUsados.has(String(p.id))) return false;
+    const op = (getClassificacao(p).operacao||'').toLowerCase();
+    if (op !== 'venda' && op !== 'troca') return false;
+    return nomesBatem(p.nome, r.nome) || Math.abs((p.valor||0) - (r.bruto||0)) <= 0.5;
+  }).slice(0, 8).map(p => `  ${p.id} — ${p.nome} (${fmtVal(p.valor||0)})`);
+  const hint = sug.length ? `\n\nPedidos livres do mesmo cliente / valor:\n${sug.join('\n')}` : '';
+  const novo = prompt('Nº do pedido para este recebimento.\nPara dividir entre vários pedidos, separe por vírgula (ex.: 39721,39894).\nDeixe vazio para remover.' + hint, r.nped || '');
   if (novo === null) return; // cancelou
   const valor = novo.trim();
   r.nped = valor || null;
@@ -2504,6 +2516,7 @@ function renderRecebimentos() {
   const fGw = el.querySelector('#rr-gw')?.value || '';
   const fQ  = (el.querySelector('#rr-q')?.value || '').toLowerCase();
   const fEmp = el.querySelector('#rr-emp')?.value || '';
+  const fPed = el.querySelector('#rr-ped')?.value || '';
   const gws = [...new Set(recebimentosConsolidado.map(r=>r.gateway))].sort();
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
@@ -2511,6 +2524,8 @@ function renderRecebimentos() {
   let vis = recebimentosConsolidado;
   if (fGw) vis = vis.filter(r=>r.gateway===fGw);
   if (fEmp) vis = vis.filter(r=>empresaDoPed(r.nped)===fEmp);
+  if (fPed==='sem') vis = vis.filter(r=>!r.nped);
+  if (fPed==='com') vis = vis.filter(r=>r.nped);
   if (fQ) vis = vis.filter(r=>(r.nome||'').toLowerCase().includes(fQ)||String(r.nped||'').includes(fQ));
   if (dfAtivo()) vis = vis.filter(r=>passaData(r.data));
 
@@ -2540,6 +2555,12 @@ function renderRecebimentos() {
       <select id="rr-emp" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todas</option>
         ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
+      </select>
+      <span class="f-label">Pedido:</span>
+      <select id="rr-ped" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="" ${fPed===''?'selected':''}>Todos</option>
+        <option value="com" ${fPed==='com'?'selected':''}>Com pedido</option>
+        <option value="sem" ${fPed==='sem'?'selected':''}>Sem pedido</option>
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="rr-q" value="${fQ}" placeholder="Nome ou pedido..." oninput="debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
@@ -4365,6 +4386,20 @@ function renderConcResult() {
   else html += `<th>Gateway</th><th>Data</th><th>Valor Bruto</th><th>Taxa</th><th>Valor Líq.</th><th>Nome</th><th>Vincular</th>`;
   html += '</tr></thead><tbody>';
 
+  // Datalist de pedidos LIVRES (Venda/Troca que ainda não foram usados por nenhum recebimento) — facilita vincular.
+  let datalistHTML = '';
+  if (tab === 'extra') {
+    const npedUsados = new Set();
+    recebimentosConsolidado.forEach(r => String(r.nped||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>npedUsados.add(p)));
+    const livres = pedidos.filter(p => {
+      if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return false;
+      const op = (getClassificacao(p).operacao||'').toLowerCase();
+      if (op !== 'venda' && op !== 'troca') return false;
+      return !npedUsados.has(String(p.id));
+    }).sort((a,b)=>Number(b.id)-Number(a.id));
+    datalistHTML = `<datalist id="pedidos-livres">${livres.map(p=>`<option value="${p.id}">${(p.nome||'').replace(/"/g,'&quot;')} — ${fmtVal(p.valor||0)}</option>`).join('')}</datalist>`;
+  }
+
   // ── Aba "Sem recebimento": espelha Contas a Receber EM ABERTO ──────────────
   if (tab === 'missing') {
     // Constrói as linhas em aberto igual ao renderContas
@@ -4526,7 +4561,7 @@ function renderConcResult() {
       const acao = ehAnt
         ? `<span class="badge neu" title="Continua contando no depósito do banco, mas fora das pendências">📦 período anterior</span>
            <button class="btn ghost sm" onclick="desmarcarPeriodoAnterior(${realIdx})">Desmarcar</button>`
-        : `<input class="inline-input" id="ep-${realIdx}" placeholder="Nº pedido (vírgula p/ vários)" style="width:160px"
+        : `<input class="inline-input" id="ep-${realIdx}" list="pedidos-livres" placeholder="Buscar pedido livre (nº ou nome)" style="width:200px"
               onkeydown="if(event.key==='Enter')vincularRecebSemPedido(${realIdx})">
            <button class="btn primary sm" onclick="vincularRecebSemPedido(${realIdx})">Vincular</button>
            <button class="btn ghost sm" onclick="marcarPeriodoAnterior(${realIdx})" title="Pedido de período anterior (fora deste sistema): sai das pendências mas continua contando no depósito do banco. Reversível.">📦 Período anterior</button>`;
@@ -4539,7 +4574,7 @@ function renderConcResult() {
     }
   });
 
-  html += '</tbody></table></div>';
+  html += '</tbody></table></div>' + datalistHTML;
   document.getElementById('conc-table').innerHTML = html;
 }
 
