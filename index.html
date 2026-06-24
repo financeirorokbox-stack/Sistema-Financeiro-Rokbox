@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v63/06-87';
+const APP_VERSION = 'v64/06-88';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -866,6 +866,7 @@ let contasPagar = []; // contas a pagar (upload de planilha)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
 let activeTab = 'ok';
+let buscaPersist = {}; // termos de pesquisa que sobrevivem à troca de tela (por campo)
 let tolValGlobal = 0.10;
 let currentView = 'vendas';
 let currentSub = 'contas';
@@ -1303,7 +1304,7 @@ function renderVendas() {
     <!-- Filtros multi-seleção -->
     <div class="filter-bar">
       <span class="f-label">Pesquisar:</span>
-      <input type="text" id="busca-vendas" placeholder="Pedido, cliente..." oninput="debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">
+      <input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">
       ${['empresa','situacao','loja','vendedor','operacao'].map(f => `
         <span class="f-label">${{empresa:'Empresa',situacao:'Situação',loja:'Loja',vendedor:'Vendedor',operacao:'Operação'}[f]}:</span>
         <div class="ms-wrap">
@@ -1540,7 +1541,7 @@ document.addEventListener('click', e => {
 });
 
 function getFilteredPedidos() {
-  const busca = (document.getElementById('busca-vendas')?.value || '').toLowerCase();
+  const busca = (document.getElementById('busca-vendas') ? document.getElementById('busca-vendas').value : (buscaPersist.vendas || '')).toLowerCase();
   return pedidos.filter(p => {
     if (vendasFilters.empresa.length && !vendasFilters.empresa.includes(p.empresa||'')) return false;
     if (vendasFilters.situacao.length && !vendasFilters.situacao.includes(p.situacao)) return false;
@@ -1804,7 +1805,8 @@ function _renderContasImpl(el) {
   // ── Filtros ────────────────────────────────────────────────────────
   const fCat = el.querySelector('#fc-cat')?.value || '';
   const fSt  = el.querySelector('#fc-st')?.value || '';
-  const fQ   = (el.querySelector('#fc-q')?.value || '').toLowerCase();
+  const fQraw = el.querySelector('#fc-q') ? el.querySelector('#fc-q').value : (buscaPersist.contas || '');
+  const fQ   = fQraw.toLowerCase();
   const fOp  = el.querySelector('#fc-op')?.value || '';
   const fEmp = el.querySelector('#fc-emp')?.value || '';
   const cats = [...new Set(linhas.map(l=>l.cat).filter(c=>c!=='—'))].sort();
@@ -1878,7 +1880,7 @@ function _renderContasImpl(el) {
         <option value="semforma" ${fSt==='semforma'?'selected':''}>Sem forma de recebimento</option>
       </select>
       <span class="f-label">Pesquisar:</span>
-      <input type="text" id="fc-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <input type="text" id="fc-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.contas=this.value;debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
       <button class="btn primary sm" onclick="exportarModeloCR()" title="Exportar no modelo Contas a Receber (15 colunas)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="reprocessarTudo()" title="Recalcula conciliação e contas a receber com os dados atuais; remove pareamentos antigos">🔄 Atualizar tudo</button>
@@ -2222,7 +2224,8 @@ function renderPagar() {
   const fSt = el.querySelector('#cp-st')?.value || '';
   const fCat = el.querySelector('#cp-cat')?.value || '';
   const fEmp = el.querySelector('#cp-emp')?.value || '';
-  const fQ = (el.querySelector('#cp-q')?.value || '').toLowerCase();
+  const fQraw = el.querySelector('#cp-q') ? el.querySelector('#cp-q').value : (buscaPersist.pagar || '');
+  const fQ = fQraw.toLowerCase();
   const cats = [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].sort();
   const empresas = [...new Set(contasPagar.map(c => c.empresa).filter(Boolean))].sort();
 
@@ -2270,7 +2273,7 @@ function renderPagar() {
         ${cats.map(c=>`<option value="${c}" ${c===fCat?'selected':''}>${c}</option>`).join('')}
       </select>
       <span class="f-label">Pesquisar:</span>
-      <input type="text" id="cp-q" value="${fQ}" placeholder="Fornecedor ou descrição..." oninput="debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <input type="text" id="cp-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Fornecedor ou descrição..." oninput="buscaPersist.pagar=this.value;debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
@@ -2514,7 +2517,8 @@ function renderRecebimentos() {
   setDateFilterRender(renderRecebimentos);
   const el = document.getElementById('v-receb');
   const fGw = el.querySelector('#rr-gw')?.value || '';
-  const fQ  = (el.querySelector('#rr-q')?.value || '').toLowerCase();
+  const fQraw = el.querySelector('#rr-q') ? el.querySelector('#rr-q').value : (buscaPersist.receb || '');
+  const fQ  = fQraw.toLowerCase();
   const fEmp = el.querySelector('#rr-emp')?.value || '';
   const fPed = el.querySelector('#rr-ped')?.value || '';
   const gws = [...new Set(recebimentosConsolidado.map(r=>r.gateway))].sort();
@@ -2563,7 +2567,7 @@ function renderRecebimentos() {
         <option value="sem" ${fPed==='sem'?'selected':''}>Sem pedido</option>
       </select>
       <span class="f-label">Pesquisar:</span>
-      <input type="text" id="rr-q" value="${fQ}" placeholder="Nome ou pedido..." oninput="debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <input type="text" id="rr-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Nome ou pedido..." oninput="buscaPersist.receb=this.value;debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
       <button class="btn danger sm" onclick="if(confirm('Limpar todos os recebimentos?')){recebimentosConsolidado=[];saveData('recebimentosConsolidado',recebimentosConsolidado);renderRecebimentos()}">🗑 Limpar</button>
     </div>
@@ -2825,7 +2829,8 @@ function renderBoletos() {
     el.innerHTML = '<div class="empty"><div class="e-icon">🧾</div>Carregue a planilha de Forma de Pagamento em Vendas — os pedidos com Boleto Itaú aparecerão aqui</div>';
     return;
   }
-  const fQ = (el.querySelector('#bl-q')?.value||'').toLowerCase();
+  const fQraw = el.querySelector('#bl-q') ? el.querySelector('#bl-q').value : (buscaPersist.boletos || '');
+  const fQ = fQraw.toLowerCase();
   const fEmp = el.querySelector('#bl-emp')?.value||'';
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
@@ -2841,7 +2846,7 @@ function renderBoletos() {
         ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
       </select>
       <span class="f-label">Pesquisar:</span>
-      <input type="text" id="bl-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <input type="text" id="bl-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.boletos=this.value;debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
     </div>
     <div class="cards-row">
@@ -3598,7 +3603,8 @@ function renderExtrato() {
   setDateFilterRender(renderExtrato);
   const el = document.getElementById('v-extrato');
   const creditos = extratoBancario.filter(t=>t.valor>0);
-  const fQ = (el.querySelector('#ext-q')?.value||'').toLowerCase();
+  const fQraw = el.querySelector('#ext-q') ? el.querySelector('#ext-q').value : (buscaPersist.extrato || '');
+  const fQ = fQraw.toLowerCase();
   const fEmp = el.querySelector('#ext-emp')?.value||'';
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
@@ -3625,7 +3631,7 @@ function renderExtrato() {
         ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
       </select>
       <span class="f-label">Pesquisar créditos:</span>
-      <input type="text" id="ext-q" value="${fQ}" placeholder="Descrição ou pedido..." oninput="debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <input type="text" id="ext-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Descrição ou pedido..." oninput="buscaPersist.extrato=this.value;debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
       <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
       <button class="btn danger sm" onclick="if(confirm('Limpar extrato?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar</button>
@@ -4203,7 +4209,7 @@ function renderPorPedido() {
   const cont = document.getElementById('conc-table');
   if (!cont) return;
   setDateFilterRender(renderConcResult);
-  const fQ = (document.getElementById('cr-q')?.value || '').toLowerCase();
+  const fQ = (document.getElementById('cr-q') ? document.getElementById('cr-q').value : (buscaPersist.conc || '')).toLowerCase();
   const linhas = [];
   pedidos.forEach(ped => {
     const sit = (ped.situacao || '').toLowerCase();
@@ -4334,7 +4340,8 @@ function renderConcResult() {
   const fOp   = el.querySelector('#cr-op')?.value||'';
   const fOper = el.querySelector('#cr-oper')?.value||'';
   const fEmp  = el.querySelector('#cr-emp')?.value||'';
-  const fQ    = (el.querySelector('#cr-q')?.value||'').toLowerCase();
+  const fQraw = el.querySelector('#cr-q') ? el.querySelector('#cr-q').value : (buscaPersist.conc || '');
+  const fQ    = fQraw.toLowerCase();
   const tab = activeTab;
 
   const filter = arr => arr.filter(item => {
@@ -4358,7 +4365,7 @@ function renderConcResult() {
   el.innerHTML = `
     <div class="filter-bar">
       <span class="f-label">Pesquisar:</span>
-      <input type="text" id="cr-q" value="${fQ}" placeholder="Pedido ou nome..." oninput="debounceRender('renderConcResult')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <input type="text" id="cr-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou nome..." oninput="buscaPersist.conc=this.value;debounceRender('renderConcResult')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       <button class="btn primary sm" onclick="reprocessarTudo()" title="Refaz a conciliação com os dados atuais: vincula automaticamente os pedidos/recebimentos novos e mantém os vínculos manuais">🔄 Reconciliar</button>
       ${tab==='extra' && recebimentosConsolidado.some(r=>!r.nped&&recebPeriodoAnterior(r)) ? `<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ${_verPeriodoAnt?'checked':''} onchange="_verPeriodoAnt=this.checked;renderConcResult()"> 📦 mostrar período anterior (${recebimentosConsolidado.filter(r=>!r.nped&&recebPeriodoAnterior(r)).length})</label>`:''}
     </div>
