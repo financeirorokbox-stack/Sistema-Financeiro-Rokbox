@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v65/06-89';
+const APP_VERSION = 'v66/06-90';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4403,18 +4403,19 @@ function renderConcResult() {
   else html += `<th>Gateway</th><th>Data</th><th>Valor Bruto</th><th>Taxa</th><th>Valor Líq.</th><th>Nome</th><th>Vincular</th>`;
   html += '</tr></thead><tbody>';
 
-  // Datalist de pedidos LIVRES (Venda/Troca que ainda não foram usados por nenhum recebimento) — facilita vincular.
+  // Datalist + lista clicável de pedidos LIVRES (Venda/Troca que ainda não foram usados por nenhum recebimento).
   let datalistHTML = '';
+  let livresArr = [];
   if (tab === 'extra') {
     const npedUsados = new Set();
     recebimentosConsolidado.forEach(r => String(r.nped||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>npedUsados.add(p)));
-    const livres = pedidos.filter(p => {
+    livresArr = pedidos.filter(p => {
       if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return false;
       const op = (getClassificacao(p).operacao||'').toLowerCase();
       if (op !== 'venda' && op !== 'troca') return false;
       return !npedUsados.has(String(p.id));
     }).sort((a,b)=>Number(b.id)-Number(a.id));
-    datalistHTML = `<datalist id="pedidos-livres">${livres.map(p=>`<option value="${p.id}">${(p.nome||'').replace(/"/g,'&quot;')} — ${fmtVal(p.valor||0)}</option>`).join('')}</datalist>`;
+    datalistHTML = `<datalist id="pedidos-livres">${livresArr.map(p=>`<option value="${p.id}">${(p.nome||'').replace(/"/g,'&quot;')} — ${fmtVal(p.valor||0)}</option>`).join('')}</datalist>`;
   }
 
   // ── Aba "Sem recebimento": espelha Contas a Receber EM ABERTO ──────────────
@@ -4578,10 +4579,24 @@ function renderConcResult() {
       const acao = ehAnt
         ? `<span class="badge neu" title="Continua contando no depósito do banco, mas fora das pendências">📦 período anterior</span>
            <button class="btn ghost sm" onclick="desmarcarPeriodoAnterior(${realIdx})">Desmarcar</button>`
-        : `<input class="inline-input" id="ep-${realIdx}" list="pedidos-livres" placeholder="Buscar pedido livre (nº ou nome)" style="width:200px"
-              onkeydown="if(event.key==='Enter')vincularRecebSemPedido(${realIdx})">
-           <button class="btn primary sm" onclick="vincularRecebSemPedido(${realIdx})">Vincular</button>
-           <button class="btn ghost sm" onclick="marcarPeriodoAnterior(${realIdx})" title="Pedido de período anterior (fora deste sistema): sai das pendências mas continua contando no depósito do banco. Reversível.">📦 Período anterior</button>`;
+        : (() => {
+            const cand = livresArr
+              .map(p => ({ p, score: nomesBatem(p.nome, item.rec.nome) ? 0 : 1, d: Math.abs((p.valor||0) - (item.rec.bruto||0)) }))
+              .sort((a,b) => a.score - b.score || a.d - b.d);
+            const listaHTML = `<div id="rec-list-${realIdx}" style="display:none;border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto;margin-top:6px;min-width:280px">
+              ${cand.slice(0,50).map(({p,d}) => `<div onclick="vincularRecebPedido(${realIdx},'${p.id}')" title="Vincular este recebimento ao pedido ${p.id}" style="padding:5px 9px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;${d<=0.5?'background:var(--green-bg)':''}">${d<=0.5?'⚡ ':''}<strong>#${p.id}</strong> ${(p.nome||'').slice(0,30)} — ${fmtVal(p.valor||0)}</div>`).join('') || '<div style="padding:6px 9px;color:var(--muted);font-size:11px">Nenhum pedido livre</div>'}
+            </div>`;
+            return `<div style="min-width:280px">
+              <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                <input class="inline-input" id="ep-${realIdx}" list="pedidos-livres" placeholder="Buscar pedido livre (nº ou nome)" style="width:190px"
+                  onkeydown="if(event.key==='Enter')vincularRecebSemPedido(${realIdx})">
+                <button class="btn ghost sm" onclick="toggleRecList(${realIdx})" title="Ver pedidos livres (ainda não usados)">▾ Lista</button>
+                <button class="btn primary sm" onclick="vincularRecebSemPedido(${realIdx})">Vincular</button>
+                <button class="btn ghost sm" onclick="marcarPeriodoAnterior(${realIdx})" title="Pedido de período anterior (fora deste sistema): sai das pendências mas continua contando no depósito do banco. Reversível.">📦 Período anterior</button>
+              </div>
+              ${listaHTML}
+            </div>`;
+          })();
       html += `<tr${ehAnt?' style="opacity:.6"':''}>
         <td>${item.rec.gateway}</td><td>${fmtDate(item.rec.data)}</td>
         <td>${fmtVal(item.rec.bruto)}</td><td>${fmtVal(item.rec.taxa)}</td><td>${fmtVal(item.rec.liq)}</td>
@@ -4661,6 +4676,21 @@ function vincularRecebSemPedido(realIdx) {
   if (!v) return;
   r.nped = v.split(',').map(s => s.trim()).filter(Boolean).join(',');
   recebDesvinculado = recebDesvinculado.filter(k => k !== recBaseKey(r)); // vinculou de novo → libera o automático
+  saveData('recebDesvinculado', recebDesvinculado);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderConcResult();
+}
+// Mostra/esconde a lista de pedidos livres de um recebimento sem pedido.
+function toggleRecList(realIdx) {
+  const el = document.getElementById('rec-list-' + realIdx);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+// Vincula um recebimento direto a um pedido (1 clique na lista de pedidos livres).
+function vincularRecebPedido(realIdx, pedId) {
+  const r = recebimentosConsolidado[realIdx];
+  if (!r) return;
+  r.nped = String(pedId);
+  recebDesvinculado = recebDesvinculado.filter(k => k !== recBaseKey(r));
   saveData('recebDesvinculado', recebDesvinculado);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderConcResult();
