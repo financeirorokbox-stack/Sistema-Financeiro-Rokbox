@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v64/06-88';
+const APP_VERSION = 'v65/06-89';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1185,7 +1185,7 @@ function statusForma(pedido, categoria, valor) {
       return credPeds.includes(String(pedido));
     });
     if (!devPedido.length) return { recebido: false, detalhe: 'não localizado em Devoluções' };
-    const totalDevolvido = devPedido.reduce((s,d) => s+d.valorPago, 0);
+    const totalDevolvido = devPedido.reduce((s,d) => s + valorDevolucaoParaPedido(d, pedido), 0);
     // Pago quando o devolvido cobre o valor (igual ou a mais); só é parcial se faltar.
     if (totalDevolvido >= valor - tol) return { recebido: true, detalhe: `Devolução registrada: ${fmtVal(totalDevolvido)}` };
     if (totalDevolvido > 0) return { recebido: false, parcial: true, detalhe: `Parcial: devolvido ${fmtVal(totalDevolvido)} de ${fmtVal(valor)}` };
@@ -3138,8 +3138,8 @@ function getConciliacaoDevolucao(d) {
         if (st.recebido) totalRecebidoNoPed += f.valor;
       });
 
-      // Adiciona o valor TOTAL da devolução (soma de todos os itens do grupo)
-      totalRecebidoNoPed += (d._valorTotal || d.valorPago);
+      // Adiciona o valor da devolução DIVIDIDO entre os pedidos de crédito (não conta em dobro).
+      totalRecebidoNoPed += (d._valorTotal || d.valorPago) / credList.length;
     });
 
     if (encontrou) {
@@ -3218,6 +3218,14 @@ function credDevolucao(d) {
   const raw = devolucaoCredito[d.pedido + '|' + d.cliente];
   if (raw === '__editando__' || raw === '__vazio__') return '';
   return raw || d.pedidoCredito || '';
+}
+// Parcela de uma devolução que cabe a UM pedido de crédito: DIVIDE o valor entre os pedidos do crédito
+// (ex.: troca com crédito para 2 pedidos → cada um recebe metade). Evita contar o crédito em dobro.
+function valorDevolucaoParaPedido(d, pedId) {
+  const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
+  if (credPeds.includes(String(pedId))) return +((d.valorPago || 0) / credPeds.length).toFixed(2);
+  if (String(d.pedido) === String(pedId)) return d.valorPago || 0;
+  return 0;
 }
 function saveCredito(pedido, cliente, rowIdx) {
   const input1 = document.getElementById('dc-' + rowIdx);
@@ -4058,8 +4066,10 @@ function getRecebimentosDoPedido(ped) {
   });
   devolucoes.forEach(d => {
     const credEf = credDevolucao(d);
-    if ((String(credEf).match(/\d{4,6}/g) || []).includes(pedId))
-      recs.push({ gateway: 'Devolução', bruto: d.valorPago || 0, taxa: 0, liq: d.valorPago || 0, data: d.dataTroca, origem: 'devolução' });
+    if ((String(credEf).match(/\d{4,6}/g) || []).includes(pedId)) {
+      const v = valorDevolucaoParaPedido(d, pedId); // dividido entre os pedidos de crédito
+      recs.push({ gateway: 'Devolução', bruto: v, taxa: 0, liq: v, data: d.dataTroca, origem: 'devolução' });
+    }
   });
   return recs;
 }
