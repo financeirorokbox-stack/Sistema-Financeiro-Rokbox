@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v78/06-102';
+const APP_VERSION = 'v79/06-103';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3630,7 +3630,9 @@ function parseOFXConta(text) {
 // Tenta identificar o banco pelo NOME DO ARQUIVO (ex.: "Itaú - Rokbox - jun26.ofx" → "Itaú - Rokbox").
 // Tolerante a acento/maiúsculas; escolhe o nome cadastrado mais longo que aparece no arquivo.
 function bancoDoNomeArquivo(filename) {
-  const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // Normaliza ignorando acento e tratando traço/underline/espaços como o mesmo separador.
+  // Assim "Itau_ Rk", "Itau-Rk" e "Itaú - Rk" casam.
+  const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[-_\s]+/g, ' ').trim();
   const fn = norm(filename);
   let achado = '';
   bancosCadastro.forEach(b => {
