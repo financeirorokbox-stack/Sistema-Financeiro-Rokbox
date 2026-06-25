@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v84/06-108';
+const APP_VERSION = 'v85/06-109';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5224,7 +5224,7 @@ function renderBanco() {
   const usadosRepasse = repasseUsados();
   // Repasse é só destas operadoras: PayPal, Braavo (iFood) e Boleto Itaú (boletos recebidos).
   const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú'];
-  const gwsPend = GW_REPASSE.filter(g => recebimentosConsolidado.some(r => r.gateway === g && (r.liq||0) > 0 && !usadosRepasse.has(recKeyGlobal(r))));
+  const gwsPend = GW_REPASSE.filter(g => recebimentosConsolidado.some(r => r.gateway === g && valorRepasse(r) > 0 && !usadosRepasse.has(recKeyGlobal(r))));
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
   const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
   const empresasListCb = getEmpresasList();
@@ -5329,11 +5329,11 @@ function renderBanco() {
                   const gwSel = (gw && gwsPend.includes(gw)) ? gw : gwsPend[0];
                   // Recebimentos pendentes da operadora escolhida (para a lista de flegar).
                   const pendRep = recebimentosConsolidado
-                    .filter(r => r.gateway === gwSel && (r.liq||0) > 0 && !usadosRepasse.has(recKeyGlobal(r)))
+                    .filter(r => r.gateway === gwSel && valorRepasse(r) > 0 && !usadosRepasse.has(recKeyGlobal(r)))
                     .sort((a,b) => (a.data||0)-(b.data||0));
                   // Pré-marca SÓ se houver um único recebimento que bate exato (não adivinha combinações).
-                  const exatoUm = pendRep.find(r => Math.abs((r.liq||0) - alvoRep) <= 0.02);
-                  const somaIni = exatoUm ? (exatoUm.liq||0) : 0;
+                  const exatoUm = pendRep.find(r => Math.abs(valorRepasse(r) - alvoRep) <= 0.02);
+                  const somaIni = exatoUm ? valorRepasse(exatoUm) : 0;
                   const corIni = Math.abs(somaIni-alvoRep)<=0.02 ? 'var(--green)' : 'var(--muted)';
                   conc = `<div style="min-width:240px">
                     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -5348,13 +5348,14 @@ function renderBanco() {
                       <input type="text" id="cb-rep-q-${t.id}" placeholder="🔍 Pesquisar pedido, nome, valor..." oninput="cbFiltrarRepList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto">
                         ${pendRep.map(r => {
-                          const exato = Math.abs((r.liq||0)-alvoRep)<=0.02;
+                          const vRep = valorRepasse(r);
+                          const exato = Math.abs(vRep-alvoRep)<=0.02;
                           const pre = exatoUm && r===exatoUm;
-                          const busca = `${r.nped||''} ${r.nome||''} ${(r.liq||0).toFixed(2)} ${r.data?fmtDate(r.data):''}`.toLowerCase().replace(/"/g,'&quot;');
+                          const busca = `${r.nped||''} ${r.nome||''} ${vRep.toFixed(2)} ${r.data?fmtDate(r.data):''}`.toLowerCase().replace(/"/g,'&quot;');
                           return `<label class="cb-rep-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
-                            <input type="checkbox" class="cb-rep-pick-${t.id}" value="${encodeURIComponent(recKeyGlobal(r))}" data-v="${r.liq||0}" ${pre?'checked':''} onchange="cbSomaRepasse('${t.id}',${alvoRep})" style="width:14px;height:14px;flex-shrink:0">
+                            <input type="checkbox" class="cb-rep-pick-${t.id}" value="${encodeURIComponent(recKeyGlobal(r))}" data-v="${vRep}" ${pre?'checked':''} onchange="cbSomaRepasse('${t.id}',${alvoRep})" style="width:14px;height:14px;flex-shrink:0">
                             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${r.nped?`<strong>#${r.nped}</strong> `:''}${(r.nome||'—')}${r.data?` <span style="color:var(--muted);font-size:10px">· ${fmtDate(r.data)}</span>`:''}</span>
-                            <span style="color:var(--muted);white-space:nowrap">${fmtVal(r.liq||0)}</span>
+                            <span style="color:var(--muted);white-space:nowrap">${fmtVal(vRep)}</span>
                           </label>`;
                         }).join('')}
                       </div>
@@ -5558,16 +5559,22 @@ function gwLabel(g) {
   if (g === 'Boleto Itaú') return 'Boleto Itaú (Recebidos)';
   return g;
 }
+// Valor que efetivamente cai no banco neste recebimento (= o que bate com o depósito do extrato):
+// boleto = valor PAGO (bruto, já com juros/desconto, igual ao que aparece em Cobrança); demais = líquido.
+function valorRepasse(r) {
+  if (r.gateway === 'Boleto Itaú') return r.bruto != null ? r.bruto : (r.liq || 0);
+  return r.liq || 0;
+}
 // Acumula recebimentos pendentes da operadora (mais antigo → mais novo) até bater o valor do depósito.
 function acumularRepasse(gw, valor, usados) {
   // NÃO filtra os "período anterior": eles continuam contando no depósito do banco.
   const cands = recebimentosConsolidado
-    .filter(r => r.gateway === gw && (r.liq||0) > 0 && !usados.has(recKeyGlobal(r)))
+    .filter(r => r.gateway === gw && valorRepasse(r) > 0 && !usados.has(recKeyGlobal(r)))
     .sort((a,b) => (a.data||0)-(b.data||0));
   const itens = []; let soma = 0;
   for (const r of cands) {
     if (soma >= valor - 0.02) break;
-    itens.push(r); soma += (r.liq||0);
+    itens.push(r); soma += valorRepasse(r);
   }
   return { itens, soma, n: itens.length, totalPend: cands.length };
 }
