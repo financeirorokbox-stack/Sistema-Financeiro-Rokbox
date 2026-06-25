@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v79/06-103';
+const APP_VERSION = 'v80/06-104';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -468,7 +468,7 @@ async function deleteData(key) {
 async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
@@ -497,7 +497,7 @@ async function zerarSistema() {
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
   const KEYS = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
     'extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
@@ -897,6 +897,7 @@ let recebimentosConsolidado = [];
 let boletoStatus = {};
 let boletoConfig = {};
 let boletoCobrancaStatus = {};
+let boletosAvulsos = []; // boletos PAGOS de pedidos que NÃO estão no sistema (importados do relatório Itaú)
 let extratoBancario = [];
 let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
@@ -2922,10 +2923,25 @@ function syncBoletosToRecebimentos() {
     });
   });
 
+  // Boletos AVULSOS (pagos, de pedidos fora do sistema) — importados do relatório Itaú.
+  boletosAvulsos.forEach(a => {
+    recebimentosConsolidado.push({
+      gateway: 'Boleto Itaú',
+      bruto: a.valorPago != null ? a.valorPago : a.valorTitulo,
+      taxa: 0,
+      liq: a.valorTitulo != null ? a.valorTitulo : a.valorPago,
+      data: a.dataPagamento || a.vencimento,
+      nped: a.pedido,
+      nome: a.cliente,
+      tipo: 'Boleto',
+      status: 'pago',
+      _avulso: true
+    });
+  });
+
   recebimentos = recebimentosConsolidado;
-  saveData('recebimentos', recebimentosConsolidado);
+  saveData('recebimentosConsolidado', recebimentosConsolidado); // chave CORRETA (é a que o sistema carrega)
   renderRecebimentos();
-  
 }
 
 function renderBoletos() {
@@ -3084,7 +3100,36 @@ function processCobrancaWorkbook(wb) {
   });
 
   saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+
+  // Boletos PAGOS de pedidos que NÃO estão no sistema (antigos) → você confirma e entram como recebidos.
+  const cand = cobrancaRows.filter(c => {
+    const pago = !!c.dataPagamento || (c.status || '').includes('pag');
+    if (!pago || !c.pedido) return false;
+    if (pedidos.find(p => String(p.id) === String(c.pedido))) return false; // pedido ESTÁ no sistema → fluxo normal
+    return !boletosAvulsos.some(a => String(a.pedido) === String(c.pedido) && Math.abs((a.valorPago||0) - (c.valorPago||0)) <= 0.05); // já importado
+  });
+  if (cand.length) {
+    const total = cand.reduce((s, c) => s + (c.valorPago || 0), 0);
+    const lista = cand.slice(0, 15).map(c => `#${c.pedido} ${(c.pagador||'').slice(0,24)} — ${fmtVal(c.valorPago)}`).join('\n');
+    if (confirm(`${cand.length} boleto(s) PAGO(s) de pedidos que NÃO estão no sistema (total ${fmtVal(total)}):\n\n${lista}${cand.length>15?'\n…':''}\n\nAdicionar como recebidos (Boleto Itaú)?`)) {
+      cand.forEach(c => boletosAvulsos.push({
+        pedido: String(c.pedido), cliente: c.pagador || '', valorTitulo: c.valorTitulo,
+        valorPago: c.valorPago, dataPagamento: c.dataPagamento, vencimento: c.vencimento
+      }));
+      saveData('boletosAvulsos', boletosAvulsos);
+    }
+  }
+
   syncBoletosToRecebimentos();
+}
+function removerBoletoAvulso(i) {
+  const a = boletosAvulsos[i];
+  if (!a) return;
+  if (!confirm(`Remover o boleto avulso #${a.pedido} (${fmtVal(a.valorPago||0)})?`)) return;
+  boletosAvulsos.splice(i, 1);
+  saveData('boletosAvulsos', boletosAvulsos);
+  syncBoletosToRecebimentos();
+  renderCobranca();
 }
 function isBoletoRecebidoFile(file, wb) {
   const fn = file.name.toLowerCase();
@@ -3134,7 +3179,19 @@ function renderCobranca() {
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">
       ${dateFilterHTML()}
-    </div>`;
+    </div>
+    ${boletosAvulsos.length ? `
+    <div class="section-title">Boletos pagos de pedidos fora do sistema (${boletosAvulsos.length})</div>
+    <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr>
+      <th>Pedido</th><th>Pagador</th><th>Valor Pago</th><th>Pagamento</th><th></th>
+    </tr></thead><tbody>
+      ${boletosAvulsos.map((a,i)=>`<tr>
+        <td><strong>#${a.pedido}</strong></td><td>${a.cliente||'—'}</td>
+        <td>${fmtVal(a.valorPago||0)}</td><td>${a.dataPagamento?fmtDate(a.dataPagamento):'—'}</td>
+        <td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover este boleto avulso">🗑</button></td>
+      </tr>`).join('')}
+      <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total</strong></td><td><strong>${fmtVal(boletosAvulsos.reduce((s,a)=>s+(a.valorPago||0),0))}</strong></td><td colspan="2"></td></tr>
+    </tbody></table></div>` : ''}`;
 
   setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
     processCobrancaWorkbook(wb);
@@ -6002,7 +6059,7 @@ function delCheckboxHeader(source) {
 
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
@@ -6015,6 +6072,7 @@ function delCheckboxHeader(source) {
       boletoCobrancaStatus = {};
       Object.entries(v).forEach(([kk,vv])=>{boletoCobrancaStatus[kk]={...vv,dataPagamento:vv.dataPagamento?new Date(vv.dataPagamento):null};});
     }
+    else if (k==='boletosAvulsos') boletosAvulsos = (v||[]).map(a=>({...a,dataPagamento:a.dataPagamento?new Date(a.dataPagamento):null,vencimento:a.vencimento?new Date(a.vencimento):null}));
     else if (k==='extratoBancario') extratoBancario = v.map(t=>({...t,data:t.data?new Date(t.data):null}));
     else if (k==='devolucoes') devolucoes = v.map(d=>({...d,dataTroca:d.dataTroca?new Date(d.dataTroca):null}));
     else if (k==='boletoConfig') {
