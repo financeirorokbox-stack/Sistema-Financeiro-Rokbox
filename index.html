@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v80/06-104';
+const APP_VERSION = 'v81/06-105';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3073,6 +3073,8 @@ function parseItauCobrancaSheet(wb) {
 }
 function processCobrancaWorkbook(wb) {
   const cobrancaRows = parseItauCobrancaSheet(wb);
+  const boletos = getBoletosDaForma(); // boletos do sistema (vindos da Forma de Pagamento)
+  let nBaixados = 0;
 
   boletos.forEach(b => {
     if (!boletoStatus[b.key]) return;
@@ -3089,6 +3091,7 @@ function processCobrancaWorkbook(wb) {
       );
     }
     if (match) {
+      nBaixados++;
       boletoCobrancaStatus[b.key] = {
         dataPagamento: match.dataPagamento,
         pago: !!match.dataPagamento || match.status.includes('pag'),
@@ -3100,6 +3103,10 @@ function processCobrancaWorkbook(wb) {
   });
 
   saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+  if (!cobrancaRows.length) {
+    alert('⚠ Não consegui ler os boletos do arquivo (0 linhas).\n\nVerifique se é o relatório do Itaú com as colunas Pagador e Valor Título. Se for, me manda um print do cabeçalho da planilha.');
+    return;
+  }
 
   // Boletos PAGOS de pedidos que NÃO estão no sistema (antigos) → você confirma e entram como recebidos.
   const cand = cobrancaRows.filter(c => {
@@ -3118,6 +3125,10 @@ function processCobrancaWorkbook(wb) {
       }));
       saveData('boletosAvulsos', boletosAvulsos);
     }
+  } else if (nBaixados === 0) {
+    alert(`Li ${cobrancaRows.length} boleto(s) do relatório, mas:\n• nenhum casou com boleto do sistema (verifique se você marcou os boletos como "Emitido" em Boletos a Emitir)\n• nenhum era de pedido fora do sistema pendente.\n\nSe esperava ver boletos de pedidos antigos, confirme que o "Seu Número" do relatório é o nº do pedido.`);
+  } else {
+    alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\nBaixados no sistema: ${nBaixados}.`);
   }
 
   syncBoletosToRecebimentos();
