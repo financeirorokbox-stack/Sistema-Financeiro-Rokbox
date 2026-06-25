@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v74/06-98';
+const APP_VERSION = 'v75/06-99';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -469,7 +469,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -901,6 +901,7 @@ let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na 
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
+let vendedorFixes = {}; // { pedidoId: vendedor } — vendedor preenchido na mão para pedidos sem vendedor
 let opMapping = {};
 let lojaCadastro = {};
 let empresasCadastro = []; // nomes de empresas (rateio / identificação de relatórios)
@@ -1403,6 +1404,7 @@ function renderVendas() {
     const newPeds = Object.values(map);
     newPeds.forEach(np => {
       if (lojaFixes[np.id]) np.loja = lojaFixes[np.id];
+      if (vendedorFixes[np.id]) np.vendedor = vendedorFixes[np.id];
       const existing = pedidos.find(p => p.id === np.id);
       if (!existing) pedidos.push(np);
       else Object.assign(existing, np);
@@ -1652,7 +1654,7 @@ function renderPedidosTable() {
   }
   const sorted = [...filtered].sort((a,b)=>(b.data||0)-(a.data||0));
   tEl.innerHTML = `<div class="table-wrap"><table><thead><tr>
-    ${delCheckboxHeader('pedidos')}<th>Pedido</th><th>Cliente</th><th>Empresa</th><th>Loja ✏</th><th>Vendedor</th><th>Operação</th><th>Data</th><th>Valor</th><th>Situação</th>
+    ${delCheckboxHeader('pedidos')}<th>Pedido</th><th>Cliente</th><th>Empresa</th><th>Loja ✏</th><th>Vendedor ✏</th><th>Operação</th><th>Data</th><th>Valor</th><th>Situação</th>
   </tr></thead><tbody>${sorted.map(p => {
     const realIdx = pedidos.indexOf(p);
     const cls = getClassificacao(p);
@@ -1665,7 +1667,7 @@ function renderPedidosTable() {
       <td>${p.nome}</td>
       <td>${p.empresa ? `<span class="badge info">${p.empresa}</span>` : '—'}</td>
       <td>${p.loja||'—'} <button class="btn ghost sm" onclick="editarLoja('${p.id}',this)" style="font-size:10px;padding:1px 5px">✏</button></td>
-      <td>${p.vendedor||'—'}</td>
+      <td>${p.vendedor||'<span style="color:var(--amber)">sem vendedor</span>'} <button class="btn ghost sm" onclick="editarVendedor('${p.id}',this)" style="font-size:10px;padding:1px 5px">✏</button></td>
       <td>${opBadge}</td>
       <td>${fmtDate(p.data)}</td>
       <td>${fmtVal(p.valor)}</td>
@@ -1706,6 +1708,28 @@ function salvarLojaInline(id) {
   saveData('lojaFixes', lojaFixes);
   const p = pedidos.find(p=>p.id===String(id));
   if (p) p.loja = val;
+  saveData('pedidos', pedidos);
+  renderPedidosTable();
+}
+// ── Vendedor: preencher/editar pedidos sem vendedor ──
+function editarVendedor(id, btn) {
+  const td = btn.parentElement;
+  const cur = pedidos.find(p => String(p.id) === String(id))?.vendedor || '';
+  const vends = [...new Set(pedidos.map(p => p.vendedor).filter(Boolean))].sort();
+  td.innerHTML = `<input class="inline-input" id="ve-${id}" list="vendedores-lista" value="${cur.replace(/"/g,'&quot;')}" placeholder="Nome do vendedor" style="width:150px"
+      onkeydown="if(event.key==='Enter')salvarVendedorInline('${id}');if(event.key==='Escape')renderPedidosTable()">
+    <datalist id="vendedores-lista">${vends.map(v => `<option value="${v.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    <button class="btn primary sm" onclick="salvarVendedorInline('${id}')">OK</button>
+    <button class="btn ghost sm" onclick="renderPedidosTable()">✕</button>`;
+  document.getElementById('ve-' + id)?.focus();
+}
+function salvarVendedorInline(id) {
+  const val = (document.getElementById('ve-' + id)?.value || '').trim();
+  if (!val) return;
+  vendedorFixes[id] = val;
+  saveData('vendedorFixes', vendedorFixes);
+  const p = pedidos.find(p => String(p.id) === String(id));
+  if (p) p.vendedor = val;
   saveData('pedidos', pedidos);
   renderPedidosTable();
 }
@@ -5942,7 +5966,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -5967,6 +5991,7 @@ function delCheckboxHeader(source) {
     else if (k==='bancosCadastro') bancosCadastro = v;
     else if (k==='vendasFilters') vendasFilters = v;
     else if (k==='lojaFixes') lojaFixes = v;
+    else if (k==='vendedorFixes') vendedorFixes = v || {};
     else if (k==='opMapping') opMapping = v;
     else if (k==='extratoLinks') extratoLinks = v;
     else if (k==='devolucaoCredito') devolucaoCredito = v;
@@ -5986,7 +6011,7 @@ function delCheckboxHeader(source) {
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
   }
 
-  pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
+  pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
   initLojaCadastro();
   try { syncExtratoToRecebimentos(); } catch(e) {} // reconstrói os PIX do extrato a partir dos vínculos salvos (corrige PIX que sumia no reload)
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
