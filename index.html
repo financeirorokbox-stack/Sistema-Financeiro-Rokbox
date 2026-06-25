@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v76/06-100';
+const APP_VERSION = 'v77/06-101';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3841,9 +3841,18 @@ function renderExtrato() {
   setupUpload('file-ext','card-ext','status-ext',({file})=>{
     const reader = new FileReader();
     reader.onload = ev => {
-      const novas = parseOFX(ev.target.result);
+      const raw = String(ev.target.result || '');
+      const novas = parseOFX(raw);
+      // Diagnóstico: se não leu nada, mostra o porquê e o início do arquivo (pra eu ajustar o parser).
+      if (!novas.length) {
+        const temTrn = /<STMTTRN/i.test(raw);
+        alert(`⚠ Não encontrei lançamentos no arquivo "${file.name}".\n\n` +
+          (temTrn ? 'O arquivo TEM transações, mas o formato está diferente do esperado.' : 'Não parece um extrato OFX (não achei <STMTTRN>). Confirme que exportou em formato OFX no Itaú.') +
+          `\n\nTamanho: ${(file.size/1024).toFixed(1)} KB\nInício do arquivo:\n` + raw.replace(/[\r\n]+/g, ' ').slice(0, 280));
+        return;
+      }
       // Pergunta o banco (o usuário gosta de confirmar), já sugerindo o que casa com o nome do arquivo.
-      const banco = escolherBancoDoArquivo(parseOFXConta(ev.target.result), file.name);
+      const banco = escolherBancoDoArquivo(parseOFXConta(raw), file.name);
       // ACUMULA sem duplicar: usa o FITID do banco quando existe; senão data+valor+descrição.
       const chave = t => (t.id && !String(t.id).startsWith('ofx-'))
         ? 'id:' + t.id
@@ -3871,6 +3880,8 @@ function renderExtrato() {
       renderExtrato();
       const stEl = document.getElementById('status-ext');
       if (stEl) stEl.textContent = '✓ ' + extratoBancario.length + ' lançamentos (+' + add + ' novos)';
+      const cred = novas.filter(t => t.valor > 0).length, deb = novas.filter(t => t.valor < 0).length;
+      alert(`✓ Extrato "${file.name}" lido!\nBanco: ${banco || '(sem banco)'}\nTransações no arquivo: ${novas.length} (${cred} créditos, ${deb} débitos)\nNovas adicionadas: ${add}${add < novas.length ? ' (o resto já existia)' : ''}`);
     };
     reader.readAsText(file,'UTF-8');
   });
