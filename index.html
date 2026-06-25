@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v66/06-90';
+const APP_VERSION = 'v67/06-91';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1798,6 +1798,14 @@ function _renderContasImpl(el) {
           restante = 0;
         }
       });
+  });
+
+  // Diferença ACEITA na Conciliação de Recebíveis (Por Pedido) → resolve o pedido aqui também
+  // (deixa de aparecer como Parcial/Em Aberto; o valor não vai mais ser cobrado).
+  linhas.forEach(l => {
+    if (!l.st.recebido && difAceita[String(l.ped.id)] === 'aceito') {
+      l.st = { recebido: true, detalhe: '✓ diferença aceita na conciliação' };
+    }
   });
 
   _linhasCR = linhas; // guarda para a exportação (modelo Contas a Receber)
