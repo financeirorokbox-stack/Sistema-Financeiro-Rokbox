@@ -359,7 +359,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v67/06-91';
+const APP_VERSION = 'v68/06-92';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3612,7 +3612,7 @@ function syncExtratoToRecebimentos() {
   });
 
   recebimentos = recebimentosConsolidado;
-  saveData('recebimentos', recebimentosConsolidado);
+  saveData('recebimentosConsolidado', recebimentosConsolidado); // chave CORRETA (é a que o sistema carrega)
 }
 
 function renderExtrato() {
@@ -5883,6 +5883,7 @@ function delCheckboxHeader(source) {
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; });
   initLojaCadastro();
+  try { syncExtratoToRecebimentos(); } catch(e) {} // reconstrói os PIX do extrato a partir dos vínculos salvos (corrige PIX que sumia no reload)
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
 
   // Testa conexão Supabase
