@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v83/06-107';
+const APP_VERSION = 'v84/06-108';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5323,15 +5323,47 @@ function renderBanco() {
                      ${Math.abs(dif)>0.02?`<span style="color:var(--amber);font-size:10px">dif ${fmtVal(dif)}</span>`:''}
                      <button class="btn ghost sm" onclick="cbDesfazerRepasse('${t.id}')">Desfazer</button>`;
                 } else if (gwsPend.length) {
-                  // Seletor da operadora (já vem marcado o que o texto sugere); acumula por data até bater.
-                  const prev = gw ? acumularRepasse(gw, Math.abs(t.valor), usadosRepasse) : null;
-                  conc = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                      <select id="cb-rep-gw-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-                        ${gwsPend.map(g=>`<option value="${g.replace(/"/g,'&quot;')}" ${g===gw?'selected':''}>${gwLabel(g)}</option>`).join('')}
+                  // Seletor da operadora (já vem marcado o que o texto sugere) + lista para flegar os
+                  // recebimentos EXATOS deste depósito (evita o acúmulo guloso estourar o valor).
+                  const alvoRep = Math.abs(t.valor);
+                  const gwSel = (gw && gwsPend.includes(gw)) ? gw : gwsPend[0];
+                  // Recebimentos pendentes da operadora escolhida (para a lista de flegar).
+                  const pendRep = recebimentosConsolidado
+                    .filter(r => r.gateway === gwSel && (r.liq||0) > 0 && !usadosRepasse.has(recKeyGlobal(r)))
+                    .sort((a,b) => (a.data||0)-(b.data||0));
+                  // Pré-marca SÓ se houver um único recebimento que bate exato (não adivinha combinações).
+                  const exatoUm = pendRep.find(r => Math.abs((r.liq||0) - alvoRep) <= 0.02);
+                  const somaIni = exatoUm ? (exatoUm.liq||0) : 0;
+                  const corIni = Math.abs(somaIni-alvoRep)<=0.02 ? 'var(--green)' : 'var(--muted)';
+                  conc = `<div style="min-width:240px">
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                      <select id="cb-rep-gw-${t.id}" onchange="renderBanco()" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                        ${gwsPend.map(g=>`<option value="${g.replace(/"/g,'&quot;')}" ${g===gwSel?'selected':''}>${gwLabel(g)}</option>`).join('')}
                       </select>
-                      <button class="btn primary sm" onclick="cbConciliarRepasse('${t.id}')" title="Acumula os recebimentos pendentes da operadora (mais antigo → novo) até bater o depósito">⚡ Conciliar repasse${prev&&prev.n?` (~${prev.n} · ${fmtVal(prev.soma)})`:''}</button>
+                      <button class="btn ghost sm" onclick="cbToggleRepBox('${t.id}')" title="Escolher exatamente os recebimentos deste depósito">▾ Escolher</button>
                       <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a um pedido específico (PIX)">↪ Extrato</button>
-                    </div>`;
+                    </div>
+                    ${pendRep.length ? `
+                    <div id="cb-rep-box-${t.id}" style="display:none;margin-top:6px">
+                      <input type="text" id="cb-rep-q-${t.id}" placeholder="🔍 Pesquisar pedido, nome, valor..." oninput="cbFiltrarRepList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
+                      <div style="border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto">
+                        ${pendRep.map(r => {
+                          const exato = Math.abs((r.liq||0)-alvoRep)<=0.02;
+                          const pre = exatoUm && r===exatoUm;
+                          const busca = `${r.nped||''} ${r.nome||''} ${(r.liq||0).toFixed(2)} ${r.data?fmtDate(r.data):''}`.toLowerCase().replace(/"/g,'&quot;');
+                          return `<label class="cb-rep-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
+                            <input type="checkbox" class="cb-rep-pick-${t.id}" value="${encodeURIComponent(recKeyGlobal(r))}" data-v="${r.liq||0}" ${pre?'checked':''} onchange="cbSomaRepasse('${t.id}',${alvoRep})" style="width:14px;height:14px;flex-shrink:0">
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${r.nped?`<strong>#${r.nped}</strong> `:''}${(r.nome||'—')}${r.data?` <span style="color:var(--muted);font-size:10px">· ${fmtDate(r.data)}</span>`:''}</span>
+                            <span style="color:var(--muted);white-space:nowrap">${fmtVal(r.liq||0)}</span>
+                          </label>`;
+                        }).join('')}
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                        <span id="cb-rep-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvoRep)}</span>
+                        <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularRepasse('${t.id}',${alvoRep})">Vincular flegados</button>
+                      </div>
+                    </div>` : `<div style="font-size:11px;color:var(--muted);margin-top:4px">Sem recebimentos pendentes de ${gwLabel(gwSel)}.</div>`}
+                  </div>`;
                 } else {
                   conc = `<span style="color:var(--amber);font-size:11px">pendente</span>
                      <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
@@ -5569,6 +5601,49 @@ function cbDesfazerRepasse(extId) {
   const t = extratoBancario.find(x => x.id === extId);
   if (t && bloqueadoPorFechamento(t.data)) return;
   delete repasseLinks[extId];
+  saveData('repasseLinks', repasseLinks);
+  renderBanco();
+}
+// Abre/fecha a lista de recebimentos para flegar manualmente neste depósito.
+function cbToggleRepBox(extId) {
+  const box = document.getElementById('cb-rep-box-' + extId);
+  if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+// Filtra a lista de recebimentos pela busca digitada.
+function cbFiltrarRepList(extId) {
+  const q = (document.getElementById('cb-rep-q-' + extId)?.value || '').toLowerCase().trim();
+  document.querySelectorAll('.cb-rep-row-' + extId).forEach(row => {
+    row.style.display = (!q || (row.dataset.busca || '').includes(q)) ? '' : 'none';
+  });
+}
+// Atualiza a soma dos recebimentos flegados vs o valor do depósito.
+function cbSomaRepasse(extId, alvo) {
+  const checks = [...document.querySelectorAll('.cb-rep-pick-' + extId + ':checked')];
+  const soma = checks.reduce((s, cb) => s + (parseFloat(cb.dataset.v) || 0), 0);
+  const el = document.getElementById('cb-rep-soma-' + extId);
+  if (el) {
+    const dif = Math.abs(soma - alvo);
+    const cor = dif <= 0.02 ? 'var(--green)' : (dif <= 1 ? 'var(--amber)' : 'var(--muted)');
+    el.innerHTML = `Flegado: <strong style="color:${cor}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}`;
+  }
+}
+// Concilia o depósito SÓ com os recebimentos que o usuário flegou (não adivinha combinações).
+function cbVincularRepasse(extId, alvo) {
+  const t = extratoBancario.find(x => x.id === extId);
+  if (!t) return;
+  if (bloqueadoPorFechamento(t.data)) return;
+  const gw = document.getElementById('cb-rep-gw-' + extId)?.value || '';
+  const checks = [...document.querySelectorAll('.cb-rep-pick-' + extId + ':checked')];
+  if (!checks.length) { alert('Marque pelo menos um recebimento.'); return; }
+  const usados = repasseUsados();
+  const itens = checks.map(cb => decodeURIComponent(cb.value))
+    .filter(k => !usados.has(k)); // não reusa recebimento já amarrado a outro depósito
+  if (!itens.length) { alert('Os recebimentos marcados já estão conciliados em outro depósito.'); return; }
+  const soma = checks.reduce((s, cb) => s + (parseFloat(cb.dataset.v) || 0), 0);
+  const dif = soma - alvo;
+  if (Math.abs(dif) > 0.02 &&
+      !confirm(`Os recebimentos flegados somam ${fmtVal(soma)} — depósito de ${fmtVal(alvo)} (diferença ${fmtVal(dif)}).\n\nConciliar mesmo assim?`)) return;
+  repasseLinks[extId] = { gateway: gw, total: soma, data: t.data, itens };
   saveData('repasseLinks', repasseLinks);
   renderBanco();
 }
