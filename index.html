@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v75/06-99';
+const APP_VERSION = 'v76/06-100';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -606,9 +606,17 @@ function readSpreadsheetFile(file, callback) {
       callback({ csvRows: parseCSV(text), wb: null });
     };
     reader.readAsText(file, 'UTF-8');
+  } else if (fn.endsWith('.ofx') || fn.endsWith('.qfx')) {
+    // OFX/QFX não é planilha — o handler lê o arquivo por conta própria (parseOFX).
+    callback({ csvRows: null, wb: null });
   } else {
     const reader = new FileReader();
-    reader.onload = ev => callback({ csvRows: null, wb: XLSX.read(ev.target.result, { type: 'array', cellDates: true }) });
+    reader.onload = ev => {
+      let wb = null;
+      try { wb = XLSX.read(ev.target.result, { type: 'array', cellDates: true }); }
+      catch (e) { console.warn('Não consegui ler como planilha:', e.message); }
+      callback({ csvRows: null, wb }); // sempre chama o callback (não trava o upload)
+    };
     reader.readAsArrayBuffer(file);
   }
 }
@@ -1490,7 +1498,9 @@ function getVFOptions() {
       if (op && OPS_VALIDAS.includes(op)) o.add(cls.operacao || opMapping[opKey(p.loja,p.situacao)]);
     }
   });
-  return { situacao:[...s].sort(), empresa:[...e].sort(), loja:[...l].sort(), vendedor:[...v].sort(), operacao:[...o].sort() };
+  const vendList = [...v].sort();
+  if (pedidos.some(p => !p.vendedor)) vendList.unshift('(sem vendedor)'); // achar quem está sem vendedor
+  return { situacao:[...s].sort(), empresa:[...e].sort(), loja:[...l].sort(), vendedor:vendList, operacao:[...o].sort() };
 }
 
 function toggleVF(field, value, checked) {
@@ -1599,7 +1609,7 @@ function getFilteredPedidos() {
     if (vendasFilters.empresa.length && !vendasFilters.empresa.includes(p.empresa||'')) return false;
     if (vendasFilters.situacao.length && !vendasFilters.situacao.includes(p.situacao)) return false;
     if (vendasFilters.loja.length && !vendasFilters.loja.includes(p.loja)) return false;
-    if (vendasFilters.vendedor.length && !vendasFilters.vendedor.includes(p.vendedor)) return false;
+    if (vendasFilters.vendedor.length && !vendasFilters.vendedor.includes(p.vendedor || '(sem vendedor)')) return false;
     if (vendasFilters.operacao.length) {
       const cls = getClassificacao(p);
       const op = cls.naoAplicavel ? '—' : (cls.operacao || opMapping[opKey(p.loja,p.situacao)] || '');
