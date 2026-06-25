@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v71/06-95';
+const APP_VERSION = 'v72/06-96';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4816,6 +4816,25 @@ function initLojaCadastro() {
 // ════════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ════════════════════════════════════════════════════════════════════
+// Gráfico de barras horizontais simples (sem biblioteca): { chave: {pedidos, valor} }
+function barrasHTML(dataObj, total, cor) {
+  const entries = Object.entries(dataObj).sort((a, b) => b[1].valor - a[1].valor);
+  if (!entries.length) return '<div style="color:var(--muted);font-size:12px;padding:8px">Sem dados no período</div>';
+  const max = Math.max(1, ...entries.map(([, d]) => d.valor));
+  return entries.map(([k, d]) => {
+    const pct = (d.valor / max * 100);
+    const pctTot = total > 0 ? (d.valor / total * 100).toFixed(1) : '0';
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;gap:8px">
+        <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${k}</span>
+        <span style="color:var(--muted);white-space:nowrap">${fmtVal(d.valor)} · ${d.pedidos} ped · ${pctTot}%</span>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;height:16px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${cor};border-radius:6px;min-width:2px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
 function renderDashboard() {
   const el = document.getElementById('v-dashboard');
 
@@ -4846,6 +4865,19 @@ function renderDashboard() {
     if (!porEmpresa[emp]) porEmpresa[emp] = { pedidos: 0, valor: 0 };
     porEmpresa[emp].pedidos++;
     porEmpresa[emp].valor += p.valor;
+  });
+  // Por segmento e por vendedor (valor = valor do pedido por enquanto; depois vira faturamento)
+  const porSegmento = {};
+  pedVenda.forEach(p => {
+    const seg = getClassificacao(p).segmento || 'Sem segmento';
+    if (!porSegmento[seg]) porSegmento[seg] = { pedidos: 0, valor: 0 };
+    porSegmento[seg].pedidos++; porSegmento[seg].valor += p.valor;
+  });
+  const porVendedor = {};
+  pedVenda.forEach(p => {
+    const vend = p.vendedor || 'Sem vendedor';
+    if (!porVendedor[vend]) porVendedor[vend] = { pedidos: 0, valor: 0 };
+    porVendedor[vend].pedidos++; porVendedor[vend].valor += p.valor;
   });
 
   // Contas a Receber — EM ABERTO vs PAGO
@@ -4936,6 +4968,7 @@ function renderDashboard() {
           <td>${fmtVal(d.valor)}</td>
           <td style="color:var(--muted)">${totalVendido>0?(d.valor/totalVendido*100).toFixed(1)+'%':'—'}</td>
         </tr>`).join('')}
+        <tr style="border-top:2px solid var(--border)"><td><strong>Total</strong></td><td><strong>${totalVendas}</strong></td><td><strong>${fmtVal(totalVendido)}</strong></td><td>100%</td></tr>
         </tbody></table></div>
       </div>
       <div>
@@ -4951,6 +4984,22 @@ function renderDashboard() {
         </tr>`).join('')}
         ${Object.keys(porGw).length===0?'<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Nenhum recebimento no período</td></tr>':''}
         </tbody></table></div>
+      </div>
+    </div>
+
+    <!-- Por Segmento e por Vendedor (gráficos) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+      <div>
+        <div class="section-title">Vendas por Segmento</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
+          ${barrasHTML(porSegmento, totalVendido, 'var(--accent)')}
+        </div>
+      </div>
+      <div>
+        <div class="section-title">Vendas por Vendedor</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
+          ${barrasHTML(porVendedor, totalVendido, 'var(--green)')}
+        </div>
       </div>
     </div>
 
