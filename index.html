@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v73/06-97';
+const APP_VERSION = 'v74/06-98';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3565,7 +3565,12 @@ function parseOFXDate(s) {
 }
 function parseOFX(text) {
   const out = [];
-  const blocks = text.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi) || [];
+  // OFX 2.x (XML, com </STMTTRN>) E OFX 1.x/SGML do Itaú (sem tags de fechamento).
+  let blocks = text.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi);
+  if (!blocks || !blocks.length) {
+    // SGML: cada transação vai de <STMTTRN> até o próximo <STMTTRN> ou o fim da lista.
+    blocks = text.split(/<STMTTRN>/i).slice(1).map(p => p.split(/<\/BANKTRANLIST>|<\/STMTTRN>/i)[0]);
+  }
   blocks.forEach((block, idx) => {
     const get = tag => {
       const m = block.match(new RegExp('<' + tag + '>([^<\\r\\n]*)', 'i'));
