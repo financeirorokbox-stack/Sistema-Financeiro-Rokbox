@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v69/06-93';
+const APP_VERSION = 'v70/06-94';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3637,7 +3637,10 @@ function unlinkExtrato(id) {
   renderExtrato();
 }
 function syncExtratoToRecebimentos() {
-  recebimentosConsolidado = recebimentosConsolidado.filter(r => r.gateway !== 'Transferência Bancária' && r.gateway !== 'PIX (Extrato)');
+  // Remove só os PIX que ESTA função criou (têm _extratoId) — serão recriados a partir dos vínculos.
+  // PRESERVA PIX feitos na mão (ex.: "jogar sobra", sem _extratoId) para não apagar ajuste manual.
+  recebimentosConsolidado = recebimentosConsolidado.filter(r =>
+    r.gateway !== 'Transferência Bancária' && !(r.gateway === 'PIX (Extrato)' && r._extratoId));
 
   Object.entries(extratoLinks).forEach(([id, link]) => {
     const t = extratoBancario.find(x => x.id === id);
@@ -4160,7 +4163,7 @@ function autoVincularPorValor() {
       if (recebimentosConsolidado.some((r, idx) => String(r.nped) === String(ped.id) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
       const cands = recebimentosConsolidado
         .map((r, idx) => ({ r, idx }))
-        .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5 && !recebFoiDesvinculadoManual(r));
+        .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5 && !recebFoiDesvinculadoManual(r) && !recebPeriodoAnterior(r));
       let escolha = null;
       if (cands.length === 1) escolha = cands[0]; // valor ÚNICO → vincula direto (mesmo sem nome)
       else if (cands.length > 1) { const bn = cands.filter(c => nomesBatem(c.r.nome, ped.nome)); if (bn.length === 1) escolha = bn[0]; } // empata pelo nome
