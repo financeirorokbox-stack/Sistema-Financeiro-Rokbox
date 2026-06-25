@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v82/06-106';
+const APP_VERSION = 'v83/06-107';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3872,10 +3872,13 @@ function renderExtrato() {
           ? `<span class="saved-label">✓ ${link.pedido.split(',').map(p=>`#${p}`).join(' + ')}</span>
              <button class="btn ghost sm" onclick="unlinkExtrato('${t.id}');renderExtrato()">Desfazer</button>`
           : (() => {
-              // Pedidos EM ABERTO com forma PIX em Contas a Receber
+              // Pedidos EM ABERTO que entram pelo banco (PIX, Boleto, Depósito, Dinheiro…).
+              // Exclui gateways que conciliam por fora (PayPal/Braavo/Cartão) e o que não é receita.
+              const GW_FORA = ['PayPal', 'BraavoPay', 'Cartão'];
               const pixAbertos = formaPagamento.filter(f => {
                 const c = classificaForma(f.descricao);
-                if (c.categoria !== 'Pix (Extrato/OFX)') return false;
+                if (!c.isReceita) return false;
+                if (GW_FORA.includes(c.categoria)) return false;
                 const st = statusForma(f.pedido, c.categoria, f.valor);
                 if (st.recebido) return false;
                 const ped = pedidos.find(p => p.id === f.pedido);
@@ -3894,7 +3897,7 @@ function renderExtrato() {
                   <input id="ext-txt-${t.id}" type="number" placeholder="Nº do pedido"
                     style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none"
                     onkeydown="if(event.key==='Enter'){extAddManual('${t.id}');this.value=''}">
-                  ${pixAbertos.length > 0 ? `<button class="btn ghost sm" onclick="toggleExtList('${t.id}')" title="Ver pedidos PIX em aberto">▾ Lista</button>` : ''}
+                  ${pixAbertos.length > 0 ? `<button class="btn ghost sm" onclick="toggleExtList('${t.id}')" title="Ver pedidos em aberto (PIX, Boleto, etc.)">▾ Lista</button>` : ''}
                   <button class="btn primary sm" onclick="linkExtratoInline('${t.id}')">Vincular</button>
                 </div>
                 <!-- Lista suspensa (escondida por padrão) -->
@@ -3905,11 +3908,15 @@ function renderExtrato() {
                     const diff = Math.abs(f.valor - t.valor);
                     const icon = diff <= 0.10 ? '⚡ ' : '';
                     const bg = diff <= 0.10 ? 'background:var(--green-bg)' : '';
+                    const cat = classificaForma(f.descricao).categoria;
+                    const isBol = cat === 'Boleto Itaú';
+                    const badge = `<span style="font-size:10px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;${isBol?'background:#fde9c8;color:#8a5a00':'background:var(--blue-bg,#e3f0ff);color:#1565c0'}">${isBol?'Boleto':(cat==='Pix (Extrato/OFX)'?'PIX':cat)}</span>`;
                     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);${bg};font-size:12px">
                       <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}"
                         style="width:14px;height:14px;cursor:pointer;flex-shrink:0"
                         ${diff<=0.10?'checked':''} onchange="extCheckLimit('${t.id}',this)">
                       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}</span>
+                      ${badge}
                       <span style="color:var(--muted);font-size:11px;white-space:nowrap;margin-left:4px">${fmtVal(f.valor)}</span>
                     </label>`;
                   }).join('')}
