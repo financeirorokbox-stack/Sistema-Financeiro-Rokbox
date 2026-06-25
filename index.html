@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v70/06-94';
+const APP_VERSION = 'v71/06-95';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1856,6 +1856,20 @@ function _renderContasImpl(el) {
   linhas.forEach(l => {
     if (!l.st.recebido && difAceita[String(l.ped.id)] === 'aceito') {
       l.st = { recebido: true, detalhe: '✓ diferença aceita na conciliação' };
+    }
+  });
+
+  // PEDIDO QUITADO no total → resolve as linhas que parecem incompletas por causa de "jogar sobra"
+  // (ex.: o PIX teve a sobra movida para outro pedido, mas o pedido inteiro já está pago).
+  const recebidoPorPed = {};
+  linhas.forEach(l => {
+    if (l.st.recebido) return;
+    const pid = String(l.ped.id);
+    if (recebidoPorPed[pid] === undefined) {
+      recebidoPorPed[pid] = getRecebimentosDoPedido(l.ped).reduce((s, r) => s + (r.bruto || 0), 0);
+    }
+    if ((recebidoPorPed[pid] || 0) >= (l.ped.valor || 0) - 0.5) {
+      l.st = { recebido: true, detalhe: '✓ pedido quitado (conciliação)' };
     }
   });
 
