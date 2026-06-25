@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v77/06-101';
+const APP_VERSION = 'v78/06-102';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3725,7 +3725,13 @@ function syncExtratoToRecebimentos() {
 function renderExtrato() {
   setDateFilterRender(renderExtrato);
   const el = document.getElementById('v-extrato');
-  const creditos = extratoBancario.filter(t=>t.valor>0);
+  const fBanco = el.querySelector('#ext-banco')?.value || '';
+  const bancos = [...new Set(extratoBancario.map(t => t.banco || '').filter(Boolean))].sort();
+  const temSemBancoExt = extratoBancario.some(t => !t.banco);
+  const baseExt = fBanco === '__sem' ? extratoBancario.filter(t => !t.banco)
+                : fBanco ? extratoBancario.filter(t => (t.banco || '') === fBanco)
+                : extratoBancario;
+  const creditos = baseExt.filter(t=>t.valor>0);
   const fQraw = el.querySelector('#ext-q') ? el.querySelector('#ext-q').value : (buscaPersist.extrato || '');
   const fQ = fQraw.toLowerCase();
   const fEmp = el.querySelector('#ext-emp')?.value||'';
@@ -3748,6 +3754,12 @@ function renderExtrato() {
       <input type="file" id="file-ext" accept=".ofx,.qfx">
     </label>
     <div class="filter-bar">
+      <span class="f-label">Banco:</span>
+      <select id="ext-banco" onchange="renderExtrato()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="">Todos</option>
+        ${bancos.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${b===fBanco?'selected':''}>${b}</option>`).join('')}
+        ${temSemBancoExt?`<option value="__sem" ${fBanco==='__sem'?'selected':''}>Sem banco</option>`:''}
+      </select>
       <span class="f-label">Empresa:</span>
       <select id="ext-emp" onchange="renderExtrato()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todas</option>
@@ -3761,7 +3773,7 @@ function renderExtrato() {
     </div>
     <div class="cards-row">
       <div class="card green"><div class="c-label">Créditos</div><div class="c-val">${creditos.length}</div><div class="c-sub">${fmtVal(creditos.reduce((s,t)=>s+t.valor,0))}</div></div>
-      <div class="card red"><div class="c-label">Débitos</div><div class="c-val">${extratoBancario.filter(t=>t.valor<0).length}</div><div class="c-sub">${fmtVal(Math.abs(extratoBancario.filter(t=>t.valor<0).reduce((s,t)=>s+t.valor,0)))}</div></div>
+      <div class="card red"><div class="c-label">Débitos</div><div class="c-val">${baseExt.filter(t=>t.valor<0).length}</div><div class="c-sub">${fmtVal(Math.abs(baseExt.filter(t=>t.valor<0).reduce((s,t)=>s+t.valor,0)))}</div></div>
       <div class="card blue"><div class="c-label">Vinculados</div><div class="c-val">${creditos.filter(t=>extratoLinks[t.id]).length}</div></div>
     </div>
 
@@ -3853,17 +3865,19 @@ function renderExtrato() {
       }
       // Pergunta o banco (o usuário gosta de confirmar), já sugerindo o que casa com o nome do arquivo.
       const banco = escolherBancoDoArquivo(parseOFXConta(raw), file.name);
-      // ACUMULA sem duplicar: usa o FITID do banco quando existe; senão data+valor+descrição.
-      const chave = t => (t.id && !String(t.id).startsWith('ofx-'))
+      // ACUMULA sem duplicar — POR BANCO (FITIDs do Itaú colidem com outros bancos).
+      const fitid = t => (t.id && !String(t.id).startsWith('ofx-'))
         ? 'id:' + t.id
         : 'c:' + [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor, t.memo].join('|');
+      const chaveExist = t => (t.banco || '') + '||' + fitid(t); // dos já existentes (cada um tem seu banco)
+      const chaveNova = t => (banco || '') + '||' + fitid(t);     // das novas (banco escolhido agora)
       const porChave = {};
-      extratoBancario.forEach(t => { porChave[chave(t)] = t; });
+      extratoBancario.forEach(t => { porChave[chaveExist(t)] = t; });
       const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
       let add = 0;
       novas.forEach(t => {
-        const existe = porChave[chave(t)];
-        if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // já existe — só completa o banco
+        const existe = porChave[chaveNova(t)];
+        if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // já existe NESTE banco
         // Garante id único (evita colisão de 'ofx-N' entre arquivos, que quebraria os vínculos)
         let id = String(t.id);
         let n = 1;
@@ -3871,7 +3885,7 @@ function renderExtrato() {
         t.id = id;
         t.banco = banco;
         idsUsados.add(id);
-        porChave[chave(t)] = t;
+        porChave[chaveNova(t)] = t;
         extratoBancario.push(t);
         add++;
       });
