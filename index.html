@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v72/06-96';
+const APP_VERSION = 'v73/06-97';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5003,23 +5003,6 @@ function renderDashboard() {
       </div>
     </div>
 
-    <!-- Conciliação resumo -->
-    <div class="section-title">Conciliação de Pedidos</div>
-    <div class="cards-row" style="margin-bottom:8px">
-      <div class="card green" style="cursor:pointer" onclick="setView('financeiro');setSub('contas');setSubR('conc')">
-        <div class="c-label">✓ Conciliados</div><div class="c-val">${results.ok.length}</div>
-        <div class="c-sub">${fmtVal(results.ok.reduce((s,x)=>s+x.ped.valor,0))}</div>
-      </div>
-      <div class="card amber" style="cursor:pointer" onclick="setView('financeiro');setSub('contas');setSubR('conc')">
-        <div class="c-label">⚠ Divergentes</div><div class="c-val">${results.diff.length}</div>
-        <div class="c-sub">${fmtVal(results.diff.reduce((s,x)=>s+x.ped.valor,0))}</div>
-      </div>
-      <div class="card red" style="cursor:pointer" onclick="setView('financeiro');setSub('contas');setSubR('conc')">
-        <div class="c-label">✗ Sem recebimento</div><div class="c-val">${results.missing.length}</div></div>
-      <div class="card blue" style="cursor:pointer" onclick="setView('financeiro');setSub('banco')">
-        <div class="c-label">↩ Receb. s/ pedido</div><div class="c-val">${results.extra.length}</div></div>
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:24px">Clique nos cards para ir para a conciliação</div>
   `;
 }
 
