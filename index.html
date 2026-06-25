@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v81/06-105';
+const APP_VERSION = 'v82/06-106';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3204,14 +3204,18 @@ function renderCobranca() {
       <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total</strong></td><td><strong>${fmtVal(boletosAvulsos.reduce((s,a)=>s+(a.valorPago||0),0))}</strong></td><td colspan="2"></td></tr>
     </tbody></table></div>` : ''}`;
 
-  setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
+  // Anexa o upload SÓ DEPOIS de todo o innerHTML (o += abaixo recria o input e apagaria o listener).
+  const attachCobUpload = () => setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
     processCobrancaWorkbook(wb);
-    syncBoletosToRecebimentos();
     renderCobranca();
     renderContas();
   });
 
-  if (!emitidos.length) { el.innerHTML += '<div class="empty"><div class="e-icon">📥</div>Marque boletos como "Emitido" em Boletos a Emitir para ver o status aqui</div>'; return; }
+  if (!emitidos.length) {
+    el.innerHTML += '<div class="empty"><div class="e-icon">📥</div>Sem boletos emitidos. Você ainda pode subir o relatório do Itaú acima (boletos de pedidos fora do sistema entram como recebidos).</div>';
+    attachCobUpload();
+    return;
+  }
 
   let vis = emitidos;
   if (fSt==='pago') vis = vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
@@ -3255,6 +3259,8 @@ function renderCobranca() {
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
+
+  attachCobUpload();
 }
 
 // ════════════════════════════════════════════════════════════════════
