@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v99/06-123';
+const APP_VERSION = 'v100/06-124';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3912,6 +3912,52 @@ function syncExtratoToRecebimentos() {
   saveData('recebimentosConsolidado', recebimentosConsolidado); // chave CORRETA (é a que o sistema carrega)
 }
 
+// Exclui SÓ os lançamentos do banco selecionado no filtro (ex.: extrato subido errado/duplicado).
+// Preserva dias fechados, desfaz vínculos (débito reverte "pago") e recria os PIX a partir do que sobrou.
+function excluirExtratoDoBanco() {
+  const fBanco = document.getElementById('ext-banco')?.value || '';
+  if (!fBanco) { alert('Escolha um banco específico no filtro "Banco" antes de excluir.'); return; }
+  const match = t => fBanco === '__sem' ? !t.banco : (t.banco || '') === fBanco;
+  const alvo = extratoBancario.filter(match);
+  if (!alvo.length) { alert('Nenhum lançamento deste banco.'); return; }
+  const fechados = alvo.filter(t => diaFechado(t.data, t.banco));
+  const remover = alvo.filter(t => !diaFechado(t.data, t.banco));
+  if (!remover.length) { alert('Todos os lançamentos deste banco estão em dias FECHADOS. Reabra o(s) dia(s) (admin) para excluir.'); return; }
+  const nomeBanco = fBanco === '__sem' ? '(sem banco)' : fBanco;
+  const conciliados = remover.filter(t => extratoLinks[t.id] || repasseLinks[t.id] || debitoLinks[t.id] || receitaLinks[t.id]).length;
+  if (!confirm(`Excluir ${remover.length} lançamento(s) do banco "${nomeBanco}"?` +
+      (conciliados ? `\n\n⚠ ${conciliados} já estão conciliados — os vínculos serão desfeitos (contas voltam a "em aberto").` : '') +
+      (fechados.length ? `\n\n🔒 ${fechados.length} em dia(s) fechado(s) serão PRESERVADOS.` : '') +
+      `\n\nIsto não pode ser desfeito.`)) return;
+  const ids = new Set(remover.map(t => t.id));
+  remover.forEach(t => {
+    // Desfaz débito vinculado (reverte "pago" e valor das contas; remove contas criadas no vínculo).
+    if (debitoLinks[t.id]) {
+      debLinkItens(debitoLinks[t.id]).forEach(it => {
+        if (it.criada) { const idx = contasPagar.findIndex(c => chaveContaPagar(c) === it.chave); if (idx >= 0) contasPagar.splice(idx, 1); return; }
+        const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+        if (conta) { if (it.setPago) { conta.pago = false; conta.dataPag = null; } if (it.valorAnt !== undefined) conta.valor = it.valorAnt; }
+      });
+      delete debitoLinks[t.id];
+    }
+    delete extratoLinks[t.id];
+    delete repasseLinks[t.id];
+    if (receitaLinks[t.id]) { receitasAvulsas = receitasAvulsas.filter(r => r._extratoId !== t.id); delete receitaLinks[t.id]; }
+  });
+  extratoBancario = extratoBancario.filter(t => !ids.has(t.id));
+  saveData('extratoBancario', extratoBancario);
+  saveData('extratoLinks', extratoLinks);
+  saveData('repasseLinks', repasseLinks);
+  saveData('debitoLinks', debitoLinks);
+  saveData('receitaLinks', receitaLinks);
+  saveData('receitasAvulsas', receitasAvulsas);
+  saveData('contasPagar', contasPagar);
+  try { syncExtratoToRecebimentos(); } catch(e) {}
+  // Volta o filtro para "Todos" se o banco excluído não tem mais lançamentos.
+  if (!extratoBancario.some(match)) { const sel = document.getElementById('ext-banco'); if (sel) sel.value = ''; }
+  renderExtrato();
+  alert(`✓ ${remover.length} lançamento(s) removido(s) do banco "${nomeBanco}".` + (fechados.length ? ` ${fechados.length} preservado(s) por dia fechado.` : ''));
+}
 function renderExtrato() {
   setDateFilterRender(renderExtrato);
   const el = document.getElementById('v-extrato');
@@ -3959,7 +4005,8 @@ function renderExtrato() {
       <input type="text" id="ext-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Descrição ou pedido..." oninput="buscaPersist.extrato=this.value;debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
       <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
-      <button class="btn danger sm" onclick="if(confirm('Limpar extrato?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar</button>
+      ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove só os lançamentos do banco selecionado (ex.: extrato subido errado)">🗑 Excluir lançamentos deste banco</button>` : ''}
+      <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar tudo</button>
     </div>
     <div class="cards-row">
       <div class="card green"><div class="c-label">Créditos</div><div class="c-val">${creditos.length}</div><div class="c-sub">${fmtVal(creditos.reduce((s,t)=>s+t.valor,0))}</div></div>
