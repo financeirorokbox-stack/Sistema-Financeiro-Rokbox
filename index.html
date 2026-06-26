@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v86/06-110';
+const APP_VERSION = 'v87/06-111';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5470,30 +5470,35 @@ function renderBanco() {
                      <button class="btn ghost sm" onclick="cbDesfazerDebito('${t.id}')">Desfazer</button>`;
                 } else {
                   const alvo = Math.abs(t.valor);
-                  // QUALQUER conta em aberto (não paga e não usada por outro débito), qualquer valor.
-                  const abertas = contasPagar.filter(c => !c.pago && !usadasDeb.has(chaveContaPagar(c)));
+                  // Contas a pagar NÃO usadas por outro débito — em aberto primeiro, depois as já PAGAS
+                  // (permite conciliar um débito do banco a uma despesa que já foi baixada).
+                  const naoUsadas = contasPagar.filter(c => !usadasDeb.has(chaveContaPagar(c)));
                   // Mostra as da SEMANA do débito primeiro (atalho), mas a lista inclui todas — use a busca.
                   let wkIni = null, wkFim = null;
                   if (t.data instanceof Date && !isNaN(t.data)) { [wkIni, wkFim] = semanaDe(t.data); }
                   const naSemana = c => wkIni && c.vencimento && c.vencimento >= wkIni && c.vencimento <= wkFim;
-                  const nSemana = abertas.filter(naSemana).length;
-                  const cand = abertas
-                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo), wk: naSemana(c) ? 0 : 1}))
-                    .sort((a,b) => a.wk - b.wk || (a.c.vencimento||0)-(b.c.vencimento||0));
-                  const nExatos = cand.filter(x=>x.d<=0.02).length;
-                  const somaIni = cand.filter(x=>x.d<=0.02).reduce((s,x)=>s+(x.c.valor||0),0);
+                  const nSemana = naoUsadas.filter(c => !c.pago && naSemana(c)).length;
+                  const nPagas = naoUsadas.filter(c => c.pago).length;
+                  const cand = naoUsadas
+                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo), paga: !!c.pago, wk: naSemana(c) ? 0 : 1}))
+                    .sort((a,b) => (a.paga?1:0)-(b.paga?1:0) || a.wk - b.wk || (a.c.vencimento||0)-(b.c.vencimento||0));
+                  // Pré-marca só as EXATAS e em ABERTO (não auto-marca conta já paga).
+                  const nExatos = cand.filter(x=>x.d<=0.02 && !x.paga).length;
+                  const somaIni = cand.filter(x=>x.d<=0.02 && !x.paga).reduce((s,x)=>s+(x.c.valor||0),0);
                   const difIni = Math.abs(somaIni-alvo);
                   const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
                   const listaContas = cand.length ? `
                       <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
                       <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
-                        ${cand.map(({c,d})=>{
+                        ${cand.map(({c,d,paga})=>{
                           const exato=d<=0.02;
-                          const busca=`${c.fornecedor||''} ${c.descricao||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''}`.toLowerCase().replace(/"/g,'&quot;');
-                          return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
-                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveContaPagar(c))}" data-v="${c.valor||0}" ${exato?'checked':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
-                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
+                          const preCheck=exato && !paga; // não auto-marca conta já paga
+                          const busca=`${c.fornecedor||''} ${c.descricao||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''} ${paga?'paga pago':'aberto em aberto'}`.toLowerCase().replace(/"/g,'&quot;');
+                          const selo = paga ? ` <span style="background:var(--amber);color:#222;font-size:9px;padding:0 4px;border-radius:6px">paga</span>` : '';
+                          return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${preCheck?'background:var(--green-bg)':(paga?'opacity:.85':'')}">
+                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveContaPagar(c))}" data-v="${c.valor||0}" ${preCheck?'checked':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${selo}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
                             <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
                           </label>`;
                         }).join('')}
@@ -5520,7 +5525,7 @@ function renderBanco() {
                       </div>`;
                   conc = `<div style="min-width:200px;max-width:380px">
                       <div style="display:flex;gap:6px;flex-wrap:wrap">
-                        ${cand.length?`<button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')" title="Todas as contas em aberto (qualquer valor). As da semana do débito aparecem primeiro. Use a busca.">▾ Em aberto (${cand.length})${nSemana?` · semana ${nSemana}`:''}${nExatos?` · ⚡${nExatos}`:''}</button>`:''}
+                        ${cand.length?`<button class="btn ghost sm" onclick="cbToggleDebList('${t.id}')" title="Contas a pagar (em aberto primeiro, depois as já pagas). Use a busca.">▾ Contas (${cand.length})${nSemana?` · semana ${nSemana}`:''}${nExatos?` · ⚡${nExatos}`:''}${nPagas?` · ${nPagas} paga(s)`:''}</button>`:''}
                         <button class="btn ghost sm" onclick="cbToggleDespBox('${t.id}')">➕ Despesa nova</button>
                       </div>
                       ${listaContas}
@@ -5785,8 +5790,9 @@ function cbVincularDebito(extId, alvo) {
   });
   if (!itens.length) { alert('Contas a pagar não encontradas.'); return; }
   const tot = itens.reduce((s, i) => s + (i.valor || 0), 0);
-  // 1 débito → 1 conta: o valor do EXTRATO manda. Atualiza a conta para o valor do banco (guarda o anterior).
-  if (alvo != null && itens.length === 1) {
+  // 1 débito → 1 conta EM ABERTO: o valor do EXTRATO manda. Atualiza a conta para o valor do banco
+  // (guarda o anterior). NÃO mexe em conta JÁ PAGA (it.setPago=false): valor pago é histórico.
+  if (alvo != null && itens.length === 1 && itens[0].setPago) {
     const it = itens[0];
     if (Math.abs((it.valor || 0) - alvo) > 0.005) {
       const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
