@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v98/06-122';
+const APP_VERSION = 'v99/06-123';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1955,6 +1955,12 @@ function _renderContasImpl(el) {
     return true;
   }).sort((a,b) => (b.data||0)-(a.data||0));
   const vAvulsas = avulsasVis.reduce((s,r) => s + (r.valor||0), 0);
+  // Pedidos já CONCILIADOS no banco (crédito vinculado no Extrato OU recebimento amarrado a um repasse) → selo na linha.
+  const pedidosConcBanco = new Set();
+  Object.values(extratoLinks).forEach(lk => String(lk.pedido||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p => pedidosConcBanco.add(String(p))));
+  const repUsadasCR = new Set();
+  Object.values(repasseLinks).forEach(l => (l.itens||[]).forEach(k => repUsadasCR.add(k)));
+  if (repUsadasCR.size) recebimentosConsolidado.forEach(r => { if (r.nped && repUsadasCR.has(recKeyGlobal(r))) pedidosConcBanco.add(String(r.nped)); });
   // Soma direta dos pedidos Venda/Troca (cross-check): deve bater com o Total a Receber.
   let totalVT = 0;
   pedidos.forEach(p => {
@@ -2048,7 +2054,7 @@ function _renderContasImpl(el) {
         ${l.realIdx >= 0
           ? delCheckbox('formaPagamento', l.realIdx)
           : delCheckbox('pedidos', pedidos.indexOf(l.ped))}
-        <td><strong>#${l.f.pedido}</strong></td>
+        <td><strong>#${l.f.pedido}</strong>${pedidosConcBanco.has(String(l.f.pedido))?` <span class="badge ok" style="font-size:9px" title="Conciliado na Conciliação Bancária">🔗 conciliado</span>`:''}</td>
         <td>${l.ped.nome||'—'}</td>
         <td>${l.ped.loja||'—'}</td>
         <td>${opBadge}</td>
@@ -2413,6 +2419,9 @@ function renderPagar() {
   // Double-check: contas com rateio devem ter Σ rateio = valor da conta.
   const rateioRuim = vis.filter(c => c.rateio && c.rateio.length && Math.abs(c.rateio.reduce((s, r) => s + (r.valor || 0), 0) - (c.valor || 0)) > 0.02);
   const dcRateioOk = rateioRuim.length === 0;
+  // Chaves de contas já CONCILIADAS no banco (vinculadas a um débito do extrato) → selo na linha.
+  const chavesConcBanco = new Set();
+  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
 
   el.innerHTML = `
     <label class="upload-card" id="card-pagar" for="file-pagar">
@@ -2476,7 +2485,7 @@ function renderPagar() {
           ${delCheckbox('contasPagar', realIdx)}
           <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
           <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
-          <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}</td>
+          <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}${chavesConcBanco.has(chaveContaPagar(c))?` <span class="badge ok" style="font-size:9px" title="Conciliada na Conciliação Bancária">🔗 conciliado</span>`:''}</td>
           <td>${catContaPagar(c)?`<span class="badge neu">${catContaPagar(c)}</span>`:'—'}</td>
           <td><strong>${fmtVal(c.valor)}</strong></td>
           <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
