@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v102/06-126';
+const APP_VERSION = 'v103/06-127';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1925,9 +1925,17 @@ function _renderContasImpl(el) {
 
   _linhasCR = linhas; // guarda para a exportação (modelo Contas a Receber)
 
+  // Pedidos já CONCILIADOS no banco (crédito vinculado no Extrato OU recebimento amarrado a um repasse) → selo e filtro.
+  const pedidosConcBanco = new Set();
+  Object.values(extratoLinks).forEach(lk => String(lk.pedido||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p => pedidosConcBanco.add(String(p))));
+  const repUsadasCR = new Set();
+  Object.values(repasseLinks).forEach(l => (l.itens||[]).forEach(k => repUsadasCR.add(k)));
+  if (repUsadasCR.size) recebimentosConsolidado.forEach(r => { if (r.nped && repUsadasCR.has(recKeyGlobal(r))) pedidosConcBanco.add(String(r.nped)); });
+
   // ── Filtros ────────────────────────────────────────────────────────
   const fCat = el.querySelector('#fc-cat')?.value || '';
   const fSt  = el.querySelector('#fc-st')?.value || '';
+  const fConc = el.querySelector('#fc-conc')?.value || '';
   const fQraw = el.querySelector('#fc-q') ? el.querySelector('#fc-q').value : (buscaPersist.contas || '');
   const fQ   = fQraw.toLowerCase();
   const fOp  = el.querySelector('#fc-op')?.value || '';
@@ -1942,6 +1950,8 @@ function _renderContasImpl(el) {
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
   if (fSt === 'semforma') vis = vis.filter(l => l.semForma);
+  if (fConc === 'sim') vis = vis.filter(l => pedidosConcBanco.has(String(l.f.pedido)));
+  if (fConc === 'nao') vis = vis.filter(l => !pedidosConcBanco.has(String(l.f.pedido)));
   if (fQ)  vis = vis.filter(l => String(l.f.pedido).includes(fQ) || (l.ped.nome||'').toLowerCase().includes(fQ));
   if (fOp) vis = vis.filter(l => {
     const cls = getClassificacao(l.ped);
@@ -1966,12 +1976,6 @@ function _renderContasImpl(el) {
     return true;
   }).sort((a,b) => (b.data||0)-(a.data||0));
   const vAvulsas = avulsasVis.reduce((s,r) => s + (r.valor||0), 0);
-  // Pedidos já CONCILIADOS no banco (crédito vinculado no Extrato OU recebimento amarrado a um repasse) → selo na linha.
-  const pedidosConcBanco = new Set();
-  Object.values(extratoLinks).forEach(lk => String(lk.pedido||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p => pedidosConcBanco.add(String(p))));
-  const repUsadasCR = new Set();
-  Object.values(repasseLinks).forEach(l => (l.itens||[]).forEach(k => repUsadasCR.add(k)));
-  if (repUsadasCR.size) recebimentosConsolidado.forEach(r => { if (r.nped && repUsadasCR.has(recKeyGlobal(r))) pedidosConcBanco.add(String(r.nped)); });
   // Soma direta dos pedidos Venda/Troca (cross-check): deve bater com o Total a Receber.
   let totalVT = 0;
   pedidos.forEach(p => {
@@ -2019,6 +2023,12 @@ function _renderContasImpl(el) {
         <option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option>
         <option value="pago"   ${fSt==='pago'?'selected':''}>Pago</option>
         <option value="semforma" ${fSt==='semforma'?'selected':''}>Sem forma de recebimento</option>
+      </select>
+      <span class="f-label">Banco:</span>
+      <select id="fc-conc" onchange="renderContas()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="" ${fConc===''?'selected':''}>Todos</option>
+        <option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option>
+        <option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option>
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="fc-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.contas=this.value;debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
@@ -2409,16 +2419,22 @@ function renderPagar() {
   const fSt = el.querySelector('#cp-st')?.value || '';
   const fCat = el.querySelector('#cp-cat')?.value || '';
   const fEmp = el.querySelector('#cp-emp')?.value || '';
+  const fConc = el.querySelector('#cp-conc')?.value || '';
   const fQraw = el.querySelector('#cp-q') ? el.querySelector('#cp-q').value : (buscaPersist.pagar || '');
   const fQ = fQraw.toLowerCase();
   const cats = [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].sort();
   const empresas = [...new Set(contasPagar.map(c => c.empresa).filter(Boolean))].sort();
+  // Chaves de contas já CONCILIADAS no banco (vinculadas a um débito do extrato) → selo e filtro.
+  const chavesConcBanco = new Set();
+  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
 
   let vis = contasPagar;
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
   if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
+  if (fConc === 'sim') vis = vis.filter(c => chavesConcBanco.has(chaveContaPagar(c)));
+  if (fConc === 'nao') vis = vis.filter(c => !chavesConcBanco.has(chaveContaPagar(c)));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
 
@@ -2430,9 +2446,6 @@ function renderPagar() {
   // Double-check: contas com rateio devem ter Σ rateio = valor da conta.
   const rateioRuim = vis.filter(c => c.rateio && c.rateio.length && Math.abs(c.rateio.reduce((s, r) => s + (r.valor || 0), 0) - (c.valor || 0)) > 0.02);
   const dcRateioOk = rateioRuim.length === 0;
-  // Chaves de contas já CONCILIADAS no banco (vinculadas a um débito do extrato) → selo na linha.
-  const chavesConcBanco = new Set();
-  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
 
   el.innerHTML = `
     <label class="upload-card" id="card-pagar" for="file-pagar">
@@ -2459,6 +2472,12 @@ function renderPagar() {
       <select id="cp-cat" onchange="renderPagar()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="">Todas</option>
         ${cats.map(c=>`<option value="${c}" ${c===fCat?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <span class="f-label">Banco:</span>
+      <select id="cp-conc" onchange="renderPagar()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="" ${fConc===''?'selected':''}>Todos</option>
+        <option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option>
+        <option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option>
       </select>
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cp-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Fornecedor ou descrição..." oninput="buscaPersist.pagar=this.value;debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
