@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v108/06-132';
+const APP_VERSION = 'v109/06-133';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1597,37 +1597,18 @@ function _dfLabel(field) {
   if (sel.length === 1) return field === 'mes' ? MESES[+sel[0] - 1] : sel[0];
   return sel.length + ' sel.';
 }
-function dfToggle(field, btn) {
-  // Fecha qualquer outro dropdown aberto (em qualquer aba).
-  document.querySelectorAll('.ms-dropdown.open').forEach(d => d.classList.remove('open'));
-  const dd = btn.closest('.ms-wrap').querySelector('.ms-dropdown');
-  if (!dd) return;
-  if (dd.classList.contains('open')) { dd.classList.remove('open'); _dfOpen = null; return; }
-  dd.innerHTML = _dfOpts(field).map(([v, lbl]) => `<label class="ms-opt">
-    <input type="checkbox" value="${v}" ${dateFilter[field].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${field}','${v}',this.checked)"> ${lbl}</label>`).join('');
-  dd.classList.add('open'); _dfOpen = field;
+// Abre/fecha o calendário de um campo. O estado fica em _dfOpen e o dropdown é renderizado
+// JÁ ABERTO pelo dateFilterHTML — assim sobrevive a qualquer re-render (não fecha ao marcar um dia).
+function dfToggle(field) {
+  _dfOpen = (_dfOpen === field) ? null : field;
+  if (_dfRenderFn) _dfRenderFn();
 }
 function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
   else dateFilter[field] = dateFilter[field].filter(x => x !== value);
-  // Atualiza o rótulo desse campo (IDs repetem entre abas; será corrigido no próximo render de cada aba).
-  document.querySelectorAll(`.df-lbl[data-df="${field}"]`).forEach(l => l.textContent = _dfLabel(field));
   saveData('dateFilters', dateFilters);
+  // Re-renderiza; o painel volta ABERTO porque _dfOpen continua = field (renderizado pelo dateFilterHTML).
   if (_dfRenderFn) _dfRenderFn();
-  // Reabre o painel DEPOIS que o clique atual termina de propagar (senão o fechamento global,
-  // que dispara ao final do clique, fecharia o painel recém-reaberto). Mantém aberto p/ marcar vários.
-  setTimeout(() => dfReopen(field), 0);
-}
-// Reabre o dropdown de um campo após o re-render (a barra de filtros é reconstruída).
-// Escolhe o calendário da tela VISÍVEL (várias telas ficam no DOM escondidas com o mesmo data-df).
-function dfReopen(field) {
-  const lbls = [...document.querySelectorAll(`.df-lbl[data-df="${field}"]`)];
-  const lbl = lbls.find(l => l.offsetWidth > 0 || l.offsetHeight > 0) || lbls[lbls.length - 1];
-  const dd = lbl ? lbl.closest('.ms-wrap')?.querySelector('.ms-dropdown') : null;
-  if (!dd) return;
-  dd.innerHTML = _dfOpts(field).map(([v, lbl2]) => `<label class="ms-opt">
-    <input type="checkbox" value="${v}" ${dateFilter[field].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${field}','${v}',this.checked)"> ${lbl2}</label>`).join('');
-  dd.classList.add('open'); _dfOpen = field;
 }
 function dfClear() {
   // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
@@ -1648,12 +1629,16 @@ function passaData(date) {
 }
 // HTML do filtro de data para colar na barra de filtros de qualquer aba.
 function dateFilterHTML() {
-  const campo = f => `
+  const campo = f => {
+    const aberto = _dfOpen === f;
+    const opts = aberto ? _dfOpts(f).map(([v, lbl]) => `<label class="ms-opt"><input type="checkbox" value="${v}" ${dateFilter[f].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${f}','${v}',this.checked)"> ${lbl}</label>`).join('') : '';
+    return `
     <span class="f-label">${{ ano: 'Ano', mes: 'Mês', dia: 'Dia' }[f]}:</span>
     <div class="ms-wrap">
-      <div class="ms-btn" onclick="dfToggle('${f}', this)"><span class="df-lbl" data-df="${f}">${_dfLabel(f)}</span><span>▾</span></div>
-      <div class="ms-dropdown" onclick="event.stopPropagation()"></div>
+      <div class="ms-btn" onclick="dfToggle('${f}')"><span class="df-lbl" data-df="${f}">${_dfLabel(f)}</span><span>▾</span></div>
+      <div class="ms-dropdown ${aberto ? 'open' : ''}" onclick="event.stopPropagation()">${opts}</div>
     </div>`;
+  };
   return ['ano', 'mes', 'dia'].map(campo).join('') +
     (dfAtivo() ? `<button class="btn ghost sm" style="font-size:11px" onclick="dfClear()">✕ data</button>` : '');
 }
