@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v104/06-128';
+const APP_VERSION = 'v105/06-129';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1598,8 +1598,9 @@ function dfToggleVal(field, value, checked) {
   document.querySelectorAll(`.df-lbl[data-df="${field}"]`).forEach(l => l.textContent = _dfLabel(field));
   saveData('dateFilters', dateFilters);
   if (_dfRenderFn) _dfRenderFn();
-  // Mantém o painel ABERTO depois de re-renderizar (só fecha ao clicar fora).
-  dfReopen(field);
+  // Reabre o painel DEPOIS que o clique atual termina de propagar (senão o fechamento global,
+  // que dispara ao final do clique, fecharia o painel recém-reaberto). Mantém aberto p/ marcar vários.
+  setTimeout(() => dfReopen(field), 0);
 }
 // Reabre o dropdown de um campo após o re-render (a barra de filtros é reconstruída).
 function dfReopen(field) {
