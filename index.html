@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v105/06-129';
+const APP_VERSION = 'v106/06-130';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1024,6 +1024,7 @@ function debounceRender(fn, ms = 120) {
 // ════════════════════════════════════════════════════════════════════
 function setView(v) {
   if (!viewAllowed(v)) { const f = firstAllowedView(); if (!f) return; v = f; }
+  filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
   ['dashboard','vendas','financeiro','cadastro'].forEach(x => {
@@ -1386,21 +1387,17 @@ function renderVendas() {
     </div>
 
     <!-- Filtros multi-seleção -->
-    <div class="filter-bar">
-      <span class="f-label">Pesquisar:</span>
-      <input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">
-      ${['empresa','situacao','loja','vendedor','operacao'].map(f => `
-        <span class="f-label">${{empresa:'Empresa',situacao:'Situação',loja:'Loja',vendedor:'Vendedor',operacao:'Operação'}[f]}:</span>
-        <div class="ms-wrap">
-          <div class="ms-btn" onclick="toggleMs('${f}')">
-            <span id="ms-lbl-${f}">Todos</span><span>▾</span>
-          </div>
-          <div class="ms-dropdown" id="ms-dd-${f}" onclick="event.stopPropagation()"></div>
-        </div>
-      `).join('')}
-      ${dateFilterHTML()}
-      <button class="btn ghost sm" onclick="clearVF()">Limpar</button>
-    </div>
+    ${filtrosBar({
+      nAtivos: ['empresa','situacao','loja','vendedor','operacao'].filter(f => (vendasFilters[f]||[]).length).length + ((buscaPersist.vendas||'')?1:0) + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosVendas()',
+      campos:
+        fdRow('Pesquisar', `<input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">`) +
+        ['empresa','situacao','loja','vendedor','operacao'].map(f =>
+          fdRow({empresa:'Empresa',situacao:'Situação',loja:'Loja',vendedor:'Vendedor',operacao:'Operação'}[f],
+            `<div class="ms-wrap"><div class="ms-btn" onclick="toggleMs('${f}')"><span id="ms-lbl-${f}">Todos</span><span>▾</span></div><div class="ms-dropdown" id="ms-dd-${f}" onclick="event.stopPropagation()"></div></div>`)
+        ).join('') +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
 
     <div id="vendas-cards" class="cards-row"></div>
     <div id="vendas-loja-fix"></div>
@@ -1556,13 +1553,31 @@ let dateFilters = {};
 let dateFilter = { ano: [], mes: [], dia: [] };
 let _dfRenderFn = null;
 let _dfOpen = null;
-// Drawer de filtros (Contas a Pagar/Receber): abre/fecha sem perder estado no re-render.
+// Drawer de filtros (todas as telas com filtro): abre/fecha sem perder estado no re-render.
 let filtrosAbertos = false;
 function toggleFiltros(force) {
   filtrosAbertos = (typeof force === 'boolean') ? force : !filtrosAbertos;
   document.querySelectorAll('.filtros-drawer').forEach(d => d.classList.toggle('open', filtrosAbertos));
   document.querySelectorAll('.filtros-backdrop').forEach(b => b.classList.toggle('open', filtrosAbertos));
 }
+// Monta a barra superior (botão ⚙ Filtros + ações) e o drawer lateral esquerdo com os campos.
+// campos: HTML já pronto (linhas .fd-row); acoes: botões à direita do topo; limpar: nome da função; nAtivos: nº de filtros ativos.
+function filtrosBar({ nAtivos = 0, limpar = '', acoes = '', campos = '' }) {
+  return `
+    <div class="topbar">
+      <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nAtivos ? ` <span class="cnt">${nAtivos}</span>` : ''}</button>
+      ${nAtivos && limpar ? `<button class="btn ghost sm" onclick="${limpar}" title="Limpa os filtros">✕ limpar</button>` : ''}
+      <span style="flex:1"></span>
+      ${acoes}
+    </div>
+    <div class="filtros-backdrop ${filtrosAbertos ? 'open' : ''}" onclick="toggleFiltros(false)"></div>
+    <div class="filtros-drawer ${filtrosAbertos ? 'open' : ''}">
+      <div class="fd-head"><b>⚙ Filtros</b><button class="fd-x" onclick="toggleFiltros(false)">✕</button></div>
+      ${campos}
+    </div>`;
+}
+// Atalho para um campo do drawer (rótulo + controle).
+function fdRow(label, html) { return `<div class="fd-row"><span class="f-label">${label}</span>${html}</div>`; }
 // Registra a função de render da aba e troca o filtro ativo para o desta aba (chave = nome da função).
 function setDateFilterRender(fn) {
   _dfRenderFn = fn;
@@ -2146,6 +2161,26 @@ function limparFiltrosPagar() {
   buscaPersist.pagar = '';
   if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
   renderPagar();
+}
+// Limpa data + uma lista de selects/inputs + uma chave de busca, e re-renderiza. Genérico p/ as telas.
+function limparFiltrosGen(ids, buscaKey, render) {
+  (ids||[]).forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  if (buscaKey) buscaPersist[buscaKey] = '';
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
+  if (typeof render === 'function') render();
+}
+function limparFiltrosExtrato() { limparFiltrosGen(['ext-banco','ext-emp','ext-q'], 'extrato', renderExtrato); }
+function limparFiltrosReceb() { limparFiltrosGen(['rr-gw','rr-emp','rr-ped','rr-q'], 'receb', renderRecebimentos); }
+function limparFiltrosBoletos() { limparFiltrosGen(['bl-emp','bl-q'], 'boletos', renderBoletos); }
+function limparFiltrosDevolucao() { limparFiltrosGen(['dev-seg','dev-emp','dev-q'], null, renderDevolucao); }
+function limparFiltrosCobranca() { limparFiltrosGen(['cob-emp','cob-st','cob-q'], null, renderCobranca); }
+function limparFiltrosBanco() { bancoConcSel = '__todos'; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderBanco(); }
+function limparFiltrosVendas() {
+  ['empresa','situacao','loja','vendedor','operacao'].forEach(f => vendasFilters[f] = []);
+  buscaPersist.vendas = '';
+  if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); }
+  saveData('vendasFilters', vendasFilters);
+  renderPedidosTable();
 }
 // Remove uma receita avulsa (e libera o crédito do extrato que a originou). Re-renderiza Contas a Receber.
 function removerReceitaAvulsa(id) {
@@ -2815,28 +2850,17 @@ function renderRecebimentos() {
       <input type="file" id="file-cr2" accept=".xlsx,.xls,.csv,.ofx,.qfx" multiple>
     </label>
 
-    <div class="filter-bar">
-      <span class="f-label">Gateway:</span>
-      <select id="rr-gw" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todos</option>
-        ${gws.map(g=>`<option value="${g}" ${g===fGw?'selected':''}>${g}</option>`).join('')}
-      </select>
-      <span class="f-label">Empresa:</span>
-      <select id="rr-emp" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
-      </select>
-      <span class="f-label">Pedido:</span>
-      <select id="rr-ped" onchange="renderRecebimentos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="" ${fPed===''?'selected':''}>Todos</option>
-        <option value="com" ${fPed==='com'?'selected':''}>Com pedido</option>
-        <option value="sem" ${fPed==='sem'?'selected':''}>Sem pedido</option>
-      </select>
-      <span class="f-label">Pesquisar:</span>
-      <input type="text" id="rr-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Nome ou pedido..." oninput="buscaPersist.receb=this.value;debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-      ${dateFilterHTML()}
-      <button class="btn danger sm" onclick="if(confirm('Limpar todos os recebimentos?')){recebimentosConsolidado=[];saveData('recebimentosConsolidado',recebimentosConsolidado);renderRecebimentos()}">🗑 Limpar</button>
-    </div>
+    ${filtrosBar({
+      nAtivos: [fGw,fEmp,fPed,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosReceb()',
+      acoes: `<button class="btn danger sm" onclick="if(confirm('Limpar todos os recebimentos?')){recebimentosConsolidado=[];saveData('recebimentosConsolidado',recebimentosConsolidado);renderRecebimentos()}">🗑 Limpar</button>`,
+      campos:
+        fdRow('Gateway', `<select id="rr-gw" onchange="renderRecebimentos()"><option value="">Todos</option>${gws.map(g=>`<option value="${g}" ${g===fGw?'selected':''}>${g}</option>`).join('')}</select>`) +
+        fdRow('Empresa', `<select id="rr-emp" onchange="renderRecebimentos()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
+        fdRow('Pedido', `<select id="rr-ped" onchange="renderRecebimentos()"><option value="" ${fPed===''?'selected':''}>Todos</option><option value="com" ${fPed==='com'?'selected':''}>Com pedido</option><option value="sem" ${fPed==='sem'?'selected':''}>Sem pedido</option></select>`) +
+        fdRow('Pesquisar', `<input type="text" id="rr-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Nome ou pedido..." oninput="buscaPersist.receb=this.value;debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
 
     <div class="cards-row">
       ${Object.entries(byGw).map(([gw,d])=>`<div class="card blue"><div class="c-label">${gw}</div><div class="c-val">${fmtVal(d.liq)}</div><div class="c-sub">${d.n} lançamentos</div></div>`).join('')}
@@ -3120,16 +3144,14 @@ function renderBoletos() {
   const totalEmitidos = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])}).length;
 
   el.innerHTML = `
-    <div class="filter-bar">
-      <span class="f-label">Empresa:</span>
-      <select id="bl-emp" onchange="renderBoletos()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
-      </select>
-      <span class="f-label">Pesquisar:</span>
-      <input type="text" id="bl-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.boletos=this.value;debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-      ${dateFilterHTML()}
-    </div>
+    ${filtrosBar({
+      nAtivos: [fEmp,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosBoletos()',
+      campos:
+        fdRow('Empresa', `<select id="bl-emp" onchange="renderBoletos()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
+        fdRow('Pesquisar', `<input type="text" id="bl-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.boletos=this.value;debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
     <div class="cards-row">
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
       <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div></div>
@@ -3332,23 +3354,15 @@ function renderCobranca() {
       <input type="file" id="file-cobranca" accept=".xlsx,.xls">
     </label>
 
-    <div class="filter-bar">
-      <span class="f-label">Empresa:</span>
-      <select id="cob-emp" onchange="renderCobranca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
-      </select>
-      <span class="f-label">Status:</span>
-      <select id="cob-st" onchange="renderCobranca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="" ${fSt===''?'selected':''}>Todos</option>
-        <option value="pago" ${fSt==='pago'?'selected':''}>Pago</option>
-        <option value="atrasado" ${fSt==='atrasado'?'selected':''}>Atrasado</option>
-        <option value="avencer" ${fSt==='avencer'?'selected':''}>A Vencer</option>
-      </select>
-      <span class="f-label">Pesquisar:</span>
-      <input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">
-      ${dateFilterHTML()}
-    </div>
+    ${filtrosBar({
+      nAtivos: [fEmp,fSt,fQ].filter(Boolean).length + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosCobranca()',
+      campos:
+        fdRow('Empresa', `<select id="cob-emp" onchange="renderCobranca()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
+        fdRow('Status', `<select id="cob-st" onchange="renderCobranca()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option><option value="atrasado" ${fSt==='atrasado'?'selected':''}>Atrasado</option><option value="avencer" ${fSt==='avencer'?'selected':''}>A Vencer</option></select>`) +
+        fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">`) +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
     ${boletosAvulsos.length ? `
     <div class="section-title">Boletos pagos de pedidos fora do sistema (${boletosAvulsos.length})</div>
     <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr>
@@ -3720,22 +3734,16 @@ function renderDevolucao() {
         <input type="file" id="file-dev" accept=".xlsx,.xls">
       </label>
     </div>
-    <div class="filter-bar">
-      <span class="f-label">Segmento:</span>
-      <select id="dev-seg" onchange="renderDevolucao()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todos</option>
-        ${segs.map(s=>`<option value="${s}" ${s===fSeg?'selected':''}>${s}</option>`).join('')}
-      </select>
-      <span class="f-label">Empresa:</span>
-      <select id="dev-emp" onchange="renderDevolucao()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
-      </select>
-      <span class="f-label">Pesquisar:</span>
-      <input type="text" id="dev-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderDevolucao')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-      ${dateFilterHTML()}
-      <button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>
-    </div>
+    ${filtrosBar({
+      nAtivos: [fSeg,fEmp,fQ].filter(Boolean).length + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosDevolucao()',
+      acoes: `<button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>`,
+      campos:
+        fdRow('Segmento', `<select id="dev-seg" onchange="renderDevolucao()"><option value="">Todos</option>${segs.map(s=>`<option value="${s}" ${s===fSeg?'selected':''}>${s}</option>`).join('')}</select>`) +
+        fdRow('Empresa', `<select id="dev-emp" onchange="renderDevolucao()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
+        fdRow('Pesquisar', `<input type="text" id="dev-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderDevolucao')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
     <div class="cards-row">
       ${segs.map(s=>{const v=devolucoes.filter(d=>d.segmento===s).reduce((a,d)=>a+d.valorPago,0);return `<div class="card amber"><div class="c-label">${s}</div><div class="c-val">${fmtVal(v)}</div><div class="c-sub">${devolucoes.filter(d=>d.segmento===s).length} itens</div></div>`;}).join('')}
       <div class="card dark"><div class="c-label">Total</div><div class="c-val">${fmtVal(devolucoes.reduce((s,d)=>s+d.valorPago,0))}</div></div>
@@ -4037,25 +4045,18 @@ function renderExtrato() {
       <div class="u-status" id="status-ext">${extratoBancario.length?'✓ '+extratoBancario.length+' lançamentos':'Nenhum arquivo'}</div>
       <input type="file" id="file-ext" accept=".ofx,.qfx">
     </label>
-    <div class="filter-bar">
-      <span class="f-label">Banco:</span>
-      <select id="ext-banco" onchange="renderExtrato()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todos</option>
-        ${bancos.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${b===fBanco?'selected':''}>${b}</option>`).join('')}
-        ${temSemBancoExt?`<option value="__sem" ${fBanco==='__sem'?'selected':''}>Sem banco</option>`:''}
-      </select>
-      <span class="f-label">Empresa:</span>
-      <select id="ext-emp" onchange="renderExtrato()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="">Todas</option>
-        ${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
-      </select>
-      <span class="f-label">Pesquisar créditos:</span>
-      <input type="text" id="ext-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Descrição ou pedido..." oninput="buscaPersist.extrato=this.value;debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
-      ${dateFilterHTML()}
-      <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
-      ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove os lançamentos do banco selecionado. Se houver filtro de data ativo, remove só o período filtrado (banco + data).">🗑 Excluir deste banco${dfAtivo()?' (no período)':''}</button>` : ''}
-      <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar tudo</button>
-    </div>
+    ${filtrosBar({
+      nAtivos: [fBanco,fEmp,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosExtrato()',
+      acoes: `<button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
+        ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove os lançamentos do banco selecionado. Se houver filtro de data ativo, remove só o período filtrado (banco + data).">🗑 Excluir deste banco${dfAtivo()?' (no período)':''}</button>` : ''}
+        <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar tudo</button>`,
+      campos:
+        fdRow('Banco', `<select id="ext-banco" onchange="renderExtrato()"><option value="">Todos</option>${bancos.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${b===fBanco?'selected':''}>${b}</option>`).join('')}${temSemBancoExt?`<option value="__sem" ${fBanco==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
+        fdRow('Empresa', `<select id="ext-emp" onchange="renderExtrato()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
+        fdRow('Pesquisar créditos', `<input type="text" id="ext-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Descrição ou pedido..." oninput="buscaPersist.extrato=this.value;debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
     <div class="cards-row">
       <div class="card green"><div class="c-label">Créditos</div><div class="c-val">${creditos.length}</div><div class="c-sub">${fmtVal(creditos.reduce((s,t)=>s+t.valor,0))}</div></div>
       <div class="card red"><div class="c-label">Débitos</div><div class="c-val">${baseExt.filter(t=>t.valor<0).length}</div><div class="c-sub">${fmtVal(Math.abs(baseExt.filter(t=>t.valor<0).reduce((s,t)=>s+t.valor,0)))}</div></div>
@@ -5446,17 +5447,15 @@ function renderBanco() {
       Cada dia mostra entradas (créditos) e saídas (débitos) do banco. Débitos batem com Contas a Pagar; créditos com pedidos (vincule na aba Extrato).
     </div>
 
-    <div class="filter-bar" style="margin-bottom:16px">
-      <span class="f-label">Banco:</span>
-      <select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>
-        ${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}
-        ${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}
-      </select>
-      ${dateFilterHTML()}
-      <button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Conciliar débitos automáticos</button>
-      <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Conciliar repasses automáticos</button>
-    </div>
+    ${filtrosBar({
+      nAtivos: (bancoSel && bancoSel!=='__todos' ? 1 : 0) + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosBanco()',
+      acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
+        <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>`,
+      campos:
+        fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
+        fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
 
     ${temSemBanco ? `<div class="filter-bar" style="margin-bottom:16px">
       <span class="f-label">Há lançamentos SEM banco — nomear:</span>
