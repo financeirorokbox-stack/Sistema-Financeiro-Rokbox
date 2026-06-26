@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v111/06-135';
+const APP_VERSION = 'v112/06-136';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1597,18 +1597,25 @@ function _dfLabel(field) {
   if (sel.length === 1) return field === 'mes' ? MESES[+sel[0] - 1] : sel[0];
   return sel.length + ' sel.';
 }
+// Re-renderiza a aba atual PRESERVANDO a posição do scroll (senão a tela "sobe" a cada clique).
+function _dfRenderKeepScroll() {
+  if (!_dfRenderFn) return;
+  const sx = window.scrollX, sy = window.scrollY;
+  _dfRenderFn();
+  window.scrollTo(sx, sy);
+}
 // Abre/fecha o calendário de um campo. O estado fica em _dfOpen e o dropdown é renderizado
 // JÁ ABERTO pelo dateFilterHTML — assim sobrevive a qualquer re-render (não fecha ao marcar um dia).
 function dfToggle(field) {
   _dfOpen = (_dfOpen === field) ? null : field;
-  if (_dfRenderFn) _dfRenderFn();
+  _dfRenderKeepScroll();
 }
 function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
   else dateFilter[field] = dateFilter[field].filter(x => x !== value);
   saveData('dateFilters', dateFilters);
-  // Re-renderiza; o painel volta ABERTO porque _dfOpen continua = field (renderizado pelo dateFilterHTML).
-  if (_dfRenderFn) _dfRenderFn();
+  // Re-renderiza (mantendo scroll); o painel volta ABERTO porque _dfOpen continua = field.
+  _dfRenderKeepScroll();
 }
 function dfClear() {
   // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
