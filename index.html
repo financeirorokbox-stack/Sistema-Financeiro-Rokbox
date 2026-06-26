@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v100/06-124';
+const APP_VERSION = 'v101/06-125';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3917,15 +3917,19 @@ function syncExtratoToRecebimentos() {
 function excluirExtratoDoBanco() {
   const fBanco = document.getElementById('ext-banco')?.value || '';
   if (!fBanco) { alert('Escolha um banco específico no filtro "Banco" antes de excluir.'); return; }
-  const match = t => fBanco === '__sem' ? !t.banco : (t.banco || '') === fBanco;
+  const bankMatch = t => fBanco === '__sem' ? !t.banco : (t.banco || '') === fBanco;
+  // Respeita o filtro de DATA da tela: se houver, exclui só o banco NAQUELE período/dia.
+  const temData = dfAtivo();
+  const match = t => bankMatch(t) && (!temData || passaData(t.data));
   const alvo = extratoBancario.filter(match);
-  if (!alvo.length) { alert('Nenhum lançamento deste banco.'); return; }
+  if (!alvo.length) { alert(temData ? 'Nenhum lançamento deste banco no período filtrado.' : 'Nenhum lançamento deste banco.'); return; }
   const fechados = alvo.filter(t => diaFechado(t.data, t.banco));
   const remover = alvo.filter(t => !diaFechado(t.data, t.banco));
-  if (!remover.length) { alert('Todos os lançamentos deste banco estão em dias FECHADOS. Reabra o(s) dia(s) (admin) para excluir.'); return; }
+  if (!remover.length) { alert('Todos os lançamentos deste banco (no filtro) estão em dias FECHADOS. Reabra o(s) dia(s) (admin) para excluir.'); return; }
   const nomeBanco = fBanco === '__sem' ? '(sem banco)' : fBanco;
+  const escopo = temData ? ` no período filtrado` : '';
   const conciliados = remover.filter(t => extratoLinks[t.id] || repasseLinks[t.id] || debitoLinks[t.id] || receitaLinks[t.id]).length;
-  if (!confirm(`Excluir ${remover.length} lançamento(s) do banco "${nomeBanco}"?` +
+  if (!confirm(`Excluir ${remover.length} lançamento(s) do banco "${nomeBanco}"${escopo}?` +
       (conciliados ? `\n\n⚠ ${conciliados} já estão conciliados — os vínculos serão desfeitos (contas voltam a "em aberto").` : '') +
       (fechados.length ? `\n\n🔒 ${fechados.length} em dia(s) fechado(s) serão PRESERVADOS.` : '') +
       `\n\nIsto não pode ser desfeito.`)) return;
@@ -3953,10 +3957,10 @@ function excluirExtratoDoBanco() {
   saveData('receitasAvulsas', receitasAvulsas);
   saveData('contasPagar', contasPagar);
   try { syncExtratoToRecebimentos(); } catch(e) {}
-  // Volta o filtro para "Todos" se o banco excluído não tem mais lançamentos.
-  if (!extratoBancario.some(match)) { const sel = document.getElementById('ext-banco'); if (sel) sel.value = ''; }
+  // Volta o filtro para "Todos" se o banco excluído não tem MAIS NENHUM lançamento (em nenhuma data).
+  if (!extratoBancario.some(bankMatch)) { const sel = document.getElementById('ext-banco'); if (sel) sel.value = ''; }
   renderExtrato();
-  alert(`✓ ${remover.length} lançamento(s) removido(s) do banco "${nomeBanco}".` + (fechados.length ? ` ${fechados.length} preservado(s) por dia fechado.` : ''));
+  alert(`✓ ${remover.length} lançamento(s) removido(s) do banco "${nomeBanco}"${escopo}.` + (fechados.length ? ` ${fechados.length} preservado(s) por dia fechado.` : ''));
 }
 function renderExtrato() {
   setDateFilterRender(renderExtrato);
@@ -4005,7 +4009,7 @@ function renderExtrato() {
       <input type="text" id="ext-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Descrição ou pedido..." oninput="buscaPersist.extrato=this.value;debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
       ${dateFilterHTML()}
       <button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
-      ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove só os lançamentos do banco selecionado (ex.: extrato subido errado)">🗑 Excluir lançamentos deste banco</button>` : ''}
+      ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove os lançamentos do banco selecionado. Se houver filtro de data ativo, remove só o período filtrado (banco + data).">🗑 Excluir deste banco${dfAtivo()?' (no período)':''}</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar tudo</button>
     </div>
     <div class="cards-row">
