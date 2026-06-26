@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v96/06-120';
+const APP_VERSION = 'v97/06-121';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -985,7 +985,7 @@ function debounceRender(fn, ms = 120) {
   _debounceTimers[fn] = setTimeout(() => {
     // Executa o render
     const renders = {
-      renderContas, renderRecebimentos, renderBoletos, renderCobranca,
+      renderContas, renderPagar, renderRecebimentos, renderBoletos, renderCobranca,
       renderDevolucao, renderExtrato, renderConcResult, renderBanco, renderDashboard,
       renderPedidosTable
     };
