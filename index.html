@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v95/06-119';
+const APP_VERSION = 'v96/06-120';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5354,15 +5354,15 @@ function renderBanco() {
       <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Conciliar repasses automáticos</button>
     </div>
 
-    <div class="filter-bar" style="margin-bottom:16px">
-      <span class="f-label">Nomear banco destes lançamentos:</span>
+    ${temSemBanco ? `<div class="filter-bar" style="margin-bottom:16px">
+      <span class="f-label">Há lançamentos SEM banco — nomear:</span>
       ${bancosCadastro.length
         ? `<select id="cb-atribuir" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
              ${bancosCadastro.map(b=>`<option value="${b.replace(/"/g,'&quot;')}">${b}</option>`).join('')}
            </select>
            <button class="btn ghost sm" onclick="cbAtribuirBanco()" title="Aplica o banco escolhido a todos os lançamentos do filtro atual">Aplicar ao filtro atual</button>`
         : `<span style="font-size:12px;color:var(--muted)">Cadastre seus bancos em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Bancos</a> (ex.: Itaú - Rokbox).</span>`}
-    </div>
+    </div>` : ''}
 
     <div class="cards-row" style="margin-bottom:20px">
       <div class="card green"><div class="c-label">Entradas (créditos)</div><div class="c-val">${fmtVal(entradas)}</div></div>
