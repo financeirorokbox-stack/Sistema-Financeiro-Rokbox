@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v101/06-125';
+const APP_VERSION = 'v102/06-126';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1572,6 +1572,17 @@ function dfToggleVal(field, value, checked) {
   document.querySelectorAll(`.df-lbl[data-df="${field}"]`).forEach(l => l.textContent = _dfLabel(field));
   saveData('dateFilters', dateFilters);
   if (_dfRenderFn) _dfRenderFn();
+  // Mantém o painel ABERTO depois de re-renderizar (só fecha ao clicar fora).
+  dfReopen(field);
+}
+// Reabre o dropdown de um campo após o re-render (a barra de filtros é reconstruída).
+function dfReopen(field) {
+  const lbl = document.querySelector(`.df-lbl[data-df="${field}"]`);
+  const dd = lbl ? lbl.closest('.ms-wrap')?.querySelector('.ms-dropdown') : null;
+  if (!dd) return;
+  dd.innerHTML = _dfOpts(field).map(([v, lbl2]) => `<label class="ms-opt">
+    <input type="checkbox" value="${v}" ${dateFilter[field].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${field}','${v}',this.checked)"> ${lbl2}</label>`).join('');
+  dd.classList.add('open'); _dfOpen = field;
 }
 function dfClear() {
   // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
