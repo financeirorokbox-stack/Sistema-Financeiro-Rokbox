@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v112/06-136';
+const APP_VERSION = 'v113/06-137';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1705,10 +1705,19 @@ function renderPedidosTable() {
   const totalFilt = filtered.reduce((s,p)=>s+p.valor,0);
   const hasFilter = Object.values(vendasFilters).some(a=>Array.isArray(a)?a.length:a) || (document.getElementById('busca-vendas')?.value||'');
 
+  // Faturamento real = valor dos pedidos − devoluções (respeita o filtro: devoluções dos pedidos filtrados).
+  const totalDevol = devolucoes.reduce((s,d)=>s+(d.valorPago||0),0);
+  const fIds = new Set(filtered.map(p=>String(p.id)));
+  const devolFilt = devolucoes.reduce((s,d)=> fIds.has(String(d.pedido)) ? s+(d.valorPago||0) : s, 0);
+  const baseFat = hasFilter ? totalFilt : totalGeral;
+  const baseDevol = hasFilter ? devolFilt : totalDevol;
+  const fatReal = baseFat - baseDevol;
+
   const cardsEl = document.getElementById('vendas-cards');
   if (cardsEl) cardsEl.innerHTML = `
     <div class="card blue"><div class="c-label">Total geral</div><div class="c-val">${fmtVal(totalGeral)}</div><div class="c-sub">${pedidos.length} pedidos</div></div>
-    ${hasFilter ? `<div class="card green"><div class="c-label">Subtotal filtrado</div><div class="c-val">${fmtVal(totalFilt)}</div><div class="c-sub">${filtered.length} pedidos</div></div>` : ''}`;
+    ${hasFilter ? `<div class="card green"><div class="c-label">Subtotal filtrado</div><div class="c-val">${fmtVal(totalFilt)}</div><div class="c-sub">${filtered.length} pedidos</div></div>` : ''}
+    <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub">${baseFat>0?fmtVal(baseFat):'—'} − ${fmtVal(baseDevol)} devolução</div></div>`;
 
   const tEl = document.getElementById('vendas-table');
   if (!tEl) return;
