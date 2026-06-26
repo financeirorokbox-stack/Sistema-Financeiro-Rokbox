@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v94/06-118';
+const APP_VERSION = 'v95/06-119';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -533,7 +533,7 @@ function calcularSaude() {
   try {
     let b = 0;
     extratoBancario.forEach(t => {
-      if (t.valor < 0 && debitoLinks[t.id]) { const tot = debLinkItens(debitoLinks[t.id]).reduce((s, i) => s + (i.valor || 0), 0); if (Math.abs(Math.abs(t.valor) - tot) > 0.05) b++; }
+      if (t.valor < 0 && debitoLinks[t.id]) { const tot = debLinkItens(debitoLinks[t.id]).reduce((s, i) => s + (i.valor || 0), 0) - (debitoLinks[t.id].credito || 0); if (Math.abs(Math.abs(t.valor) - tot) > 0.05) b++; }
       if (t.valor > 0 && repasseLinks[t.id]) { if (Math.abs(Math.abs(t.valor) - (repasseLinks[t.id].total || 0)) > 0.05) b++; }
     });
     if (b) issues.push({ tela: 'Conciliação Bancária', msg: `${b} conciliação(ões) com valor diferente do banco.` });
@@ -5305,7 +5305,7 @@ function renderBanco() {
   let dcDebN = 0, dcDebDif = 0, dcRepN = 0, dcRepDif = 0;
   visT.forEach(t => {
     if (t.valor < 0 && debitoLinks[t.id]) {
-      const tot = debLinkItens(debitoLinks[t.id]).reduce((s,i)=>s+(i.valor||0),0);
+      const tot = debLinkItens(debitoLinks[t.id]).reduce((s,i)=>s+(i.valor||0),0) - (debitoLinks[t.id].credito || 0);
       const d = Math.abs(Math.abs(t.valor) - tot);
       if (d > 0.02) { dcDebN++; dcDebDif += d; }
     }
@@ -5419,7 +5419,7 @@ function renderBanco() {
                        : `<span style="color:var(--muted);font-size:11px">não conciliado</span>`;
                 } else {
                   const link = debitoLinks[t.id];
-                  if (link) { const its = debLinkItens(link); const tt = its.reduce((s,i)=>s+(i.valor||0),0); conc = `<span class="saved-label">✓ ${its.length>1?its.length+' contas':(its[0]?.fornecedor||'conta')} (${fmtVal(tt)})</span>`; }
+                  if (link) { const its = debLinkItens(link); const tt = its.reduce((s,i)=>s+(i.valor||0),0); const cr = link.credito||0; conc = `<span class="saved-label">✓ ${its.length>1?its.length+' contas':(its[0]?.fornecedor||'conta')} (${fmtVal(tt)})${cr>0?` − créd. ${fmtVal(cr)}`:''}</span>`; }
                   else conc = `<span style="color:var(--muted);font-size:11px">não conciliado</span>`;
                 }
                 conc = `🔒 ${conc}`;
@@ -5516,9 +5516,10 @@ function renderBanco() {
                 if (link) {
                   const itens = debLinkItens(link);
                   const tot = itens.reduce((s,i)=>s+(i.valor||0),0);
+                  const cred = link.credito || 0;
                   const nomes = itens.map(i=>i.fornecedor||'conta').join(', ');
                   const rotulo = itens.length>1 ? `${itens.length} contas` : (itens[0]?.fornecedor||'conta');
-                  conc = `<span class="saved-label" title="${nomes.replace(/"/g,'&quot;')}">✓ ${rotulo} (${fmtVal(tot)})</span>
+                  conc = `<span class="saved-label" title="${nomes.replace(/"/g,'&quot;')}">✓ ${rotulo} (${fmtVal(tot)})${cred>0?` <span style="color:var(--muted)">− créd. ${fmtVal(cred)}</span>`:''}</span>
                      <button class="btn ghost sm" onclick="cbDesfazerDebito('${t.id}')">Desfazer</button>`;
                 } else {
                   const alvo = Math.abs(t.valor);
@@ -5563,6 +5564,10 @@ function renderBanco() {
                             <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
                           </label>`;
                         }).join('')}
+                      </div>
+                      <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;flex-wrap:wrap">
+                        <span style="color:var(--muted)">− Crédito/abatimento (ex.: crédito no cartão):</span>
+                        <input type="number" step="0.01" id="cb-deb-cred-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
                       </div>
                       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
                         <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
@@ -5660,9 +5665,14 @@ function cbSomaDebito(extId, alvo) {
   const soma = checks.reduce((s, c) => s + parseFloat(c.dataset.v || '0'), 0);
   const lbl = document.getElementById('cb-deb-soma-' + extId);
   if (!lbl) return;
-  const dif = Math.abs(soma - alvo);
+  const credEl = document.getElementById('cb-deb-cred-' + extId);
+  const cred = credEl ? (parseFloat(String(credEl.value).replace(',', '.')) || 0) : 0;
+  const liq = soma - cred;
+  const dif = Math.abs(liq - alvo);
   const cor = dif <= 0.02 ? 'var(--green)' : (dif <= 1 ? 'var(--amber)' : 'var(--red)');
-  lbl.innerHTML = `Flegado: <strong style="color:${cor}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}`;
+  lbl.innerHTML = cred > 0
+    ? `Flegado: ${fmtVal(soma)} − crédito ${fmtVal(cred)} = <strong style="color:${cor}">${fmtVal(liq)}</strong> / ${fmtVal(alvo)}`
+    : `Flegado: <strong style="color:${cor}">${fmtVal(liq)}</strong> / ${fmtVal(alvo)}`;
 }
 // ── Repasses de operadora (PayPal/Braavo): 1 depósito no banco cobre vários recebimentos ──
 // Chave estável de um recebimento (para amarrar a um depósito sem reusar).
@@ -5886,9 +5896,13 @@ function cbVincularDebito(extId, alvo) {
   });
   if (!itens.length) { alert('Contas a pagar não encontradas.'); return; }
   const tot = itens.reduce((s, i) => s + (i.valor || 0), 0);
-  // 1 débito → 1 conta EM ABERTO: o valor do EXTRATO manda. Atualiza a conta para o valor do banco
-  // (guarda o anterior). NÃO mexe em conta JÁ PAGA (it.setPago=false): valor pago é histórico.
-  if (alvo != null && itens.length === 1 && itens[0].setPago) {
+  // Crédito/abatimento (ex.: crédito no cartão): reduz a soma das contas até o valor que saiu do banco.
+  const credEl = document.getElementById('cb-deb-cred-' + extId);
+  const credito = credEl ? (parseFloat(String(credEl.value).replace(',', '.')) || 0) : 0;
+  const liq = tot - credito; // o que deveria ter saído do banco
+  // 1 débito → 1 conta EM ABERTO, SEM crédito: o valor do EXTRATO manda (ajusta a conta ao banco).
+  // COM crédito, NÃO mexe no valor da conta (o crédito é que explica a diferença).
+  if (alvo != null && credito <= 0 && itens.length === 1 && itens[0].setPago) {
     const it = itens[0];
     if (Math.abs((it.valor || 0) - alvo) > 0.005) {
       const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
@@ -5900,14 +5914,14 @@ function cbVincularDebito(extId, alvo) {
         it.valor = alvo;
       }
     }
-  } else if (alvo != null && Math.abs(tot - alvo) > 0.02 &&
-      !confirm(`A soma das contas flegadas (${fmtVal(tot)}) é diferente do débito (${fmtVal(alvo)}). Vincular mesmo assim?`)) {
+  } else if (alvo != null && Math.abs(liq - alvo) > 0.02 &&
+      !confirm(`As contas flegadas somam ${fmtVal(tot)}${credito>0?` − crédito ${fmtVal(credito)} = ${fmtVal(liq)}`:''}, diferente do débito (${fmtVal(alvo)}). Vincular mesmo assim?`)) {
     // reverte o que acabamos de marcar antes de sair
     itens.forEach(i => { if (i.setPago) { const c = contasPagar.find(x => chaveContaPagar(x) === i.chave); if (c) { c.pago = false; c.dataPag = null; } } });
     return;
   }
   const totFinal = itens.reduce((s, i) => s + (i.valor || 0), 0);
-  debitoLinks[extId] = { itens, total: totFinal };
+  debitoLinks[extId] = { itens, total: totFinal, credito: credito || 0 };
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
