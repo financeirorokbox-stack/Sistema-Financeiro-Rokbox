@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v110/06-134';
+const APP_VERSION = 'v111/06-135';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5489,6 +5489,7 @@ function renderBanco() {
               <span style="color:var(--green);font-weight:600">+ ${fmtVal(ent)}</span>
               <span style="color:var(--red);font-weight:600">− ${fmtVal(sai)}</span>
               <span style="color:${ent-sai>=0?'var(--text)':'var(--amber)'}">Saldo do dia: ${fmtVal(ent-sai)}</span>
+              ${(bancoSel && bancoSel!=='__todos' && bancoSel!=='__sem' && dk!=='sem-data') ? `<span style="color:var(--accent);font-weight:700">Saldo final do dia: ${fmtVal(saldoFinalDia(bancoSel, dk))}</span>` : ''}
               <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${btnFecho}</span>
             </div>
             <div class="table-wrap" style="border-radius:0 0 8px 8px"><table><thead><tr>
@@ -5837,74 +5838,63 @@ function contaTravadaPorFechamento(c) {
   }
   return false;
 }
-// ── Saldo bancário inicial (para conferir o saldo calculado do banco) ──
-// Painel: saldo inicial (data + valor) + movimento desde então = saldo calculado.
+// ── Saldo bancário: banner de topo (saldo inicial vem do Cadastro → saldo final calculado) ──
 function saldoBancoHTML(banco) {
-  const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
-  const dIni = cfg.data || '2025-05-31';
+  const cfg = saldosIniciais[banco];
+  const inicial = cfg ? (cfg.valor || 0) : 0;
+  const dIni = cfg ? (cfg.data || '2025-05-31') : '2025-05-31';
   const dRef = new Date(dIni + 'T23:59:59');
-  const esc = banco.replace(/'/g, "\\'");
   const lancs = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data));
-  // Saldo calculado ATÉ HOJE (todos os lançamentos após a data inicial).
-  const movTotal = lancs.filter(t => t.data > dRef).reduce((s, t) => s + (t.valor || 0), 0);
-  const saldoHoje = (cfg.valor || 0) + movTotal;
-  // Saldo ACUMULADO até a data do filtro: inicial + todos os lançamentos até a ÚLTIMA data que passa no filtro.
-  let bloco = '';
+  // Saldo final: acumulado até a ÚLTIMA data do filtro (se houver filtro), senão até hoje (tudo).
+  let cutoff = null, qualData = 'hoje';
   if (dfAtivo()) {
     const noFiltro = lancs.filter(t => passaData(t.data));
-    if (noFiltro.length) {
-      const cutoff = new Date(Math.max(...noFiltro.map(t => t.data.getTime())));
-      const movAcum = lancs.filter(t => t.data > dRef && t.data <= cutoff).reduce((s, t) => s + (t.valor || 0), 0);
-      const saldoAcum = (cfg.valor || 0) + movAcum;
-      const movPeriodo = noFiltro.reduce((s, t) => s + (t.valor || 0), 0); // só os dias filtrados (saldo do dia/período)
-      bloco = `
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <span class="f-label">Movimento do período (filtro)</span>
-        <span style="font-weight:700;color:${movPeriodo>=0?'var(--green)':'var(--red)'};font-size:15px">${fmtVal(movPeriodo)}</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px;border-left:2px solid var(--accent);padding-left:12px">
-        <span class="f-label">= Saldo acumulado até ${fmtDate(cutoff)}</span>
-        <span style="font-weight:800;font-size:18px;color:var(--accent)">${fmtVal(saldoAcum)}</span>
-      </div>`;
-    } else {
-      bloco = `<div style="font-size:11px;color:var(--amber);align-self:center">Sem lançamentos deste banco no período filtrado.</div>`;
-    }
+    if (noFiltro.length) { cutoff = new Date(Math.max(...noFiltro.map(t => t.data.getTime()))); qualData = fmtDate(cutoff); }
+    else qualData = 'período sem lançamentos';
   }
-  const inp = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)';
+  const mov = lancs.filter(t => t.data > dRef && (!cutoff || t.data <= cutoff)).reduce((s, t) => s + (t.valor || 0), 0);
+  const saldoFinal = inicial + mov;
   return `
-    <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-bottom:18px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <span class="f-label">Saldo inicial em</span>
-        <input type="date" value="${dIni}" onchange="setSaldoData('${esc}', this.value)" style="${inp}">
+    <div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      <div>
+        <div class="f-label">🏦 Saldo inicial em ${fmtDate(dRef)}</div>
+        <div style="font-weight:800;font-size:20px">${fmtVal(inicial)}</div>
+        ${cfg ? `<a href="#" onclick="setView('cadastro');return false" style="font-size:11px;color:var(--accent)">editar no Cadastro</a>`
+              : `<span style="font-size:11px;color:var(--amber)">não informado — <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">cadastrar saldo</a></span>`}
       </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <span class="f-label">Valor inicial (R$)</span>
-        <input type="number" step="0.01" value="${cfg.valor || 0}" placeholder="0,00" onchange="setSaldoInicial('${esc}', this.value)" onclick="event.stopPropagation()" style="${inp};width:130px">
+      <div style="font-size:13px;color:var(--muted)">${mov>=0?'+':'−'} movimento ${fmtVal(Math.abs(mov))} &nbsp;➜</div>
+      <div style="border-left:3px solid var(--accent);padding-left:16px">
+        <div class="f-label">= Saldo final ${dfAtivo()?`em ${qualData}`:'(hoje)'}</div>
+        <div style="font-weight:800;font-size:24px;color:var(--accent)">${fmtVal(saldoFinal)}</div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <span class="f-label">+ Movimento total</span>
-        <span style="font-weight:700;color:${movTotal>=0?'var(--green)':'var(--red)'};font-size:15px">${fmtVal(movTotal)}</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <span class="f-label">= Saldo calculado hoje</span>
-        <span style="font-weight:800;font-size:18px">${fmtVal(saldoHoje)}</span>
-      </div>
-      ${bloco}
-      <div style="font-size:11px;color:var(--muted);max-width:240px">Compare o <strong>saldo acumulado</strong> (na data do filtro) ou o <strong>saldo hoje</strong> com o saldo real do extrato do banco — se bater, está ok.</div>
+      <div style="font-size:11px;color:var(--muted);max-width:240px">Compare o <strong>saldo final</strong> com o saldo real do extrato do banco ${dfAtivo()?'nessa data':'hoje'} — se bater, está conciliado certo.</div>
     </div>`;
+}
+// Saldo final ACUMULADO de um banco até o fim de um dia (para o cabeçalho de cada dia).
+function saldoFinalDia(banco, dk) {
+  const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
+  const dRef = new Date((cfg.data || '2025-05-31') + 'T23:59:59');
+  const endDay = new Date(dk + 'T23:59:59');
+  const mov = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data > dRef && t.data <= endDay).reduce((s, t) => s + (t.valor || 0), 0);
+  return (cfg.valor || 0) + mov;
+}
+function _saldoReRender() {
+  // Re-renderiza a tela aberta (Cadastro ou Conciliação Bancária) sem trocar de aba.
+  if (currentView === 'cadastro') { try { renderCadastro(); } catch(e) {} }
+  else if (typeof currentSub !== 'undefined' && currentSub === 'banco') { try { renderBanco(); } catch(e) {} }
 }
 function setSaldoInicial(banco, valor) {
   const v = parseFloat(String(valor).replace(',', '.')) || 0;
   if (!saldosIniciais[banco]) saldosIniciais[banco] = { valor: 0, data: '2025-05-31' };
   saldosIniciais[banco].valor = v;
   saveData('saldosIniciais', saldosIniciais);
-  renderBanco();
+  _saldoReRender();
 }
 function setSaldoData(banco, data) {
   if (!saldosIniciais[banco]) saldosIniciais[banco] = { valor: 0, data: '2025-05-31' };
   saldosIniciais[banco].data = data || '2025-05-31';
   saveData('saldosIniciais', saldosIniciais);
-  renderBanco();
+  _saldoReRender();
 }
 // Identifica a operadora pelo texto do crédito do extrato.
 // (Braavo é a fintech do iFood → o depósito costuma vir como "iFood"; boletos vêm como "boleto/cobrança".)
@@ -6415,6 +6405,23 @@ function renderCadastro() {
         </div>
       </div>
     </div>
+
+    <div class="section-title">💰 Saldo inicial dos bancos</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Informe o saldo de cada banco numa data de referência (ex.: <strong>31/05/2025</strong>). É o ponto de partida usado na <strong>Conciliação Bancária</strong> para calcular o saldo final.</p>
+    ${bancosCadastro.length ? `<div class="table-wrap" style="margin-bottom:24px;max-width:560px"><table><thead><tr>
+        <th>Banco</th><th>Data de referência</th><th>Saldo inicial (R$)</th>
+      </tr></thead><tbody>
+      ${bancosCadastro.map(b => {
+        const cfg = saldosIniciais[b] || { valor: 0, data: '2025-05-31' };
+        const esc = b.replace(/'/g, "\\'");
+        const inp = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)';
+        return `<tr>
+          <td><strong>${b}</strong></td>
+          <td><input type="date" value="${cfg.data || '2025-05-31'}" onchange="setSaldoData('${esc}', this.value)" style="${inp}"></td>
+          <td><input type="number" step="0.01" value="${cfg.valor || 0}" placeholder="0,00" onchange="setSaldoInicial('${esc}', this.value)" style="${inp};width:150px"></td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>` : '<p style="font-size:12px;color:var(--muted);margin-bottom:24px">Cadastre seus bancos acima primeiro.</p>'}
 
     <div class="section-title">Cadastro de Lojas</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Empresa, Operação, Segmento e Natureza de NF por loja. Pedidos Cancelados/Em Aberto mostram "—" independente do cadastro.</p>
