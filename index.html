@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v89/06-113';
+const APP_VERSION = 'v90/06-114';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5853,10 +5853,10 @@ function cbMoverContaDebito(chaveEnc, toExtId) {
   const toT = extratoBancario.find(x => x.id === toExtId);
   if (!toT) return;
   if (bloqueadoPorFechamento(toT.data)) return;
-  // Acha o débito de origem que usa essa conta.
+  // Acha o débito de origem que usa essa conta (usa debLinkItens p/ cobrir o formato legado sem .itens).
   let fromExtId = null, fromLink = null, fromIt = null;
   for (const [extId, link] of Object.entries(debitoLinks)) {
-    const it = (link.itens || []).find(i => i.chave === chave);
+    const it = debLinkItens(link).find(i => i.chave === chave);
     if (it) { fromExtId = extId; fromLink = link; fromIt = it; break; }
   }
   if (!fromExtId) { alert('Não encontrei o débito de origem desta conta.'); return; }
@@ -5871,9 +5871,14 @@ function cbMoverContaDebito(chaveEnc, toExtId) {
     if (fromIt.setPago) { conta.pago = false; conta.dataPag = null; }
     if (fromIt.valorAnt !== undefined) conta.valor = fromIt.valorAnt;
   }
-  fromLink.itens = (fromLink.itens || []).filter(i => i !== fromIt);
-  if (!fromLink.itens.length) delete debitoLinks[fromExtId];
-  else fromLink.total = fromLink.itens.reduce((s, i) => s + (i.valor || 0), 0);
+  if (Array.isArray(fromLink.itens)) {
+    fromLink.itens = fromLink.itens.filter(i => i.chave !== chave);
+    if (!fromLink.itens.length) delete debitoLinks[fromExtId];
+    else fromLink.total = fromLink.itens.reduce((s, i) => s + (i.valor || 0), 0);
+  } else {
+    // formato legado: o vínculo era só desta conta → o débito de origem fica sem vínculo
+    delete debitoLinks[fromExtId];
+  }
 
   if (!conta) { saveData('debitoLinks', debitoLinks); renderBanco(); alert('Vínculo de origem removido, mas a conta não foi encontrada para revincular.'); return; }
 
