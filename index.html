@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v85/06-109';
+const APP_VERSION = 'v86/06-110';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -469,7 +469,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -500,7 +500,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -903,6 +903,8 @@ let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
 let repasseLinks = {};       // { extratoId: { gateway, total, data, itens:[recKey] } } — depósito de operadora (PayPal/Braavo) → recebimentos que ele cobre
+let receitasAvulsas = [];    // receitas que NÃO são de pedido (rendimentos da conta, etc.), lançadas pela conciliação bancária
+let receitaLinks = {};       // { extratoId: receitaId } — crédito do extrato vinculado a uma receita avulsa
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
 let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
@@ -1938,7 +1940,19 @@ function _renderContasImpl(el) {
   const pagos    = linhas.filter(l =>  l.st.recebido);
   const vAberto  = emAberto.reduce((s,l) => s + l.f.valor, 0);
   const vPago    = pagos.reduce((s,l) => s + l.f.valor, 0);
-  const totalCR  = vAberto + vPago; // total de Contas a Receber (em aberto + pago)
+  const totalCR  = vAberto + vPago; // total de Contas a Receber (em aberto + pago) — SÓ pedidos (cross-check VT)
+
+  // ── Receitas avulsas (rendimentos etc.): linhas próprias, fora do cross-check de pedidos ──
+  // Respeita os mesmos filtros: empresa, busca, data. São sempre "recebidas" (não entram em "Em Aberto").
+  const avulsasVis = receitasAvulsas.filter(r => {
+    if (fEmp && (r.empresa||'') !== fEmp) return false;
+    if (fCat && r.categoria !== fCat) return false;
+    if (fSt === 'aberto' || fSt === 'semforma') return false; // avulsa é sempre paga
+    if (dfAtivo() && !passaData(r.data)) return false;
+    if (fQ && !((r.categoria||'').toLowerCase().includes(fQ) || (r.descricao||'').toLowerCase().includes(fQ))) return false;
+    return true;
+  }).sort((a,b) => (b.data||0)-(a.data||0));
+  const vAvulsas = avulsasVis.reduce((s,r) => s + (r.valor||0), 0);
   // Soma direta dos pedidos Venda/Troca (cross-check): deve bater com o Total a Receber.
   let totalVT = 0;
   pedidos.forEach(p => {
@@ -1998,6 +2012,7 @@ function _renderContasImpl(el) {
       <div class="card red"><div class="c-label">Em Aberto</div><div class="c-val">${emAberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
       <div class="card dark"><div class="c-label">Pago</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)}</div></div>
       <div class="card ${bateVT?'green':'amber'}"><div class="c-label">Total a Receber</div><div class="c-val">${fmtVal(totalCR)}</div><div class="c-sub">${linhas.length} linha(s)</div></div>
+      ${avulsasVis.length ? `<div class="card green"><div class="c-label">Outras receitas</div><div class="c-val">${avulsasVis.length}</div><div class="c-sub">${fmtVal(vAvulsas)}</div></div>` : ''}
       ${vis.length !== linhas.length ? `<div class="card blue"><div class="c-label">Filtrado</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,l)=>s+l.f.valor,0))}</div></div>` : ''}
     </div>
     ${(() => {
@@ -2059,8 +2074,36 @@ function _renderContasImpl(el) {
         <td style="font-size:11px;color:var(--muted)">${l.st.detalhe||''}</td>
       </tr>`;
     }).join('')}
-    </tbody></table></div>`}`;
+    </tbody></table></div>`}
+    ${avulsasVis.length ? `
+    <div style="font-size:14px;font-weight:800;margin:22px 0 8px">Outras receitas (rendimentos, etc.) — ${avulsasVis.length} · ${fmtVal(vAvulsas)}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Receitas que não são de pedido, lançadas pela Conciliação Bancária. Já entram como recebidas.</div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>Data</th><th>Categoria</th><th>Descrição</th><th>Empresa</th><th>Banco</th><th>Valor</th><th>Status</th><th></th>
+    </tr></thead><tbody>
+    ${avulsasVis.map(r => `<tr>
+      <td>${r.data?fmtDate(r.data):'—'}</td>
+      <td><span class="badge info">${r.categoria||'—'}</span></td>
+      <td>${(r.descricao||'—')}</td>
+      <td>${r.empresa||'—'}</td>
+      <td>${r.banco||'—'}</td>
+      <td><strong>${fmtVal(r.valor||0)}</strong></td>
+      <td><span class="badge ok">✓ recebido</span></td>
+      <td><button class="btn ghost sm" style="color:var(--red);padding:1px 6px" onclick="removerReceitaAvulsa('${r.id}')" title="Remover esta receita">✕</button></td>
+    </tr>`).join('')}
+    </tbody></table></div>` : ''}`;
 } // fim _renderContasImpl
+// Remove uma receita avulsa (e libera o crédito do extrato que a originou). Re-renderiza Contas a Receber.
+function removerReceitaAvulsa(id) {
+  const r = receitasAvulsas.find(x => x.id === id);
+  if (!r) return;
+  if (!confirm(`Remover a receita "${r.categoria}" de ${fmtVal(r.valor||0)}?\n\nO crédito do banco volta a ficar pendente na Conciliação Bancária.`)) return;
+  receitasAvulsas = receitasAvulsas.filter(x => x.id !== id);
+  if (r._extratoId) delete receitaLinks[r._extratoId];
+  saveData('receitasAvulsas', receitasAvulsas);
+  saveData('receitaLinks', receitaLinks);
+  renderContas();
+}
 
 // Status para pedidos SEM forma de pagamento cadastrada
 function statusFormaSemForma(ped, concOk, recs) {
@@ -2299,6 +2342,21 @@ const CATEGORIAS_DESPESA = {
   'SÓCIOS': ['CONVÊNIO MÉDICO','APORTE SÓCIO','BENEFÍCIOS SOCIOS','DISTRIBUIÇÃO DE LUCROS','PRÓ LABORE','DESPESAS','SALARIO SOCIO'],
   'RETIRADA SÓCIOS': ['RETIRADA SÓCIOS']
 };
+// Categorias de RECEITA avulsa (rendimentos da conta, etc.) — usadas no box "Receita nova" da
+// conciliação bancária. Lista provisória; o usuário vai enviar a lista fixa definitiva.
+const CATEGORIAS_RECEITA = [
+  'RENDIMENTOS / APLICAÇÃO',
+  'JUROS RECEBIDOS',
+  'ESTORNO / REEMBOLSO',
+  'TRANSFERÊNCIA ENTRE CONTAS',
+  'OUTRAS RECEITAS'
+];
+function optionsCategoriasReceitaHTML(sel) {
+  // inclui categorias já usadas em receitas avulsas que não estejam na lista-mestre
+  const usadas = [...new Set(receitasAvulsas.map(r => r.categoria).filter(Boolean))];
+  const todas = [...new Set([...CATEGORIAS_RECEITA, ...usadas])];
+  return todas.map(c => `<option value="${c.replace(/"/g,'&quot;')}" ${c===sel?'selected':''}>${c}</option>`).join('');
+}
 // Mapa reverso normalizado (subcategoria/grupo → grupo) para classificar no fluxo.
 const GRUPO_DE_CATEGORIA = (() => {
   const m = {};
@@ -5191,7 +5249,7 @@ function renderBanco() {
   let visT = extratoBancario.filter(matchBanco);
   if (dfAtivo()) visT = visT.filter(t => passaData(t.data));
 
-  const conciliado = t => t.valor >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id]) : !!debitoLinks[t.id];
+  const conciliado = t => t.valor >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
   const entradas = visT.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0);
   const saidas = visT.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0);
   const pendentes = visT.filter(t=>!conciliado(t)).length;
@@ -5301,9 +5359,11 @@ function renderBanco() {
               if (fechado) {
                 // Dia fechado → só leitura (sem botões).
                 if (isCred) {
-                  const link = extratoLinks[t.id], rep = repasseLinks[t.id];
+                  const link = extratoLinks[t.id], rep = repasseLinks[t.id], rec = receitaLinks[t.id];
+                  const recR = rec ? receitasAvulsas.find(x => x.id === rec) : null;
                   conc = link ? `<span class="saved-label">✓ ${String(link.pedido).split(',').map(p=>'#'+p.trim()).join(' + ')}</span>`
                        : rep ? `<span class="saved-label">✓ Repasse ${rep.gateway} (${fmtVal(rep.total)})</span>`
+                       : rec ? `<span class="saved-label">✓ Receita: ${recR?.categoria||'—'} (${fmtVal(recR ? recR.valor : Math.abs(t.valor))})</span>`
                        : `<span style="color:var(--muted);font-size:11px">não conciliado</span>`;
                 } else {
                   const link = debitoLinks[t.id];
@@ -5314,7 +5374,25 @@ function renderBanco() {
               } else if (isCred) {
                 const link = extratoLinks[t.id];
                 const rep = repasseLinks[t.id];
+                const rec = receitaLinks[t.id];
                 const gw = gatewayDoCredito(t);
+                const alvoCred = Math.abs(t.valor);
+                // Box "Receita nova" (rendimentos etc.): cria uma receita avulsa já recebida em Contas a Receber.
+                const boxReceita = `
+                    <div id="cb-rec-box-${t.id}" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;padding:8px">
+                      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                        <select id="cb-rec-cat-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                          ${optionsCategoriasReceitaHTML()}
+                        </select>
+                        <select id="cb-rec-emp-${t.id}" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                          <option value="">— empresa —</option>
+                          ${empresasListCb.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">${e}</option>`).join('')}
+                        </select>
+                        <button class="btn primary sm" onclick="cbLancarReceita('${t.id}',${alvoCred})">Lançar ${fmtVal(alvoCred)}</button>
+                      </div>
+                      <div style="font-size:10px;color:var(--muted);margin-top:4px">Entra como receita já recebida em Contas a Receber, com o valor e a data do extrato.</div>
+                    </div>`;
+                const btnReceita = `<button class="btn ghost sm" onclick="cbToggleRecBox('${t.id}')" title="Lançar receita que não é de pedido (rendimento, etc.)">➕ Receita nova</button>`;
                 if (link) {
                   conc = `<span class="saved-label">✓ ${String(link.pedido).split(',').map(p=>'#'+p.trim()).join(' + ')}</span>`;
                 } else if (rep) {
@@ -5322,6 +5400,10 @@ function renderBanco() {
                   conc = `<span class="saved-label" title="${rep.gateway} — ${rep.itens.length} recebimentos">✓ Repasse ${rep.gateway}: ${rep.itens.length} pedidos (${fmtVal(rep.total)})</span>
                      ${Math.abs(dif)>0.02?`<span style="color:var(--amber);font-size:10px">dif ${fmtVal(dif)}</span>`:''}
                      <button class="btn ghost sm" onclick="cbDesfazerRepasse('${t.id}')">Desfazer</button>`;
+                } else if (rec) {
+                  const r = receitasAvulsas.find(x => x.id === rec);
+                  conc = `<span class="saved-label" title="Receita avulsa em Contas a Receber">✓ Receita: ${r?.categoria||'—'} (${fmtVal(r ? r.valor : Math.abs(t.valor))})</span>
+                     <button class="btn ghost sm" onclick="cbDesfazerReceita('${t.id}')">Desfazer</button>`;
                 } else if (gwsPend.length) {
                   // Seletor da operadora (já vem marcado o que o texto sugere) + lista para flegar os
                   // recebimentos EXATOS deste depósito (evita o acúmulo guloso estourar o valor).
@@ -5341,8 +5423,10 @@ function renderBanco() {
                         ${gwsPend.map(g=>`<option value="${g.replace(/"/g,'&quot;')}" ${g===gwSel?'selected':''}>${gwLabel(g)}</option>`).join('')}
                       </select>
                       <button class="btn ghost sm" onclick="cbToggleRepBox('${t.id}')" title="Escolher exatamente os recebimentos deste depósito">▾ Escolher</button>
+                      ${btnReceita}
                       <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a um pedido específico (PIX)">↪ Extrato</button>
                     </div>
+                    ${boxReceita}
                     ${pendRep.length ? `
                     <div id="cb-rep-box-${t.id}" style="display:none;margin-top:6px">
                       <input type="text" id="cb-rep-q-${t.id}" placeholder="🔍 Pesquisar pedido, nome, valor..." oninput="cbFiltrarRepList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
@@ -5366,8 +5450,14 @@ function renderBanco() {
                     </div>` : `<div style="font-size:11px;color:var(--muted);margin-top:4px">Sem recebimentos pendentes de ${gwLabel(gwSel)}.</div>`}
                   </div>`;
                 } else {
-                  conc = `<span style="color:var(--amber);font-size:11px">pendente</span>
-                     <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>`;
+                  conc = `<div style="min-width:200px">
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                      <span style="color:var(--amber);font-size:11px">pendente</span>
+                      ${btnReceita}
+                      <button class="btn ghost sm" onclick="setSub('extrato')" title="Vincular a pedido na aba Extrato">↪ Extrato</button>
+                    </div>
+                    ${boxReceita}
+                  </div>`;
                 }
               } else {
                 const link = debitoLinks[t.id];
@@ -5769,6 +5859,48 @@ function cbLancarDespesa(extId, alvo) {
   saveData('debitoLinks', debitoLinks);
   renderBanco();
 }
+// Abre/fecha o box "Receita nova" de um crédito.
+function cbToggleRecBox(extId) {
+  const box = document.getElementById('cb-rec-box-' + extId);
+  if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+// Lança uma RECEITA avulsa (rendimento etc.) a partir de um crédito do extrato.
+// Cria uma receita já recebida que aparece em Contas a Receber e marca o crédito como conciliado.
+function cbLancarReceita(extId, alvo) {
+  const catEl = document.getElementById('cb-rec-cat-' + extId);
+  const empEl = document.getElementById('cb-rec-emp-' + extId);
+  const categoria = catEl ? catEl.value : '';
+  const empresa = empEl ? empEl.value : '';
+  if (!categoria) { alert('Escolha uma categoria de receita.'); return; }
+  const t = extratoBancario.find(x => x.id === extId);
+  if (t && bloqueadoPorFechamento(t.data)) return;
+  const id = 'rec_' + extId;
+  const receita = {
+    id, categoria, empresa,
+    valor: alvo || (t ? Math.abs(t.valor) : 0),
+    data: t ? t.data : null,
+    descricao: (t && t.memo) || categoria,
+    banco: t ? (t.banco || '') : '',
+    _extratoId: extId
+  };
+  // Remove qualquer receita anterior deste mesmo crédito (evita duplicar ao relançar).
+  receitasAvulsas = receitasAvulsas.filter(r => r._extratoId !== extId);
+  receitasAvulsas.push(receita);
+  receitaLinks[extId] = id;
+  saveData('receitasAvulsas', receitasAvulsas);
+  saveData('receitaLinks', receitaLinks);
+  renderBanco();
+}
+// Desfaz a receita avulsa de um crédito (remove a receita e o vínculo).
+function cbDesfazerReceita(extId) {
+  const t = extratoBancario.find(x => x.id === extId);
+  if (t && bloqueadoPorFechamento(t.data)) return;
+  receitasAvulsas = receitasAvulsas.filter(r => r._extratoId !== extId);
+  delete receitaLinks[extId];
+  saveData('receitasAvulsas', receitasAvulsas);
+  saveData('receitaLinks', receitaLinks);
+  renderBanco();
+}
 // Aplica um banco do cadastro a todos os lançamentos do filtro atual (banco selecionado + filtro de data).
 function cbAtribuirBanco() {
   const sel = document.getElementById('cb-atribuir');
@@ -6166,7 +6298,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -6207,6 +6339,8 @@ function delCheckboxHeader(source) {
     else if (k==='debitoLinks') debitoLinks = v;
     else if (k==='extratoContaBanco') extratoContaBanco = v;
     else if (k==='repasseLinks') repasseLinks = v;
+    else if (k==='receitasAvulsas') receitasAvulsas = (v||[]).map(a=>({...a,data:a.data?new Date(a.data):null}));
+    else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
