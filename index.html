@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v107/06-131';
+const APP_VERSION = 'v108/06-132';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -486,7 +486,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -517,7 +517,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -927,6 +927,7 @@ let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário z
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
+let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -5475,6 +5476,7 @@ function renderBanco() {
       <div class="card ${entradas-saidas>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(entradas-saidas)}</div></div>
       <div class="card ${pendentes?'amber':'dark'}"><div class="c-label">Pendentes</div><div class="c-val">${pendentes}</div></div>
     </div>
+    ${(bancoSel && bancoSel !== '__todos' && bancoSel !== '__sem') ? saldoBancoHTML(bancoSel) : `<div style="font-size:11px;color:var(--muted);margin-bottom:16px">💡 Selecione um banco específico no filtro para informar o <strong>saldo inicial</strong> e conferir o saldo calculado.</div>`}
     <div style="font-size:11px;margin-bottom:16px;color:${dcBancoOk?'var(--green)':'var(--amber)'}">
       ${dcBancoOk
         ? '✓ Double-check — todas as conciliações batem com o valor do banco.'
@@ -5849,6 +5851,50 @@ function contaTravadaPorFechamento(c) {
     if (t && diaFechado(t.data, t.banco)) return true;
   }
   return false;
+}
+// ── Saldo bancário inicial (para conferir o saldo calculado do banco) ──
+// Painel: saldo inicial (data + valor) + movimento desde então = saldo calculado.
+function saldoBancoHTML(banco) {
+  const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
+  const dIni = cfg.data || '2025-05-31';
+  const dRef = new Date(dIni + 'T23:59:59');
+  const movs = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data > dRef);
+  const mov = movs.reduce((s, t) => s + (t.valor || 0), 0);
+  const saldoCalc = (cfg.valor || 0) + mov;
+  const inp = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)';
+  return `
+    <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-bottom:18px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span class="f-label">Saldo inicial em</span>
+        <input type="date" value="${dIni}" onchange="setSaldoData('${banco.replace(/'/g,"\\'")}', this.value)" style="${inp}">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span class="f-label">Valor inicial (R$)</span>
+        <input type="number" step="0.01" value="${cfg.valor || 0}" placeholder="0,00" onchange="setSaldoInicial('${banco.replace(/'/g,"\\'")}', this.value)" onclick="event.stopPropagation()" style="${inp};width:130px">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span class="f-label">+ Movimento desde então (${movs.length})</span>
+        <span style="font-weight:700;color:${mov>=0?'var(--green)':'var(--red)'};font-size:15px">${fmtVal(mov)}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span class="f-label">= Saldo calculado hoje</span>
+        <span style="font-weight:800;font-size:18px">${fmtVal(saldoCalc)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);max-width:240px">Compare este saldo calculado com o saldo real do extrato do banco — se bater, a conciliação está ok.</div>
+    </div>`;
+}
+function setSaldoInicial(banco, valor) {
+  const v = parseFloat(String(valor).replace(',', '.')) || 0;
+  if (!saldosIniciais[banco]) saldosIniciais[banco] = { valor: 0, data: '2025-05-31' };
+  saldosIniciais[banco].valor = v;
+  saveData('saldosIniciais', saldosIniciais);
+  renderBanco();
+}
+function setSaldoData(banco, data) {
+  if (!saldosIniciais[banco]) saldosIniciais[banco] = { valor: 0, data: '2025-05-31' };
+  saldosIniciais[banco].data = data || '2025-05-31';
+  saveData('saldosIniciais', saldosIniciais);
+  renderBanco();
 }
 // Identifica a operadora pelo texto do crédito do extrato.
 // (Braavo é a fintech do iFood → o depósito costuma vir como "iFood"; boletos vêm como "boleto/cobrança".)
@@ -6568,7 +6614,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -6611,6 +6657,7 @@ function delCheckboxHeader(source) {
     else if (k==='repasseLinks') repasseLinks = v;
     else if (k==='receitasAvulsas') receitasAvulsas = (v||[]).map(a=>({...a,data:a.data?new Date(a.data):null}));
     else if (k==='receitaLinks') receitaLinks = v || {};
+    else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
