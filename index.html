@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v106/06-130';
+const APP_VERSION = 'v107/06-131';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1618,8 +1618,10 @@ function dfToggleVal(field, value, checked) {
   setTimeout(() => dfReopen(field), 0);
 }
 // Reabre o dropdown de um campo após o re-render (a barra de filtros é reconstruída).
+// Escolhe o calendário da tela VISÍVEL (várias telas ficam no DOM escondidas com o mesmo data-df).
 function dfReopen(field) {
-  const lbl = document.querySelector(`.df-lbl[data-df="${field}"]`);
+  const lbls = [...document.querySelectorAll(`.df-lbl[data-df="${field}"]`)];
+  const lbl = lbls.find(l => l.offsetWidth > 0 || l.offsetHeight > 0) || lbls[lbls.length - 1];
   const dd = lbl ? lbl.closest('.ms-wrap')?.querySelector('.ms-dropdown') : null;
   if (!dd) return;
   dd.innerHTML = _dfOpts(field).map(([v, lbl2]) => `<label class="ms-opt">
