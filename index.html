@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v90/06-114';
+const APP_VERSION = 'v91/06-115';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -909,6 +909,7 @@ let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de perío
 let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
+let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -5244,7 +5245,8 @@ function renderBanco() {
   const bancosTodos = [...new Set(extratoBancario.map(t => t.banco || ''))];
   const temSemBanco = bancosTodos.includes('');
   const bancosNomeados = bancosTodos.filter(Boolean).sort();
-  const bancoSel = el.querySelector('#cb-banco') ? el.querySelector('#cb-banco').value : '__todos';
+  // Fonte de verdade é o global (persiste ao trocar de tela); o seletor só reflete/atualiza ele.
+  const bancoSel = bancoConcSel;
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
   let visT = extratoBancario.filter(matchBanco);
   if (dfAtivo()) visT = visT.filter(t => passaData(t.data));
@@ -5296,7 +5298,7 @@ function renderBanco() {
 
     <div class="filter-bar" style="margin-bottom:16px">
       <span class="f-label">Banco:</span>
-      <select id="cb-banco" onchange="renderBanco()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+      <select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>
         ${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}
         ${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}
@@ -5972,8 +5974,7 @@ function cbAtribuirBanco() {
   const sel = document.getElementById('cb-atribuir');
   const banco = sel ? sel.value : '';
   if (!banco) { alert('Escolha um banco do cadastro.'); return; }
-  const selEl = document.getElementById('cb-banco');
-  const bancoSel = selEl ? selEl.value : '__todos';
+  const bancoSel = bancoConcSel;
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
   let alvo = extratoBancario.filter(matchBanco).filter(t => !diaFechado(t.data));
   if (dfAtivo()) alvo = alvo.filter(t => passaData(t.data));
@@ -5981,7 +5982,7 @@ function cbAtribuirBanco() {
   if (!confirm(`Nomear o banco "${banco}" em ${alvo.length} lançamento(s) do filtro atual?`)) return;
   alvo.forEach(t => { t.banco = banco; });
   saveData('extratoBancario', extratoBancario);
-  if (selEl) selEl.value = banco; // passa a exibir o banco recém-nomeado
+  bancoConcSel = banco; // passa a exibir o banco recém-nomeado (e persiste)
   renderBanco();
 }
 // Concilia automaticamente débitos do banco selecionado que batem com exatamente uma Conta a Pagar pelo valor.
