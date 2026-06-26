@@ -363,7 +363,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v88/06-112';
+const APP_VERSION = 'v89/06-113';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5276,9 +5276,10 @@ function renderBanco() {
   });
   const diasOrd = Object.keys(dias).sort((a,b)=> a<b?1:a>b?-1:0);
 
-  // Contas a Pagar já usadas por algum débito (não oferecer de novo)
+  // Contas a Pagar já usadas por algum débito (não oferecer de novo) + a qual débito cada chave pertence
   const usadasDeb = new Set();
-  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usadasDeb.add(it.chave)));
+  const usadasDebPor = {}; // chave da conta → extId do débito que a usa
+  Object.entries(debitoLinks).forEach(([extId, l]) => debLinkItens(l).forEach(it => { usadasDeb.add(it.chave); if (usadasDebPor[it.chave] == null) usadasDebPor[it.chave] = extId; }));
   const usadosRepasse = repasseUsados();
   // Repasse é só destas operadoras: PayPal, Braavo (iFood) e Boleto Itaú (boletos recebidos).
   const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú'];
@@ -5495,13 +5496,19 @@ function renderBanco() {
                         ${todas.map(({c,d,paga,usada})=>{
                           const exato=d<=0.02;
                           const preCheck=exato && !paga && !usada;
+                          const chaveC=chaveContaPagar(c);
+                          // Quando usada, descobre a qual débito pertence (para "Mover para cá").
+                          const outroId = usada ? usadasDebPor[chaveC] : null;
+                          const outroT = outroId ? extratoBancario.find(x=>x.id===outroId) : null;
+                          const outroInfo = outroT ? `${outroT.data?fmtDate(outroT.data):'sem data'} · ${fmtVal(outroT.valor)}` : 'outro débito';
                           const busca=`${c.fornecedor||''} ${c.descricao||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''} ${paga?'paga pago':'aberto em aberto'} ${usada?'usada vinculada outro':''}`.toLowerCase().replace(/"/g,'&quot;');
-                          const selo = usada ? ` <span style="background:var(--muted);color:#fff;font-size:9px;padding:0 4px;border-radius:6px">já em outro débito</span>`
+                          const selo = usada ? ` <span style="background:var(--muted);color:#fff;font-size:9px;padding:0 4px;border-radius:6px" title="Vinculada ao débito de ${outroInfo}">já em outro débito (${outroInfo})</span>`
                                      : paga ? ` <span style="background:var(--amber);color:#222;font-size:9px;padding:0 4px;border-radius:6px">paga</span>` : '';
-                          const bg = usada ? 'opacity:.45;cursor:not-allowed' : (preCheck?'background:var(--green-bg)':(paga?'opacity:.85':''));
+                          const bg = usada ? 'opacity:.7' : (preCheck?'background:var(--green-bg)':(paga?'opacity:.85':''));
                           return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;${bg}">
-                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveContaPagar(c))}" data-v="${c.valor||0}" ${preCheck?'checked':''} ${usada?'disabled':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
+                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveC)}" data-v="${c.valor||0}" ${preCheck?'checked':''} ${usada?'disabled':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
                             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato&&!usada?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${selo}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
+                            ${usada && outroId && outroId!==t.id ? `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;flex-shrink:0" onclick="event.preventDefault();cbMoverContaDebito('${encodeURIComponent(chaveC)}','${t.id}')" title="Desfaz o vínculo no outro débito e vincula a este">Mover para cá</button>` : ''}
                             <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
                           </label>`;
                         }).join('')}
@@ -5836,6 +5843,51 @@ function cbDesfazerDebito(extId) {
     }
   });
   delete debitoLinks[extId];
+  saveData('contasPagar', contasPagar);
+  saveData('debitoLinks', debitoLinks);
+  renderBanco();
+}
+// Move UMA conta a pagar do débito em que está vinculada para outro débito (desfaz lá e vincula aqui).
+function cbMoverContaDebito(chaveEnc, toExtId) {
+  const chave = decodeURIComponent(chaveEnc);
+  const toT = extratoBancario.find(x => x.id === toExtId);
+  if (!toT) return;
+  if (bloqueadoPorFechamento(toT.data)) return;
+  // Acha o débito de origem que usa essa conta.
+  let fromExtId = null, fromLink = null, fromIt = null;
+  for (const [extId, link] of Object.entries(debitoLinks)) {
+    const it = (link.itens || []).find(i => i.chave === chave);
+    if (it) { fromExtId = extId; fromLink = link; fromIt = it; break; }
+  }
+  if (!fromExtId) { alert('Não encontrei o débito de origem desta conta.'); return; }
+  if (fromIt.criada) { alert('Essa conta foi criada como "Despesa nova" no outro débito. Desfaça lá antes de mover.'); return; }
+  const fromT = extratoBancario.find(x => x.id === fromExtId);
+  if (fromT && bloqueadoPorFechamento(fromT.data)) return; // dia de origem fechado
+  if (!confirm(`Mover esta conta (${fmtVal(fromIt.valor || 0)}) do débito de ${fromT ? fmtDate(fromT.data) + ' · ' + fmtVal(fromT.valor) : 'origem'} para este (${fmtDate(toT.data)} · ${fmtVal(toT.valor)})?`)) return;
+
+  const conta = contasPagar.find(c => chaveContaPagar(c) === chave);
+  // 1) Tira do débito de origem, revertendo o que aquele vínculo fez.
+  if (conta) {
+    if (fromIt.setPago) { conta.pago = false; conta.dataPag = null; }
+    if (fromIt.valorAnt !== undefined) conta.valor = fromIt.valorAnt;
+  }
+  fromLink.itens = (fromLink.itens || []).filter(i => i !== fromIt);
+  if (!fromLink.itens.length) delete debitoLinks[fromExtId];
+  else fromLink.total = fromLink.itens.reduce((s, i) => s + (i.valor || 0), 0);
+
+  if (!conta) { saveData('debitoLinks', debitoLinks); renderBanco(); alert('Vínculo de origem removido, mas a conta não foi encontrada para revincular.'); return; }
+
+  // 2) Vincula ao débito destino (mesma regra do cbVincularDebito para 1 conta).
+  const alvo = Math.abs(toT.valor);
+  const setPago = !conta.pago; // conta já paga continua paga
+  if (setPago) { conta.pago = true; conta.dataPag = toT.data; }
+  const it = { chave: chaveContaPagar(conta), fornecedor: conta.fornecedor || conta.descricao || '', valor: conta.valor || 0, setPago };
+  // Só ajusta o valor pelo banco se a conta estava EM ABERTO (não mexe em conta já paga).
+  if (setPago && Math.abs((it.valor || 0) - alvo) > 0.005) {
+    it.valorAnt = conta.valor; it.chaveAnt = it.chave;
+    conta.valor = alvo; it.chave = chaveContaPagar(conta); it.valor = alvo;
+  }
+  debitoLinks[toExtId] = { itens: [it], total: it.valor };
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
