@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v109/06-133';
+const APP_VERSION = 'v110/06-134';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5843,29 +5843,54 @@ function saldoBancoHTML(banco) {
   const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
   const dIni = cfg.data || '2025-05-31';
   const dRef = new Date(dIni + 'T23:59:59');
-  const movs = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data > dRef);
-  const mov = movs.reduce((s, t) => s + (t.valor || 0), 0);
-  const saldoCalc = (cfg.valor || 0) + mov;
+  const esc = banco.replace(/'/g, "\\'");
+  const lancs = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data));
+  // Saldo calculado ATÉ HOJE (todos os lançamentos após a data inicial).
+  const movTotal = lancs.filter(t => t.data > dRef).reduce((s, t) => s + (t.valor || 0), 0);
+  const saldoHoje = (cfg.valor || 0) + movTotal;
+  // Saldo ACUMULADO até a data do filtro: inicial + todos os lançamentos até a ÚLTIMA data que passa no filtro.
+  let bloco = '';
+  if (dfAtivo()) {
+    const noFiltro = lancs.filter(t => passaData(t.data));
+    if (noFiltro.length) {
+      const cutoff = new Date(Math.max(...noFiltro.map(t => t.data.getTime())));
+      const movAcum = lancs.filter(t => t.data > dRef && t.data <= cutoff).reduce((s, t) => s + (t.valor || 0), 0);
+      const saldoAcum = (cfg.valor || 0) + movAcum;
+      const movPeriodo = noFiltro.reduce((s, t) => s + (t.valor || 0), 0); // só os dias filtrados (saldo do dia/período)
+      bloco = `
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span class="f-label">Movimento do período (filtro)</span>
+        <span style="font-weight:700;color:${movPeriodo>=0?'var(--green)':'var(--red)'};font-size:15px">${fmtVal(movPeriodo)}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;border-left:2px solid var(--accent);padding-left:12px">
+        <span class="f-label">= Saldo acumulado até ${fmtDate(cutoff)}</span>
+        <span style="font-weight:800;font-size:18px;color:var(--accent)">${fmtVal(saldoAcum)}</span>
+      </div>`;
+    } else {
+      bloco = `<div style="font-size:11px;color:var(--amber);align-self:center">Sem lançamentos deste banco no período filtrado.</div>`;
+    }
+  }
   const inp = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)';
   return `
     <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-bottom:18px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
       <div style="display:flex;flex-direction:column;gap:3px">
         <span class="f-label">Saldo inicial em</span>
-        <input type="date" value="${dIni}" onchange="setSaldoData('${banco.replace(/'/g,"\\'")}', this.value)" style="${inp}">
+        <input type="date" value="${dIni}" onchange="setSaldoData('${esc}', this.value)" style="${inp}">
       </div>
       <div style="display:flex;flex-direction:column;gap:3px">
         <span class="f-label">Valor inicial (R$)</span>
-        <input type="number" step="0.01" value="${cfg.valor || 0}" placeholder="0,00" onchange="setSaldoInicial('${banco.replace(/'/g,"\\'")}', this.value)" onclick="event.stopPropagation()" style="${inp};width:130px">
+        <input type="number" step="0.01" value="${cfg.valor || 0}" placeholder="0,00" onchange="setSaldoInicial('${esc}', this.value)" onclick="event.stopPropagation()" style="${inp};width:130px">
       </div>
       <div style="display:flex;flex-direction:column;gap:3px">
-        <span class="f-label">+ Movimento desde então (${movs.length})</span>
-        <span style="font-weight:700;color:${mov>=0?'var(--green)':'var(--red)'};font-size:15px">${fmtVal(mov)}</span>
+        <span class="f-label">+ Movimento total</span>
+        <span style="font-weight:700;color:${movTotal>=0?'var(--green)':'var(--red)'};font-size:15px">${fmtVal(movTotal)}</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px">
         <span class="f-label">= Saldo calculado hoje</span>
-        <span style="font-weight:800;font-size:18px">${fmtVal(saldoCalc)}</span>
+        <span style="font-weight:800;font-size:18px">${fmtVal(saldoHoje)}</span>
       </div>
-      <div style="font-size:11px;color:var(--muted);max-width:240px">Compare este saldo calculado com o saldo real do extrato do banco — se bater, a conciliação está ok.</div>
+      ${bloco}
+      <div style="font-size:11px;color:var(--muted);max-width:240px">Compare o <strong>saldo acumulado</strong> (na data do filtro) ou o <strong>saldo hoje</strong> com o saldo real do extrato do banco — se bater, está ok.</div>
     </div>`;
 }
 function setSaldoInicial(banco, valor) {
