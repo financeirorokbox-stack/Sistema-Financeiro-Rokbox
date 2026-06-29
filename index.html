@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v116/06-140';
+const APP_VERSION = 'v117/06-141';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2823,6 +2823,39 @@ function editarNpedRec(idx) {
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRecebimentos();
 }
+// Lança um recebimento NEGATIVO (estorno/reembolso ao cliente) como despesa PAGA em Contas a Pagar.
+function estornoParaPagar(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r) return;
+  const valor = Math.abs(r.bruto || r.liq || 0);
+  if (!valor) { alert('Sem valor para lançar.'); return; }
+  if (!confirm(`Lançar o estorno de ${fmtVal(valor)} (${r.nome||'cliente'}) em Contas a Pagar como DESPESA já paga (categoria ESTORNO)?`)) return;
+  const conta = {
+    numero: '', fornecedor: r.nome || (r.gateway + ' (estorno)'),
+    descricao: 'Estorno ' + (r.gateway || '') + (r.nped ? ' — pedido #' + r.nped : ''),
+    categoria: 'ESTORNO', observacao: 'Estorno lançado a partir de Recebimentos', empresa: r.empresa || '', rateio: [],
+    vencimento: r.data || null, dataPag: r.data || null,
+    valor, situacao: 'Pago', pago: true, _origemEstorno: true
+  };
+  contasPagar.push(conta);
+  r._estornoChave = chaveContaPagar(conta); // liga p/ poder desfazer
+  saveData('contasPagar', contasPagar);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+  alert('✓ Estorno lançado em Contas a Pagar.');
+}
+// Desfaz: remove a despesa de estorno criada e o vínculo.
+function desfazerEstornoPagar(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r || !r._estornoChave) return;
+  if (!confirm('Remover este estorno de Contas a Pagar?')) return;
+  const i = contasPagar.findIndex(c => chaveContaPagar(c) === r._estornoChave);
+  if (i >= 0) contasPagar.splice(i, 1);
+  delete r._estornoChave;
+  saveData('contasPagar', contasPagar);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+}
 
 function renderRecebimentos() {
   setDateFilterRender(renderRecebimentos);
@@ -2890,7 +2923,10 @@ function renderRecebimentos() {
       <td>${fmtDate(r.data)}</td>
       <td>${r.tipo||'—'}</td>
       <td>${r.nome||'—'}${r.nped?` <span style="font-size:10px;color:var(--muted)">#${r.nped}</span> <span class="badge ok" style="font-size:9px" title="Já alocado a um pedido (usado/conciliado)">🔗 conciliado</span>`:' <span class="badge" style="font-size:9px;background:var(--amber);color:#222">sem pedido</span>'}
-        <button class="btn ghost sm" style="font-size:10px;padding:1px 5px;margin-left:4px" onclick="editarNpedRec(${realIdx})" title="Editar nº do pedido">✏</button></td>
+        <button class="btn ghost sm" style="font-size:10px;padding:1px 5px;margin-left:4px" onclick="editarNpedRec(${realIdx})" title="Editar nº do pedido">✏</button>
+        ${(r.bruto||0) < 0 ? (r._estornoChave
+          ? ` <span class="badge ok" style="font-size:9px" title="Estorno lançado em Contas a Pagar">↳ em Contas a Pagar</span> <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--red)" onclick="desfazerEstornoPagar(${realIdx})" title="Remover de Contas a Pagar">desfazer</button>`
+          : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}</td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
       <td>${fmtVal(r.liq)}</td>
