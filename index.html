@@ -123,7 +123,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .upload-card .u-status{font-size:11px;font-weight:600;color:var(--green);margin-top:6px}
 
 /* ── Table ── */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow-x:auto;overflow-y:visible}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 thead{background:var(--bg)}
 th{padding:9px 12px;text-align:left;font-size:10.5px;font-weight:700;color:var(--muted);
@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v135/06-159';
+const APP_VERSION = 'v136/06-160';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2266,7 +2266,7 @@ function renderComissao() {
       <div class="card green"><div class="c-label">Total comissão</div><div class="c-val">${fmtVal(totCom)}</div></div>
     </div>
     ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
-    <div class="table-wrap"><table><thead><tr>
+    <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
       <th>Nome</th><th>Pedido</th><th style="text-align:right">Valor</th><th style="text-align:right">Frete</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th>Vendedor</th><th>Loja</th><th style="text-align:right">% Comissão</th><th style="text-align:right">Base Comissão</th><th style="text-align:right">Vlr Comissão</th>
     </tr></thead><tbody>
     ${linhas.map(l => `<tr>
