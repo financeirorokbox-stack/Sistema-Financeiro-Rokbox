@@ -298,6 +298,7 @@ tr:hover td{background:#fafaf8}
   <div class="subnav-item" id="sub-extrato" onclick="setSub('extrato')">Extrato (OFX)</div>
   <div class="subnav-item" id="sub-banco" onclick="setSub('banco')">Conciliação Bancária</div>
   <div class="subnav-item" id="sub-fluxo" onclick="setSub('fluxo')">📊 Fluxo de Caixa</div>
+  <div class="subnav-item" id="sub-comissao" onclick="setSub('comissao')">💸 Comissão</div>
 </div>
 
 <!-- VIEWS -->
@@ -323,6 +324,7 @@ tr:hover td{background:#fafaf8}
   <div id="v-conc" class="main" style="display:none"></div>
   <div id="v-banco" class="main" style="display:none"></div>
   <div id="v-fluxo" class="main" style="display:none"></div>
+  <div id="v-comissao" class="main" style="display:none"></div>
 </div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
@@ -382,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v132/06-156';
+const APP_VERSION = 'v133/06-157';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -488,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -519,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -696,6 +698,7 @@ const PERM_FIN = [
   ['fin:conc',      'Financeiro · Conciliação de Recebíveis'],
   ['fin:banco',     'Financeiro · Conciliação Bancária'],
   ['fin:fluxo',     'Financeiro · Fluxo de Caixa'],
+  ['fin:comissao',  'Financeiro · Comissão'],
 ];
 const ALL_PERMS = [...PERM_PRINCIPAIS, ...PERM_FIN];
 let currentUser = null;
@@ -931,6 +934,7 @@ let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliaç
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
+let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -1058,11 +1062,11 @@ function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de aba
   currentSub = s;
-  ['contas','pagar','extrato','banco','fluxo'].forEach(x => {
+  ['contas','pagar','extrato','banco','fluxo','comissao'].forEach(x => {
     document.getElementById('sub-' + x)?.classList.toggle('active', x === s);
   });
   // Esconde todas as views do financeiro
-  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo'].forEach(x => {
+  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo','comissao'].forEach(x => {
     const v = document.getElementById('v-' + x); if (v) v.style.display = 'none';
   });
   // Sub-navegação interna só aparece em Contas a Receber
@@ -1070,7 +1074,7 @@ function setSub(s) {
   if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
   const pills = document.getElementById('conc-pills'); if (pills) pills.style.display = 'none';
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
-  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo };
+  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao };
   const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
   if (renders[s]) renders[s]();
 }
@@ -1419,6 +1423,8 @@ function renderVendas() {
 
     const sheetName = wb.SheetNames.includes('Worksheet') ? 'Worksheet' : wb.SheetNames[0];
     const rows = sheetToRows(wb, sheetName);
+    // Busca uma coluna pelo cabeçalho contendo um dos termos (ignora acento/maiúscula) — p/ Frete/Outras Despesas.
+    const colNum = (r, ...termos) => { for (const k of Object.keys(r)) { const kn = k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); if (termos.some(t => kn.includes(t))) return num(r[k]); } return 0; };
     const map = {};
     rows.forEach(r => {
       const id = r['Número do pedido']||r['Numero do pedido'];
@@ -1430,9 +1436,14 @@ function renderVendas() {
         situacao: r['Situação']||r['Situacao']||'',
         vendedor: r['Nome - Vendedor']||r['Vendedor']||'',
         empresa,
-        data, valor: 0
+        data, valor: 0,
+        frete: colNum(r, 'frete'),
+        outrasDespesas: colNum(r, 'outras desp', 'outras despesa')
       };
       map[id].valor += val;
+      // Frete/Outras: se vierem só em alguma linha, mantém o maior não-zero do pedido.
+      const fr = colNum(r, 'frete'); if (fr) map[id].frete = fr;
+      const od = colNum(r, 'outras desp', 'outras despesa'); if (od) map[id].outrasDespesas = od;
     });
     const newPeds = Object.values(map);
     newPeds.forEach(np => {
@@ -2196,6 +2207,92 @@ function limparFiltrosVendas() {
   renderPedidosTable();
 }
 function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderFluxo(); }
+function limparFiltrosComissao() { const e=document.getElementById('com-vend'); if(e) e.value=''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderComissao(); }
+function setComissaoVendedor(vend, pctStr) {
+  const pct = (parseFloat(String(pctStr).replace(',','.')) || 0) / 100;
+  if (pct) comissaoVendedor[vend] = pct; else delete comissaoVendedor[vend];
+  saveData('comissaoVendedor', comissaoVendedor);
+  renderComissao();
+}
+// ── COMISSÃO ── Base = Valor − Frete − Devolução − Outras Despesas; Comissão = % (por vendedor) × Base
+function renderComissao() {
+  setDateFilterRender(renderComissao);
+  const el = document.getElementById('v-comissao');
+  if (!el) return;
+  const fVend = el.querySelector('#com-vend')?.value || '';
+  const vendedores = [...new Set(pedidos.map(p => p.vendedor || 'Sem vendedor'))].sort();
+  const devolPorPed = {};
+  devolucoes.forEach(d => { devolPorPed[String(d.pedido)] = (devolPorPed[String(d.pedido)] || 0) + (d.valorPago || 0); });
+  const peds = pedidos.filter(p => {
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return false;
+    const op = (getClassificacao(p).operacao || '').toLowerCase();
+    if (op !== 'venda' && op !== 'troca') return false;
+    if (dfAtivo() && !passaData(p.data)) return false;
+    if (fVend && (p.vendedor || 'Sem vendedor') !== fVend) return false;
+    return true;
+  });
+  const linhas = peds.map(p => {
+    const frete = p.frete || 0, outras = p.outrasDespesas || 0;
+    const devol = devolPorPed[String(p.id)] || 0;
+    const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
+    const aberto = +((p.valor || 0) - recebido).toFixed(2);
+    const vend = p.vendedor || 'Sem vendedor';
+    const pct = comissaoVendedor[vend] || 0;
+    const base = +((p.valor || 0) - frete - devol - outras).toFixed(2);
+    const comissao = +(base * pct).toFixed(2);
+    return { p, frete, outras, devol, aberto, vend, pct, base, comissao };
+  }).sort((a, b) => Number(b.p.id) - Number(a.p.id));
+  const totVal = linhas.reduce((s, l) => s + (l.p.valor || 0), 0);
+  const totBase = linhas.reduce((s, l) => s + l.base, 0);
+  const totCom = linhas.reduce((s, l) => s + l.comissao, 0);
+  // Editor de % por vendedor (mostra os do filtro ou todos)
+  const vendsEditor = fVend ? [fVend] : vendedores;
+  const editor = vendsEditor.map(v => `<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:5px 8px">
+      <span style="font-size:12px;font-weight:600">${v}</span>
+      <input type="number" step="0.01" value="${comissaoVendedor[v] ? (comissaoVendedor[v]*100) : ''}" placeholder="%" onchange="setComissaoVendedor('${v.replace(/'/g,"\\'")}', this.value)" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px"><span style="font-size:11px;color:var(--muted)">%</span>
+    </div>`).join('');
+
+  el.innerHTML = `
+    ${filtrosBar({
+      nAtivos: (fVend?1:0) + (dfAtivo()?1:0),
+      limpar: 'limparFiltrosComissao()',
+      acoes: `<span style="font-size:12px;color:var(--muted)">Base = Valor − Frete − Devolução − Outras Despesas · Comissão = % × Base</span>`,
+      campos:
+        fdRow('Vendedor', `<select id="com-vend" onchange="renderComissao()"><option value="">Todos</option>${vendedores.map(v=>`<option value="${v.replace(/"/g,'&quot;')}" ${v===fVend?'selected':''}>${v}</option>`).join('')}</select>`) +
+        fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px">Comissão</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Defina o % de cada vendedor abaixo; a comissão é calculada por pedido (Venda/Troca) do período.</div>
+    <div style="margin-bottom:14px">
+      <div class="f-label" style="margin-bottom:6px">💼 % de comissão por vendedor</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${editor || '<span style="font-size:12px;color:var(--muted)">Sem vendedores</span>'}</div>
+    </div>
+    <div class="cards-row" style="margin-bottom:16px">
+      <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${linhas.length}</div><div class="c-sub">${fmtVal(totVal)}</div></div>
+      <div class="card dark"><div class="c-label">Base comissão</div><div class="c-val">${fmtVal(totBase)}</div></div>
+      <div class="card green"><div class="c-label">Total comissão</div><div class="c-val">${fmtVal(totCom)}</div></div>
+    </div>
+    ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
+    <div class="table-wrap"><table><thead><tr>
+      <th>Nome</th><th>Pedido</th><th style="text-align:right">Valor</th><th style="text-align:right">Frete</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th>Vendedor</th><th style="text-align:right">% Comissão</th><th style="text-align:right">Base Comissão</th><th style="text-align:right">Vlr Comissão</th>
+    </tr></thead><tbody>
+    ${linhas.map(l => `<tr>
+      <td>${l.p.nome||'—'}</td>
+      <td><strong>#${l.p.id}</strong></td>
+      <td style="text-align:right">${fmtVal(l.p.valor||0)}</td>
+      <td style="text-align:right;color:var(--muted)">${l.frete?fmtVal(l.frete):'—'}</td>
+      <td style="text-align:right;color:var(--muted)">${l.outras?fmtVal(l.outras):'—'}</td>
+      <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
+      <td style="text-align:right;color:var(--muted)">${fmtVal(l.aberto)}</td>
+      <td style="text-align:right;color:var(--muted)">${fmtVal(l.aberto)}</td>
+      <td>${l.vend}</td>
+      <td style="text-align:right">${(l.pct*100).toFixed(2)}%</td>
+      <td style="text-align:right;font-weight:600">${fmtVal(l.base)}</td>
+      <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
+    </tr>`).join('')}
+    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="7"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
+    </tbody></table></div>`}`;
+}
 // Grupo de receita (modelo DRE Rokbox) a partir do gateway do recebimento.
 function grupoReceitaGateway(gw) {
   switch (gw) {
@@ -7008,7 +7105,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -7052,6 +7149,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitasAvulsas') receitasAvulsas = (v||[]).map(a=>({...a,data:a.data?new Date(a.data):null}));
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
+    else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
