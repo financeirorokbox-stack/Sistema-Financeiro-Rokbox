@@ -382,7 +382,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v127/06-151';
+const APP_VERSION = 'v128/06-152';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2226,6 +2226,37 @@ function barrasFluxoHTML(obj, total, cor) {
     </div>`;
   }).join('');
 }
+// Tabela DRE: grupos (clicáveis) → subgrupos, com colunas por empresa + Total + %.
+// tree: { grupo: { tot, emp:{emp:val}, sub:{ subnome:{ tot, emp:{} } } } }
+function dreTabelaHTML(tree, empCols, total, cor, prefix) {
+  const grupos = Object.entries(tree).sort((a,b)=>b[1].tot-a[1].tot);
+  if (!grupos.length) return '<div style="color:var(--muted);font-size:12px;padding:8px">Sem dados no período</div>';
+  const cell = v => v ? fmtVal(v) : '<span style="color:var(--border)">—</span>';
+  const pc = v => total>0 ? (v/total*100).toFixed(1) : '0';
+  const rows = grupos.map(([g,gd],gi) => {
+    const gid = prefix+gi;
+    const head = `<tr style="cursor:pointer;background:var(--bg);font-weight:700" onclick="toggleDreGrupo('${gid}')">
+      <td><span id="dre-arr-${gid}" style="display:inline-block;width:12px;color:var(--muted)">▸</span> ${g}</td>
+      ${empCols.map(e=>`<td style="text-align:right">${cell(gd.emp[e]||0)}</td>`).join('')}
+      <td style="text-align:right;color:${cor}">${fmtVal(gd.tot)}</td>
+      <td style="text-align:right;color:var(--muted)">${pc(gd.tot)}%</td>
+    </tr>`;
+    const subs = Object.entries(gd.sub).sort((a,b)=>b[1].tot-a[1].tot).map(([s,sd])=>`<tr class="dre-sub-${gid}" style="display:none">
+      <td style="padding-left:28px;color:var(--muted);font-size:12px">${s}</td>
+      ${empCols.map(e=>`<td style="text-align:right;color:var(--muted);font-size:12px">${cell(sd.emp[e]||0)}</td>`).join('')}
+      <td style="text-align:right;font-size:12px">${fmtVal(sd.tot)}</td>
+      <td style="text-align:right;color:var(--muted);font-size:12px">${pc(sd.tot)}%</td>
+    </tr>`).join('');
+    return head + subs;
+  }).join('');
+  return `<div class="table-wrap"><table><thead><tr><th>Grupo / Subgrupo</th>${empCols.map(e=>`<th style="text-align:right">${e}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function toggleDreGrupo(gid) {
+  const arr = document.getElementById('dre-arr-'+gid);
+  const open = arr && arr.textContent.trim() === '▾';
+  if (arr) arr.textContent = open ? '▸' : '▾';
+  document.querySelectorAll('.dre-sub-'+gid).forEach(r => r.style.display = open ? 'none' : '');
+}
 // ── FLUXO DE CAIXA (regime de caixa, por período do filtro) ──────────
 // Entradas = recebimentos efetivos agrupados no padrão DRE + receitas avulsas por categoria.
 // Saídas = Contas a Pagar PAGAS por grupo de despesa. Saldo = entradas − saídas.
@@ -2262,6 +2293,22 @@ function renderFluxo() {
   const saldo = totEnt - totSai;
   // Barra comparativa entradas × saídas (visual do saldo)
   const maxES = Math.max(1, totEnt, totSai);
+
+  // ── DRE detalhada: árvore grupo→subgrupo→empresa (mesmo período do filtro) ──
+  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','BraavoPay':'Braavo Pay','PIX (Extrato)':'PIX','Transferência Bancária':'Transferência'};
+  const _empRec = r => { const id = r.nped ? String(r.nped).split(',')[0].trim() : ''; const ped = id ? pedidos.find(p => String(p.id) === id) : null; return (ped && ped.empresa) || '(sem empresa)'; };
+  const treeR = {}, treeD = {}, empSet = new Set();
+  const addNo = (tree, g, sub, emp, v) => {
+    empSet.add(emp);
+    const G = tree[g] = tree[g] || { tot:0, emp:{}, sub:{} };
+    G.tot += v; G.emp[emp] = (G.emp[emp]||0) + v;
+    const S = G.sub[sub] = G.sub[sub] || { tot:0, emp:{} };
+    S.tot += v; S.emp[emp] = (S.emp[emp]||0) + v;
+  };
+  recebimentosConsolidado.forEach(r => { if (r._estornoChave || !noPeriodo(r.data)) return; addNo(treeR, grupoReceitaGateway(r.gateway), SUB_REC[r.gateway] || r.gateway || 'Outros', _empRec(r), r.liq||0); });
+  receitasAvulsas.forEach(r => { if (!noPeriodo(r.data)) return; addNo(treeR, 'Outras receitas', r.categoria || 'Outras', r.empresa || '(sem empresa)', r.valor||0); });
+  contasPagar.forEach(c => { if (!c.pago || !noPeriodo(c.dataPag||c.vencimento)) return; const cat = catContaPagar(c); const g = grupoDespesa(cat) || cat || 'Outras despesas'; if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
+  const empCols = [...empSet].sort((a,b)=> a==='(sem empresa)' ? 1 : b==='(sem empresa)' ? -1 : (a<b?-1:1));
 
   // ── EVOLUÇÃO MENSAL (gráfico de barras por mês) — respeita só o filtro de ANO ──
   const anoOk = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return false; return !dateFilter.ano.length || dateFilter.ano.includes(String(dt.getFullYear())); };
@@ -2324,7 +2371,12 @@ function renderFluxo() {
         <div class="section-title" style="margin-top:0;color:var(--red)">⬇ Saídas por grupo — ${fmtVal(totSai)}</div>
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasFluxoHTML(sai, totSai, 'var(--red)')}</div>
       </div>
-    </div>`;
+    </div>
+    <div class="section-title" style="margin-top:28px">📋 Detalhe (DRE) — clique no grupo para abrir os subgrupos · valores por empresa</div>
+    <div class="section-title" style="color:var(--green);font-size:13px">⬆ Entradas</div>
+    ${dreTabelaHTML(treeR, empCols, totEnt, 'var(--green)', 'r')}
+    <div class="section-title" style="color:var(--red);font-size:13px;margin-top:18px">⬇ Saídas</div>
+    ${dreTabelaHTML(treeD, empCols, totSai, 'var(--red)', 'd')}`;
 }
 // Remove uma receita avulsa (e libera o crédito do extrato que a originou). Re-renderiza Contas a Receber.
 function removerReceitaAvulsa(id) {
