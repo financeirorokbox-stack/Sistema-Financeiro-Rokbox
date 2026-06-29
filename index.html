@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v117/06-141';
+const APP_VERSION = 'v118/06-142';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1209,7 +1209,7 @@ function statusForma(pedido, categoria, valor) {
   if (categoria === 'PayPal' || categoria === 'BraavoPay') {
     const gw = categoria; // 'PayPal' ou 'BraavoPay'
     // Recebimentos deste gateway que listam este pedido (suporta vários pedidos por recebimento)
-    const doPedido = recebimentosConsolidado.filter(r => r.gateway === gw && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedido)));
+    const doPedido = recebimentosConsolidado.filter(r => r.gateway === gw && !r._estornoChave && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedido)));
     if (doPedido.length) {
       const total = +doPedido.reduce((s, r) => s + alocRecebGateway(r, pedido), 0).toFixed(2);
       const falta = valor - total;
@@ -2877,12 +2877,14 @@ function renderRecebimentos() {
   if (fQ) vis = vis.filter(r=>(r.nome||'').toLowerCase().includes(fQ)||String(r.nped||'').includes(fQ));
   if (dfAtivo()) vis = vis.filter(r=>passaData(r.data));
 
-  const totalLiq = vis.reduce((s,r)=>s+r.liq,0);
-  const totalTaxa = vis.reduce((s,r)=>s+r.taxa,0);
+  // Totais EXCLUEM os estornos movidos para Contas a Pagar (neutralizados, para não contar em dobro).
+  const visSoma = vis.filter(r => !r._estornoChave);
+  const totalLiq = visSoma.reduce((s,r)=>s+r.liq,0);
+  const totalTaxa = visSoma.reduce((s,r)=>s+r.taxa,0);
 
   // Resumo por gateway
   const byGw = {};
-  vis.forEach(r=>{if(!byGw[r.gateway])byGw[r.gateway]={n:0,liq:0};byGw[r.gateway].n++;byGw[r.gateway].liq+=r.liq});
+  visSoma.forEach(r=>{if(!byGw[r.gateway])byGw[r.gateway]={n:0,liq:0};byGw[r.gateway].n++;byGw[r.gateway].liq+=r.liq});
 
   el.innerHTML = `
     <label class="upload-card" id="card-cr2" for="file-cr2">
@@ -4518,6 +4520,7 @@ function getRecebimentosDoPedido(ped) {
   const recs = [];
   const usados = new Set();
   recebimentosConsolidado.forEach((r, i) => {
+    if (r._estornoChave) return; // estorno movido para Contas a Pagar → não abate o pedido (neutralizado)
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.includes(pedId)) return;
     const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay';
@@ -5305,8 +5308,9 @@ function renderDashboard() {
     else { totalAberto += f.valor; countAberto++; }
   });
 
-  // Recebimentos por gateway no período
+  // Recebimentos por gateway no período (exclui estornos movidos p/ Contas a Pagar — neutralizados)
   const recPeriodo = recebimentosConsolidado.filter(r => {
+    if (r._estornoChave) return false;
     if (!r.data) return false;
     const d = new Date(r.data);
     if (fAno && d.getFullYear() !== +fAno) return false;
