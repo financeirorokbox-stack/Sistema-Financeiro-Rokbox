@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v113/06-137';
+const APP_VERSION = 'v114/06-138';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1675,7 +1675,8 @@ function getFilteredPedidos() {
 }
 
 function renderPedidosTable() {
-  setDateFilterRender(renderPedidosTable);
+  // O filtro de DATA precisa redesenhar a barra de filtros (que fica em renderVendas), não só a tabela.
+  setDateFilterRender(renderVendas);
   // Salva foco
   const bEl = document.getElementById('busca-vendas');
   const focused = document.activeElement === bEl;
