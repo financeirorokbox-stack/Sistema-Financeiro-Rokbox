@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v143/06-167';
+const APP_VERSION = 'v144/06-168';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6033,6 +6033,7 @@ function renderBanco() {
                           <option value="">— empresa —</option>
                           ${empresasListCb.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">${e}</option>`).join('')}
                         </select>
+                        <input type="text" id="cb-rec-obs-${t.id}" placeholder="Obs (a que se refere)" onclick="event.stopPropagation()" style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
                         <button class="btn primary sm" onclick="cbLancarReceita('${t.id}',${alvoCred})">Lançar ${fmtVal(alvoCred)}</button>
                       </div>
                       <div style="font-size:10px;color:var(--muted);margin-top:4px">Entra como receita já recebida em Contas a Receber, com o valor e a data do extrato.</div>
@@ -6178,6 +6179,7 @@ function renderBanco() {
                             <option value="">— empresa —</option>
                             ${empresasListCb.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">${e}</option>`).join('')}
                           </select>
+                          <input type="text" id="cb-obs-${t.id}" placeholder="Obs (a que se refere)" onclick="event.stopPropagation()" style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
                           <button class="btn primary sm" onclick="cbLancarDespesa('${t.id}',${alvo})">Lançar ${fmtVal(alvo)}</button>
                         </div>
                         <div style="font-size:10px;color:var(--muted);margin-top:4px">Cria a conta paga em Contas a Pagar com o valor e a data do extrato.</div>
@@ -6708,11 +6710,12 @@ function cbLancarDespesa(extId, alvo) {
   const categoria = catEl ? catEl.value : '';
   const empresa = empEl ? empEl.value : '';
   if (!categoria) { alert('Escolha uma categoria.'); return; }
+  const obs = (document.getElementById('cb-obs-' + extId)?.value || '').trim();
   const t = extratoBancario.find(x => x.id === extId);
   if (t && bloqueadoPorFechamento(t.data, t.banco)) return;
   const conta = {
-    numero: '', fornecedor: (t && t.memo) || 'Tarifa', descricao: (t && t.memo) || categoria,
-    categoria, observacao: 'Lançado pela conciliação bancária', empresa, rateio: [],
+    numero: '', fornecedor: obs || (t && t.memo) || 'Tarifa', descricao: obs || (t && t.memo) || categoria,
+    categoria, observacao: obs ? (obs + ' · lançado pela conciliação bancária') : 'Lançado pela conciliação bancária', empresa, rateio: [],
     vencimento: t ? t.data : null, dataPag: t ? t.data : null,
     valor: alvo || (t ? Math.abs(t.valor) : 0), situacao: 'Pago', pago: true, _origemExtrato: true
   };
@@ -6736,14 +6739,15 @@ function cbLancarReceita(extId, alvo) {
   const categoria = catEl ? catEl.value : '';
   const empresa = empEl ? empEl.value : '';
   if (!categoria) { alert('Escolha uma categoria de receita.'); return; }
+  const obs = (document.getElementById('cb-rec-obs-' + extId)?.value || '').trim();
   const t = extratoBancario.find(x => x.id === extId);
   if (t && bloqueadoPorFechamento(t.data, t.banco)) return;
   const id = 'rec_' + extId;
   const receita = {
-    id, categoria, empresa,
+    id, categoria, empresa, obs,
     valor: alvo || (t ? Math.abs(t.valor) : 0),
     data: t ? t.data : null,
-    descricao: (t && t.memo) || categoria,
+    descricao: obs || (t && t.memo) || categoria,
     banco: t ? (t.banco || '') : '',
     _extratoId: extId
   };
