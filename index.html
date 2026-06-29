@@ -297,6 +297,7 @@ tr:hover td{background:#fafaf8}
   <div class="subnav-item" id="sub-pagar" onclick="setSub('pagar')">Contas a Pagar</div>
   <div class="subnav-item" id="sub-extrato" onclick="setSub('extrato')">Extrato (OFX)</div>
   <div class="subnav-item" id="sub-banco" onclick="setSub('banco')">Conciliação Bancária</div>
+  <div class="subnav-item" id="sub-fluxo" onclick="setSub('fluxo')">📊 Fluxo de Caixa</div>
 </div>
 
 <!-- VIEWS -->
@@ -321,6 +322,7 @@ tr:hover td{background:#fafaf8}
   <div id="v-extrato" class="main" style="display:none"></div>
   <div id="v-conc" class="main" style="display:none"></div>
   <div id="v-banco" class="main" style="display:none"></div>
+  <div id="v-fluxo" class="main" style="display:none"></div>
 </div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
@@ -380,7 +382,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v124/06-148';
+const APP_VERSION = 'v125/06-149';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -693,6 +695,7 @@ const PERM_FIN = [
   ['fin:extrato',   'Financeiro · Extrato (OFX)'],
   ['fin:conc',      'Financeiro · Conciliação de Recebíveis'],
   ['fin:banco',     'Financeiro · Conciliação Bancária'],
+  ['fin:fluxo',     'Financeiro · Fluxo de Caixa'],
 ];
 const ALL_PERMS = [...PERM_PRINCIPAIS, ...PERM_FIN];
 let currentUser = null;
@@ -1055,11 +1058,11 @@ function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de aba
   currentSub = s;
-  ['contas','pagar','extrato','banco'].forEach(x => {
+  ['contas','pagar','extrato','banco','fluxo'].forEach(x => {
     document.getElementById('sub-' + x)?.classList.toggle('active', x === s);
   });
   // Esconde todas as views do financeiro
-  [...RECEBER_GROUP, 'pagar','extrato','banco'].forEach(x => {
+  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo'].forEach(x => {
     const v = document.getElementById('v-' + x); if (v) v.style.display = 'none';
   });
   // Sub-navegação interna só aparece em Contas a Receber
@@ -1067,7 +1070,7 @@ function setSub(s) {
   if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
   const pills = document.getElementById('conc-pills'); if (pills) pills.style.display = 'none';
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
-  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco };
+  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo };
   const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
   if (renders[s]) renders[s]();
 }
@@ -2191,6 +2194,69 @@ function limparFiltrosVendas() {
   if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); }
   saveData('vendasFilters', vendasFilters);
   renderPedidosTable();
+}
+function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderFluxo(); }
+// ── FLUXO DE CAIXA (regime de caixa, por período do filtro) ──────────
+// Entradas = recebimentos efetivos (por gateway) + receitas avulsas (por categoria).
+// Saídas = Contas a Pagar PAGAS (por grupo de despesa). Saldo = entradas − saídas.
+function renderFluxo() {
+  setDateFilterRender(renderFluxo);
+  const el = document.getElementById('v-fluxo');
+  if (!el) return;
+  const noPeriodo = d => !dfAtivo() || passaData(d);
+  // ENTRADAS — recebimentos efetivos (exclui estornos movidos p/ Pagar)
+  const ent = {};
+  recebimentosConsolidado.forEach(r => {
+    if (r._estornoChave) return;
+    if (!noPeriodo(r.data)) return;
+    const g = r.gateway || 'Outros';
+    ent[g] = (ent[g] || 0) + (r.liq || 0);
+  });
+  // ENTRADAS — receitas avulsas (rendimentos etc.) por categoria
+  receitasAvulsas.forEach(r => {
+    if (!noPeriodo(r.data)) return;
+    const g = r.categoria || 'Outras receitas';
+    ent[g] = (ent[g] || 0) + (r.valor || 0);
+  });
+  // SAÍDAS — contas a pagar PAGAS, por grupo de despesa (usa dataPag; se faltar, vencimento)
+  const sai = {};
+  contasPagar.forEach(c => {
+    if (!c.pago) return;
+    if (!noPeriodo(c.dataPag || c.vencimento)) return;
+    const cat = catContaPagar(c);
+    const g = grupoDespesa(cat) || cat || 'Outras despesas';
+    sai[g] = (sai[g] || 0) + (c.valor || 0);
+  });
+  const totEnt = Object.values(ent).reduce((s,v)=>s+v,0);
+  const totSai = Object.values(sai).reduce((s,v)=>s+v,0);
+  const saldo = totEnt - totSai;
+  const linhas = obj => Object.entries(obj).sort((a,b)=>b[1]-a[1])
+    .map(([g,v]) => `<tr><td>${g}</td><td style="text-align:right;font-weight:600">${fmtVal(v)}</td><td style="text-align:right;color:var(--muted)">${totEnt+totSai>0?'':''}${(v/((obj===ent?totEnt:totSai)||1)*100).toFixed(1)}%</td></tr>`).join('');
+
+  el.innerHTML = `
+    ${filtrosBar({
+      nAtivos: dfAtivo()?1:0,
+      limpar: 'limparFiltrosFluxo()',
+      acoes: `<span style="font-size:12px;color:var(--muted)">${dfAtivo()?'Período filtrado':'Todo o período'} · regime de caixa</span>`,
+      campos: fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
+    })}
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px">Fluxo de Caixa</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas pagas) do período. Use o ⚙ Filtros para escolher mês/dia.</div>
+    <div class="cards-row" style="margin-bottom:20px">
+      <div class="card green"><div class="c-label">Entradas</div><div class="c-val">${fmtVal(totEnt)}</div></div>
+      <div class="card red"><div class="c-label">Saídas</div><div class="c-val">${fmtVal(totSai)}</div></div>
+      <div class="card ${saldo>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(saldo)}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <div>
+        <div class="section-title" style="margin-top:0;color:var(--green)">⬆ Entradas — ${fmtVal(totEnt)}</div>
+        ${Object.keys(ent).length ? `<div class="table-wrap"><table><thead><tr><th>Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">%</th></tr></thead><tbody>${linhas(ent)}</tbody></table></div>` : '<div class="empty"><div class="e-icon">⬆</div>Sem entradas no período</div>'}
+      </div>
+      <div>
+        <div class="section-title" style="margin-top:0;color:var(--red)">⬇ Saídas — ${fmtVal(totSai)}</div>
+        ${Object.keys(sai).length ? `<div class="table-wrap"><table><thead><tr><th>Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">%</th></tr></thead><tbody>${linhas(sai)}</tbody></table></div>` : '<div class="empty"><div class="e-icon">⬇</div>Sem saídas no período</div>'}
+      </div>
+    </div>`;
 }
 // Remove uma receita avulsa (e libera o crédito do extrato que a originou). Re-renderiza Contas a Receber.
 function removerReceitaAvulsa(id) {
