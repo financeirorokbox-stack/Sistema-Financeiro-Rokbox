@@ -382,7 +382,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v126/06-150';
+const APP_VERSION = 'v127/06-151';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2263,6 +2263,37 @@ function renderFluxo() {
   // Barra comparativa entradas × saídas (visual do saldo)
   const maxES = Math.max(1, totEnt, totSai);
 
+  // ── EVOLUÇÃO MENSAL (gráfico de barras por mês) — respeita só o filtro de ANO ──
+  const anoOk = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return false; return !dateFilter.ano.length || dateFilter.ano.includes(String(dt.getFullYear())); };
+  const meses = {};
+  const addMes = (d, tipo, val) => { if (!anoOk(d)) return; const dt = d instanceof Date ? d : new Date(d); const k = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'); (meses[k] = meses[k] || {ent:0,sai:0})[tipo] += (val||0); };
+  recebimentosConsolidado.forEach(r => { if (!r._estornoChave) addMes(r.data, 'ent', r.liq||0); });
+  receitasAvulsas.forEach(r => addMes(r.data, 'ent', r.valor||0));
+  contasPagar.forEach(c => { if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); });
+  const mesesOrd = Object.keys(meses).sort();
+  const maxMes = Math.max(1, ...mesesOrd.map(k => Math.max(meses[k].ent, meses[k].sai)));
+  const MESNOMES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const chartH = 150;
+  const graficoMensal = mesesOrd.length > 1 ? `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;overflow-x:auto">
+      <div style="font-weight:700;font-size:13px;margin-bottom:12px">📈 Evolução mensal — entradas × saídas (saldo do mês embaixo)</div>
+      <div style="display:flex;gap:12px;align-items:flex-end">
+        ${mesesOrd.map(k => { const m = meses[k]; const [yy,mm] = k.split('-'); const sal = m.ent - m.sai;
+          return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:50px">
+            <div style="display:flex;gap:3px;align-items:flex-end;height:${chartH}px">
+              <div title="Entradas: ${fmtVal(m.ent)}" style="width:16px;height:${Math.max(2,m.ent/maxMes*chartH)}px;background:var(--green);border-radius:3px 3px 0 0"></div>
+              <div title="Saídas: ${fmtVal(m.sai)}" style="width:16px;height:${Math.max(2,m.sai/maxMes*chartH)}px;background:var(--red);border-radius:3px 3px 0 0"></div>
+            </div>
+            <div style="font-size:10px;color:var(--muted);white-space:nowrap">${MESNOMES[+mm-1]}/${yy.slice(2)}</div>
+            <div style="font-size:9px;font-weight:700;color:${sal>=0?'var(--green)':'var(--red)'};white-space:nowrap">${fmtVal(sal)}</div>
+          </div>`; }).join('')}
+      </div>
+      <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:10px">
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;vertical-align:middle"></span> Entradas</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px;vertical-align:middle"></span> Saídas</span>
+      </div>
+    </div>` : '';
+
   el.innerHTML = `
     ${filtrosBar({
       nAtivos: dfAtivo()?1:0,
@@ -2277,6 +2308,7 @@ function renderFluxo() {
       <div class="card red"><div class="c-label">⬇ Saídas</div><div class="c-val">${fmtVal(totSai)}</div></div>
       <div class="card ${saldo>=0?'blue':'amber'}"><div class="c-label">= Saldo do período</div><div class="c-val">${fmtVal(saldo)}</div></div>
     </div>
+    ${graficoMensal}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px"><span>Entradas</span><span>${fmtVal(totEnt)}</span></div>
       <div style="background:var(--bg);border-radius:6px;height:18px;overflow:hidden;margin-bottom:10px"><div style="width:${totEnt/maxES*100}%;height:100%;background:var(--green);border-radius:6px;min-width:2px"></div></div>
