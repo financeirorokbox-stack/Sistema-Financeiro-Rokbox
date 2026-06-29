@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v133/06-157';
+const APP_VERSION = 'v134/06-158';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2237,7 +2237,7 @@ function renderComissao() {
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const aberto = +((p.valor || 0) - recebido).toFixed(2);
     const vend = p.vendedor || 'Sem vendedor';
-    const pct = comissaoVendedor[vend] || 0;
+    const pct = comissaoDaLoja(p.loja); // % vem do Cadastro → Lojas (por loja)
     const base = +((p.valor || 0) - frete - devol - outras).toFixed(2);
     const comissao = +(base * pct).toFixed(2);
     return { p, frete, outras, devol, aberto, vend, pct, base, comissao };
@@ -2245,12 +2245,8 @@ function renderComissao() {
   const totVal = linhas.reduce((s, l) => s + (l.p.valor || 0), 0);
   const totBase = linhas.reduce((s, l) => s + l.base, 0);
   const totCom = linhas.reduce((s, l) => s + l.comissao, 0);
-  // Editor de % por vendedor (mostra os do filtro ou todos)
-  const vendsEditor = fVend ? [fVend] : vendedores;
-  const editor = vendsEditor.map(v => `<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:5px 8px">
-      <span style="font-size:12px;font-weight:600">${v}</span>
-      <input type="number" step="0.01" value="${comissaoVendedor[v] ? (comissaoVendedor[v]*100) : ''}" placeholder="%" onchange="setComissaoVendedor('${v.replace(/'/g,"\\'")}', this.value)" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px"><span style="font-size:11px;color:var(--muted)">%</span>
-    </div>`).join('');
+  // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
+  const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
 
   el.innerHTML = `
     ${filtrosBar({
@@ -2262,11 +2258,8 @@ function renderComissao() {
         fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Comissão</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Defina o % de cada vendedor abaixo; a comissão é calculada por pedido (Venda/Troca) do período.</div>
-    <div style="margin-bottom:14px">
-      <div class="f-label" style="margin-bottom:6px">💼 % de comissão por vendedor</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${editor || '<span style="font-size:12px;color:var(--muted)">Sem vendedores</span>'}</div>
-    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">O <strong>% é por loja</strong>, definido em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>. A comissão é calculada por pedido (Venda/Troca) do período.</div>
+    ${lojasSemPct.length ? `<div style="font-size:12px;color:var(--amber);margin-bottom:12px">⚠ Lojas sem % cadastrado (comissão = 0): ${lojasSemPct.slice(0,8).join(', ')}${lojasSemPct.length>8?` …(+${lojasSemPct.length-8})`:''} — defina em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>.</div>` : ''}
     <div class="cards-row" style="margin-bottom:16px">
       <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${linhas.length}</div><div class="c-sub">${fmtVal(totVal)}</div></div>
       <div class="card dark"><div class="c-label">Base comissão</div><div class="c-val">${fmtVal(totBase)}</div></div>
@@ -2274,7 +2267,7 @@ function renderComissao() {
     </div>
     ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
     <div class="table-wrap"><table><thead><tr>
-      <th>Nome</th><th>Pedido</th><th style="text-align:right">Valor</th><th style="text-align:right">Frete</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th>Vendedor</th><th style="text-align:right">% Comissão</th><th style="text-align:right">Base Comissão</th><th style="text-align:right">Vlr Comissão</th>
+      <th>Nome</th><th>Pedido</th><th style="text-align:right">Valor</th><th style="text-align:right">Frete</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th>Vendedor</th><th>Loja</th><th style="text-align:right">% Comissão</th><th style="text-align:right">Base Comissão</th><th style="text-align:right">Vlr Comissão</th>
     </tr></thead><tbody>
     ${linhas.map(l => `<tr>
       <td>${l.p.nome||'—'}</td>
@@ -2286,11 +2279,12 @@ function renderComissao() {
       <td style="text-align:right;color:var(--muted)">${fmtVal(l.aberto)}</td>
       <td style="text-align:right;color:var(--muted)">${fmtVal(l.aberto)}</td>
       <td>${l.vend}</td>
-      <td style="text-align:right">${(l.pct*100).toFixed(2)}%</td>
+      <td>${l.p.loja||'—'}</td>
+      <td style="text-align:right;${l.pct?'':'color:var(--amber)'}">${(l.pct*100).toFixed(2)}%</td>
       <td style="text-align:right;font-weight:600">${fmtVal(l.base)}</td>
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
     </tr>`).join('')}
-    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="7"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
+    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
     </tbody></table></div>`}`;
 }
 // Grupo de receita (modelo DRE Rokbox) a partir do gateway do recebimento.
@@ -6898,10 +6892,13 @@ function renderCadastro() {
       }).join('')}
       </tbody></table></div>` : '<p style="font-size:12px;color:var(--muted);margin-bottom:24px">Cadastre seus bancos acima primeiro.</p>'}
 
-    <div class="section-title">Cadastro de Lojas</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Empresa, Operação, Segmento e Natureza de NF por loja. Pedidos Cancelados/Em Aberto mostram "—" independente do cadastro.</p>
-    <div class="table-wrap" style="margin-bottom:24px"><table><thead><tr>
-      <th>Loja / Canal</th><th>Empresa</th><th>Operação</th><th>Segmento</th><th>Natureza NF</th>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="section-title" style="margin-bottom:0">Cadastro de Lojas</div>
+      <button id="lojas-toggle" class="btn ghost sm" onclick="toggleLojasTabela()">▾ Recolher</button>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Empresa, Operação, Segmento, Natureza de NF e <strong>% de comissão</strong> por loja. O % é usado na aba 💸 Comissão.</p>
+    <div id="lojas-tabela" class="table-wrap" style="margin-bottom:24px"><table><thead><tr>
+      <th>Loja / Canal</th><th>Empresa</th><th>Operação</th><th>Segmento</th><th>Natureza NF</th><th>% Comissão</th>
     </tr></thead><tbody>
     ${[...lojas].sort().map(loja => {
       const c = lojaCadastro[loja]||{empresa:'',operacao:'',segmento:'',naturezaNF:''};
@@ -6915,6 +6912,7 @@ function renderCadastro() {
         </select></td>
         <td><input class="inline-input" style="width:110px" value="${c.segmento}" onchange="updateLC('${k}','segmento',this.value)"></td>
         <td><input class="inline-input" style="width:200px" value="${c.naturezaNF}" onchange="updateLC('${k}','naturezaNF',this.value)"></td>
+        <td><input class="inline-input" type="number" step="0.01" style="width:70px" placeholder="%" value="${c.comissao!=null&&c.comissao!==''?c.comissao:''}" onchange="updateLC('${k}','comissao',this.value)"> %</td>
       </tr>`;
     }).join('')}
     </tbody></table></div>
@@ -6941,6 +6939,18 @@ function updateLC(loja, field, value) {
   if (!lojaCadastro[loja]) lojaCadastro[loja] = {empresa:'',operacao:'',segmento:'',naturezaNF:''};
   lojaCadastro[loja][field] = value;
   saveData('lojaCadastro', lojaCadastro);
+}
+function toggleLojasTabela() {
+  const t = document.getElementById('lojas-tabela'); if (!t) return;
+  const aberto = t.style.display !== 'none';
+  t.style.display = aberto ? 'none' : '';
+  const b = document.getElementById('lojas-toggle'); if (b) b.textContent = aberto ? '▸ Expandir' : '▾ Recolher';
+}
+// % de comissão de uma loja (cadastrado em Cadastro → Lojas), como decimal (2 → 0.02).
+function comissaoDaLoja(loja) {
+  const v = lojaCadastro[loja] && lojaCadastro[loja].comissao;
+  const n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+  return isNaN(n) ? 0 : n / 100;
 }
 function updateOM(key, value) {
   if (value) opMapping[key]=value; else delete opMapping[key];
