@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v138/06-162';
+const APP_VERSION = 'v139/06-163';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -935,6 +935,7 @@ let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na 
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
+let comissaoOutros = {};       // { nome: percentual } — funcionários que ganham % SOBRE O FATURAMENTO (ex.: Elaine = 0.5)
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -2256,11 +2257,31 @@ function renderComissao() {
   // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
   const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
 
+  // FATURAMENTO REAL do período (todos os vendedores) = base dos "Outros" (% sobre faturamento).
+  let fatBruto = 0;
+  pedidos.forEach(p => {
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
+    const op = (getClassificacao(p).operacao || '').toLowerCase();
+    if (op !== 'venda' && op !== 'troca') return;
+    if (dfAtivo() && !passaData(p.data)) return;
+    fatBruto += (p.valor || 0);
+  });
+  // devoluções atribuídas a pedidos do período (pelo pedido de crédito)
+  let fatDevol = 0;
+  pedidos.forEach(p => {
+    if (dfAtivo() && !passaData(p.data)) return;
+    fatDevol += devolPorPed[String(p.id)] || 0;
+  });
+  const fatReal = +(fatBruto - fatDevol).toFixed(2);
+  const outros = Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0]))
+    .map(([nome, pct]) => ({ nome, pct: pct || 0, comissao: +((pct||0)/100 * fatReal).toFixed(2) }));
+  const totOutros = outros.reduce((s,o)=>s+o.comissao,0);
+
   el.innerHTML = `
     ${filtrosBar({
       nAtivos: (fVend?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosComissao()',
-      acoes: `<span style="font-size:12px;color:var(--muted)">Base = Valor − Frete − Devolução − Outras − Diferença(se +) · Comissão = % × Base</span>`,
+      acoes: `<button class="btn primary sm" onclick="exportarComissao()" title="Exporta a planilha de comissão (vendedores + outros) para conferência">📤 Exportar</button>`,
       campos:
         fdRow('Vendedor', `<select id="com-vend" onchange="renderComissao()"><option value="">Todos</option>${vendedores.map(v=>`<option value="${v.replace(/"/g,'&quot;')}" ${v===fVend?'selected':''}>${v}</option>`).join('')}</select>`) +
         fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
@@ -2293,8 +2314,50 @@ function renderComissao() {
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
-    </tbody></table></div>`}`;
+    </tbody></table></div>`}
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Devolução − Outras − Diferença(se +) · Comissão = % × Base</div>
+
+    <div class="section-title" style="margin-top:28px">💼 Outros (% sobre faturamento)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Faturamento do período (pedidos − devoluções): <strong>${fmtVal(fatReal)}</strong>. Cadastre os nomes/% em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
+    ${outros.length ? `<div class="table-wrap" style="max-width:560px"><table><thead><tr><th>Nome</th><th style="text-align:right">% sobre faturamento</th><th style="text-align:right">Base (faturamento)</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
+      ${outros.map(o=>`<tr><td><strong>${o.nome}</strong></td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(fatReal)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(o.comissao)}</td></tr>`).join('')}
+      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="3">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td></tr>
+    </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhum cadastrado em Cadastro → Comissão Outros.</div>'}`;
 }
+// Exporta a comissão (vendedores por pedido + outros) para .xlsx, p/ conferência.
+function exportarComissao() {
+  const el = document.getElementById('v-comissao');
+  const fVend = el?.querySelector('#com-vend')?.value || '';
+  const devolPorPed = {};
+  devolucoes.forEach(d => { const cp = String(credDevolucao(d)).match(/\d{4,6}/g) || []; if (!cp.length) return; const parc = (d.valorPago||0)/cp.length; cp.forEach(pc => devolPorPed[pc] = (devolPorPed[pc]||0)+parc); });
+  const aoa = [['Nome','Pedido','Valor','Frete','Outras Desp.','Devolução','Vlr em Aberto','Diferença','Vendedor','Loja','% Comissão','Base Comissão','Vlr Comissão']];
+  pedidos.filter(p => {
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return false;
+    const op = (getClassificacao(p).operacao||'').toLowerCase(); if (op!=='venda'&&op!=='troca') return false;
+    if (dfAtivo() && !passaData(p.data)) return false;
+    if (fVend && (p.vendedor||'Sem vendedor')!==fVend) return false;
+    return true;
+  }).sort((a,b)=>Number(b.id)-Number(a.id)).forEach(p => {
+    const frete=p.frete||0, outras=p.outrasDespesas||0, devol=devolPorPed[String(p.id)]||0;
+    const recebido = getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0);
+    const aberto = +((p.valor||0)-recebido).toFixed(2);
+    const pct = comissaoDaLoja(p.loja);
+    const base = +((p.valor||0)-frete-devol-outras-Math.max(0,aberto)).toFixed(2);
+    aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, aberto, aberto, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(base*pct).toFixed(2)]);
+  });
+  // Outros (% sobre faturamento)
+  let fatBruto=0; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const op=(getClassificacao(p).operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; fatBruto+=(p.valor||0); });
+  let fatDevol=0; pedidos.forEach(p=>{ if (dfAtivo()&&!passaData(p.data)) return; fatDevol += devolPorPed[String(p.id)]||0; });
+  const fatReal = +(fatBruto-fatDevol).toFixed(2);
+  aoa.push([]); aoa.push(['OUTROS (% sobre faturamento)','','Faturamento:',fatReal]);
+  aoa.push(['Nome','','% sobre faturamento','Base','Comissão']);
+  Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([nome,pct])=>aoa.push([nome,'',pct||0,fatReal,+((pct||0)/100*fatReal).toFixed(2)]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Comissão');
+  XLSX.writeFile(wb, `comissao_${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.xlsx`);
+}
+// Grupo de receita (modelo DRE Rokbox) a partir do gateway do recebimento.
 // Grupo de receita (modelo DRE Rokbox) a partir do gateway do recebimento.
 function grupoReceitaGateway(gw) {
   switch (gw) {
@@ -6905,6 +6968,23 @@ function renderCadastro() {
       </tbody></table></div>` : '<p style="font-size:12px;color:var(--muted);margin-bottom:24px">Cadastre seus bancos acima primeiro.</p>'}
     </div>
 
+    ${cadHeader('outros','💼 Comissão — Outros (% sobre faturamento)')}
+    <div id="cad-outros">
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Funcionários que ganham um % sobre o <strong>faturamento</strong> (não por pedido). Ex.: Elaine Lima = 0,5%. Aparecem na aba 💸 Comissão, seção "Outros".</p>
+    <div class="table-wrap" style="margin-bottom:10px;max-width:480px"><table><thead><tr><th>Nome</th><th>% sobre faturamento</th><th></th></tr></thead><tbody>
+    ${Object.keys(comissaoOutros).length ? Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0])).map(([nome,pct])=>`<tr>
+      <td><strong>${nome}</strong></td>
+      <td><input class="inline-input" type="number" step="0.01" style="width:80px" value="${pct}" onchange="updateComissaoOutro('${nome.replace(/'/g,"\\'")}',this.value)"> %</td>
+      <td><a href="#" onclick="removeComissaoOutro('${nome.replace(/'/g,"\\'")}');return false" style="color:var(--red);text-decoration:none;font-weight:700">✕</a></td>
+    </tr>`).join('') : '<tr><td colspan="3" style="color:var(--muted);font-size:12px">Ninguém cadastrado</td></tr>'}
+    </tbody></table></div>
+    <div style="display:flex;gap:6px;margin-bottom:24px">
+      <input class="inline-input" id="novo-outro-nome" placeholder="Nome (ex.: Elaine Lima)" style="width:200px">
+      <input class="inline-input" id="novo-outro-pct" type="number" step="0.01" placeholder="%" style="width:70px">
+      <button class="btn primary sm" onclick="addComissaoOutro()">+ Adicionar</button>
+    </div>
+    </div>
+
     ${cadHeader('lojas','🏬 Cadastro de Lojas')}
     <div id="cad-lojas">
     <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Empresa, Operação, Segmento, Natureza de NF e <strong>% de comissão</strong> por loja. O % é usado na aba 💸 Comissão.</p>
@@ -6953,6 +7033,25 @@ function updateLC(loja, field, value) {
   if (!lojaCadastro[loja]) lojaCadastro[loja] = {empresa:'',operacao:'',segmento:'',naturezaNF:''};
   lojaCadastro[loja][field] = value;
   saveData('lojaCadastro', lojaCadastro);
+}
+// Comissão "Outros" (% sobre faturamento).
+function addComissaoOutro() {
+  const nome = (document.getElementById('novo-outro-nome')?.value || '').trim();
+  const pct = parseFloat(String(document.getElementById('novo-outro-pct')?.value || '').replace(',', '.'));
+  if (!nome) { alert('Informe o nome.'); return; }
+  comissaoOutros[nome] = isNaN(pct) ? 0 : pct;
+  saveData('comissaoOutros', comissaoOutros);
+  renderCadastro();
+}
+function updateComissaoOutro(nome, pctStr) {
+  const pct = parseFloat(String(pctStr).replace(',', '.'));
+  comissaoOutros[nome] = isNaN(pct) ? 0 : pct;
+  saveData('comissaoOutros', comissaoOutros);
+}
+function removeComissaoOutro(nome) {
+  delete comissaoOutros[nome];
+  saveData('comissaoOutros', comissaoOutros);
+  renderCadastro();
 }
 function toggleLojasTabela() {
   const t = document.getElementById('lojas-tabela'); if (!t) return;
@@ -7142,7 +7241,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -7187,6 +7286,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
+    else if (k==='comissaoOutros') comissaoOutros = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
