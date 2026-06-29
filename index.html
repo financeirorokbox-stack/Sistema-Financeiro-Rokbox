@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v122/06-146';
+const APP_VERSION = 'v123/06-147';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4023,16 +4023,34 @@ function excluirExtratoDoBanco() {
   const match = t => bankMatch(t) && (!temData || passaData(t.data));
   const alvo = extratoBancario.filter(match);
   if (!alvo.length) { alert(temData ? 'Nenhum lançamento deste banco no período filtrado.' : 'Nenhum lançamento deste banco.'); return; }
-  const fechados = alvo.filter(t => diaFechado(t.data, t.banco));
-  const remover = alvo.filter(t => !diaFechado(t.data, t.banco));
-  if (!remover.length) { alert('Todos os lançamentos deste banco (no filtro) estão em dias FECHADOS. Reabra o(s) dia(s) (admin) para excluir.'); return; }
+  let fechados = alvo.filter(t => diaFechado(t.data, t.banco));
+  let remover = alvo.filter(t => !diaFechado(t.data, t.banco));
   const nomeBanco = fBanco === '__sem' ? '(sem banco)' : fBanco;
   const escopo = temData ? ` no período filtrado` : '';
+  const ehAdmin = !!(currentUser && currentUser.admin);
+  // Dias fechados: oferece REABRIR e excluir junto (só admin). Senão preserva os fechados.
+  let reabriu = false;
+  if (fechados.length && ehAdmin) {
+    if (confirm(`${fechados.length} lançamento(s) de "${nomeBanco}"${escopo} estão em dia(s) FECHADO(s).\n\n` +
+        `OK = REABRIR esses dias e excluir TUDO\n` +
+        `Cancelar = excluir só os de dias abertos${remover.length ? '' : ' (não há nenhum aberto)'}`)) {
+      reabriu = true;
+      remover = remover.concat(fechados);
+      fechados = [];
+    }
+  }
+  if (!remover.length) { alert('Todos os lançamentos deste banco (no filtro) estão em dias FECHADOS. ' + (ehAdmin ? 'Confirme a reabertura para excluir.' : 'Um admin precisa reabrir o(s) dia(s).')); return; }
   const conciliados = remover.filter(t => extratoLinks[t.id] || repasseLinks[t.id] || debitoLinks[t.id] || receitaLinks[t.id]).length;
   if (!confirm(`Excluir ${remover.length} lançamento(s) do banco "${nomeBanco}"${escopo}?` +
       (conciliados ? `\n\n⚠ ${conciliados} já estão conciliados — os vínculos serão desfeitos (contas voltam a "em aberto").` : '') +
+      (reabriu ? `\n\n🔓 Dias fechados serão reabertos para excluir.` : '') +
       (fechados.length ? `\n\n🔒 ${fechados.length} em dia(s) fechado(s) serão PRESERVADOS.` : '') +
       `\n\nIsto não pode ser desfeito.`)) return;
+  // Se reabriu, remove a trava POR BANCO desses dias (mantém o legado global, que protege os outros bancos).
+  if (reabriu) {
+    remover.forEach(t => { const dk = diaKey(t.data); if (dk) diasFechados = diasFechados.filter(k => k !== fechKey(t.banco || '', dk)); });
+    saveData('diasFechados', diasFechados);
+  }
   const ids = new Set(remover.map(t => t.id));
   remover.forEach(t => {
     // Desfaz débito vinculado (reverte "pago" e valor das contas; remove contas criadas no vínculo).
