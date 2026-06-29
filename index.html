@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v136/06-160';
+const APP_VERSION = 'v137/06-161';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2221,8 +2221,14 @@ function renderComissao() {
   if (!el) return;
   const fVend = el.querySelector('#com-vend')?.value || '';
   const vendedores = [...new Set(pedidos.map(p => p.vendedor || 'Sem vendedor'))].sort();
+  // Devolução abate o PEDIDO DA TROCA (crédito), não o original. Divide o valor se a troca foi p/ vários pedidos.
   const devolPorPed = {};
-  devolucoes.forEach(d => { devolPorPed[String(d.pedido)] = (devolPorPed[String(d.pedido)] || 0) + (d.valorPago || 0); });
+  devolucoes.forEach(d => {
+    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
+    if (!credPeds.length) return; // troca sem pedido de crédito informado → não abate aqui
+    const parcela = (d.valorPago || 0) / credPeds.length;
+    credPeds.forEach(pc => { devolPorPed[pc] = (devolPorPed[pc] || 0) + parcela; });
+  });
   const peds = pedidos.filter(p => {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return false;
     const op = (getClassificacao(p).operacao || '').toLowerCase();
