@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v119/06-143';
+const APP_VERSION = 'v120/06-144';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5501,7 +5501,8 @@ function renderBanco() {
       nAtivos: (bancoSel && bancoSel!=='__todos' ? 1 : 0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosBanco()',
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
-        <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>`,
+        <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
+        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
@@ -5895,6 +5896,37 @@ function reabrirDia(dk) {
   diasFechados = diasFechados.filter(k => !remover.has(k));
   saveData('diasFechados', diasFechados);
   renderBanco();
+}
+// Procura duplicidade: bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes.
+function verificarDuplicidadeBancos() {
+  const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[-_\s]+/g,' ').trim();
+  // Resumo por banco
+  const resumo = {};
+  extratoBancario.forEach(t => { const b = t.banco || '(sem banco)'; if (!resumo[b]) resumo[b] = { n:0, soma:0 }; resumo[b].n++; resumo[b].soma += (t.valor||0); });
+  const linhasResumo = Object.entries(resumo).sort((a,b)=> a[0]<b[0]?-1:1).map(([b,d]) => `• ${b}: ${d.n} lançamentos · ${fmtVal(d.soma)}`);
+  // 1) Nomes parecidos (cadastro + extrato) que colapsam pro mesmo normalizado
+  const nomes = [...new Set([...bancosCadastro, ...extratoBancario.map(t=>t.banco||'').filter(Boolean)])];
+  const porNorm = {};
+  nomes.forEach(n => { const k = norm(n); (porNorm[k] = porNorm[k]||[]).push(n); });
+  const nomesDup = Object.values(porNorm).filter(arr => arr.length > 1);
+  // 2) MESMO lançamento (data+valor+memo) em bancos DIFERENTES → provável OFX subido 2x
+  const porConteudo = {};
+  extratoBancario.forEach(t => {
+    const dk = t.data instanceof Date && !isNaN(t.data) ? t.data.toISOString().slice(0,10) : '';
+    const k = dk + '|' + (t.valor||0).toFixed(2) + '|' + (t.memo||'').trim().toLowerCase();
+    (porConteudo[k] = porConteudo[k]||[]).push(t);
+  });
+  const lancDup = Object.values(porConteudo).filter(arr => new Set(arr.map(t=>t.banco||'')).size > 1);
+
+  let msg = '🔎 VERIFICAÇÃO DE DUPLICIDADE\n\nLançamentos por banco:\n' + (linhasResumo.join('\n') || '(nenhum)');
+  if (nomesDup.length) msg += '\n\n⚠ Bancos com NOME parecido (podem ser o mesmo):\n' + nomesDup.map(arr => '• ' + arr.join('  ↔  ')).join('\n');
+  if (lancDup.length) {
+    const ex = lancDup.slice(0,8).map(arr => { const t = arr[0]; const bs = [...new Set(arr.map(x=>x.banco||'(sem)'))]; return `• ${fmtDate(t.data)} ${fmtVal(t.valor)} "${(t.memo||'').slice(0,28)}" → ${bs.join(' + ')}`; });
+    msg += `\n\n⚠ ${lancDup.length} lançamento(s) IGUAIS em bancos diferentes (mesmo extrato subido 2x?):\n` + ex.join('\n') + (lancDup.length>8?`\n… e mais ${lancDup.length-8}`:'');
+    msg += '\n\n➜ Para remover o errado: filtre por aquele banco e use 🗑 "Excluir deste banco" na aba Extrato.';
+  }
+  if (!nomesDup.length && !lancDup.length) msg += '\n\n✓ Nenhuma duplicidade encontrada — nomes ok e nenhum lançamento repetido entre bancos.';
+  alert(msg);
 }
 // Uma Conta a Pagar está TRAVADA quando foi conciliada a um débito de extrato de um dia FECHADO.
 // Nesse caso ela não pode ser apagada nem substituída por re-upload (o fechamento é um cadeado).
