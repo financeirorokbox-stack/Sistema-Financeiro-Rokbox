@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v114/06-138';
+const APP_VERSION = 'v115/06-139';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1600,9 +1600,14 @@ function _dfLabel(field) {
 // Re-renderiza a aba atual PRESERVANDO a posição do scroll (senão a tela "sobe" a cada clique).
 function _dfRenderKeepScroll() {
   if (!_dfRenderFn) return;
-  const sx = window.scrollX, sy = window.scrollY;
+  const se = document.scrollingElement || document.documentElement || document.body;
+  const sx = window.scrollX || se.scrollLeft || 0;
+  const sy = window.scrollY || se.scrollTop || 0;
   _dfRenderFn();
+  // Restaura agora e no próximo frame (o re-render pesado pode resetar o scroll depois do layout).
+  try { se.scrollTop = sy; se.scrollLeft = sx; } catch(e) {}
   window.scrollTo(sx, sy);
+  requestAnimationFrame(() => { try { se.scrollTop = sy; } catch(e) {} window.scrollTo(sx, sy); });
 }
 // Abre/fecha o calendário de um campo. O estado fica em _dfOpen e o dropdown é renderizado
 // JÁ ABERTO pelo dateFilterHTML — assim sobrevive a qualquer re-render (não fecha ao marcar um dia).
