@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v118/06-142';
+const APP_VERSION = 'v119/06-143';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5884,7 +5884,14 @@ function reabrirDia(dk) {
   const rotulo = bancoConcSel === '__todos' ? 'TODOS os bancos deste dia'
                : (bancoConcSel === '__sem' ? 'os lançamentos SEM banco' : `o banco "${bancoConcSel}"`);
   if (!confirm(`Reabrir o dia ${fmtDate(new Date(dk+'T00:00:00'))} para ${rotulo}? Voltará a permitir alterações e exclusões.`)) return;
-  const remover = new Set([dk, ...banks.map(b => fechKey(b, dk))]); // remove formato antigo (dk) e os por banco
+  // FORMATO ANTIGO (dia fechado para TODOS): ao reabrir só um banco, expande para por-banco
+  // mantendo fechados os OUTROS bancos do dia, e remove o global. Assim não reabre todo mundo.
+  if (diasFechados.includes(dk)) {
+    const todosBancos = [...new Set(extratoBancario.filter(t => diaKey(t.data) === dk).map(t => t.banco || ''))];
+    diasFechados = diasFechados.filter(k => k !== dk); // tira o global
+    todosBancos.forEach(b => { if (!banks.includes(b)) { const key = fechKey(b, dk); if (!diasFechados.includes(key)) diasFechados.push(key); } });
+  }
+  const remover = new Set(banks.map(b => fechKey(b, dk))); // remove as chaves por-banco dos bancos reabertos
   diasFechados = diasFechados.filter(k => !remover.has(k));
   saveData('diasFechados', diasFechados);
   renderBanco();
