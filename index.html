@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v115/06-139';
+const APP_VERSION = 'v116/06-140';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2889,7 +2889,7 @@ function renderRecebimentos() {
       <td><strong>${r.gateway}</strong></td>
       <td>${fmtDate(r.data)}</td>
       <td>${r.tipo||'—'}</td>
-      <td>${r.nome||'—'}${r.nped?` <span style="font-size:10px;color:var(--muted)">#${r.nped}</span>`:' <span style="font-size:10px;color:var(--amber)">sem pedido</span>'}
+      <td>${r.nome||'—'}${r.nped?` <span style="font-size:10px;color:var(--muted)">#${r.nped}</span> <span class="badge ok" style="font-size:9px" title="Já alocado a um pedido (usado/conciliado)">🔗 conciliado</span>`:' <span class="badge" style="font-size:9px;background:var(--amber);color:#222">sem pedido</span>'}
         <button class="btn ghost sm" style="font-size:10px;padding:1px 5px;margin-left:4px" onclick="editarNpedRec(${realIdx})" title="Editar nº do pedido">✏</button></td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
