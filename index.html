@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v137/06-161';
+const APP_VERSION = 'v138/06-162';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2244,7 +2244,9 @@ function renderComissao() {
     const aberto = +((p.valor || 0) - recebido).toFixed(2);
     const vend = p.vendedor || 'Sem vendedor';
     const pct = comissaoDaLoja(p.loja); // % vem do Cadastro → Lojas (por loja)
-    const base = +((p.valor || 0) - frete - devol - outras).toFixed(2);
+    // Base = Valor − Frete − Devolução − Outras − Diferença (só quando a diferença/aberto for POSITIVA).
+    const difPos = Math.max(0, aberto);
+    const base = +((p.valor || 0) - frete - devol - outras - difPos).toFixed(2);
     const comissao = +(base * pct).toFixed(2);
     return { p, frete, outras, devol, aberto, vend, pct, base, comissao };
   }).sort((a, b) => Number(b.p.id) - Number(a.p.id));
@@ -2258,7 +2260,7 @@ function renderComissao() {
     ${filtrosBar({
       nAtivos: (fVend?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosComissao()',
-      acoes: `<span style="font-size:12px;color:var(--muted)">Base = Valor − Frete − Devolução − Outras Despesas · Comissão = % × Base</span>`,
+      acoes: `<span style="font-size:12px;color:var(--muted)">Base = Valor − Frete − Devolução − Outras − Diferença(se +) · Comissão = % × Base</span>`,
       campos:
         fdRow('Vendedor', `<select id="com-vend" onchange="renderComissao()"><option value="">Todos</option>${vendedores.map(v=>`<option value="${v.replace(/"/g,'&quot;')}" ${v===fVend?'selected':''}>${v}</option>`).join('')}</select>`) +
         fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
