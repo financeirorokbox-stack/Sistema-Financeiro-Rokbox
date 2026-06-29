@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v121/06-145';
+const APP_VERSION = 'v122/06-146';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4206,6 +4206,13 @@ function renderExtrato() {
       }
       // Pergunta o banco (o usuário gosta de confirmar), já sugerindo o que casa com o nome do arquivo.
       const banco = escolherBancoDoArquivo(parseOFXConta(raw), file.name);
+      // OBRIGATÓRIO: sem banco, NÃO sobe nada (evita lançamentos "sem banco" que viram duplicata depois).
+      if (!banco) {
+        const stEl0 = document.getElementById('status-ext');
+        if (stEl0) stEl0.textContent = 'Upload cancelado — informe o banco.';
+        alert('⚠ Upload cancelado: é obrigatório informar o BANCO do extrato.\n\nCadastre o banco em Cadastro → Bancos (ou digite o nome quando o sistema perguntar) e suba o arquivo novamente.\n\nNenhum lançamento foi adicionado.');
+        return;
+      }
       // ACUMULA sem duplicar — POR BANCO (FITIDs do Itaú colidem com outros bancos).
       const fitid = t => (t.id && !String(t.id).startsWith('ofx-'))
         ? 'id:' + t.id
