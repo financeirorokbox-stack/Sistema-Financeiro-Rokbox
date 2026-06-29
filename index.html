@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v139/06-163';
+const APP_VERSION = 'v140/06-164';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2257,24 +2257,22 @@ function renderComissao() {
   // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
   const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
 
-  // FATURAMENTO REAL do período (todos os vendedores) = base dos "Outros" (% sobre faturamento).
-  let fatBruto = 0;
+  // Base dos "Outros" = MESMA base de comissão, somada sobre TODOS os pedidos do período (todos os vendedores).
+  let baseGeral = 0;
   pedidos.forEach(p => {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
     const op = (getClassificacao(p).operacao || '').toLowerCase();
     if (op !== 'venda' && op !== 'troca') return;
     if (dfAtivo() && !passaData(p.data)) return;
-    fatBruto += (p.valor || 0);
+    const frete = p.frete || 0, outras = p.outrasDespesas || 0;
+    const devol = devolPorPed[String(p.id)] || 0;
+    const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
+    const aberto = +((p.valor || 0) - recebido).toFixed(2);
+    baseGeral += +((p.valor || 0) - frete - devol - outras - Math.max(0, aberto)).toFixed(2);
   });
-  // devoluções atribuídas a pedidos do período (pelo pedido de crédito)
-  let fatDevol = 0;
-  pedidos.forEach(p => {
-    if (dfAtivo() && !passaData(p.data)) return;
-    fatDevol += devolPorPed[String(p.id)] || 0;
-  });
-  const fatReal = +(fatBruto - fatDevol).toFixed(2);
+  baseGeral = +baseGeral.toFixed(2);
   const outros = Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0]))
-    .map(([nome, pct]) => ({ nome, pct: pct || 0, comissao: +((pct||0)/100 * fatReal).toFixed(2) }));
+    .map(([nome, pct]) => ({ nome, pct: pct || 0, comissao: +((pct||0)/100 * baseGeral).toFixed(2) }));
   const totOutros = outros.reduce((s,o)=>s+o.comissao,0);
 
   el.innerHTML = `
@@ -2317,10 +2315,10 @@ function renderComissao() {
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Devolução − Outras − Diferença(se +) · Comissão = % × Base</div>
 
-    <div class="section-title" style="margin-top:28px">💼 Outros (% sobre faturamento)</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Faturamento do período (pedidos − devoluções): <strong>${fmtVal(fatReal)}</strong>. Cadastre os nomes/% em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
-    ${outros.length ? `<div class="table-wrap" style="max-width:560px"><table><thead><tr><th>Nome</th><th style="text-align:right">% sobre faturamento</th><th style="text-align:right">Base (faturamento)</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
-      ${outros.map(o=>`<tr><td><strong>${o.nome}</strong></td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(fatReal)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(o.comissao)}</td></tr>`).join('')}
+    <div class="section-title" style="margin-top:28px">💼 Outros (% sobre o total da empresa)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Ganham sobre <strong>tudo que a empresa fatura</strong> — base = soma das bases de comissão de todos os pedidos do período: <strong>${fmtVal(baseGeral)}</strong>. Cadastre os nomes/% em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
+    ${outros.length ? `<div class="table-wrap" style="max-width:560px"><table><thead><tr><th>Nome</th><th style="text-align:right">%</th><th style="text-align:right">Base (total)</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
+      ${outros.map(o=>`<tr><td><strong>${o.nome}</strong></td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(baseGeral)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(o.comissao)}</td></tr>`).join('')}
       <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="3">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td></tr>
     </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhum cadastrado em Cadastro → Comissão Outros.</div>'}`;
 }
@@ -2345,13 +2343,12 @@ function exportarComissao() {
     const base = +((p.valor||0)-frete-devol-outras-Math.max(0,aberto)).toFixed(2);
     aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, aberto, aberto, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(base*pct).toFixed(2)]);
   });
-  // Outros (% sobre faturamento)
-  let fatBruto=0; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const op=(getClassificacao(p).operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; fatBruto+=(p.valor||0); });
-  let fatDevol=0; pedidos.forEach(p=>{ if (dfAtivo()&&!passaData(p.data)) return; fatDevol += devolPorPed[String(p.id)]||0; });
-  const fatReal = +(fatBruto-fatDevol).toFixed(2);
-  aoa.push([]); aoa.push(['OUTROS (% sobre faturamento)','','Faturamento:',fatReal]);
-  aoa.push(['Nome','','% sobre faturamento','Base','Comissão']);
-  Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([nome,pct])=>aoa.push([nome,'',pct||0,fatReal,+((pct||0)/100*fatReal).toFixed(2)]));
+  // Outros (% sobre o total) — base = soma das bases de comissão de todos os pedidos do período.
+  let baseGeral=0; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const op=(getClassificacao(p).operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=p.frete||0, od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=+((p.valor||0)-rec).toFixed(2); baseGeral += +((p.valor||0)-fr-dv-od-Math.max(0,ab)).toFixed(2); });
+  baseGeral = +baseGeral.toFixed(2);
+  aoa.push([]); aoa.push(['OUTROS (% sobre o total da empresa)','','Base total:',baseGeral]);
+  aoa.push(['Nome','','%','Base','Comissão']);
+  Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([nome,pct])=>aoa.push([nome,'',pct||0,baseGeral,+((pct||0)/100*baseGeral).toFixed(2)]));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Comissão');
