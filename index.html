@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v120/06-144';
+const APP_VERSION = 'v121/06-145';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5921,9 +5921,18 @@ function verificarDuplicidadeBancos() {
   let msg = '🔎 VERIFICAÇÃO DE DUPLICIDADE\n\nLançamentos por banco:\n' + (linhasResumo.join('\n') || '(nenhum)');
   if (nomesDup.length) msg += '\n\n⚠ Bancos com NOME parecido (podem ser o mesmo):\n' + nomesDup.map(arr => '• ' + arr.join('  ↔  ')).join('\n');
   if (lancDup.length) {
-    const ex = lancDup.slice(0,8).map(arr => { const t = arr[0]; const bs = [...new Set(arr.map(x=>x.banco||'(sem)'))]; return `• ${fmtDate(t.data)} ${fmtVal(t.valor)} "${(t.memo||'').slice(0,28)}" → ${bs.join(' + ')}`; });
-    msg += `\n\n⚠ ${lancDup.length} lançamento(s) IGUAIS em bancos diferentes (mesmo extrato subido 2x?):\n` + ex.join('\n') + (lancDup.length>8?`\n… e mais ${lancDup.length-8}`:'');
-    msg += '\n\n➜ Para remover o errado: filtre por aquele banco e use 🗑 "Excluir deste banco" na aba Extrato.';
+    // Sobreposição banco × banco: quantos lançamentos iguais entre cada par de bancos.
+    const pares = {};
+    lancDup.forEach(arr => {
+      const bs = [...new Set(arr.map(t=>t.banco||'(sem banco)'))].sort();
+      for (let i=0;i<bs.length;i++) for (let j=i+1;j<bs.length;j++) { const k = bs[i] + '  ↔  ' + bs[j]; pares[k] = (pares[k]||0)+1; }
+    });
+    const linhasPares = Object.entries(pares).sort((a,b)=>b[1]-a[1]).map(([k,n]) => `• ${k}: ${n} iguais`);
+    const ex = lancDup.slice(0,6).map(arr => { const t = arr[0]; const bs = [...new Set(arr.map(x=>x.banco||'(sem)'))]; return `• ${fmtDate(t.data)} ${fmtVal(t.valor)} "${(t.memo||'').slice(0,26)}" → ${bs.join(' + ')}`; });
+    msg += `\n\n⚠ ${lancDup.length} lançamento(s) IGUAIS em bancos diferentes (mesmo extrato subido 2x?):`;
+    msg += `\n\nSobreposição entre bancos:\n` + linhasPares.join('\n');
+    msg += `\n\nExemplos:\n` + ex.join('\n') + (lancDup.length>6?`\n… e mais ${lancDup.length-6}`:'');
+    msg += '\n\n➜ Para remover o duplicado: filtre pelo banco que NÃO deve existir e use 🗑 "Excluir deste banco" na aba Extrato.';
   }
   if (!nomesDup.length && !lancDup.length) msg += '\n\n✓ Nenhuma duplicidade encontrada — nomes ok e nenhum lançamento repetido entre bancos.';
   alert(msg);
