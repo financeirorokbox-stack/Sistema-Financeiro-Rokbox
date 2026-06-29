@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v142/06-166';
+const APP_VERSION = 'v143/06-167';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2259,22 +2259,30 @@ function renderComissao() {
   // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
   const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
 
-  // Base dos "Outros" = MESMA base de comissão, somada sobre TODOS os pedidos do período (todos os vendedores).
-  let baseGeral = 0;
+  // Base dos "Outros" = MESMA base de comissão, somada sobre os pedidos do período (todos os vendedores),
+  // separada por SEGMENTO (para quem ganha sobre um segmento, ex.: Vendas PL).
+  let baseGeral = 0; const basePorSeg = {};
   pedidos.forEach(p => {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
-    const op = (getClassificacao(p).operacao || '').toLowerCase();
+    const cls = getClassificacao(p);
+    const op = (cls.operacao || '').toLowerCase();
     if (op !== 'venda' && op !== 'troca') return;
     if (dfAtivo() && !passaData(p.data)) return;
     const frete = p.frete || 0, outras = p.outrasDespesas || 0;
     const devol = devolPorPed[String(p.id)] || 0;
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const aberto = +((p.valor || 0) - recebido).toFixed(2);
-    baseGeral += +((p.valor || 0) - frete - devol - outras - Math.max(0, aberto)).toFixed(2);
+    const bp = +((p.valor || 0) - frete - devol - outras - Math.max(0, aberto)).toFixed(2);
+    baseGeral += bp;
+    const seg = cls.segmento || 'Sem segmento';
+    basePorSeg[seg] = (basePorSeg[seg] || 0) + bp;
   });
   baseGeral = +baseGeral.toFixed(2);
-  const outros = Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0]))
-    .map(([nome, pct]) => ({ nome, pct: pct || 0, comissao: +((pct||0)/100 * baseGeral).toFixed(2) }));
+  const baseDoOutro = cfg => cfg.base === 'total' ? baseGeral : +((basePorSeg[cfg.base] || 0)).toFixed(2);
+  const outros = Object.keys(comissaoOutros).sort().map(nome => {
+    const cfg = outroCfg(nome); const baseUsada = baseDoOutro(cfg);
+    return { nome, pct: cfg.pct, base: cfg.base, baseUsada, comissao: +((cfg.pct/100) * baseUsada).toFixed(2) };
+  });
   const totOutros = outros.reduce((s,o)=>s+o.comissao,0);
 
   el.innerHTML = `
@@ -2317,11 +2325,11 @@ function renderComissao() {
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Devolução − Outras − Diferença(se +) · Comissão = % × Base</div>
 
-    <div class="section-title" style="margin-top:28px">💼 Outros (% sobre o total da empresa)</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Ganham sobre <strong>tudo que a empresa fatura</strong> — base = soma das bases de comissão de todos os pedidos do período: <strong>${fmtVal(baseGeral)}</strong>. Cadastre os nomes/% em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
-    ${outros.length ? `<div class="table-wrap" style="max-width:560px"><table><thead><tr><th>Nome</th><th style="text-align:right">%</th><th style="text-align:right">Base (total)</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
-      ${outros.map(o=>`<tr><td><strong>${o.nome}</strong></td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(baseGeral)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(o.comissao)}</td></tr>`).join('')}
-      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="3">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td></tr>
+    <div class="section-title" style="margin-top:28px">💼 Outros (% sobre uma base)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Base = soma das bases de comissão dos pedidos do período (Total ou de um segmento). Cadastre em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
+    ${outros.length ? `<div class="table-wrap" style="max-width:640px"><table><thead><tr><th>Nome</th><th>Base</th><th style="text-align:right">%</th><th style="text-align:right">Base (R$)</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
+      ${outros.map(o=>`<tr><td><strong>${o.nome}</strong></td><td>${o.base==='total'?'Total da empresa':'Vendas '+o.base}</td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(o.baseUsada)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(o.comissao)}</td></tr>`).join('')}
+      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="4">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td></tr>
     </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhum cadastrado em Cadastro → Comissão Outros.</div>'}`;
 }
 // Exporta a comissão (vendedores por pedido + outros) para .xlsx, p/ conferência.
@@ -2345,12 +2353,12 @@ function exportarComissao() {
     const base = +((p.valor||0)-frete-devol-outras-Math.max(0,aberto)).toFixed(2);
     aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, aberto, aberto, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(base*pct).toFixed(2)]);
   });
-  // Outros (% sobre o total) — base = soma das bases de comissão de todos os pedidos do período.
-  let baseGeral=0; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const op=(getClassificacao(p).operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=p.frete||0, od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=+((p.valor||0)-rec).toFixed(2); baseGeral += +((p.valor||0)-fr-dv-od-Math.max(0,ab)).toFixed(2); });
+  // Outros — base = soma das bases de comissão dos pedidos do período (Total ou por segmento).
+  let baseGeral=0; const basePorSeg={}; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const cls=getClassificacao(p); const op=(cls.operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=p.frete||0, od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=+((p.valor||0)-rec).toFixed(2); const bp=+((p.valor||0)-fr-dv-od-Math.max(0,ab)).toFixed(2); baseGeral+=bp; const sg=cls.segmento||'Sem segmento'; basePorSeg[sg]=(basePorSeg[sg]||0)+bp; });
   baseGeral = +baseGeral.toFixed(2);
-  aoa.push([]); aoa.push(['OUTROS (% sobre o total da empresa)','','Base total:',baseGeral]);
-  aoa.push(['Nome','','%','Base','Comissão']);
-  Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([nome,pct])=>aoa.push([nome,'',pct||0,baseGeral,+((pct||0)/100*baseGeral).toFixed(2)]));
+  aoa.push([]); aoa.push(['OUTROS (% sobre uma base)']);
+  aoa.push(['Nome','Base','%','Base (R$)','Comissão']);
+  Object.keys(comissaoOutros).sort().forEach(nome=>{ const cfg=outroCfg(nome); const bu = cfg.base==='total'?baseGeral:+((basePorSeg[cfg.base]||0)).toFixed(2); aoa.push([nome, cfg.base==='total'?'Total':('Vendas '+cfg.base), cfg.pct, bu, +((cfg.pct/100)*bu).toFixed(2)]); });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Comissão');
@@ -6969,19 +6977,22 @@ function renderCadastro() {
 
     ${cadHeader('outros','💼 Comissão — Outros (% sobre faturamento)')}
     <div id="cad-outros" style="display:${_cadAberto['outros']?'':'none'}">
-    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Funcionários que ganham um % sobre o <strong>faturamento</strong> (não por pedido). Ex.: Elaine Lima = 0,5%. Aparecem na aba 💸 Comissão, seção "Outros".</p>
-    <div class="table-wrap" style="margin-bottom:10px;max-width:480px"><table><thead><tr><th>Nome</th><th>% sobre faturamento</th><th></th></tr></thead><tbody>
-    ${Object.keys(comissaoOutros).length ? Object.entries(comissaoOutros).sort((a,b)=>a[0].localeCompare(b[0])).map(([nome,pct])=>`<tr>
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Funcionários que ganham um % sobre uma base (não por pedido). Ex.: Elaine = 0,5% do <strong>Total</strong>; Isabella = 0,5% sobre <strong>Vendas PL</strong>. Aparecem na aba 💸 Comissão, seção "Outros".</p>
+    ${(() => { const segs = segmentosCadastro(); const baseOpts = sel => `<option value="total" ${sel==='total'?'selected':''}>Total da empresa</option>${segs.map(s=>`<option value="${s.replace(/"/g,'&quot;')}" ${sel===s?'selected':''}>Segmento: ${s}</option>`).join('')}`; return `
+    <div class="table-wrap" style="margin-bottom:10px;max-width:600px"><table><thead><tr><th>Nome</th><th>%</th><th>Base</th><th></th></tr></thead><tbody>
+    ${Object.keys(comissaoOutros).length ? Object.keys(comissaoOutros).sort().map(nome=>{ const cfg=outroCfg(nome); const esc=nome.replace(/'/g,"\\'"); return `<tr>
       <td><strong>${nome}</strong></td>
-      <td><input class="inline-input" type="number" step="0.01" style="width:80px" value="${pct}" onchange="updateComissaoOutro('${nome.replace(/'/g,"\\'")}',this.value)"> %</td>
-      <td><a href="#" onclick="removeComissaoOutro('${nome.replace(/'/g,"\\'")}');return false" style="color:var(--red);text-decoration:none;font-weight:700">✕</a></td>
-    </tr>`).join('') : '<tr><td colspan="3" style="color:var(--muted);font-size:12px">Ninguém cadastrado</td></tr>'}
+      <td><input class="inline-input" type="number" step="0.01" style="width:70px" value="${cfg.pct}" onchange="updateComissaoOutro('${esc}','pct',this.value)"> %</td>
+      <td><select class="inline-input" style="width:170px" onchange="updateComissaoOutro('${esc}','base',this.value)">${baseOpts(cfg.base)}</select></td>
+      <td><a href="#" onclick="removeComissaoOutro('${esc}');return false" style="color:var(--red);text-decoration:none;font-weight:700">✕</a></td>
+    </tr>`; }).join('') : '<tr><td colspan="4" style="color:var(--muted);font-size:12px">Ninguém cadastrado</td></tr>'}
     </tbody></table></div>
-    <div style="display:flex;gap:6px;margin-bottom:18px">
-      <input class="inline-input" id="novo-outro-nome" placeholder="Nome (ex.: Elaine Lima)" style="width:200px">
+    <div style="display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap">
+      <input class="inline-input" id="novo-outro-nome" placeholder="Nome (ex.: Isabella Lais)" style="width:200px">
       <input class="inline-input" id="novo-outro-pct" type="number" step="0.01" placeholder="%" style="width:70px">
+      <select class="inline-input" id="novo-outro-base" style="width:170px">${baseOpts('total')}</select>
       <button class="btn primary sm" onclick="addComissaoOutro()">+ Adicionar</button>
-    </div>
+    </div>`; })()}
 
     <div class="f-label" style="margin-bottom:6px">🚫 Exceções — quem NÃO ganha comissão</div>
     <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Vendedores nesta lista têm comissão zerada na aba 💸 Comissão (mas seus pedidos ainda contam no total da empresa para os "Outros").</p>
@@ -7044,18 +7055,30 @@ function updateLC(loja, field, value) {
   lojaCadastro[loja][field] = value;
   saveData('lojaCadastro', lojaCadastro);
 }
-// Comissão "Outros" (% sobre faturamento).
+// Comissão "Outros": { nome: { pct, base } } onde base = 'total' ou um segmento. (Compat: número antigo = {pct, base:'total'}.)
+function outroCfg(nome) {
+  const v = comissaoOutros[nome];
+  if (v == null) return { pct: 0, base: 'total' };
+  if (typeof v === 'number') return { pct: v, base: 'total' };
+  return { pct: v.pct || 0, base: v.base || 'total' };
+}
+function segmentosCadastro() {
+  return [...new Set(Object.values(lojaCadastro).map(c => c && c.segmento).filter(Boolean))].sort();
+}
 function addComissaoOutro() {
   const nome = (document.getElementById('novo-outro-nome')?.value || '').trim();
   const pct = parseFloat(String(document.getElementById('novo-outro-pct')?.value || '').replace(',', '.'));
+  const base = document.getElementById('novo-outro-base')?.value || 'total';
   if (!nome) { alert('Informe o nome.'); return; }
-  comissaoOutros[nome] = isNaN(pct) ? 0 : pct;
+  comissaoOutros[nome] = { pct: isNaN(pct) ? 0 : pct, base };
   saveData('comissaoOutros', comissaoOutros);
   renderCadastro();
 }
-function updateComissaoOutro(nome, pctStr) {
-  const pct = parseFloat(String(pctStr).replace(',', '.'));
-  comissaoOutros[nome] = isNaN(pct) ? 0 : pct;
+function updateComissaoOutro(nome, field, value) {
+  const cfg = outroCfg(nome);
+  if (field === 'pct') cfg.pct = parseFloat(String(value).replace(',', '.')) || 0;
+  else if (field === 'base') cfg.base = value || 'total';
+  comissaoOutros[nome] = cfg;
   saveData('comissaoOutros', comissaoOutros);
 }
 function removeComissaoOutro(nome) {
