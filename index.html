@@ -380,7 +380,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v123/06-147';
+const APP_VERSION = 'v124/06-148';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6686,14 +6686,13 @@ function limparSelecao() {
 }
 
 function toggleSelectAllDel(source, checked) {
-  const arr = DELETE_SOURCES[source]?.getArr() || [];
-  arr.forEach((_, i) => {
-    const key = source + ':' + i;
+  // Marca/desmarca SÓ as linhas VISÍVEIS (respeita o filtro atual) — não o array inteiro.
+  document.querySelectorAll(`.del-check[data-source="${source}"]`).forEach(cb => {
+    cb.checked = checked;
+    const key = source + ':' + cb.getAttribute('data-idx');
     if (checked) deleteSelection.add(key);
     else deleteSelection.delete(key);
   });
-  // Atualiza checkboxes da tabela atual
-  document.querySelectorAll(`.del-check[data-source="${source}"]`).forEach(cb => cb.checked = checked);
   updateDeleteBar();
 }
 
