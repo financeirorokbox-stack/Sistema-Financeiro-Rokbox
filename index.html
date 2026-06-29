@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v140/06-164';
+const APP_VERSION = 'v141/06-165';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -936,6 +936,7 @@ let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária �
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
 let comissaoOutros = {};       // { nome: percentual } — funcionários que ganham % SOBRE O FATURAMENTO (ex.: Elaine = 0.5)
+let comissaoExcecoes = [];     // [vendedor] — vendedores que NÃO ganham comissão (ex.: Felliphe)
 let devolucoes = [];
 let devolucaoCredito = {};
 let lojaFixes = {};
@@ -2244,12 +2245,13 @@ function renderComissao() {
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const aberto = +((p.valor || 0) - recebido).toFixed(2);
     const vend = p.vendedor || 'Sem vendedor';
-    const pct = comissaoDaLoja(p.loja); // % vem do Cadastro → Lojas (por loja)
+    const isento = comissaoExcecoes.includes(vend); // vendedor que NÃO ganha comissão
+    const pct = isento ? 0 : comissaoDaLoja(p.loja); // % vem do Cadastro → Lojas (por loja)
     // Base = Valor − Frete − Devolução − Outras − Diferença (só quando a diferença/aberto for POSITIVA).
     const difPos = Math.max(0, aberto);
     const base = +((p.valor || 0) - frete - devol - outras - difPos).toFixed(2);
     const comissao = +(base * pct).toFixed(2);
-    return { p, frete, outras, devol, aberto, vend, pct, base, comissao };
+    return { p, frete, outras, devol, aberto, vend, isento, pct, base, comissao };
   }).sort((a, b) => Number(b.p.id) - Number(a.p.id));
   const totVal = linhas.reduce((s, l) => s + (l.p.valor || 0), 0);
   const totBase = linhas.reduce((s, l) => s + l.base, 0);
@@ -2305,9 +2307,9 @@ function renderComissao() {
       <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
       <td style="text-align:right;color:var(--muted)">${fmtVal(l.aberto)}</td>
       <td style="text-align:right;color:var(--muted)">${fmtVal(l.aberto)}</td>
-      <td>${l.vend}</td>
+      <td>${l.vend}${l.isento?' <span class="badge" style="font-size:9px;background:var(--muted);color:#fff">isento</span>':''}</td>
       <td>${l.p.loja||'—'}</td>
-      <td style="text-align:right;${l.pct?'':'color:var(--amber)'}">${(l.pct*100).toFixed(2)}%</td>
+      <td style="text-align:right;${l.pct?'':'color:var(--amber)'}">${l.isento?'—':(l.pct*100).toFixed(2)+'%'}</td>
       <td style="text-align:right;font-weight:600">${fmtVal(l.base)}</td>
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
     </tr>`).join('')}
@@ -2339,7 +2341,7 @@ function exportarComissao() {
     const frete=p.frete||0, outras=p.outrasDespesas||0, devol=devolPorPed[String(p.id)]||0;
     const recebido = getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0);
     const aberto = +((p.valor||0)-recebido).toFixed(2);
-    const pct = comissaoDaLoja(p.loja);
+    const pct = comissaoExcecoes.includes(p.vendedor||'Sem vendedor') ? 0 : comissaoDaLoja(p.loja);
     const base = +((p.valor||0)-frete-devol-outras-Math.max(0,aberto)).toFixed(2);
     aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, aberto, aberto, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(base*pct).toFixed(2)]);
   });
@@ -6975,10 +6977,21 @@ function renderCadastro() {
       <td><a href="#" onclick="removeComissaoOutro('${nome.replace(/'/g,"\\'")}');return false" style="color:var(--red);text-decoration:none;font-weight:700">✕</a></td>
     </tr>`).join('') : '<tr><td colspan="3" style="color:var(--muted);font-size:12px">Ninguém cadastrado</td></tr>'}
     </tbody></table></div>
-    <div style="display:flex;gap:6px;margin-bottom:24px">
+    <div style="display:flex;gap:6px;margin-bottom:18px">
       <input class="inline-input" id="novo-outro-nome" placeholder="Nome (ex.: Elaine Lima)" style="width:200px">
       <input class="inline-input" id="novo-outro-pct" type="number" step="0.01" placeholder="%" style="width:70px">
       <button class="btn primary sm" onclick="addComissaoOutro()">+ Adicionar</button>
+    </div>
+
+    <div class="f-label" style="margin-bottom:6px">🚫 Exceções — quem NÃO ganha comissão</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Vendedores nesta lista têm comissão zerada na aba 💸 Comissão (mas seus pedidos ainda contam no total da empresa para os "Outros").</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      ${comissaoExcecoes.length ? comissaoExcecoes.map((nome,i)=>chip(nome,'removeComissaoExcecao',i)).join('') : '<span style="font-size:12px;color:var(--muted)">Ninguém na exceção</span>'}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:24px">
+      <input class="inline-input" id="nova-excecao" list="vendedores-list" placeholder="Nome do vendedor (ex.: Felliphe F)" style="width:240px" onkeydown="if(event.key==='Enter')addComissaoExcecao()">
+      <datalist id="vendedores-list">${[...new Set(pedidos.map(p=>p.vendedor).filter(Boolean))].sort().map(v=>`<option value="${v.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <button class="btn primary sm" onclick="addComissaoExcecao()">+ Adicionar</button>
     </div>
     </div>
 
@@ -7048,6 +7061,18 @@ function updateComissaoOutro(nome, pctStr) {
 function removeComissaoOutro(nome) {
   delete comissaoOutros[nome];
   saveData('comissaoOutros', comissaoOutros);
+  renderCadastro();
+}
+function addComissaoExcecao() {
+  const nome = (document.getElementById('nova-excecao')?.value || '').trim();
+  if (!nome) return;
+  if (!comissaoExcecoes.includes(nome)) comissaoExcecoes.push(nome);
+  saveData('comissaoExcecoes', comissaoExcecoes);
+  renderCadastro();
+}
+function removeComissaoExcecao(i) {
+  comissaoExcecoes.splice(i, 1);
+  saveData('comissaoExcecoes', comissaoExcecoes);
   renderCadastro();
 }
 function toggleLojasTabela() {
@@ -7238,7 +7263,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -7284,6 +7309,7 @@ function delCheckboxHeader(source) {
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
+    else if (k==='comissaoExcecoes') comissaoExcecoes = v || [];
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
