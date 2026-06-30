@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v160/06-184';
+const APP_VERSION = 'v161/06-185';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2910,7 +2910,7 @@ function renderPagar() {
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
   if (fConc === 'sim') vis = vis.filter(c => chavesConcBanco.has(chaveContaPagar(c)));
   if (fConc === 'nao') vis = vis.filter(c => !chavesConcBanco.has(chaveContaPagar(c)));
-  if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
+  if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
 
   const aberto = vis.filter(c => !c.pago);
@@ -6064,7 +6064,14 @@ function renderBanco() {
       const memo = (t.memo || '').toLowerCase();
       const val = Math.abs(t.valor || 0).toFixed(2);
       const ped = String((extratoLinks[t.id] || repasseLinks[t.id] || {}).pedido || '');
-      return memo.includes(buscaBanco) || val.includes(buscaBanco.replace(',', '.')) || ped.includes(buscaBanco);
+      // Débito já conciliado: também casa pelo texto da CONTA vinculada (ex.: "cartão" que vem da planilha).
+      let contaTxt = '';
+      const dl = debitoLinks[t.id];
+      if (dl) contaTxt = debLinkItens(dl).map(it => {
+        const c = contasPagar.find(x => chaveContaPagar(x) === it.chave);
+        return c ? `${c.fornecedor||''} ${c.descricao||''} ${catContaPagar(c)||''} ${c.observacao||''}` : (it.fornecedor||'');
+      }).join(' ').toLowerCase();
+      return memo.includes(buscaBanco) || val.includes(buscaBanco.replace(',', '.')) || ped.includes(buscaBanco) || contaTxt.includes(buscaBanco);
     });
   }
 
@@ -6335,7 +6342,7 @@ function renderBanco() {
                           const outroId = usada ? usadasDebPor[chaveC] : null;
                           const outroT = outroId ? extratoBancario.find(x=>x.id===outroId) : null;
                           const outroInfo = outroT ? `${outroT.data?fmtDate(outroT.data):'sem data'} · ${fmtVal(outroT.valor)}` : 'outro débito';
-                          const busca=`${c.fornecedor||''} ${c.descricao||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''} ${paga?'paga pago':'aberto em aberto'} ${usada?'usada vinculada outro':''}`.toLowerCase().replace(/"/g,'&quot;');
+                          const busca=`${c.fornecedor||''} ${c.descricao||''} ${catContaPagar(c)||''} ${c.categoria||''} ${c.observacao||''} ${c.numero||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''} ${paga?'paga pago':'aberto em aberto'} ${usada?'usada vinculada outro':''}`.toLowerCase().replace(/"/g,'&quot;');
                           const selo = usada ? ` <span style="background:var(--muted);color:#fff;font-size:9px;padding:0 4px;border-radius:6px" title="Vinculada ao débito de ${outroInfo}">já em outro débito (${outroInfo})</span>`
                                      : paga ? ` <span style="background:var(--amber);color:#222;font-size:9px;padding:0 4px;border-radius:6px">paga</span>` : '';
                           const bg = usada ? 'opacity:.7' : (preCheck?'background:var(--green-bg)':(paga?'opacity:.85':''));
