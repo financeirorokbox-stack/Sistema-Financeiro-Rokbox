@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v176/06-200';
+const APP_VERSION = 'v177/06-201';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4849,22 +4849,23 @@ function renderExtrato() {
         return;
       }
       // ACUMULA sem duplicar — POR BANCO (FITIDs do Itaú colidem com outros bancos).
-      // Dedup à prova de RE-UPLOAD: casa por FITID-base (id sem o sufixo _N) OU por CONTEÚDO (data+valor+texto).
-      // Antes só comparava o id inteiro — se o existente tinha sufixo (_1), o re-upload não casava e DUPLICAVA.
+      // Dedup à prova de RE-UPLOAD, SEM apagar lançamentos iguais legítimos:
+      // - TEM FITID (id do banco) → casa SÓ por FITID-base (id sem o sufixo _N). Duas transações reais
+      //   NUNCA têm o mesmo FITID, então dois lançamentos iguais no mesmo dia (2 tarifas, 2 PIX iguais) ENTRAM os dois.
+      // - SEM FITID (ofx-N) → casa por CONTEÚDO (data+valor+texto), única opção possível.
       const fitidBase = t => (t.id && !String(t.id).startsWith('ofx-')) ? String(t.id).split('_')[0] : '';
       const conteudo = t => [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor, (t.memo || '').trim().toLowerCase()].join('|');
       const porFitid = {}, porConteudo = {};
       extratoBancario.forEach(t => {
         const tb = (t.banco || '');
         const fb = fitidBase(t);
-        if (fb) porFitid[tb + '||' + fb] = t;
-        porConteudo[tb + '||' + conteudo(t)] = t;
+        if (fb) porFitid[tb + '||' + fb] = t; else porConteudo[tb + '||' + conteudo(t)] = t;
       });
       const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
       let add = 0;
       novas.forEach(t => {
         const fb = fitidBase(t);
-        const existe = (fb && porFitid[banco + '||' + fb]) || porConteudo[banco + '||' + conteudo(t)];
+        const existe = fb ? porFitid[banco + '||' + fb] : porConteudo[banco + '||' + conteudo(t)];
         if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // já existe NESTE banco
         // Garante id único (evita colisão de 'ofx-N' entre arquivos, que quebraria os vínculos)
         let id = String(t.id);
@@ -4873,8 +4874,7 @@ function renderExtrato() {
         t.id = id;
         t.banco = banco;
         idsUsados.add(id);
-        if (fb) porFitid[banco + '||' + fb] = t;
-        porConteudo[banco + '||' + conteudo(t)] = t;
+        if (fb) porFitid[banco + '||' + fb] = t; else porConteudo[banco + '||' + conteudo(t)] = t;
         extratoBancario.push(t);
         add++;
       });
