@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v175/06-199';
+const APP_VERSION = 'v176/06-200';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4805,7 +4805,7 @@ function renderExtrato() {
                     const isBol = cat === 'Boleto Itaú';
                     const badge = `<span style="font-size:10px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;${isBol?'background:#fde9c8;color:#8a5a00':'background:var(--blue-bg,#e3f0ff);color:#1565c0'}">${isBol?'Boleto':(cat==='Pix (Extrato/OFX)'?'PIX':cat)}</span>`;
                     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);${bg};font-size:12px">
-                      <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}"
+                      <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}" data-v="${f.valor||0}"
                         style="width:14px;height:14px;cursor:pointer;flex-shrink:0"
                         ${diff<=0.10?'checked':''} onchange="extCheckLimit('${t.id}',this)">
                       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}</span>
@@ -4816,8 +4816,8 @@ function renderExtrato() {
                 </div>` : ''}
                 <!-- Status da seleção -->
                 <div id="ext-sel-${t.id}" style="font-size:11px;color:var(--muted);margin-top:4px;min-height:16px"
-                  data-manual="">
-                  ${hasAutoMatch ? `⚡ #${pixAbertos[0].pedido} selecionado` : ''}
+                  data-manual="" data-alvo="${t.valor}">
+                  ${hasAutoMatch ? `⚡ #${pixAbertos[0].pedido} · Flegado: <strong style="color:${Math.abs(pixAbertos[0].valor-t.valor)<=0.02?'var(--green)':'var(--amber)'}">${fmtVal(pixAbertos[0].valor)}</strong> / ${fmtVal(t.valor)}` : ''}
                 </div>
               </div>`;
             })()}
@@ -4911,12 +4911,27 @@ function extCheckLimit(id, cb) {
   // Máximo 2 checkboxes marcados
   const checks = [...document.querySelectorAll(`.ext-pick-${id}:checked`)];
   if (checks.length > 2) { cb.checked = false; return; }
-  // Atualiza label de selecionados
+  extSomaSel(id);
+}
+// Mostra "Flegado: soma dos pedidos marcados / valor do crédito" (verde quando bate) — igual à Conciliação.
+function extSomaSel(id) {
   const sel = document.getElementById('ext-sel-' + id);
-  if (sel) {
-    if (checks.length === 0) sel.textContent = 'Nenhum selecionado';
-    else sel.textContent = checks.map(c => '#' + c.value).join(' + ') + ' selecionado' + (checks.length > 1 ? 's' : '');
-  }
+  if (!sel) return;
+  const alvo = parseFloat(sel.dataset.alvo || '0') || 0;
+  const checks = [...document.querySelectorAll(`.ext-pick-${id}:checked`)];
+  const manual = sel.dataset.manual ? sel.dataset.manual.split(',').filter(Boolean) : [];
+  let soma = 0; const labels = [];
+  checks.forEach(c => { soma += parseFloat(c.dataset.v || '0') || 0; labels.push('#' + c.value); });
+  manual.forEach(pid => {
+    if (checks.some(c => c.value === pid)) return; // já contado pelo checkbox
+    const p = pedidos.find(x => String(x.id) === String(pid));
+    soma += p ? (p.valor || 0) : 0;
+    labels.push('#' + pid);
+  });
+  if (!labels.length) { sel.innerHTML = 'Nenhum selecionado'; return; }
+  const dif = Math.abs(soma - alvo);
+  const cor = dif <= 0.02 ? 'var(--green)' : (dif <= 1 ? 'var(--amber)' : 'var(--red)');
+  sel.innerHTML = `${labels.join(' + ')} · Flegado: <strong style="color:${cor}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}`;
 }
 
 function extAddManual(id) {
@@ -4936,9 +4951,7 @@ function extAddManual(id) {
       const cur = sel.dataset.manual ? sel.dataset.manual.split(',') : [];
       cur.push(val);
       sel.dataset.manual = [...new Set(cur)].slice(0,2).join(',');
-      const allSel = [...checks.map(c=>c.value), ...sel.dataset.manual.split(',')].filter(Boolean);
-      const unique = [...new Set(allSel)].slice(0,2);
-      sel.textContent = unique.map(p=>'#'+p).join(' + ') + ' selecionado' + (unique.length>1?'s':'');
+      extSomaSel(id);
     }
   }
   if (inp) inp.value = '';
