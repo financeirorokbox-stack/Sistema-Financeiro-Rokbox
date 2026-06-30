@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v165/06-189';
+const APP_VERSION = 'v166/06-190';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3327,20 +3327,30 @@ function lancarEstornoManual() {
   const gw = document.getElementById('em-gw')?.value || '';
   const vRaw = document.getElementById('em-valor')?.value || '';
   const dRaw = document.getElementById('em-data')?.value || '';
+  const difRaw = document.getElementById('em-dif')?.value || '';
   const ped = (document.getElementById('em-ped')?.value || '').trim();
   const obs = (document.getElementById('em-obs')?.value || '').trim();
   if (!gw) { alert('Escolha a operadora.'); return; }
   const valor = Math.abs(parseFloat(String(vRaw).replace(',', '.')) || 0);
   if (!valor) { alert('Informe o valor do estorno.'); return; }
+  const dif = Math.abs(parseFloat(String(difRaw).replace(',', '.')) || 0);
   const data = dRaw ? new Date(dRaw + 'T12:00:00') : null;
   const neg = -(+valor.toFixed(2));
+  // 1) Estorno do TOTAL (negativo) → abate depósito / vai pro Contas a Pagar com "→ Pagar".
   recebimentosConsolidado.push({
     gateway: gw, bruto: neg, taxa: 0, liq: neg, data,
     nped: ped || null, nome: obs || 'Estorno manual', tipo: 'Estorno', status: 'estorno', _estornoManual: true
   });
+  // 2) Diferença que VOLTA como entrada (positivo) → aparece em Recebimentos e Contas a Receber (no pedido).
+  if (dif > 0.005) {
+    recebimentosConsolidado.push({
+      gateway: gw, bruto: +dif.toFixed(2), taxa: 0, liq: +dif.toFixed(2), data,
+      nped: ped || null, nome: obs || 'Diferença (estorno parcial)', tipo: 'Entrada (dif. estorno)', status: 'pago', _difEstorno: true
+    });
+  }
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRecebimentos();
-  alert(`✓ Estorno de ${fmtVal(neg)} (${gwLabel(gw)}) lançado.\n\n• Aparece na lista do depósito da ${gwLabel(gw)} (Conciliação Bancária) p/ abater.\n• Use "→ Pagar" nele p/ registrar como estorno em Contas a Pagar.`);
+  alert(`✓ Lançado (${gwLabel(gw)}):\n• Estorno ${fmtVal(neg)} (total)${dif>0.005?`\n• Diferença ${fmtVal(dif)} (entrada${ped?` no pedido #${ped}`:''})`:''}\n\n• O estorno aparece na lista do depósito p/ abater e vai pro Contas a Pagar com "→ Pagar".${dif>0.005?'\n• A diferença entra como recebimento positivo (Contas a Receber).':''}`);
 }
 function estornoParaPagar(idx) {
   const r = recebimentosConsolidado[idx];
@@ -3422,12 +3432,14 @@ function renderRecebimentos() {
           <option value="Rede">Rede</option>
           <option value="Boleto Itaú">Boleto Itaú</option>
         </select>
-        <input type="number" id="em-valor" step="0.01" placeholder="Valor do estorno" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <input type="number" id="em-valor" step="0.01" placeholder="Valor do estorno (total)" style="width:150px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <input type="number" id="em-dif" step="0.01" placeholder="Diferença (entrada) — opcional" title="Braavo estorna o total e devolve a diferença como entrada nova. Aqui vira um recebimento POSITIVO no mesmo pedido." style="width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <input type="date" id="em-data" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <input type="text" id="em-ped" placeholder="Pedido (opcional)" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         <input type="text" id="em-obs" placeholder="Obs / cliente (opcional)" style="flex:1;min-width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <button class="btn primary sm" onclick="lancarEstornoManual()">Lançar estorno</button>
+        <button class="btn primary sm" onclick="lancarEstornoManual()">Lançar</button>
       </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Ex.: pedido 100, cliente fica com 70 → <strong>Estorno 100</strong> (negativo) + <strong>Diferença 70</strong> (entrada positiva no pedido). Líquido = −30.</div>
     </div>
     ${filtrosBar({
       nAtivos: [fGw,fEmp,fPed,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
