@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v177/06-201';
+const APP_VERSION = 'v178/06-202';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4772,12 +4772,14 @@ function renderExtrato() {
                 const c = classificaForma(f.descricao);
                 if (!c.isReceita) return false;
                 if (GW_FORA.includes(c.categoria)) return false;
-                const st = statusForma(f.pedido, c.categoria, f.valor);
-                if (st.recebido) return false;
                 const ped = pedidos.find(p => p.id === f.pedido);
                 if (!ped) return false;
                 const sit = ped.situacao || '';
                 if (SITUACOES_NAO_APLICAVEL.includes(sit.toLowerCase())) return false;
+                const st = statusForma(f.pedido, c.categoria, f.valor);
+                // Em ABERTO: sempre. JÁ RECEBIDO: só se o valor bate com este crédito (p/ re-vincular o banco
+                // a um pedido que o Contas a Receber já mostra recebido — caso da recuperação).
+                if (st.recebido && Math.abs((f.valor||0) - t.valor) > 1) return false;
                 return true;
               });
               // Ordena por proximidade de valor com o crédito do extrato
@@ -4803,7 +4805,8 @@ function renderExtrato() {
                     const bg = diff <= 0.10 ? 'background:var(--green-bg)' : '';
                     const cat = classificaForma(f.descricao).categoria;
                     const isBol = cat === 'Boleto Itaú';
-                    const badge = `<span style="font-size:10px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;${isBol?'background:#fde9c8;color:#8a5a00':'background:var(--blue-bg,#e3f0ff);color:#1565c0'}">${isBol?'Boleto':(cat==='Pix (Extrato/OFX)'?'PIX':cat)}</span>`;
+                    const jaReceb = statusForma(f.pedido, cat, f.valor).recebido;
+                    const badge = `<span style="font-size:10px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;${isBol?'background:#fde9c8;color:#8a5a00':'background:var(--blue-bg,#e3f0ff);color:#1565c0'}">${isBol?'Boleto':(cat==='Pix (Extrato/OFX)'?'PIX':cat)}</span>${jaReceb?` <span style="font-size:9px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;background:#e6f4ea;color:#1b7a3d">✓ já recebido</span>`:''}`;
                     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);${bg};font-size:12px">
                       <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}" data-v="${f.valor||0}"
                         style="width:14px;height:14px;cursor:pointer;flex-shrink:0"
