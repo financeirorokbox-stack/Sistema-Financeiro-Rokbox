@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v150/06-174';
+const APP_VERSION = 'v151/06-175';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4977,6 +4977,10 @@ function getRecebimentosDoPedido(ped) {
   const usados = new Set();
   recebimentosConsolidado.forEach((r, i) => {
     if (r._estornoChave) return; // estorno movido para Contas a Pagar → não abate o pedido (neutralizado)
+    // Boletos de PEDIDO (não-avulsos) são contados UMA vez só pelo bloco de Cobrança abaixo
+    // (boletoCobrancaStatus). Sem isto, o mesmo boleto entrava 2x: aqui (lista consolidada que o
+    // syncBoletosToRecebimentos gera) E lá embaixo → inflava o "Recebido" e criava Sobra falsa.
+    if (r.gateway === 'Boleto Itaú' && !r._avulso) return;
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.includes(pedId)) return;
     const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay';
