@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v171/06-195';
+const APP_VERSION = 'v172/06-196';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6264,14 +6264,7 @@ function renderBanco() {
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
 
-    ${bancosCadastro.length ? `<div class="filter-bar" style="margin-bottom:16px">
-      <span class="f-label">${temSemBanco ? 'Há lançamentos SEM banco. ' : ''}Mover lançamentos do filtro atual para:</span>
-      <select id="cb-atribuir" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        ${bancosCadastro.map(b=>`<option value="${b.replace(/"/g,'&quot;')}">${b}</option>`).join('')}
-      </select>
-      <button class="btn ghost sm" onclick="cbAtribuirBanco()" title="Move os lançamentos que estão aparecendo agora (respeita Banco + Data + 🔎 busca) para o banco escolhido. A conciliação é mantida. Use a busca p/ isolar só os certos antes de mover.">Mover p/ este banco</button>
-      <span style="font-size:11px;color:var(--muted)">💡 use a 🔎 busca p/ isolar os certos antes</span>
-    </div>` : (temSemBanco ? `<div class="filter-bar" style="margin-bottom:16px"><span style="font-size:12px;color:var(--muted)">Há lançamentos SEM banco. Cadastre seus bancos em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Bancos</a> (ex.: Itaú - Rokbox).</span></div>` : '')}
+    ${temSemBanco ? `<div class="filter-bar" style="margin-bottom:16px"><span style="font-size:12px;color:var(--amber)">⚠ Há lançamentos SEM banco — re-suba o extrato informando o banco (o upload pede).</span></div>` : ''}
 
     <div class="cards-row" style="margin-bottom:20px">
       <div class="card green"><div class="c-label">Entradas (créditos)</div><div class="c-val">${fmtVal(entradas)}</div></div>
