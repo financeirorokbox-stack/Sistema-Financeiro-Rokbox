@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v166/06-190';
+const APP_VERSION = 'v167/06-191';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3336,21 +3336,37 @@ function lancarEstornoManual() {
   const dif = Math.abs(parseFloat(String(difRaw).replace(',', '.')) || 0);
   const data = dRaw ? new Date(dRaw + 'T12:00:00') : null;
   const neg = -(+valor.toFixed(2));
+  const emId = 'em_' + Date.now(); // amarra o estorno e a diferença p/ desfazer juntos
   // 1) Estorno do TOTAL (negativo) → abate depósito / vai pro Contas a Pagar com "→ Pagar".
   recebimentosConsolidado.push({
     gateway: gw, bruto: neg, taxa: 0, liq: neg, data,
-    nped: ped || null, nome: obs || 'Estorno manual', tipo: 'Estorno', status: 'estorno', _estornoManual: true
+    nped: ped || null, nome: obs || 'Estorno manual', tipo: 'Estorno', status: 'estorno', _estornoManual: true, _emId: emId
   });
   // 2) Diferença que VOLTA como entrada (positivo) → aparece em Recebimentos e Contas a Receber (no pedido).
   if (dif > 0.005) {
     recebimentosConsolidado.push({
       gateway: gw, bruto: +dif.toFixed(2), taxa: 0, liq: +dif.toFixed(2), data,
-      nped: ped || null, nome: obs || 'Diferença (estorno parcial)', tipo: 'Entrada (dif. estorno)', status: 'pago', _difEstorno: true
+      nped: ped || null, nome: obs || 'Diferença (estorno parcial)', tipo: 'Entrada (dif. estorno)', status: 'pago', _difEstorno: true, _emId: emId
     });
   }
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRecebimentos();
   alert(`✓ Lançado (${gwLabel(gw)}):\n• Estorno ${fmtVal(neg)} (total)${dif>0.005?`\n• Diferença ${fmtVal(dif)} (entrada${ped?` no pedido #${ped}`:''})`:''}\n\n• O estorno aparece na lista do depósito p/ abater e vai pro Contas a Pagar com "→ Pagar".${dif>0.005?'\n• A diferença entra como recebimento positivo (Contas a Receber).':''}`);
+}
+// Desfaz um estorno manual: remove o negativo E a diferença (mesmo _emId) e, se já foi pro Contas a Pagar, tira a despesa.
+function desfazerEstornoManual(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r) return;
+  const emId = r._emId;
+  const grupo = emId ? recebimentosConsolidado.filter(x => x._emId === emId) : [r];
+  const temDif = grupo.some(x => x._difEstorno);
+  if (!confirm(`Desfazer este estorno manual (${fmtVal(grupo.reduce((s,x)=>s+(x.bruto||0),0))})?\n\nRemove o estorno${temDif?' e a diferença (entrada)':''}${grupo.some(x=>x._estornoChave)?' e a despesa lançada em Contas a Pagar':''}.`)) return;
+  // Remove a despesa de Contas a Pagar criada por "→ Pagar" (se houver).
+  grupo.forEach(x => { if (x._estornoChave) { const i = contasPagar.findIndex(c => chaveContaPagar(c) === x._estornoChave); if (i >= 0) contasPagar.splice(i, 1); } });
+  recebimentosConsolidado = recebimentosConsolidado.filter(x => emId ? x._emId !== emId : x !== r);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  saveData('contasPagar', contasPagar);
+  renderRecebimentos();
 }
 function estornoParaPagar(idx) {
   const r = recebimentosConsolidado[idx];
@@ -3476,7 +3492,8 @@ function renderRecebimentos() {
         ${(r.bruto||0) < 0 ? (r._estornoChave
           ? ` <span class="badge ok" style="font-size:9px" title="Estorno lançado em Contas a Pagar">↳ em Contas a Pagar</span> <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--red)" onclick="desfazerEstornoPagar(${realIdx})" title="Remover de Contas a Pagar">desfazer</button>`
           : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}
-        ${r._sobraDe ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerSobra(${realIdx})" title="Apaga este lançamento de sobra e devolve o valor ao pedido #${r._sobraDe}">↩ desfazer sobra (de #${r._sobraDe})</button>` : ''}</td>
+        ${r._sobraDe ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerSobra(${realIdx})" title="Apaga este lançamento de sobra e devolve o valor ao pedido #${r._sobraDe}">↩ desfazer sobra (de #${r._sobraDe})</button>` : ''}
+        ${(r._estornoManual || r._difEstorno) ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerEstornoManual(${realIdx})" title="Desfaz este estorno manual (remove o estorno, a diferença e a despesa em Contas a Pagar, se houver)">↩ desfazer estorno</button>` : ''}</td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
       <td>${fmtVal(r.liq)}</td>
