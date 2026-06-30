@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v148/06-172';
+const APP_VERSION = 'v149/06-173';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5134,7 +5134,7 @@ function aceitarDifPedido(pedId, acao) {
   renderConcResult();
 }
 
-let ppFiltroStatus = '';
+let ppFiltroStatus = [];   // status marcados na Conciliação de Recebíveis (multi-seleção; vazio = todos)
 function renderPorPedido() {
   const cont = document.getElementById('conc-table');
   if (!cont) return;
@@ -5161,7 +5161,7 @@ function renderPorPedido() {
     linhas.push({ ped, valorPed, recs, somaBruto, somaTaxa, dif, status });
   });
   let vis = linhas;
-  if (ppFiltroStatus) vis = vis.filter(l => l.status === ppFiltroStatus);
+  if (ppFiltroStatus.length) vis = vis.filter(l => ppFiltroStatus.includes(l.status));
   if (fQ) vis = vis.filter(l => String(l.ped.id).includes(fQ) || (l.ped.nome || '').toLowerCase().includes(fQ));
   if (dfAtivo()) vis = vis.filter(l => passaData(l.ped.data));
   vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
@@ -5206,17 +5206,17 @@ function renderPorPedido() {
     falta: '<span class="badge err">Falta</span>',
     sobra: '<span class="badge warn">Sobra</span>'
   }[st] || '');
+  const ppOpts = [
+    { v: 'quitado', t: 'Quitado' }, { v: 'falta', t: 'Falta receber' }, { v: 'sobra', t: 'Sobra' },
+    { v: 'aceito', t: 'Aceito' }, { v: 'cobrar', t: 'Cobrar cliente' }
+  ];
+  const chip = (sel, label, on) => `<button onclick="${on}" style="padding:5px 11px;border:1px solid ${sel?'var(--accent)':'var(--border)'};border-radius:14px;font-size:12px;cursor:pointer;background:${sel?'var(--accent)':'transparent'};color:${sel?'#fff':'var(--text)'};font-weight:${sel?'700':'400'}">${sel?'✓ ':''}${label}</button>`;
   const head = `
-    <div class="filter-bar" style="margin-bottom:12px">
+    <div class="filter-bar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <span class="f-label">Status:</span>
-      <select onchange="ppFiltroStatus=this.value;renderConcResult()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="" ${ppFiltroStatus === '' ? 'selected' : ''}>Todos</option>
-        <option value="quitado" ${ppFiltroStatus === 'quitado' ? 'selected' : ''}>Quitado</option>
-        <option value="falta" ${ppFiltroStatus === 'falta' ? 'selected' : ''}>Falta receber</option>
-        <option value="sobra" ${ppFiltroStatus === 'sobra' ? 'selected' : ''}>Sobra</option>
-        <option value="aceito" ${ppFiltroStatus === 'aceito' ? 'selected' : ''}>Aceito</option>
-        <option value="cobrar" ${ppFiltroStatus === 'cobrar' ? 'selected' : ''}>Cobrar cliente</option>
-      </select>
+      ${chip(ppFiltroStatus.length === 0, 'Todos', 'ppFiltroStatus=[];renderConcResult()')}
+      ${ppOpts.map(o => chip(ppFiltroStatus.includes(o.v), o.t, `togglePpStatus('${o.v}')`)).join('')}
+      <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
       ${dateFilterHTML()}
       <span style="font-size:11px;color:var(--muted)">${vis.length} pedido(s)</span>
     </div>`;
@@ -5247,6 +5247,12 @@ function renderPorPedido() {
   cont.innerHTML = cards + head + tabela;
 }
 
+// Marca/desmarca um status no filtro multi-seleção da Conciliação de Recebíveis.
+function togglePpStatus(st) {
+  const i = ppFiltroStatus.indexOf(st);
+  if (i >= 0) ppFiltroStatus.splice(i, 1); else ppFiltroStatus.push(st);
+  renderConcResult();
+}
 function renderConcResult() {
   const el = document.getElementById('conc-result');
   if (!el) return;
