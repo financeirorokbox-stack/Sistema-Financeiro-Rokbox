@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v162/06-186';
+const APP_VERSION = 'v163/06-187';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2903,9 +2903,11 @@ function renderPagar() {
   const chavesConcBanco = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
 
+  // Conta conciliada no banco conta como PAGA (o débito já saiu), mesmo que a planilha diga "Atrasada".
+  const estaPago = c => c.pago || chavesConcBanco.has(chaveContaPagar(c));
   let vis = contasPagar;
-  if (fSt === 'pago') vis = vis.filter(c => c.pago);
-  if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
+  if (fSt === 'pago') vis = vis.filter(estaPago);
+  if (fSt === 'aberto') vis = vis.filter(c => !estaPago(c));
   if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
   if (fConc === 'sim') vis = vis.filter(c => chavesConcBanco.has(chaveContaPagar(c)));
@@ -2913,8 +2915,8 @@ function renderPagar() {
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
 
-  const aberto = vis.filter(c => !c.pago);
-  const pagos = vis.filter(c => c.pago);
+  const aberto = vis.filter(c => !estaPago(c));
+  const pagos = vis.filter(estaPago);
   const vAberto = aberto.reduce((s, c) => s + c.valor, 0);
   const vPago = pagos.reduce((s, c) => s + c.valor, 0);
   const totalCP = +(vAberto + vPago).toFixed(2);
@@ -2969,8 +2971,10 @@ function renderPagar() {
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
-        const stBadge = c.pago
-          ? '<span class="badge ok">PAGO</span>'
+        // Conciliada no banco = o débito já saiu = PAGA (mesmo que a planilha ainda diga "Atrasada").
+        const conciliadaBanco = chavesConcBanco.has(chaveContaPagar(c));
+        const stBadge = (c.pago || conciliadaBanco)
+          ? `<span class="badge ok">PAGO</span>${(!c.pago && conciliadaBanco) ? ' <span class="badge ok" style="font-size:9px" title="Marcada paga pela conciliação bancária">🔗</span>' : ''}`
           : `<span class="badge err">${c.situacao && !/aberto/i.test(c.situacao) ? c.situacao : 'EM ABERTO'}</span>`;
         const rateioStr = (c.rateio && c.rateio.length)
           ? c.rateio.map(r=>`${r.empresa} ${fmtVal(r.valor)}`).join('<br>')
