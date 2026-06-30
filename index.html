@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v147/06-171';
+const APP_VERSION = 'v148/06-172';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6177,6 +6177,10 @@ function renderBanco() {
                         <span style="color:var(--muted)">− Crédito/abatimento (ex.: crédito no cartão):</span>
                         <input type="number" step="0.01" id="cb-deb-cred-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
                       </div>
+                      <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;flex-wrap:wrap">
+                        <span style="color:var(--muted)">+ Multa/juros (pagou a mais que a conta):</span>
+                        <input type="number" step="0.01" id="cb-deb-juros-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
+                      </div>
                       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
                         <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
                         <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularDebito('${t.id}',${alvo})">Vincular flegados</button>
@@ -6276,11 +6280,14 @@ function cbSomaDebito(extId, alvo) {
   if (!lbl) return;
   const credEl = document.getElementById('cb-deb-cred-' + extId);
   const cred = credEl ? (parseFloat(String(credEl.value).replace(',', '.')) || 0) : 0;
-  const liq = soma - cred;
+  const jurEl = document.getElementById('cb-deb-juros-' + extId);
+  const juros = jurEl ? (parseFloat(String(jurEl.value).replace(',', '.')) || 0) : 0;
+  const liq = soma - cred + juros;
   const dif = Math.abs(liq - alvo);
   const cor = dif <= 0.02 ? 'var(--green)' : (dif <= 1 ? 'var(--amber)' : 'var(--red)');
-  lbl.innerHTML = cred > 0
-    ? `Flegado: ${fmtVal(soma)} − crédito ${fmtVal(cred)} = <strong style="color:${cor}">${fmtVal(liq)}</strong> / ${fmtVal(alvo)}`
+  const partes = `${fmtVal(soma)}${cred > 0 ? ` − crédito ${fmtVal(cred)}` : ''}${juros > 0 ? ` + juros ${fmtVal(juros)}` : ''}`;
+  lbl.innerHTML = (cred > 0 || juros > 0)
+    ? `Flegado: ${partes} = <strong style="color:${cor}">${fmtVal(liq)}</strong> / ${fmtVal(alvo)}`
     : `Flegado: <strong style="color:${cor}">${fmtVal(liq)}</strong> / ${fmtVal(alvo)}`;
 }
 // ── Repasses de operadora (PayPal/Braavo): 1 depósito no banco cobre vários recebimentos ──
@@ -6716,10 +6723,13 @@ function cbVincularDebito(extId, alvo) {
   // Crédito/abatimento (ex.: crédito no cartão): reduz a soma das contas até o valor que saiu do banco.
   const credEl = document.getElementById('cb-deb-cred-' + extId);
   const credito = credEl ? (parseFloat(String(credEl.value).replace(',', '.')) || 0) : 0;
-  const liq = tot - credito; // o que deveria ter saído do banco
-  // 1 débito → 1 conta EM ABERTO, SEM crédito: o valor do EXTRATO manda (ajusta a conta ao banco).
-  // COM crédito, NÃO mexe no valor da conta (o crédito é que explica a diferença).
-  if (alvo != null && credito <= 0 && itens.length === 1 && itens[0].setPago) {
+  // Multa/juros: o banco debitou MAIS que a conta (acréscimo por atraso). Vira despesa própria "Juros/Multa".
+  const jurEl = document.getElementById('cb-deb-juros-' + extId);
+  const juros = jurEl ? (parseFloat(String(jurEl.value).replace(',', '.')) || 0) : 0;
+  const liq = tot - credito + juros; // o que deveria ter saído do banco
+  // 1 débito → 1 conta EM ABERTO, SEM crédito e SEM juros: o valor do EXTRATO manda (ajusta a conta ao banco).
+  // COM crédito ou juros, NÃO mexe no valor da conta (o crédito/juros é que explica a diferença).
+  if (alvo != null && credito <= 0 && juros <= 0 && itens.length === 1 && itens[0].setPago) {
     const it = itens[0];
     if (Math.abs((it.valor || 0) - alvo) > 0.005) {
       const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
@@ -6732,13 +6742,28 @@ function cbVincularDebito(extId, alvo) {
       }
     }
   } else if (alvo != null && Math.abs(liq - alvo) > 0.02 &&
-      !confirm(`As contas flegadas somam ${fmtVal(tot)}${credito>0?` − crédito ${fmtVal(credito)} = ${fmtVal(liq)}`:''}, diferente do débito (${fmtVal(alvo)}). Vincular mesmo assim?`)) {
+      !confirm(`As contas flegadas somam ${fmtVal(tot)}${credito>0?` − crédito ${fmtVal(credito)}`:''}${juros>0?` + juros ${fmtVal(juros)}`:''}${(credito>0||juros>0)?` = ${fmtVal(liq)}`:''}, diferente do débito (${fmtVal(alvo)}). Vincular mesmo assim?`)) {
     // reverte o que acabamos de marcar antes de sair
     itens.forEach(i => { if (i.setPago) { const c = contasPagar.find(x => chaveContaPagar(x) === i.chave); if (c) { c.pago = false; c.dataPag = null; } } });
     return;
   }
+  // Juros > 0: cria uma Conta a Pagar JÁ PAGA de "Juros/Multa" (entra no Fluxo como despesa) ligada a este débito.
+  if (juros > 0) {
+    const t = extratoBancario.find(x => x.id === extId);
+    const empJuros = (itens[0] && contasPagar.find(c => chaveContaPagar(c) === itens[0].chave)?.empresa) || '';
+    const forn = (itens[0] && itens[0].fornecedor) || (t && t.memo) || 'Pagamento';
+    const contaJ = {
+      numero: '', fornecedor: 'Juros/Multa — ' + String(forn).slice(0, 40),
+      descricao: 'Juros/Multa — ' + String(forn).slice(0, 40), categoria: 'Juros/Multa',
+      observacao: 'Multa/juros lançado pela conciliação bancária', empresa: empJuros, rateio: [],
+      vencimento: t ? t.data : null, dataPag: t ? t.data : null,
+      valor: +juros.toFixed(2), situacao: 'Pago', pago: true, _origemExtrato: true
+    };
+    contasPagar.push(contaJ);
+    itens.push({ chave: chaveContaPagar(contaJ), fornecedor: contaJ.fornecedor, valor: contaJ.valor, setPago: false, criada: true });
+  }
   const totFinal = itens.reduce((s, i) => s + (i.valor || 0), 0);
-  debitoLinks[extId] = { itens, total: totFinal, credito: credito || 0 };
+  debitoLinks[extId] = { itens, total: totFinal, credito: credito || 0, juros: juros || 0 };
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
