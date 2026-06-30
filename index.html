@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v156/06-180';
+const APP_VERSION = 'v157/06-181';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6230,8 +6230,10 @@ function renderBanco() {
                   const gwExato = gwsPend.find(g => recebimentosConsolidado.some(r => r.gateway === g && !usadosRepasse.has(recKeyGlobal(r)) && Math.abs(valorRepasse(r) - alvoRep) <= 0.02));
                   const gwSel = (gw && gwsPend.includes(gw)) ? gw : (gwExato || gwsPend[0]);
                   // Recebimentos pendentes da operadora escolhida (para a lista de flegar).
+                  // Inclui TAMBÉM os valores NEGATIVOS (reembolsos/estornos): o depósito do PayPal já vem
+                  // líquido deles, então eles compõem o valor de entrada e precisam ser flegáveis aqui.
                   const pendRep = recebimentosConsolidado
-                    .filter(r => r.gateway === gwSel && valorRepasse(r) > 0 && !usadosRepasse.has(recKeyGlobal(r)))
+                    .filter(r => r.gateway === gwSel && Math.abs(valorRepasse(r)) > 0.005 && !usadosRepasse.has(recKeyGlobal(r)))
                     .sort((a,b) => (a.data||0)-(b.data||0));
                   // Pré-marca SÓ se houver um único recebimento que bate exato (não adivinha combinações).
                   const exatoUm = pendRep.find(r => Math.abs(valorRepasse(r) - alvoRep) <= 0.02);
@@ -6255,11 +6257,12 @@ function renderBanco() {
                           const vRep = valorRepasse(r);
                           const exato = Math.abs(vRep-alvoRep)<=0.02;
                           const pre = exatoUm && r===exatoUm;
-                          const busca = `${r.nped||''} ${r.nome||''} ${vRep.toFixed(2)} ${r.data?fmtDate(r.data):''}`.toLowerCase().replace(/"/g,'&quot;');
-                          return `<label class="cb-rep-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':''}">
+                          const negativo = vRep < 0; // reembolso/estorno: ABATE o depósito
+                          const busca = `${r.nped||''} ${r.nome||''} ${vRep.toFixed(2)} ${r.data?fmtDate(r.data):''} ${negativo?'reembolso estorno':''}`.toLowerCase().replace(/"/g,'&quot;');
+                          return `<label class="cb-rep-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':(negativo?'background:#fff4f4':'')}">
                             <input type="checkbox" class="cb-rep-pick-${t.id}" value="${encodeURIComponent(recKeyGlobal(r))}" data-v="${vRep}" ${pre?'checked':''} onchange="cbSomaRepasse('${t.id}',${alvoRep})" style="width:14px;height:14px;flex-shrink:0">
-                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${r.nped?`<strong>#${r.nped}</strong> `:''}${(r.nome||'—')}${r.data?` <span style="color:var(--muted);font-size:10px">· ${fmtDate(r.data)}</span>`:''}</span>
-                            <span style="color:var(--muted);white-space:nowrap">${fmtVal(vRep)}</span>
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${negativo?'<span class="badge" style="font-size:9px;background:var(--red);color:#fff">↩ reembolso</span> ':''}${r.nped?`<strong>#${r.nped}</strong> `:''}${(r.nome||'—')}${r.data?` <span style="color:var(--muted);font-size:10px">· ${fmtDate(r.data)}</span>`:''}</span>
+                            <span style="color:${negativo?'var(--red)':'var(--muted)'};white-space:nowrap">${fmtVal(vRep)}</span>
                           </label>`;
                         }).join('')}
                       </div>
