@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v169/06-193';
+const APP_VERSION = 'v170/06-194';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6264,15 +6264,14 @@ function renderBanco() {
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
 
-    ${temSemBanco ? `<div class="filter-bar" style="margin-bottom:16px">
-      <span class="f-label">Há lançamentos SEM banco — nomear:</span>
-      ${bancosCadastro.length
-        ? `<select id="cb-atribuir" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-             ${bancosCadastro.map(b=>`<option value="${b.replace(/"/g,'&quot;')}">${b}</option>`).join('')}
-           </select>
-           <button class="btn ghost sm" onclick="cbAtribuirBanco()" title="Aplica o banco escolhido a todos os lançamentos do filtro atual">Aplicar ao filtro atual</button>`
-        : `<span style="font-size:12px;color:var(--muted)">Cadastre seus bancos em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Bancos</a> (ex.: Itaú - Rokbox).</span>`}
-    </div>` : ''}
+    ${bancosCadastro.length ? `<div class="filter-bar" style="margin-bottom:16px">
+      <span class="f-label">${temSemBanco ? 'Há lançamentos SEM banco. ' : ''}Mover lançamentos do filtro atual para:</span>
+      <select id="cb-atribuir" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        ${bancosCadastro.map(b=>`<option value="${b.replace(/"/g,'&quot;')}">${b}</option>`).join('')}
+      </select>
+      <button class="btn ghost sm" onclick="cbAtribuirBanco()" title="Move os lançamentos que estão aparecendo agora (respeita Banco + Data + 🔎 busca) para o banco escolhido. A conciliação é mantida. Use a busca p/ isolar só os certos antes de mover.">Mover p/ este banco</button>
+      <span style="font-size:11px;color:var(--muted)">💡 use a 🔎 busca p/ isolar os certos antes</span>
+    </div>` : (temSemBanco ? `<div class="filter-bar" style="margin-bottom:16px"><span style="font-size:12px;color:var(--muted)">Há lançamentos SEM banco. Cadastre seus bancos em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Bancos</a> (ex.: Itaú - Rokbox).</span></div>` : '')}
 
     <div class="cards-row" style="margin-bottom:20px">
       <div class="card green"><div class="c-label">Entradas (créditos)</div><div class="c-val">${fmtVal(entradas)}</div></div>
@@ -6811,7 +6810,12 @@ function saldoFinalDia(banco, dk) {
 function saldoBancarioDiarioHTML() {
   const bancos = [...new Set(extratoBancario.map(t => t.banco || '').filter(Boolean))].sort();
   if (!bancos.length) return `<div style="margin-top:28px;font-size:12px;color:var(--muted)">🏦 <strong>Saldo bancário diário</strong> — carregue extratos OFX (aba Extrato) com o banco nomeado para acompanhar o saldo do dia.</div>`;
-  if (!fluxoBancoSel || !bancos.includes(fluxoBancoSel)) fluxoBancoSel = bancos[0];
+  // Lembra o último banco visto (sobrevive ao recarregar a página).
+  if (!fluxoBancoSel || !bancos.includes(fluxoBancoSel)) {
+    let saved = '';
+    try { saved = localStorage.getItem(LS_PREFIX + 'fluxoBancoSel') || ''; } catch (e) {}
+    fluxoBancoSel = (saved && bancos.includes(saved)) ? saved : bancos[0];
+  }
   const banco = fluxoBancoSel;
   const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
   const dRef = new Date((cfg.data || '2025-05-31') + 'T23:59:59');
@@ -6825,7 +6829,7 @@ function saldoBancarioDiarioHTML() {
     if (t.valor >= 0) d.ent += t.valor; else d.sai += Math.abs(t.valor);
   });
   const diasOrd = Object.keys(dias).sort(); // crescente (mais antigo no topo: saldo "rola" de cima p/ baixo)
-  const seletor = `<select onchange="fluxoBancoSel=this.value;renderFluxo()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">${bancos.map(b => `<option value="${b.replace(/"/g,'&quot;')}" ${b===banco?'selected':''}>${b}</option>`).join('')}</select>`;
+  const seletor = `<select onchange="setFluxoBancoSaldo(this.value)" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">${bancos.map(b => `<option value="${b.replace(/"/g,'&quot;')}" ${b===banco?'selected':''}>${b}</option>`).join('')}</select>`;
   if (!diasOrd.length) {
     return `<div style="margin-top:28px"><div class="section-title" style="margin:0 0 10px">🏦 Saldo bancário diário ${seletor}</div><div style="font-size:12px;color:var(--muted)">Sem movimentos de ${banco} ${dfAtivo()?'no período filtrado':''} após ${fmtDate(dRef)}.</div></div>`;
   }
@@ -6874,6 +6878,12 @@ function saldoBancarioDiarioHTML() {
         </div>
       </div>
     </div>`;
+}
+// Troca o banco da seção "Saldo bancário diário" e LEMBRA a escolha (sobrevive ao recarregar).
+function setFluxoBancoSaldo(v) {
+  fluxoBancoSel = v;
+  try { localStorage.setItem(LS_PREFIX + 'fluxoBancoSel', v); } catch (e) {}
+  renderFluxo();
 }
 // Abre/fecha a seção "Saldo bancário diário" do Fluxo (estado lembra ao re-renderizar).
 function toggleSaldoDiario() {
@@ -7320,14 +7330,24 @@ function cbAtribuirBanco() {
   if (!banco) { alert('Escolha um banco do cadastro.'); return; }
   const bancoSel = bancoConcSel;
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
-  let alvo = extratoBancario.filter(matchBanco).filter(t => !diaFechado(t.data, t.banco));
+  const q = (buscaPersist.banco || '').toLowerCase().trim();
+  let alvo = extratoBancario.filter(matchBanco);
   if (dfAtivo()) alvo = alvo.filter(t => passaData(t.data));
-  if (!alvo.length) { alert('Nenhum lançamento no filtro atual (dias fechados são ignorados).'); return; }
-  if (!confirm(`Nomear o banco "${banco}" em ${alvo.length} lançamento(s) do filtro atual?`)) return;
+  // Respeita a 🔎 busca (histórico/valor) p/ isolar só os lançamentos certos.
+  if (q) alvo = alvo.filter(t => (t.memo||'').toLowerCase().includes(q) || Math.abs(t.valor||0).toFixed(2).includes(q.replace(',', '.')));
+  alvo = alvo.filter(t => (t.banco||'') !== banco); // ignora os que já estão no destino
+  if (!alvo.length) { alert('Nenhum lançamento no filtro atual para mover (ou já estão nesse banco).'); return; }
+  const nConc = alvo.filter(t => extratoLinks[t.id] || repasseLinks[t.id] || debitoLinks[t.id] || receitaLinks[t.id]).length;
+  const nFech = alvo.filter(t => diaFechado(t.data, t.banco)).length;
+  if (!confirm(`Mover ${alvo.length} lançamento(s) do filtro atual para "${banco}"?` +
+      (nConc ? `\n\n• ${nConc} já conciliado(s) — a conciliação é MANTIDA, só muda o banco.` : '') +
+      (nFech ? `\n• ${nFech} em dia(s) fechado(s) — movidos mesmo assim.` : '') +
+      `\n\n💡 Confira se a 🔎 busca isolou só os certos (senão vai mover demais).`)) return;
   alvo.forEach(t => { t.banco = banco; });
   saveData('extratoBancario', extratoBancario);
-  bancoConcSel = banco; // passa a exibir o banco recém-nomeado (e persiste)
+  bancoConcSel = banco; // passa a exibir o banco de destino (e persiste)
   renderBanco();
+  alert(`✓ ${alvo.length} lançamento(s) movido(s) para "${banco}".`);
 }
 // Concilia automaticamente débitos do banco selecionado que batem com exatamente uma Conta a Pagar pelo valor.
 // Núcleo: concilia débitos que batem com EXATAMENTE uma Conta a Pagar (mesmo valor). Retorna nº conciliado. Não renderiza nem alerta.
