@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v159/06-183';
+const APP_VERSION = 'v160/06-184';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2204,7 +2204,7 @@ function limparFiltrosReceb() { limparFiltrosGen(['rr-gw','rr-emp','rr-ped','rr-
 function limparFiltrosBoletos() { limparFiltrosGen(['bl-emp','bl-q'], 'boletos', renderBoletos); }
 function limparFiltrosDevolucao() { limparFiltrosGen(['dev-seg','dev-emp','dev-q'], null, renderDevolucao); }
 function limparFiltrosCobranca() { limparFiltrosGen(['cob-emp','cob-st','cob-q'], null, renderCobranca); }
-function limparFiltrosBanco() { bancoConcSel = '__todos'; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderBanco(); }
+function limparFiltrosBanco() { bancoConcSel = '__todos'; buscaPersist.banco = ''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderBanco(); }
 function limparFiltrosVendas() {
   ['empresa','situacao','loja','vendedor','operacao'].forEach(f => vendasFilters[f] = []);
   buscaPersist.vendas = '';
@@ -6057,6 +6057,16 @@ function renderBanco() {
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
   let visT = extratoBancario.filter(matchBanco);
   if (dfAtivo()) visT = visT.filter(t => passaData(t.data));
+  // Busca por HISTÓRICO (texto do lançamento), valor ou pedido vinculado.
+  const buscaBanco = (buscaPersist.banco || '').toLowerCase().trim();
+  if (buscaBanco) {
+    visT = visT.filter(t => {
+      const memo = (t.memo || '').toLowerCase();
+      const val = Math.abs(t.valor || 0).toFixed(2);
+      const ped = String((extratoLinks[t.id] || repasseLinks[t.id] || {}).pedido || '');
+      return memo.includes(buscaBanco) || val.includes(buscaBanco.replace(',', '.')) || ped.includes(buscaBanco);
+    });
+  }
 
   const conciliado = t => t.valor >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
   const entradas = visT.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0);
@@ -6104,7 +6114,7 @@ function renderBanco() {
     </div>
 
     ${filtrosBar({
-      nAtivos: (bancoSel && bancoSel!=='__todos' ? 1 : 0) + (dfAtivo()?1:0),
+      nAtivos: (bancoSel && bancoSel!=='__todos' ? 1 : 0) + (dfAtivo()?1:0) + (buscaBanco?1:0),
       limpar: 'limparFiltrosBanco()',
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
@@ -6112,6 +6122,7 @@ function renderBanco() {
         <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Mantém 1 e remove as cópias repetidas do MESMO banco (ex.: banco triplicado)">🧹 Remover duplicados (1 banco)</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
+        fdRow('Pesquisar histórico', `<input type="text" id="cb-q" value="${(buscaPersist.banco||'').replace(/"/g,'&quot;')}" placeholder="Ex.: cartão, fornecedor, valor..." oninput="buscaPersist.banco=this.value;debounceRender('renderBanco')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
 
