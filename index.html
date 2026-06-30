@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v157/06-181';
+const APP_VERSION = 'v158/06-182';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6942,13 +6942,42 @@ function cbVincularDebito(extId, alvo) {
   // COM crédito ou juros, NÃO mexe no valor da conta (o crédito/juros é que explica a diferença).
   if (alvo != null && credito <= 0 && juros <= 0 && itens.length === 1 && itens[0].setPago) {
     const it = itens[0];
-    if (Math.abs((it.valor || 0) - alvo) > 0.005) {
-      const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
-      if (conta) {
+    const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+    if (conta && Math.abs((it.valor || 0) - alvo) > 0.005) {
+      if (alvo < (conta.valor || 0) - 0.02) {
+        // Débito MENOR que a conta → pode ser PAGAMENTO PARCIAL (conta paga em mais de um PIX).
+        const restante = +((conta.valor || 0) - alvo).toFixed(2);
+        const parcial = confirm(
+          `Esse débito (${fmtVal(alvo)}) é MENOR que a conta "${conta.fornecedor || conta.descricao || ''}" (${fmtVal(conta.valor)}).\n\n` +
+          `É um PAGAMENTO PARCIAL (a conta foi paga em mais de um lançamento)?\n\n` +
+          `• OK = paga ${fmtVal(alvo)} agora e deixa ${fmtVal(restante)} EM ABERTO (pra conciliar com o outro débito).\n` +
+          `• Cancelar = foi só esse valor mesmo (ajusta a conta para ${fmtVal(alvo)}).`
+        );
         it.valorAnt = conta.valor;     // para desfazer
-        it.chaveAnt = it.chave;        // chave muda quando o valor muda
+        it.chaveAnt = it.chave;
         conta.valor = alvo;
-        it.chave = chaveContaPagar(conta); // chave recalculada com o novo valor
+        it.chave = chaveContaPagar(conta);
+        it.valor = alvo;
+        if (parcial) {
+          // Cria a conta do RESTANTE (em aberto) — fica disponível pro outro débito conciliar.
+          const rem = {
+            numero: conta.numero ? (conta.numero + '/R') : '',
+            fornecedor: conta.fornecedor || '', descricao: conta.descricao || '',
+            categoria: conta.categoria || '',
+            observacao: (conta.observacao ? conta.observacao + ' · ' : '') + 'restante de pagamento parcial',
+            empresa: conta.empresa || '', rateio: [],
+            vencimento: conta.vencimento || null, dataPag: null,
+            valor: restante, situacao: 'Em Aberto', pago: false
+          };
+          contasPagar.push(rem);
+          it.restanteChave = chaveContaPagar(rem); // p/ o "Desfazer" remover o restante e juntar de volta
+        }
+      } else {
+        // Débito diferente (não menor) → ajusta a conta ao valor do banco (comportamento existente).
+        it.valorAnt = conta.valor;
+        it.chaveAnt = it.chave;
+        conta.valor = alvo;
+        it.chave = chaveContaPagar(conta);
         it.valor = alvo;
       }
     }
@@ -6992,7 +7021,20 @@ function cbDesfazerDebito(extId) {
     }
     if (conta) {
       if (it.setPago) { conta.pago = false; conta.dataPag = null; }
-      if (it.valorAnt !== undefined) conta.valor = it.valorAnt; // restaura valor anterior ao extrato
+      if (it.restanteChave) {
+        // Pagamento parcial: tenta juntar de volta — remove o restante e restaura a conta cheia,
+        // mas só se o restante ainda estiver EM ABERTO e não vinculado a outro débito (senão não mexe).
+        const remIdx = contasPagar.findIndex(c => chaveContaPagar(c) === it.restanteChave);
+        const rem = remIdx >= 0 ? contasPagar[remIdx] : null;
+        const remLinkado = rem && Object.entries(debitoLinks).some(([eid, l]) => eid !== extId && debLinkItens(l).some(i => i.chave === it.restanteChave));
+        if (rem && !rem.pago && !remLinkado) {
+          contasPagar.splice(remIdx, 1);
+          if (it.valorAnt !== undefined) conta.valor = it.valorAnt; // conta volta ao valor cheio
+        }
+        // senão: deixa a conta no valor parcial e o restante como está (não perde dado)
+      } else if (it.valorAnt !== undefined) {
+        conta.valor = it.valorAnt; // restaura valor anterior ao extrato
+      }
     }
   });
   delete debitoLinks[extId];
