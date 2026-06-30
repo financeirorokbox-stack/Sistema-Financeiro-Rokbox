@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v149/06-173';
+const APP_VERSION = 'v150/06-174';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -942,6 +942,7 @@ let comissaoOutros = {};       // { nome: percentual } — funcionários que gan
 let comissaoExcecoes = [];     // [vendedor] — vendedores que NÃO ganham comissão (ex.: Felliphe)
 let devolucoes = [];
 let devolucaoCredito = {};
+let creditosCliente = [];      // sobra de pagamento que virou crédito a favor da cliente: [{id,cliente,pedidoOrigem,valor,empresa,data,usadoEm}]
 let lojaFixes = {};
 let vendedorFixes = {}; // { pedidoId: vendedor } — vendedor preenchido na mão para pedidos sem vendedor
 let opMapping = {};
@@ -4199,6 +4200,23 @@ function renderDevolucao() {
       ${segs.map(s=>{const v=devolucoes.filter(d=>d.segmento===s).reduce((a,d)=>a+d.valorPago,0);return `<div class="card amber"><div class="c-label">${s}</div><div class="c-val">${fmtVal(v)}</div><div class="c-sub">${devolucoes.filter(d=>d.segmento===s).length} itens</div></div>`;}).join('')}
       <div class="card dark"><div class="c-label">Total</div><div class="c-val">${fmtVal(devolucoes.reduce((s,d)=>s+d.valorPago,0))}</div></div>
     </div>
+    ${creditosCliente.length ? `
+      <div class="section-title" style="margin-top:4px">💳 Créditos de cliente <span style="font-size:11px;font-weight:400;color:var(--muted)">(sobra de pagamento guardada a favor da cliente)</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Em aberto: <strong style="color:var(--green)">${fmtVal(creditosCliente.filter(c=>!c.usadoEm).reduce((s,c)=>s+(c.valor||0),0))}</strong> · escreva em qual pedido futuro cada crédito foi usado.</div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>Cliente</th><th>Empresa</th><th>Valor</th><th>Veio do pedido</th><th>Data</th><th>Usado no pedido</th><th></th>
+      </tr></thead><tbody>
+      ${creditosCliente.slice().sort((a,b)=>(a.usadoEm?1:0)-(b.usadoEm?1:0)).map(c=>`<tr style="${c.usadoEm?'opacity:.6':''}">
+        <td><strong>${c.cliente||'—'}</strong></td>
+        <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
+        <td><strong style="color:var(--green)">${fmtVal(c.valor||0)}</strong></td>
+        <td>${c.pedidoOrigem?`#${c.pedidoOrigem}`:'—'}</td>
+        <td style="font-size:11px">${c.data?fmtDate(new Date(c.data+'T12:00:00')):'—'}</td>
+        <td><input class="inline-input" style="width:110px" type="text" placeholder="nº pedido" value="${(c.usadoEm||'').replace(/"/g,'&quot;')}" onchange="setCreditoUsado('${c.id}',this.value)"> ${c.usadoEm?'<span class="badge ok" style="font-size:9px">usado</span>':'<span class="badge warn" style="font-size:9px">em aberto</span>'}</td>
+        <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerCreditoCliente('${c.id}')" title="Remover crédito">✕</button></td>
+      </tr>`).join('')}
+      </tbody></table></div>
+      <div style="height:20px"></div>` : ''}
     ${Object.keys(grupos).length===0 ? '<div class="empty"><div class="e-icon">🔄</div>Nenhuma devolução carregada</div>' : `
     <div class="table-wrap"><table><thead><tr>
       ${delCheckboxHeader('devolucoes')}<th>Segmento</th><th>Pedido</th><th>Cliente</th><th>Vendedor</th>
@@ -5127,6 +5145,43 @@ function jogarSobra(pedId) {
   alert(`Pronto! Movi ${fmtVal(sobra)} do pedido ${pedId} para o pedido ${alvo}. O ${pedId} fecha e o ${alvo} recebe a sobra.`);
 }
 
+// Transforma a SOBRA de um pedido em crédito a favor da cliente (guardado na aba Dev/Troca). Fecha o pedido (sobra aceita).
+function virarCreditoCliente(pedId) {
+  const ped = pedidos.find(p => String(p.id) === String(pedId));
+  if (!ped) return;
+  const somaBruto = getRecebimentosDoPedido(ped).reduce((s, x) => s + (x.bruto || 0), 0);
+  const sobra = +(somaBruto - getValorConciliacaoPedido(ped)).toFixed(2);
+  if (sobra <= 0.01) { alert('Este pedido não tem sobra para virar crédito.'); return; }
+  if (!confirm(`Guardar ${fmtVal(sobra)} como CRÉDITO da cliente ${ped.nome || ''} (sobra do pedido ${pedId})?\n\nO pedido ${pedId} é encerrado (sobra aceita) e o crédito fica na aba Dev/Troca → Créditos de cliente, pronto pra usar numa próxima compra.`)) return;
+  const dataStr = ped.data ? new Date(ped.data).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  creditosCliente.push({
+    id: 'cc_' + pedId + '_' + Date.now(),
+    cliente: ped.nome || '', pedidoOrigem: String(pedId), valor: sobra,
+    empresa: ped.empresa || '', data: dataStr, usadoEm: ''
+  });
+  difAceita[String(pedId)] = 'aceito'; // encerra o pedido (sobra resolvida virando crédito)
+  saveData('creditosCliente', creditosCliente);
+  saveData('difAceita', difAceita);
+  renderConcResult();
+  alert(`✓ Crédito de ${fmtVal(sobra)} guardado para ${ped.nome || 'a cliente'}.\n\nVeja/edite em Dev/Troca → 💳 Créditos de cliente.`);
+}
+// Marca em qual pedido futuro o crédito da cliente foi usado (vazio = ainda em aberto).
+function setCreditoUsado(id, val) {
+  const c = creditosCliente.find(x => x.id === id);
+  if (!c) return;
+  c.usadoEm = String(val || '').trim();
+  saveData('creditosCliente', creditosCliente);
+  renderDevolucao();
+}
+// Remove um crédito de cliente (não reabre o pedido de origem — ele continua encerrado).
+function removerCreditoCliente(id) {
+  const c = creditosCliente.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`Remover o crédito de ${fmtVal(c.valor || 0)} de ${c.cliente || 'cliente'}?`)) return;
+  creditosCliente = creditosCliente.filter(x => x.id !== id);
+  saveData('creditosCliente', creditosCliente);
+  renderDevolucao();
+}
 // Resolve a diferença de um pedido na aba Por Pedido: acao = 'aceito' | 'cobrar' | null (desfaz)
 function aceitarDifPedido(pedId, acao) {
   if (acao) difAceita[String(pedId)] = acao; else delete difAceita[String(pedId)];
@@ -5237,7 +5292,7 @@ function renderPorPedido() {
         l.status === 'falta'
           ? ` <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A diferença é ok, encerrar">✓ Aceitar</button> <button class="btn ghost sm" style="font-size:10px;color:var(--red)" onclick="aceitarDifPedido('${l.ped.id}','cobrar')" title="Falta receber — marcar para cobrar o cliente">💬 Cobrar cliente</button>`
         : l.status === 'sobra'
-          ? ` <button class="btn ghost sm" style="font-size:10px" onclick="jogarSobra('${l.ped.id}')" title="A sobra é de outro pedido — você diz pra qual pedido vai">➡ Jogar sobra em outro pedido</button> <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A sobra é ok, encerrar">✓ Aceitar</button>`
+          ? ` <button class="btn ghost sm" style="font-size:10px" onclick="jogarSobra('${l.ped.id}')" title="A sobra é de outro pedido — você diz pra qual pedido vai">➡ Jogar sobra em outro pedido</button> <button class="btn ghost sm" style="font-size:10px;color:var(--accent)" onclick="virarCreditoCliente('${l.ped.id}')" title="Guardar a sobra como crédito a favor da cliente (aparece na Dev/Troca)">💳 Virar crédito da cliente</button> <button class="btn ghost sm" style="font-size:10px;color:var(--green)" onclick="aceitarDifPedido('${l.ped.id}','aceito')" title="A sobra é ok, encerrar">✓ Aceitar</button>`
         : (l.status === 'aceito' || l.status === 'cobrar')
           ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',null)">Desfazer</button>`
         : ''
@@ -7443,7 +7498,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -7488,6 +7543,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
+    else if (k==='creditosCliente') creditosCliente = v || [];
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
     else if (k==='comissaoExcecoes') comissaoExcecoes = v || [];
