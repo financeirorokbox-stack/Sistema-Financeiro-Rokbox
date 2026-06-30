@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v168/06-192';
+const APP_VERSION = 'v169/06-193';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3321,6 +3321,33 @@ function editarNpedRec(idx) {
   renderRecebimentos();
 }
 // Lança um recebimento NEGATIVO (estorno/reembolso ao cliente) como despesa PAGA em Contas a Pagar.
+// Remove recebimentos DUPLICADOS (ex.: subiu o mesmo relatório PayPal 2x). Mantém 1 de cada.
+// Chave: ID da transação (PayPal/_txnId) quando existe — único e seguro; senão gateway+data+bruto+nome.
+// Nunca remove um recebimento já amarrado a um depósito (repasse) e prefere manter o que tem pedido vinculado.
+function removerRecebimentosDuplicados() {
+  const usados = repasseUsados();
+  const keyOf = r => r._txnId ? ('tx:' + r._txnId)
+    : ['k', r.gateway, r.data ? new Date(r.data).toISOString().slice(0, 10) : '', (r.bruto || 0).toFixed(2), (r.nome || '').trim().toLowerCase()].join('|');
+  const grupos = {};
+  recebimentosConsolidado.forEach((r, i) => { (grupos[keyOf(r)] = grupos[keyOf(r)] || []).push({ r, i }); });
+  const removerIdx = new Set();
+  let nGrupos = 0;
+  Object.values(grupos).forEach(arr => {
+    if (arr.length < 2) return;
+    nGrupos++;
+    // Pontua p/ escolher qual MANTER: usado em repasse > tem pedido > tem estorno em Contas a Pagar.
+    const score = x => (usados.has(recKeyGlobal(x.r)) ? 4 : 0) + (x.r.nped ? 2 : 0) + (x.r._estornoChave ? 1 : 0);
+    arr.sort((a, b) => score(b) - score(a));
+    // Remove as cópias extras — MAS nunca uma que esteja amarrada a um depósito.
+    arr.slice(1).forEach(x => { if (!usados.has(recKeyGlobal(x.r))) removerIdx.add(x.i); });
+  });
+  if (!removerIdx.size) { alert('✓ Nenhum recebimento duplicado encontrado.'); return; }
+  if (!confirm(`Encontrei ${removerIdx.size} recebimento(s) DUPLICADO(s) (${nGrupos} transação(ões) repetida(s)).\n\nMantenho 1 de cada (o que tiver pedido/conciliação) e removo as cópias. Confirmar?`)) return;
+  recebimentosConsolidado = recebimentosConsolidado.filter((_, i) => !removerIdx.has(i));
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+  alert(`✓ Removi ${removerIdx.size} cópia(s) duplicada(s). Restou 1 de cada.`);
+}
 // Abre/fecha o formulário de estorno manual.
 function toggleEstornoManualBox() {
   const b = document.getElementById('estorno-manual-box');
@@ -3466,6 +3493,7 @@ function renderRecebimentos() {
       nAtivos: [fGw,fEmp,fPed,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
       limpar: 'limparFiltrosReceb()',
       acoes: `<button class="btn ghost sm" onclick="toggleEstornoManualBox()" title="Lançar um estorno que não vem no relatório (ex.: Braavo) como recebimento negativo">➖ Estorno manual</button>
+        <button class="btn ghost sm" onclick="removerRecebimentosDuplicados()" title="Removeu o mesmo relatório 2x? Mantém 1 de cada e tira as cópias (pelo ID da transação)">🧹 Remover duplicados</button>
         <button class="btn danger sm" onclick="if(confirm('Limpar todos os recebimentos?')){recebimentosConsolidado=[];saveData('recebimentosConsolidado',recebimentosConsolidado);renderRecebimentos()}">🗑 Limpar</button>`,
       campos:
         fdRow('Gateway', `<select id="rr-gw" onchange="renderRecebimentos()"><option value="">Todos</option>${gws.map(g=>`<option value="${g}" ${g===fGw?'selected':''}>${g}</option>`).join('')}</select>`) +
