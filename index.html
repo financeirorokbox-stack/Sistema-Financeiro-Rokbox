@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v154/06-178';
+const APP_VERSION = 'v155/06-179';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6223,7 +6223,11 @@ function renderBanco() {
                   // Seletor da operadora (já vem marcado o que o texto sugere) + lista para flegar os
                   // recebimentos EXATOS deste depósito (evita o acúmulo guloso estourar o valor).
                   const alvoRep = Math.abs(t.valor);
-                  const gwSel = (gw && gwsPend.includes(gw)) ? gw : gwsPend[0];
+                  // Operadora padrão: (1) a que o texto do extrato sugere; senão (2) a que tem um recebimento
+                  // do VALOR EXATO deste depósito (ex.: depósito Rede de 338,82 → seleciona Rede sozinho);
+                  // senão (3) a primeira pendente. Evita o box abrir em PayPal e "esconder" o pedido certo.
+                  const gwExato = gwsPend.find(g => recebimentosConsolidado.some(r => r.gateway === g && !usadosRepasse.has(recKeyGlobal(r)) && Math.abs(valorRepasse(r) - alvoRep) <= 0.02));
+                  const gwSel = (gw && gwsPend.includes(gw)) ? gw : (gwExato || gwsPend[0]);
                   // Recebimentos pendentes da operadora escolhida (para a lista de flegar).
                   const pendRep = recebimentosConsolidado
                     .filter(r => r.gateway === gwSel && valorRepasse(r) > 0 && !usadosRepasse.has(recKeyGlobal(r)))
