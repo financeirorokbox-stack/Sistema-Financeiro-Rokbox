@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v153/06-177';
+const APP_VERSION = 'v154/06-178';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6091,7 +6091,7 @@ function renderBanco() {
   Object.entries(debitoLinks).forEach(([extId, l]) => debLinkItens(l).forEach(it => { usadasDeb.add(it.chave); if (usadasDebPor[it.chave] == null) usadasDebPor[it.chave] = extId; }));
   const usadosRepasse = repasseUsados();
   // Repasse é só destas operadoras: PayPal, Braavo (iFood) e Boleto Itaú (boletos recebidos).
-  const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú'];
+  const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú', 'Rede'];
   const gwsPend = GW_REPASSE.filter(g => recebimentosConsolidado.some(r => r.gateway === g && valorRepasse(r) > 0 && !usadosRepasse.has(recKeyGlobal(r))));
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
   const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
@@ -6719,6 +6719,7 @@ function gatewayDoCredito(t) {
   if (m.includes('paypal') || m.includes('pay pal')) return 'PayPal';
   if (m.includes('braavo') || m.includes('ifood') || m.includes('i food')) return 'BraavoPay';
   if (m.includes('boleto') || m.includes('cobranca') || m.includes('cobrança') || m.includes('liquidacao') || m.includes('liquidação')) return 'Boleto Itaú';
+  if (/\brede(card)?\b/.test(m) || m.includes('redecard')) return 'Rede'; // depósito da Rede (cartão) no banco
   return '';
 }
 // Rótulo amigável da operadora.
