@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v152/06-176';
+const APP_VERSION = 'v153/06-177';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3402,7 +3402,8 @@ function renderRecebimentos() {
         <button class="btn ghost sm" style="font-size:10px;padding:1px 5px;margin-left:4px" onclick="editarNpedRec(${realIdx})" title="Editar nº do pedido">✏</button>
         ${(r.bruto||0) < 0 ? (r._estornoChave
           ? ` <span class="badge ok" style="font-size:9px" title="Estorno lançado em Contas a Pagar">↳ em Contas a Pagar</span> <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--red)" onclick="desfazerEstornoPagar(${realIdx})" title="Remover de Contas a Pagar">desfazer</button>`
-          : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}</td>
+          : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}
+        ${r._sobraDe ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerSobra(${realIdx})" title="Apaga este lançamento de sobra e devolve o valor ao pedido #${r._sobraDe}">↩ desfazer sobra (de #${r._sobraDe})</button>` : ''}</td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
       <td>${fmtVal(r.liq)}</td>
@@ -4482,22 +4483,22 @@ function syncExtratoToRecebimentos() {
     const t = extratoBancario.find(x => x.id === id);
     if (!t) return;
     const pedIds = String(link.pedido).split(',').map(s=>s.trim()).filter(Boolean);
-    pedIds.forEach(pedId => {
-      const ped = pedidos.find(p => String(p.id) === String(pedId));
-      // Registra o valor TOTAL do crédito para cada pedido vinculado
-      // (statusForma já sabe somar múltiplos créditos para calcular se está pago)
-      recebimentosConsolidado.push({
-        gateway: 'PIX (Extrato)',
-        bruto: t.valor,
-        taxa: 0,
-        liq: t.valor,
-        data: t.data,
-        nped: pedId,
-        nome: ped ? ped.nome : '',
-        tipo: 'PIX',
-        status: 'pago',
-        _extratoId: id // referência ao lançamento original
-      });
+    if (!pedIds.length) return;
+    const ped0 = pedidos.find(p => String(p.id) === String(pedIds[0]));
+    // UMA entrada por crédito, listando TODOS os pedidos vinculados. O valor é DIVIDIDO entre eles
+    // por `alocRecebGateway` (pelo valor de cada pedido). Antes criava 1 entrada de valor CHEIO por
+    // pedido → com 2 pedidos, cada um parecia ter recebido o crédito inteiro e virava "sobra" falsa.
+    recebimentosConsolidado.push({
+      gateway: 'PIX (Extrato)',
+      bruto: t.valor,
+      taxa: 0,
+      liq: t.valor,
+      data: t.data,
+      nped: pedIds.join(','),
+      nome: ped0 ? ped0.nome : '',
+      tipo: 'PIX',
+      status: 'pago',
+      _extratoId: id // referência ao lançamento original
     });
   });
 
@@ -5055,7 +5056,7 @@ function getRecebimentosDoPedido(ped) {
     if (r.gateway === 'Boleto Itaú' && !r._avulso) return;
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.includes(pedId)) return;
-    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay';
+    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)';
     let bruto, taxa, origem;
     if (peds.length > 1 && ehGw) {
       bruto = alocRecebGateway(r, pedId);
@@ -5219,6 +5220,23 @@ function jogarSobra(pedId) {
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderConcResult();
   alert(`Pronto! Movi ${fmtVal(sobra)} do pedido ${pedId} para o pedido ${alvo}. O ${pedId} fecha e o ${alvo} recebe a sobra.`);
+}
+// Desfaz uma "sobra" movida: remove o lançamento criado pelo "jogar sobra" e DEVOLVE o valor ao pedido de origem.
+function desfazerSobra(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r || !r._sobraDe) return;
+  if (!confirm(`Desfazer a sobra de ${fmtVal(r.bruto)} que foi movida para o pedido #${r.nped}?\n\nO valor volta para o pedido de origem #${r._sobraDe} e este lançamento é apagado.`)) return;
+  // Devolve ao recebimento de origem (mesmo pedido de origem e mesmo gateway), se ainda existir.
+  const src = recebimentosConsolidado.find(x => x !== r && x.gateway === r.gateway &&
+    String(x.nped || '').split(',').map(s => s.trim()).includes(String(r._sobraDe)));
+  if (src) {
+    src.bruto = +((src.bruto || 0) + (r.bruto || 0)).toFixed(2);
+    src.taxa = +((src.taxa || 0) + (r.taxa || 0)).toFixed(2);
+    src.liq = +((src.bruto || 0) - (src.taxa || 0)).toFixed(2);
+  }
+  recebimentosConsolidado = recebimentosConsolidado.filter(x => x !== r);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
 }
 
 // Transforma a SOBRA de um pedido em crédito a favor da cliente (guardado na aba Dev/Troca). Fecha o pedido (sobra aceita).
