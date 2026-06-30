@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v144/06-168';
+const APP_VERSION = 'v145/06-169';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -934,6 +934,8 @@ let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliaç
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
+let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
+let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
 let comissaoOutros = {};       // { nome: percentual } — funcionários que ganham % SOBRE O FATURAMENTO (ex.: Elaine = 0.5)
 let comissaoExcecoes = [];     // [vendedor] — vendedores que NÃO ganham comissão (ex.: Felliphe)
@@ -2566,7 +2568,8 @@ function renderFluxo() {
       <div class="card ${saldo>=0?'blue':'amber'}"><div class="c-label">= Saldo do período</div><div class="c-val">${fmtVal(saldo)}</div></div>
     </div>
     ${graficoMensal}
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:20px">
+    ${saldoBancarioDiarioHTML()}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:20px;margin-top:20px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px"><span>Entradas</span><span>${fmtVal(totEnt)}</span></div>
       <div style="background:var(--bg);border-radius:6px;height:18px;overflow:hidden;margin-bottom:10px"><div style="width:${totEnt/maxES*100}%;height:100%;background:var(--green);border-radius:6px;min-width:2px"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px"><span>Saídas</span><span>${fmtVal(totSai)}</span></div>
@@ -6427,6 +6430,82 @@ function saldoFinalDia(banco, dk) {
   const mov = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data > dRef && t.data <= endDay).reduce((s, t) => s + (t.valor || 0), 0);
   return (cfg.valor || 0) + mov;
 }
+// ── Saldo bancário diário (Fluxo de Caixa): tabela dia a dia por banco, com saldo real p/ conferir ──
+function saldoBancarioDiarioHTML() {
+  const bancos = [...new Set(extratoBancario.map(t => t.banco || '').filter(Boolean))].sort();
+  if (!bancos.length) return `<div style="margin-top:28px;font-size:12px;color:var(--muted)">🏦 <strong>Saldo bancário diário</strong> — carregue extratos OFX (aba Extrato) com o banco nomeado para acompanhar o saldo do dia.</div>`;
+  if (!fluxoBancoSel || !bancos.includes(fluxoBancoSel)) fluxoBancoSel = bancos[0];
+  const banco = fluxoBancoSel;
+  const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
+  const dRef = new Date((cfg.data || '2025-05-31') + 'T23:59:59');
+  let lancs = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data > dRef);
+  if (dfAtivo()) lancs = lancs.filter(t => passaData(t.data));
+  // Agrupa por dia
+  const dias = {};
+  lancs.forEach(t => {
+    const k = t.data.toISOString().slice(0, 10);
+    const d = dias[k] = dias[k] || { ent: 0, sai: 0 };
+    if (t.valor >= 0) d.ent += t.valor; else d.sai += Math.abs(t.valor);
+  });
+  const diasOrd = Object.keys(dias).sort(); // crescente (mais antigo no topo: saldo "rola" de cima p/ baixo)
+  const seletor = `<select onchange="fluxoBancoSel=this.value;renderFluxo()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">${bancos.map(b => `<option value="${b.replace(/"/g,'&quot;')}" ${b===banco?'selected':''}>${b}</option>`).join('')}</select>`;
+  if (!diasOrd.length) {
+    return `<div style="margin-top:28px"><div class="section-title" style="margin:0 0 10px">🏦 Saldo bancário diário ${seletor}</div><div style="font-size:12px;color:var(--muted)">Sem movimentos de ${banco} ${dfAtivo()?'no período filtrado':''} após ${fmtDate(dRef)}.</div></div>`;
+  }
+  const esc = banco.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const rows = diasOrd.map(dk => {
+    const d = dias[dk];
+    const saldoFim = saldoFinalDia(banco, dk);
+    const saldoIni = saldoFim - d.ent + d.sai; // saldo no começo do dia
+    const real = saldosDiarios[banco + '|' + dk];
+    const temReal = real !== undefined && real !== null && real !== '';
+    const dif = temReal ? +(saldoFim - real).toFixed(2) : null;
+    const bate = temReal && Math.abs(dif) < 0.01;
+    const valReal = temReal ? (+real).toFixed(2).replace('.', ',') : '';
+    return `<tr>
+      <td style="white-space:nowrap">${fmtDate(new Date(dk + 'T12:00:00'))}</td>
+      <td style="text-align:right;color:var(--muted)">${fmtVal(saldoIni)}</td>
+      <td style="text-align:right;color:var(--green)">${d.ent ? '+ ' + fmtVal(d.ent) : '—'}</td>
+      <td style="text-align:right;color:var(--red)">${d.sai ? '− ' + fmtVal(d.sai) : '—'}</td>
+      <td style="text-align:right;font-weight:700">${fmtVal(saldoFim)}</td>
+      <td style="text-align:right"><input type="text" value="${valReal}" placeholder="—" onchange="setSaldoRealDia('${esc}','${dk}',this.value)" style="width:110px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
+      <td style="text-align:right;font-weight:700;color:${!temReal?'var(--muted)':(bate?'var(--green)':'var(--red)')}">${!temReal ? '—' : (bate ? '✓ bate' : fmtVal(dif))}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="margin-top:28px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+        <div class="section-title" style="margin:0">🏦 Saldo bancário diário</div>
+        ${seletor}
+        <span style="font-size:11px;color:var(--muted)">Saldo inicial em ${fmtDate(dRef)}: <strong>${fmtVal(cfg.valor||0)}</strong> · <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">editar</a></span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Digite o <strong>Saldo real</strong> que o banco mostra no fim de cada dia; o sistema confere contra o calculado. Verde = bate.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Dia</th><th style="text-align:right">Saldo inicial</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th>
+            <th style="text-align:right">Saldo final (sistema)</th><th style="text-align:right">Saldo real (banco)</th><th style="text-align:right">Diferença</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+// Grava (ou limpa) o saldo real informado de um banco num dia e re-renderiza o Fluxo.
+function setSaldoRealDia(banco, dk, valor) {
+  const s = String(valor).trim();
+  if (s === '') {
+    delete saldosDiarios[banco + '|' + dk];
+  } else {
+    let n = s.replace(/[R$\s]/g, '');
+    n = n.indexOf(',') >= 0 ? n.replace(/\./g, '').replace(',', '.') : n; // 1.234,56 → 1234.56
+    const v = parseFloat(n);
+    if (isNaN(v)) return;
+    saldosDiarios[banco + '|' + dk] = v;
+  }
+  saveData('saldosDiarios', saldosDiarios);
+  if (currentSub === 'fluxo') { try { renderFluxo(); } catch (e) {} }
+}
 function _saldoReRender() {
   // Re-renderiza a tela aberta (Cadastro ou Conciliação Bancária) sem trocar de aba.
   if (currentView === 'cadastro') { try { renderCadastro(); } catch(e) {} }
@@ -7290,7 +7369,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -7334,6 +7413,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitasAvulsas') receitasAvulsas = (v||[]).map(a=>({...a,data:a.data?new Date(a.data):null}));
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
+    else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
     else if (k==='comissaoExcecoes') comissaoExcecoes = v || [];
