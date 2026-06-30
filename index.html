@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v146/06-170';
+const APP_VERSION = 'v147/06-171';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4660,11 +4660,21 @@ function renderExtrato() {
       });
       saveData('extratoBancario', extratoBancario);
       syncExtratoToRecebimentos();
+      // AUTOMÁTICO: já concilia o que bate com segurança (débitos com Conta a Pagar de valor único + repasses exatos).
+      const auto = autoConciliarAposUpload(banco);
+      // Quanto ainda sobrou pendente NESTE banco (pra avisar o que precisa de atenção manual).
+      const concil = t => t.valor >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
+      const pend = extratoBancario.filter(t => (t.banco||'') === banco && !concil(t)).length;
       renderExtrato();
       const stEl = document.getElementById('status-ext');
       if (stEl) stEl.textContent = '✓ ' + extratoBancario.length + ' lançamentos (+' + add + ' novos)';
       const cred = novas.filter(t => t.valor > 0).length, deb = novas.filter(t => t.valor < 0).length;
-      alert(`✓ Extrato "${file.name}" lido!\nBanco: ${banco || '(sem banco)'}\nTransações no arquivo: ${novas.length} (${cred} créditos, ${deb} débitos)\nNovas adicionadas: ${add}${add < novas.length ? ' (o resto já existia)' : ''}`);
+      const autoLinha = (auto.debitos || auto.repasses)
+        ? `\n\n⚡ Conciliado automaticamente: ${auto.debitos} débito(s) + ${auto.repasses} repasse(s).`
+        : `\n\n⚡ Nada bateu automático (valores sem correspondência única).`;
+      alert(`✓ Extrato "${file.name}" lido!\nBanco: ${banco || '(sem banco)'}\nTransações no arquivo: ${novas.length} (${cred} créditos, ${deb} débitos)\nNovas adicionadas: ${add}${add < novas.length ? ' (o resto já existia)' : ''}` +
+        autoLinha +
+        `\n📌 Faltam ${pend} lançamento(s) de ${banco} pra conciliar manualmente (Conciliação Bancária).`);
     };
     reader.readAsText(file,'UTF-8');
   });
@@ -6651,10 +6661,8 @@ function cbVincularRepasse(extId, alvo) {
   renderBanco();
 }
 // Concilia automaticamente os repasses (PayPal/Braavo/Boleto) que batem EXATO — útil ao entrar dados novos.
-function cbAutoRepasses() {
-  const selEl = document.getElementById('cb-banco');
-  const bancoSel = selEl ? selEl.value : '__todos';
-  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+// Núcleo: concilia repasses (PayPal/Braavo/Boleto) que batem exato por acúmulo. Retorna nº conciliado. Não renderiza nem alerta.
+function _autoRepassesCore(matchBanco) {
   const usados = repasseUsados();
   let n = 0;
   extratoBancario
@@ -6671,8 +6679,22 @@ function cbAutoRepasses() {
       }
     });
   saveData('repasseLinks', repasseLinks);
+  return n;
+}
+function cbAutoRepasses() {
+  const selEl = document.getElementById('cb-banco');
+  const bancoSel = selEl ? selEl.value : '__todos';
+  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+  const n = _autoRepassesCore(matchBanco);
   renderBanco();
   alert(n ? `${n} repasse(s) conciliado(s) automaticamente.` : 'Nenhum repasse bateu exatamente — concilie manualmente os que sobraram (o texto do extrato pode não citar a operadora).');
+}
+// Roda débitos + repasses automáticos de um banco logo após subir o extrato. Retorna {debitos, repasses}.
+function autoConciliarAposUpload(banco) {
+  const matchBanco = t => (t.banco || '') === banco;
+  const debitos = _autoDebitosCore(matchBanco);
+  const repasses = _autoRepassesCore(matchBanco);
+  return { debitos, repasses };
 }
 // Vincula um débito do extrato a UMA ou VÁRIAS Contas a Pagar (marca como pagas, pela data do banco).
 function cbVincularDebito(extId, alvo) {
@@ -6881,10 +6903,8 @@ function cbAtribuirBanco() {
   renderBanco();
 }
 // Concilia automaticamente débitos do banco selecionado que batem com exatamente uma Conta a Pagar pelo valor.
-function cbAutoDebitos() {
-  const selEl = document.getElementById('cb-banco');
-  const bancoSel = selEl ? selEl.value : '__todos';
-  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+// Núcleo: concilia débitos que batem com EXATAMENTE uma Conta a Pagar (mesmo valor). Retorna nº conciliado. Não renderiza nem alerta.
+function _autoDebitosCore(matchBanco) {
   const usados = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usados.add(it.chave)));
   let n = 0;
@@ -6902,6 +6922,13 @@ function cbAutoDebitos() {
   });
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
+  return n;
+}
+function cbAutoDebitos() {
+  const selEl = document.getElementById('cb-banco');
+  const bancoSel = selEl ? selEl.value : '__todos';
+  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+  const n = _autoDebitosCore(matchBanco);
   renderBanco();
   alert(n ? `${n} débito(s) conciliado(s) automaticamente.` : 'Nenhum débito com correspondência única (mesmo valor) encontrado.');
 }
