@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v170/06-194';
+const APP_VERSION = 'v171/06-195';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6257,7 +6257,7 @@ function renderBanco() {
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
         <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
-        <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Mantém 1 e remove as cópias repetidas do MESMO banco (ex.: banco triplicado)">🧹 Remover duplicados (1 banco)</button>`,
+        <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Selecione um banco no filtro. Mantém a versão DELE e remove as cópias repetidas — tanto no próprio banco quanto a MESMA transação que está em outro banco. A conciliação é preservada.">🧹 Remover duplicados</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Pesquisar histórico', `<input type="text" id="cb-q" value="${(buscaPersist.banco||'').replace(/"/g,'&quot;')}" placeholder="Ex.: cartão, fornecedor, valor..." oninput="buscaPersist.banco=this.value;debounceRender('renderBanco')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
@@ -6736,11 +6736,20 @@ function removerDuplicatasDoBanco() {
     const manter = arr.find(t => linked(t.id)) || arr[0]; // mantém a já conciliada, se houver
     arr.forEach(t => { if (t !== manter) removerIds.add(String(t.id)); });
   });
-  if (!removerIds.size) { alert(`✓ Nenhum lançamento duplicado em "${banco}". Está limpo.`); return; }
+  // Cópias do MESMO lançamento que estão em OUTRO banco → remove (mantém a versão deste banco).
+  const chavesDoBanco = new Set(Object.keys(grupos));
+  let outros = 0;
+  extratoBancario.forEach(t => {
+    if ((t.banco || '') === banco) return;
+    if (chavesDoBanco.has(keyOf(t))) { removerIds.add(String(t.id)); outros++; }
+  });
+  if (!removerIds.size) { alert(`✓ Nenhuma duplicata de "${banco}" (nem aqui nem em outro banco). Está limpo.`); return; }
   const fechadosAfetados = [...removerIds].some(id => { const t = extratoBancario.find(x => String(x.id) === id); return t && diaFechado(t.data, t.banco); });
-  let aviso = `Encontrei ${removerIds.size} cópia(s) duplicada(s) em "${banco}" (${gruposDup} lançamento(s) repetido(s)).\n\n` +
-    `Vou MANTER 1 de cada e remover só as cópias extras (não apaga o dia inteiro).`;
-  if (fechadosAfetados) aviso += '\n\n⚠ Algumas estão em DIAS FECHADOS — só removo as cópias, o lançamento original continua.';
+  let aviso = `Vou MANTER a versão de "${banco}" e remover ${removerIds.size} cópia(s) duplicada(s):` +
+    (gruposDup ? `\n• ${gruposDup} repetida(s) dentro do próprio ${banco}` : '') +
+    (outros ? `\n• ${outros} igual(is) em OUTRO(S) banco(s) — mesma transação subida 2x` : '') +
+    `\n\nA conciliação da versão mantida continua.`;
+  if (fechadosAfetados) aviso += '\n⚠ Algumas estão em dias fechados — removo só as cópias.';
   aviso += '\n\nConfirmar?';
   if (!confirm(aviso)) return;
   // Tira os vínculos só das cópias removidas (a que fica preserva o vínculo dela).
@@ -6753,7 +6762,7 @@ function removerDuplicatasDoBanco() {
   saveData('receitaLinks', receitaLinks);
   syncExtratoToRecebimentos();
   renderBanco();
-  alert(`✓ Removi ${removerIds.size} cópia(s) duplicada(s) de "${banco}". Restou 1 de cada lançamento.`);
+  alert(`✓ Removi ${removerIds.size} cópia(s) duplicada(s). Restou a versão de "${banco}".`);
 }
 // Uma Conta a Pagar está TRAVADA quando foi conciliada a um débito de extrato de um dia FECHADO.
 // Nesse caso ela não pode ser apagada nem substituída por re-upload (o fechamento é um cadeado).
