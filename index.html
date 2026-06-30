@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v155/06-179';
+const APP_VERSION = 'v156/06-180';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6108,7 +6108,8 @@ function renderBanco() {
       limpar: 'limparFiltrosBanco()',
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
-        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>`,
+        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
+        <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Mantém 1 e remove as cópias repetidas do MESMO banco (ex.: banco triplicado)">🧹 Remover duplicados (1 banco)</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
@@ -6555,6 +6556,53 @@ function verificarDuplicidadeBancos() {
   }
   if (!nomesDup.length && !lancDup.length) msg += '\n\n✓ Nenhuma duplicidade encontrada — nomes ok e nenhum lançamento repetido entre bancos.';
   alert(msg);
+}
+// Remove cópias REPETIDAS dentro do MESMO banco (ex.: banco triplicado), mantendo 1 de cada lançamento.
+// Agrupa por FITID (id real do banco) quando existe — 2 transações reais NUNCA têm o mesmo FITID, então é seguro;
+// sem FITID, agrupa por data+valor+texto. Mantém preferencialmente a cópia já conciliada e tira as outras.
+function removerDuplicatasDoBanco() {
+  const banco = bancoConcSel;
+  if (!banco || banco === '__todos' || banco === '__sem') {
+    alert('Selecione um BANCO específico no filtro (em cima) e rode de novo. Assim eu limpo as cópias só desse banco.');
+    return;
+  }
+  const keyOf = t => {
+    const dk = t.data instanceof Date && !isNaN(t.data) ? t.data.toISOString().slice(0, 10) : '';
+    const idStr = String(t.id || '');
+    const temFitid = idStr && !idStr.startsWith('ofx-');
+    return temFitid ? ('fitid:' + idStr.split('_')[0]) // FITID sem o sufixo _N que o re-upload adiciona
+                    : ('c:' + dk + '|' + (t.valor || 0).toFixed(2) + '|' + (t.memo || '').trim().toLowerCase());
+  };
+  const linked = id => !!(extratoLinks[id] || repasseLinks[id] || debitoLinks[id] || receitaLinks[id]);
+  const doBanco = extratoBancario.filter(t => (t.banco || '') === banco);
+  const grupos = {};
+  doBanco.forEach(t => { const k = keyOf(t); (grupos[k] = grupos[k] || []).push(t); });
+  const removerIds = new Set();
+  let gruposDup = 0;
+  Object.values(grupos).forEach(arr => {
+    if (arr.length < 2) return;
+    gruposDup++;
+    const manter = arr.find(t => linked(t.id)) || arr[0]; // mantém a já conciliada, se houver
+    arr.forEach(t => { if (t !== manter) removerIds.add(String(t.id)); });
+  });
+  if (!removerIds.size) { alert(`✓ Nenhum lançamento duplicado em "${banco}". Está limpo.`); return; }
+  const fechadosAfetados = [...removerIds].some(id => { const t = extratoBancario.find(x => String(x.id) === id); return t && diaFechado(t.data, t.banco); });
+  let aviso = `Encontrei ${removerIds.size} cópia(s) duplicada(s) em "${banco}" (${gruposDup} lançamento(s) repetido(s)).\n\n` +
+    `Vou MANTER 1 de cada e remover só as cópias extras (não apaga o dia inteiro).`;
+  if (fechadosAfetados) aviso += '\n\n⚠ Algumas estão em DIAS FECHADOS — só removo as cópias, o lançamento original continua.';
+  aviso += '\n\nConfirmar?';
+  if (!confirm(aviso)) return;
+  // Tira os vínculos só das cópias removidas (a que fica preserva o vínculo dela).
+  removerIds.forEach(id => { delete extratoLinks[id]; delete repasseLinks[id]; delete debitoLinks[id]; delete receitaLinks[id]; });
+  extratoBancario = extratoBancario.filter(t => !removerIds.has(String(t.id)));
+  saveData('extratoBancario', extratoBancario);
+  saveData('extratoLinks', extratoLinks);
+  saveData('repasseLinks', repasseLinks);
+  saveData('debitoLinks', debitoLinks);
+  saveData('receitaLinks', receitaLinks);
+  syncExtratoToRecebimentos();
+  renderBanco();
+  alert(`✓ Removi ${removerIds.size} cópia(s) duplicada(s) de "${banco}". Restou 1 de cada lançamento.`);
 }
 // Uma Conta a Pagar está TRAVADA quando foi conciliada a um débito de extrato de um dia FECHADO.
 // Nesse caso ela não pode ser apagada nem substituída por re-upload (o fechamento é um cadeado).
