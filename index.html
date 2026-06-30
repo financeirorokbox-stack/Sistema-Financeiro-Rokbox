@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v145/06-169';
+const APP_VERSION = 'v146/06-170';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -936,6 +936,7 @@ let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária �
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
+let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
 let comissaoOutros = {};       // { nome: percentual } — funcionários que ganham % SOBRE O FATURAMENTO (ex.: Elaine = 0.5)
 let comissaoExcecoes = [];     // [vendedor] — vendedores que NÃO ganham comissão (ex.: Felliphe)
@@ -6472,24 +6473,39 @@ function saldoBancarioDiarioHTML() {
       <td style="text-align:right;font-weight:700;color:${!temReal?'var(--muted)':(bate?'var(--green)':'var(--red)')}">${!temReal ? '—' : (bate ? '✓ bate' : fmtVal(dif))}</td>
     </tr>`;
   }).join('');
+  const aberto = _saldoDiarioAberto;
   return `
     <div style="margin-top:28px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
         <div class="section-title" style="margin:0">🏦 Saldo bancário diário</div>
-        ${seletor}
-        <span style="font-size:11px;color:var(--muted)">Saldo inicial em ${fmtDate(dRef)}: <strong>${fmtVal(cfg.valor||0)}</strong> · <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">editar</a></span>
+        <button id="saldo-diario-toggle" class="btn ghost sm" onclick="toggleSaldoDiario()">${aberto?'▾ Recolher':'▸ Expandir'}</button>
+        <span style="font-size:11px;color:var(--muted)">conferência do saldo do banco dia a dia</span>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Digite o <strong>Saldo real</strong> que o banco mostra no fim de cada dia; o sistema confere contra o calculado. Verde = bate.</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Dia</th><th style="text-align:right">Saldo inicial</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th>
-            <th style="text-align:right">Saldo final (sistema)</th><th style="text-align:right">Saldo real (banco)</th><th style="text-align:right">Diferença</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+      <div id="saldo-diario-body" style="display:${aberto?'':'none'}">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+          ${seletor}
+          <span style="font-size:11px;color:var(--muted)">Saldo inicial em ${fmtDate(dRef)}: <strong>${fmtVal(cfg.valor||0)}</strong> · <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">editar</a></span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Digite o <strong>Saldo real</strong> que o banco mostra no fim de cada dia; o sistema confere contra o calculado. Verde = bate.</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Dia</th><th style="text-align:right">Saldo inicial</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th>
+              <th style="text-align:right">Saldo final (sistema)</th><th style="text-align:right">Saldo real (banco)</th><th style="text-align:right">Diferença</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>
     </div>`;
+}
+// Abre/fecha a seção "Saldo bancário diário" do Fluxo (estado lembra ao re-renderizar).
+function toggleSaldoDiario() {
+  _saldoDiarioAberto = !_saldoDiarioAberto;
+  const body = document.getElementById('saldo-diario-body');
+  if (body) body.style.display = _saldoDiarioAberto ? '' : 'none';
+  const btn = document.getElementById('saldo-diario-toggle');
+  if (btn) btn.textContent = _saldoDiarioAberto ? '▾ Recolher' : '▸ Expandir';
 }
 // Grava (ou limpa) o saldo real informado de um banco num dia e re-renderiza o Fluxo.
 function setSaldoRealDia(banco, dk, valor) {
