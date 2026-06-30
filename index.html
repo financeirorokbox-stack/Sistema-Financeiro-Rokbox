@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v167/06-191';
+const APP_VERSION = 'v168/06-192';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1639,8 +1639,10 @@ function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
   else dateFilter[field] = dateFilter[field].filter(x => x !== value);
   saveData('dateFilters', dateFilters);
-  // Re-renderiza (mantendo scroll); o painel volta ABERTO porque _dfOpen continua = field.
-  _dfRenderKeepScroll();
+  // NÃO re-renderiza a cada clique (era isso que fazia a tela "andar"). Só atualiza o rótulo na hora;
+  // o filtro é aplicado UMA vez quando o dropdown fecha (botão ou clique fora).
+  const lbl = document.querySelector('.df-lbl[data-df="' + field + '"]');
+  if (lbl) lbl.textContent = _dfLabel(field);
 }
 function dfClear() {
   // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
@@ -1676,8 +1678,11 @@ function dateFilterHTML() {
 }
 document.addEventListener('click', e => {
   if (!e.target.closest('.ms-wrap')) {
+    const tinhaAberto = _dfOpen !== null;
     document.querySelectorAll('.ms-dropdown.open').forEach(d => d.classList.remove('open'));
     _dfOpen = null;
+    // Aplica o filtro de datas UMA vez ao fechar (as marcações feitas não re-renderizaram a tela).
+    if (tinhaAberto) _dfRenderKeepScroll();
   }
 });
 
