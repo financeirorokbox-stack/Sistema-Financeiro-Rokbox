@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v158/06-182';
+const APP_VERSION = 'v159/06-183';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6940,7 +6940,7 @@ function cbVincularDebito(extId, alvo) {
   const liq = tot - credito + juros; // o que deveria ter saído do banco
   // 1 débito → 1 conta EM ABERTO, SEM crédito e SEM juros: o valor do EXTRATO manda (ajusta a conta ao banco).
   // COM crédito ou juros, NÃO mexe no valor da conta (o crédito/juros é que explica a diferença).
-  if (alvo != null && credito <= 0 && juros <= 0 && itens.length === 1 && itens[0].setPago) {
+  if (alvo != null && credito <= 0 && juros <= 0 && itens.length === 1) {
     const it = itens[0];
     const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
     if (conta && Math.abs((it.valor || 0) - alvo) > 0.005) {
@@ -6972,8 +6972,8 @@ function cbVincularDebito(extId, alvo) {
           contasPagar.push(rem);
           it.restanteChave = chaveContaPagar(rem); // p/ o "Desfazer" remover o restante e juntar de volta
         }
-      } else {
-        // Débito diferente (não menor) → ajusta a conta ao valor do banco (comportamento existente).
+      } else if (it.setPago) {
+        // Débito diferente (não menor) e a conta acabou de ser marcada paga → ajusta ao valor do banco.
         it.valorAnt = conta.valor;
         it.chaveAnt = it.chave;
         conta.valor = alvo;
