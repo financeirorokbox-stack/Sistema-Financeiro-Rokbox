@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v161/06-185';
+const APP_VERSION = 'v162/06-186';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6060,6 +6060,7 @@ function renderBanco() {
   // Busca por HISTÓRICO (texto do lançamento), valor ou pedido vinculado.
   const buscaBanco = (buscaPersist.banco || '').toLowerCase().trim();
   if (buscaBanco) {
+    const contaTexto = c => `${c.fornecedor||''} ${c.descricao||''} ${catContaPagar(c)||''} ${c.categoria||''} ${c.observacao||''}`.toLowerCase();
     visT = visT.filter(t => {
       const memo = (t.memo || '').toLowerCase();
       const val = Math.abs(t.valor || 0).toFixed(2);
@@ -6069,9 +6070,16 @@ function renderBanco() {
       const dl = debitoLinks[t.id];
       if (dl) contaTxt = debLinkItens(dl).map(it => {
         const c = contasPagar.find(x => chaveContaPagar(x) === it.chave);
-        return c ? `${c.fornecedor||''} ${c.descricao||''} ${catContaPagar(c)||''} ${c.observacao||''}` : (it.fornecedor||'');
-      }).join(' ').toLowerCase();
-      return memo.includes(buscaBanco) || val.includes(buscaBanco.replace(',', '.')) || ped.includes(buscaBanco) || contaTxt.includes(buscaBanco);
+        return c ? contaTexto(c) : (it.fornecedor||'');
+      }).join(' ');
+      // Débito AINDA NÃO conciliado: casa se o VALOR bate com alguma Conta a Pagar que contém o termo
+      // (ex.: "cartão" está na planilha de contas, não no extrato → mostra os débitos candidatos).
+      let candidato = false;
+      if (t.valor < 0 && !dl) {
+        const alvo = Math.abs(t.valor || 0);
+        candidato = contasPagar.some(c => Math.abs((c.valor||0) - alvo) <= 0.02 && contaTexto(c).includes(buscaBanco));
+      }
+      return memo.includes(buscaBanco) || val.includes(buscaBanco.replace(',', '.')) || ped.includes(buscaBanco) || contaTxt.includes(buscaBanco) || candidato;
     });
   }
 
