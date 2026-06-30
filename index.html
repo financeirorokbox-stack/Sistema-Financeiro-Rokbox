@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v163/06-187';
+const APP_VERSION = 'v164/06-188';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2888,6 +2888,23 @@ function optionsCategoriasDespesaHTML(extras) {
 function catContaPagar(c) {
   return (c.categoria || '').trim() || (c.descricao || '').trim();
 }
+// Reaplica a baixa das contas conciliadas no banco: para CADA débito vinculado, marca UMA conta
+// daquela chave como paga (não todas as iguais). Conserta o caso de re-importar a planilha (que
+// volta "Atrasada") sem marcar contas duplicadas a mais. Idempotente.
+function aplicarBaixaConciliada() {
+  let mudou = false;
+  Object.entries(debitoLinks).forEach(([extId, l]) => {
+    const t = extratoBancario.find(x => x.id === extId);
+    debLinkItens(l).forEach(it => {
+      if (it.criada) return; // conta criada na conciliação já nasce paga
+      // Pega UMA conta com essa chave que ainda NÃO está paga (1 por vínculo → não marca as duplicadas a mais).
+      const c = contasPagar.find(x => chaveContaPagar(x) === it.chave && !x.pago);
+      if (c) { c.pago = true; if (!c.dataPag && t) c.dataPag = t.data; mudou = true; }
+    });
+  });
+  if (mudou) saveData('contasPagar', contasPagar);
+  return mudou;
+}
 function renderPagar() {
   setDateFilterRender(renderPagar);
   const el = document.getElementById('v-pagar');
@@ -2903,11 +2920,9 @@ function renderPagar() {
   const chavesConcBanco = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
 
-  // Conta conciliada no banco conta como PAGA (o débito já saiu), mesmo que a planilha diga "Atrasada".
-  const estaPago = c => c.pago || chavesConcBanco.has(chaveContaPagar(c));
   let vis = contasPagar;
-  if (fSt === 'pago') vis = vis.filter(estaPago);
-  if (fSt === 'aberto') vis = vis.filter(c => !estaPago(c));
+  if (fSt === 'pago') vis = vis.filter(c => c.pago);
+  if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
   if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
   if (fConc === 'sim') vis = vis.filter(c => chavesConcBanco.has(chaveContaPagar(c)));
@@ -2915,8 +2930,8 @@ function renderPagar() {
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
 
-  const aberto = vis.filter(c => !estaPago(c));
-  const pagos = vis.filter(estaPago);
+  const aberto = vis.filter(c => !c.pago);
+  const pagos = vis.filter(c => c.pago);
   const vAberto = aberto.reduce((s, c) => s + c.valor, 0);
   const vPago = pagos.reduce((s, c) => s + c.valor, 0);
   const totalCP = +(vAberto + vPago).toFixed(2);
@@ -2971,10 +2986,8 @@ function renderPagar() {
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
-        // Conciliada no banco = o débito já saiu = PAGA (mesmo que a planilha ainda diga "Atrasada").
-        const conciliadaBanco = chavesConcBanco.has(chaveContaPagar(c));
-        const stBadge = (c.pago || conciliadaBanco)
-          ? `<span class="badge ok">PAGO</span>${(!c.pago && conciliadaBanco) ? ' <span class="badge ok" style="font-size:9px" title="Marcada paga pela conciliação bancária">🔗</span>' : ''}`
+        const stBadge = c.pago
+          ? '<span class="badge ok">PAGO</span>'
           : `<span class="badge err">${c.situacao && !/aberto/i.test(c.situacao) ? c.situacao : 'EM ABERTO'}</span>`;
         const rateioStr = (c.rateio && c.rateio.length)
           ? c.rateio.map(r=>`${r.empresa} ${fmtVal(r.valor)}`).join('<br>')
@@ -2983,7 +2996,7 @@ function renderPagar() {
           ${delCheckbox('contasPagar', realIdx)}
           <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
           <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
-          <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}${chavesConcBanco.has(chaveContaPagar(c))?` <span class="badge ok" style="font-size:9px" title="Conciliada na Conciliação Bancária">🔗 conciliado</span>`:''}</td>
+          <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}${(chavesConcBanco.has(chaveContaPagar(c)) && c.pago)?` <span class="badge ok" style="font-size:9px" title="Conciliada na Conciliação Bancária">🔗 conciliado</span>`:''}</td>
           <td>${catContaPagar(c)?`<span class="badge neu">${catContaPagar(c)}</span>`:'—'}</td>
           <td><strong>${fmtVal(c.valor)}</strong></td>
           <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
@@ -3045,6 +3058,7 @@ function renderPagar() {
       contasPagar = contasPagar.concat(acrescentar);
     }
     saveData('contasPagar', contasPagar);
+    aplicarBaixaConciliada(); // re-marca como pagas as contas que já estavam conciliadas no banco (planilha volta "Atrasada")
     const stEl = document.getElementById('status-pagar');
     if (stEl) stEl.textContent = `✓ ${contasPagar.length} contas no total (${empresa||'sem empresa'}: ${modo==='sub'?`substituiu ${antes-travadas} por ${acrescentadas}${travadas?` — ${travadas} preservada(s) por dia fechado`:''}`:`adicionou ${acrescentadas}${acrescentadas<novas.length?` — ${novas.length-acrescentadas} já existiam`:''}`}).`;
     renderPagar();
@@ -7776,6 +7790,7 @@ function delCheckboxHeader(source) {
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
   initLojaCadastro();
+  try { aplicarBaixaConciliada(); } catch(e) {} // re-marca pagas as contas conciliadas (caso planilha re-importada tenha voltado "Atrasada")
   try { syncExtratoToRecebimentos(); } catch(e) {} // reconstrói os PIX do extrato a partir dos vínculos salvos (corrige PIX que sumia no reload)
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
   try { atualizarSaude(); } catch(e) {}
