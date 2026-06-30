@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v151/06-175';
+const APP_VERSION = 'v152/06-176';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2374,6 +2374,7 @@ function grupoReceitaGateway(gw) {
   switch (gw) {
     case 'Boleto Itaú': return 'Boleto';
     case 'PayPal': return 'Cartão de Crédito';
+    case 'Rede': return 'Cartão de Crédito';
     case 'BraavoPay': return 'BraavoPay';
     case 'PIX (Extrato)': return 'Depósito';
     case 'Transferência Bancária': return 'Depósito';
@@ -3201,6 +3202,75 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
   });
 }
 
+// ── REDE (relatório de recebimentos do cartão) ──────────────────────────
+// Reconhece o relatório "EXTRATO PARA SIMPLES CONFERÊNCIA" da Rede (cabeçalho na 2ª linha).
+function isRedeFile(file, wb) {
+  if (!wb) return false;
+  const fn = (file && file.name || '').toLowerCase();
+  try {
+    const sn = wb.SheetNames[0];
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
+    const txt = JSON.stringify(aoa.slice(0, 4)).toLowerCase();
+    return txt.includes('valor mdr descontado') || txt.includes('valor líquido da parcela') || txt.includes('valor liquido da parcela')
+      || (fn.includes('rede') && txt.includes('valor bruto da parcela'));
+  } catch (e) { return false; }
+}
+// Lê o relatório da Rede e AGREGA por venda (mesmo nº de pedido Rede + NSU): soma as parcelas em 1 recebimento.
+// nped fica vazio (o nº da Rede não é o nº do seu pedido) → entra como "sem pedido" p/ você vincular.
+function parseRedeSheet(wb, target) {
+  wb.SheetNames.forEach(sn => {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
+    // Acha a linha de cabeçalho (a que tem "valor líquido da parcela")
+    let h = -1;
+    for (let i = 0; i < Math.min(aoa.length, 6); i++) {
+      const row = (aoa[i] || []).map(x => String(x == null ? '' : x).toLowerCase());
+      if (row.some(c => c.includes('valor líquido da parcela') || c.includes('valor liquido da parcela'))) { h = i; break; }
+    }
+    if (h < 0) return;
+    const head = (aoa[h] || []).map(x => String(x == null ? '' : x).toLowerCase().trim());
+    const col = (...keys) => head.findIndex(c => keys.some(k => c.includes(k)));
+    const ci = {
+      data: col('data do recebimento'),
+      bruto: col('valor bruto da parcela original', 'valor bruto da parcela'),
+      taxa: col('valor mdr descontado'),
+      liq: col('valor líquido da parcela', 'valor liquido da parcela'),
+      status: col('status'),
+      bandeira: col('bandeira'),
+      ped: col('número do pedido', 'numero do pedido'),
+      nsu: col('nsu'),
+      parcela: col('parcela'),
+      nparc: col('número de parcelas', 'numero de parcelas')
+    };
+    const grupos = {}; // chave da venda → recebimento agregado
+    for (let i = h + 1; i < aoa.length; i++) {
+      const row = aoa[i] || [];
+      const bruto = ci.bruto >= 0 ? num(row[ci.bruto]) : 0;
+      const liq = ci.liq >= 0 ? num(row[ci.liq]) : 0;
+      if (!bruto && !liq) continue;
+      const status = String(ci.status >= 0 ? (row[ci.status] || '') : '').toLowerCase();
+      if (status.includes('cancel') || status.includes('contest') || status.includes('reprovad') || status.includes('negad')) continue;
+      const taxa = ci.taxa >= 0 ? num(row[ci.taxa]) : +(bruto - liq).toFixed(2);
+      let data = ci.data >= 0 ? row[ci.data] : null;
+      if (!(data instanceof Date)) data = parseDate(data);
+      const bandeira = ci.bandeira >= 0 ? String(row[ci.bandeira] || '').trim() : '';
+      const redePed = ci.ped >= 0 ? String(row[ci.ped] || '').trim() : '';
+      const nsu = ci.nsu >= 0 ? String(row[ci.nsu] || '').trim() : '';
+      const nparc = ci.nparc >= 0 ? String(row[ci.nparc] || '').trim() : '';
+      const key = (redePed || '?') + '|' + (nsu || '?') + '|' + (bandeira || '');
+      const g = grupos[key] || (grupos[key] = {
+        gateway: 'Rede', bruto: 0, taxa: 0, liq: 0, data, nped: null, nome: '',
+        tipo: bandeira ? ('Crédito ' + bandeira + (nparc && +nparc > 1 ? ' ' + nparc + 'x' : '')) : 'Crédito',
+        status: status || 'paga', _redePed: redePed, _nsu: nsu
+      });
+      g.bruto = +(g.bruto + bruto).toFixed(2);
+      g.taxa = +(g.taxa + taxa).toFixed(2);
+      g.liq = +(g.liq + liq).toFixed(2);
+      if (data && (!g.data || data < g.data)) g.data = data; // data da 1ª parcela recebida
+    }
+    Object.values(grupos).forEach(g => target.push(g));
+  });
+}
+
 // Corrige manualmente o nº do pedido de um recebimento (a extração automática às vezes erra)
 function editarNpedRec(idx) {
   const r = recebimentosConsolidado[idx];
@@ -3294,7 +3364,7 @@ function renderRecebimentos() {
     <label class="upload-card" id="card-cr2" for="file-cr2">
       <div class="u-icon">💳</div>
       <div class="u-label">Planilha de Recebimentos</div>
-      <div class="u-hint">PayPal (.csv), BraavoPay (.xlsx), Boleto Itaú, Extrato OFX — selecione um ou mais</div>
+      <div class="u-hint">PayPal (.csv), BraavoPay (.xlsx), Boleto Itaú, Rede, Extrato OFX — selecione um ou mais</div>
       <div class="u-status" id="status-cr2">${recebimentosConsolidado.length ? '✓ ' + recebimentosConsolidado.length + ' lançamentos' : 'Nenhum arquivo'}</div>
       <input type="file" id="file-cr2" accept=".xlsx,.xls,.csv,.ofx,.qfx" multiple>
     </label>
@@ -3364,6 +3434,8 @@ function renderRecebimentos() {
           };
           reader.readAsText(file,'UTF-8');
           return;
+        } else if (isRedeFile(file, wb)) {
+          parseRedeSheet(wb, newEntries);
         } else if (isBoletoRecebidoFile(file, wb)) {
           processCobrancaWorkbook(wb);
         } else {
