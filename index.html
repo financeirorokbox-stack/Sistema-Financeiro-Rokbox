@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v183/06-207';
+const APP_VERSION = 'v184/06-208';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3352,6 +3352,39 @@ function removerRecebimentosDuplicados() {
   renderRecebimentos();
   alert(`✓ Removi ${removerIdx.size} cópia(s) duplicada(s). Restou 1 de cada.`);
 }
+// Abre/fecha o formulário de recebimento manual.
+function toggleRecebManualBox() {
+  const b = document.getElementById('receb-manual-box');
+  if (b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
+}
+// Lança um recebimento POSITIVO na mão (avulso/antigo) p/ fechar um pedido.
+function lancarRecebManual() {
+  const gw = document.getElementById('rm-forma')?.value || 'Manual';
+  const vRaw = document.getElementById('rm-valor')?.value || '';
+  const dRaw = document.getElementById('rm-data')?.value || '';
+  const ped = (document.getElementById('rm-ped')?.value || '').trim();
+  const obs = (document.getElementById('rm-obs')?.value || '').trim();
+  const valor = Math.abs(parseFloat(String(vRaw).replace(',', '.')) || 0);
+  if (!valor) { alert('Informe o valor recebido.'); return; }
+  if (!ped) { alert('Informe o número do pedido.'); return; }
+  const data = dRaw ? new Date(dRaw + 'T12:00:00') : null;
+  recebimentosConsolidado.push({
+    gateway: gw, bruto: +valor.toFixed(2), taxa: 0, liq: +valor.toFixed(2), data,
+    nped: String(ped), nome: obs || 'Recebimento manual', tipo: 'Manual', status: 'pago', _recebManual: true
+  });
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+  alert(`✓ Recebimento de ${fmtVal(valor)} lançado no pedido #${ped} (${gw}).\n\nDeve fechar o pedido em Contas a Receber. Se não fechar, confira se a Forma escolhida é a mesma do pedido.`);
+}
+// Remove um recebimento manual.
+function removerRecebManual(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r) return;
+  if (!confirm(`Remover o recebimento manual de ${fmtVal(r.bruto || 0)} (pedido #${r.nped || '—'})?`)) return;
+  recebimentosConsolidado = recebimentosConsolidado.filter((_, i) => i !== idx);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+}
 // Abre/fecha o formulário de estorno manual.
 function toggleEstornoManualBox() {
   const b = document.getElementById('estorno-manual-box');
@@ -3493,10 +3526,32 @@ function renderRecebimentos() {
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px">Ex.: pedido 100, cliente fica com 70 → <strong>Estorno 100</strong> (negativo) + <strong>Diferença 70</strong> (entrada positiva no pedido). Líquido = −30.</div>
     </div>
+
+    <div id="receb-manual-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin:0 0 16px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">➕ Recebimento manual <span style="font-weight:400;color:var(--muted);font-size:11px">(lançar um recebimento avulso/antigo p/ fechar um pedido — ex.: pagamento de antes de junho)</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="rm-forma" title="Escolha IGUAL à forma de pagamento do pedido, pra fechar certo" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          <option value="PIX (Extrato)">PIX</option>
+          <option value="Depósito">Depósito / Transferência</option>
+          <option value="Dinheiro">Dinheiro</option>
+          <option value="PayPal">PayPal</option>
+          <option value="BraavoPay">Braavo (iFood)</option>
+          <option value="Boleto Itaú">Boleto Itaú</option>
+          <option value="Manual">Outro</option>
+        </select>
+        <input type="number" id="rm-valor" step="0.01" placeholder="Valor recebido" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <input type="date" id="rm-data" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <input type="text" id="rm-ped" placeholder="Nº do pedido" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <input type="text" id="rm-obs" placeholder="Cliente / obs (opcional)" style="flex:1;min-width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <button class="btn primary sm" onclick="lancarRecebManual()">Lançar recebimento</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Entra como recebimento POSITIVO no pedido (aparece em Recebimentos e fecha em Contas a Receber). Escolha a <strong>Forma igual à do pedido</strong>.</div>
+    </div>
     ${filtrosBar({
       nAtivos: [fGw,fEmp,fPed,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
       limpar: 'limparFiltrosReceb()',
-      acoes: `<button class="btn ghost sm" onclick="toggleEstornoManualBox()" title="Lançar um estorno que não vem no relatório (ex.: Braavo) como recebimento negativo">➖ Estorno manual</button>
+      acoes: `<button class="btn ghost sm" onclick="toggleRecebManualBox()" title="Lançar um recebimento avulso/antigo (positivo) p/ fechar um pedido">➕ Recebimento manual</button>
+        <button class="btn ghost sm" onclick="toggleEstornoManualBox()" title="Lançar um estorno que não vem no relatório (ex.: Braavo) como recebimento negativo">➖ Estorno manual</button>
         <button class="btn ghost sm" onclick="removerRecebimentosDuplicados()" title="Removeu o mesmo relatório 2x? Mantém 1 de cada e tira as cópias (pelo ID da transação)">🧹 Remover duplicados</button>
         <button class="btn danger sm" onclick="if(confirm('Limpar todos os recebimentos?')){recebimentosConsolidado=[];saveData('recebimentosConsolidado',recebimentosConsolidado);renderRecebimentos()}">🗑 Limpar</button>`,
       campos:
@@ -3530,7 +3585,8 @@ function renderRecebimentos() {
           ? ` <span class="badge ok" style="font-size:9px" title="Estorno lançado em Contas a Pagar">↳ em Contas a Pagar</span> <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--red)" onclick="desfazerEstornoPagar(${realIdx})" title="Remover de Contas a Pagar">desfazer</button>`
           : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}
         ${r._sobraDe ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerSobra(${realIdx})" title="Apaga este lançamento de sobra e devolve o valor ao pedido #${r._sobraDe}">↩ desfazer sobra (de #${r._sobraDe})</button>` : ''}
-        ${(r._estornoManual || r._difEstorno) ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerEstornoManual(${realIdx})" title="Desfaz este estorno manual (remove o estorno, a diferença e a despesa em Contas a Pagar, se houver)">↩ desfazer estorno</button>` : ''}</td>
+        ${(r._estornoManual || r._difEstorno) ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerEstornoManual(${realIdx})" title="Desfaz este estorno manual (remove o estorno, a diferença e a despesa em Contas a Pagar, se houver)">↩ desfazer estorno</button>` : ''}
+        ${r._recebManual ? ` <span class="badge" style="font-size:9px;background:#e6f4ea;color:#1b7a3d">manual</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removerRecebManual(${realIdx})" title="Remove este recebimento manual">↩ desfazer</button>` : ''}</td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
       <td>${fmtVal(r.liq)}</td>
