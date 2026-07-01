@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v206/06-230';
+const APP_VERSION = 'v207/06-231';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2522,7 +2522,7 @@ function renderComissao() {
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
     const diferenca = diferencaDoPedido(p, emAberto);
-    const bp = baseDoPedido(p, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2)); // soma a base como está (igual ao Total Base da tabela, inclusive negativas)
+    const bp = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2); // base AUTOMÁTICA da empresa (não aplica override de base; ajuste ✎ é só p/ comissão pontual do vendedor)
     baseGeral += bp;
     const seg = cls.segmento || 'Sem segmento';
     basePorSeg[seg] = (basePorSeg[seg] || 0) + bp;
@@ -2601,7 +2601,7 @@ function renderComissao() {
     })()}
 
     <div class="section-title" style="margin-top:28px">💼 Outros (% sobre uma base)</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Base = soma das bases de comissão dos pedidos do período (Total ou de um segmento). Cadastre em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Base = soma das bases <strong>automáticas</strong> dos pedidos do período (Total ou de um segmento) — <strong>não</strong> considera os ajustes manuais ✎ de base (que servem só p/ acertar a comissão de um vendedor pontual). Cadastre em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
     ${outros.length ? `<div class="table-wrap" style="max-width:640px"><table><thead><tr><th>Nome</th><th>Base</th><th style="text-align:right">%</th><th style="text-align:right">Base (R$)</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
       ${outros.map(o=>`<tr><td><strong>${o.nome}</strong></td><td>${o.base==='total'?'Total da empresa':'Vendas '+o.base}</td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(o.baseUsada)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(o.comissao)}</td></tr>`).join('')}
       <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="4">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td></tr>
@@ -2630,7 +2630,7 @@ function exportarComissao() {
     aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, emAberto, diferenca, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(Math.max(0,base)*pct).toFixed(2)]);
   });
   // Outros — base = soma das bases de comissão dos pedidos do período (Total ou por segmento).
-  let baseGeral=0; const basePorSeg={}; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const cls=getClassificacao(p); const op=(cls.operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=freteDoPedido(p), od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=Math.max(0,+((p.valor||0)-rec).toFixed(2)); const dif=diferencaDoPedido(p,ab); const bp=baseDoPedido(p,+((p.valor||0)-fr-dv-od-dif).toFixed(2)); baseGeral+=bp; const sg=cls.segmento||'Sem segmento'; basePorSeg[sg]=(basePorSeg[sg]||0)+bp; });
+  let baseGeral=0; const basePorSeg={}; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const cls=getClassificacao(p); const op=(cls.operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=freteDoPedido(p), od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=Math.max(0,+((p.valor||0)-rec).toFixed(2)); const dif=diferencaDoPedido(p,ab); const bp=+((p.valor||0)-fr-dv-od-dif).toFixed(2); baseGeral+=bp; const sg=cls.segmento||'Sem segmento'; basePorSeg[sg]=(basePorSeg[sg]||0)+bp; });
   baseGeral = +baseGeral.toFixed(2);
   aoa.push([]); aoa.push(['OUTROS (% sobre uma base)']);
   aoa.push(['Nome','Base','%','Base (R$)','Comissão']);
