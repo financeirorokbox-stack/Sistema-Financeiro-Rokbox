@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v184/06-208';
+const APP_VERSION = 'v185/06-209';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1150,6 +1150,7 @@ function classificaForma(descricao) {
   if (dl.startsWith('online -') || dl.startsWith('online-')) return { categoria: 'Cartão', isReceita: true };
   if (dl === 'dinheiro' || dl.startsWith('dinheiro')) return { categoria: 'Dinheiro', isReceita: true };
   if (dl.startsWith('depós') || dl.startsWith('depos')) return { categoria: 'Depósito', isReceita: true };
+  if (dl.includes('desconto em folha') || dl.includes('desconto folha') || dl.includes('desc. folha') || dl.includes('desc folha')) return { categoria: 'Desconto em Folha', isReceita: true };
   // I Cross, etc.
   return { categoria: 'Não é recebimento', isReceita: false };
 }
@@ -1289,6 +1290,14 @@ function statusForma(pedido, categoria, valor) {
     if (totalDevolvido >= valor - tol) return { recebido: true, detalhe: `Devolução registrada: ${fmtVal(totalDevolvido)}` };
     if (totalDevolvido > 0) return { recebido: false, parcial: true, detalhe: `Parcial: devolvido ${fmtVal(totalDevolvido)} de ${fmtVal(valor)}` };
     return { recebido: false, detalhe: 'devolução sem valor registrado' };
+  }
+  if (categoria === 'Desconto em Folha') {
+    // Fecha quando há recebimento (manual) de "Desconto em Folha" para o pedido.
+    const recs = recebimentosConsolidado.filter(r => r.gateway === 'Desconto em Folha' && !r._estornoChave && String(r.nped || '').split(',').map(s => s.trim()).includes(String(pedido)));
+    const total = +recs.reduce((s, r) => s + (r.bruto || r.liq || 0), 0).toFixed(2);
+    if (total >= valor - tol) return { recebido: true, detalhe: `✓ Desconto em folha ${fmtVal(total)}` };
+    if (total > 0) return { recebido: false, parcial: true, detalhe: `Parcial: ${fmtVal(total)} de ${fmtVal(valor)}` };
+    return { recebido: false, detalhe: 'Desconto em folha — aguardando lançamento' };
   }
   if (categoria === 'Cartão' || categoria === 'Dinheiro' || categoria === 'Depósito') {
     // Sem conciliação automática (não há relatório de operadora de cartão / dinheiro no sistema).
@@ -3534,6 +3543,7 @@ function renderRecebimentos() {
           <option value="PIX (Extrato)">PIX</option>
           <option value="Depósito">Depósito / Transferência</option>
           <option value="Dinheiro">Dinheiro</option>
+          <option value="Desconto em Folha">Desconto em folha</option>
           <option value="PayPal">PayPal</option>
           <option value="BraavoPay">Braavo (iFood)</option>
           <option value="Boleto Itaú">Boleto Itaú</option>
