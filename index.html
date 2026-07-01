@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v207/06-231';
+const APP_VERSION = 'v208/06-232';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1794,12 +1794,17 @@ function renderPedidosTable() {
   const baseFat = hasFilter ? totalFilt : totalGeral;
   const baseDevol = hasFilter ? devolFilt : totalDevol;
   const fatReal = baseFat - baseDevol;
+  // Frete somado dos pedidos (respeita filtro); usa o frete corrigido ✎ quando houver.
+  const pedsFat = hasFilter ? filtered : pedidos;
+  const baseFrete = pedsFat.reduce((s, p) => s + freteDoPedido(p), 0);
 
   const cardsEl = document.getElementById('vendas-cards');
   if (cardsEl) cardsEl.innerHTML = `
     <div class="card blue"><div class="c-label">Total geral</div><div class="c-val">${fmtVal(totalGeral)}</div><div class="c-sub">${pedidos.length} pedidos</div></div>
     ${hasFilter ? `<div class="card green"><div class="c-label">Subtotal filtrado</div><div class="c-val">${fmtVal(totalFilt)}</div><div class="c-sub">${filtered.length} pedidos</div></div>` : ''}
-    <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub">${baseFat>0?fmtVal(baseFat):'—'} − ${fmtVal(baseDevol)} devolução</div></div>`;
+    <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub">${baseFat>0?fmtVal(baseFat):'—'} − ${fmtVal(baseDevol)} devolução</div></div>
+    <div class="card dark"><div class="c-label">Frete${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseFrete)}</div><div class="c-sub">${pedsFat.length} pedidos</div></div>
+    <div class="card red"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento</div></div>`;
 
   const tEl = document.getElementById('vendas-table');
   if (!tEl) return;
