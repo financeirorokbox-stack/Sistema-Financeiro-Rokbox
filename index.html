@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v185/06-209';
+const APP_VERSION = 'v186/06-210';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2715,7 +2715,7 @@ function salvarFormaManual(pedidoId, valor) {
 }
 
 // Formas que o usuário pode escolher ao trocar a forma de um pedido
-const CATEGORIAS_FORMA = ['Pix (Extrato/OFX)', 'PayPal', 'BraavoPay', 'Boleto Itaú', 'Devolução', 'Crédito Cliente'];
+const CATEGORIAS_FORMA = ['Pix (Extrato/OFX)', 'PayPal', 'BraavoPay', 'Boleto Itaú', 'Desconto em Folha', 'Dinheiro', 'Depósito', 'Devolução', 'Crédito Cliente'];
 
 // Seletor compacto (✏) para trocar a forma de pagamento de qualquer pedido
 function selectTrocaForma(pedId) {
