@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v195/06-219';
+const APP_VERSION = 'v196/06-220';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2408,13 +2408,13 @@ function renderComissao() {
     </div>
     ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
     <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
-      <th style="text-align:center" title="Marque os que você já conferiu">✓</th><th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vendedor${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right">% Comissão</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base Comissão${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Vlr Comissão${_comArrow('comissao')}</th>
+      <th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:center" title="Marque os que você já conferiu">✓</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vendedor${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right">% Comissão</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base Comissão${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Vlr Comissão${_comArrow('comissao')}</th>
     </tr></thead><tbody>
     ${linhas.map(l => `<tr id="comrow-${l.p.id}" style="background:${comConferido[l.p.id]?'#eafaf0':''}">
-      <td style="text-align:center"><input type="checkbox" ${comConferido[l.p.id]?'checked':''} onclick="toggleComConferido('${l.p.id}',this.checked)" title="Marcar como conferido"></td>
       <td>${l.p.nome||'—'}</td>
       <td><strong>#${l.p.id}</strong></td>
       <td style="text-align:right">${fmtVal(l.p.valor||0)}</td>
+      <td style="text-align:center"><input type="checkbox" ${comConferido[l.p.id]?'checked':''} onclick="toggleComConferido('${l.p.id}',this.checked)" title="Marcar como conferido"></td>
       <td style="text-align:right;color:var(--muted)">${l.frete?`<span style="cursor:help;border-bottom:1px dotted var(--muted)" title="${(l.p._freteLinhas&&l.p._freteLinhas.length)?('Soma de '+l.p._freteLinhas.length+' linha(s):\n'+l.p._freteLinhas.map(f=>fmtVal(f)).join(' + ')+'\n= '+fmtVal(l.frete)):'Frete do pedido (re-suba as Vendas p/ ver a soma por linha)'}">${fmtVal(l.frete)}${(l.p._freteLinhas&&l.p._freteLinhas.length)?` <span style="font-size:9px;color:var(--accent)">(${l.p._freteLinhas.length})</span>`:''}</span>`:'—'}</td>
       <td style="text-align:right;color:var(--muted)">${l.outras?fmtVal(l.outras):'—'}</td>
       <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
@@ -2426,7 +2426,7 @@ function renderComissao() {
       <td style="text-align:right;font-weight:600">${fmtVal(l.base)}</td>
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
     </tr>`).join('')}
-    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="3">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
+    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="9"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Outras − Devolução − <strong>Diferença</strong> · Comissão = % × Base<br>Vlr em Aberto = o que não foi pago. Diferença (o que abate) = 0 no <strong>boleto</strong> (conta cheio mesmo sem pagar); nos demais em aberto, abate o valor não pago.</div>
 
