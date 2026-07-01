@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v181/06-205';
+const APP_VERSION = 'v182/06-206';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1865,6 +1865,7 @@ function _renderContasImpl(el) {
   // Forma de Pagamento enriquece com gateway e vencimento quando disponível
   const linhas = [];
   let ocultadosOp = 0; // pedidos fora por não serem Venda/Troca (ex.: loja não cadastrada → operação vazia)
+  const boletoJaAdd = new Set(); // pedidos cujas parcelas de boleto já foram geradas (evita duplicar por linha de forma)
 
   pedidos.forEach(ped => {
     const sit = (ped.situacao || '').toLowerCase();
@@ -1921,6 +1922,8 @@ function _renderContasImpl(el) {
           if (bPed) {
             const parcelas = getParcelas(bPed);
             if (parcelas.length > 1) {
+              if (boletoJaAdd.has(ped.id)) return; // já gerou as parcelas deste pedido → NÃO duplica por linha de forma
+              boletoJaAdd.add(ped.id);
               parcelas.forEach(parc => {
                 const pago = !!boletoStatus[parc.key];
                 const stParc = pago
