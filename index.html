@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v193/06-217';
+const APP_VERSION = 'v194/06-218';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2288,7 +2288,7 @@ function toggleComSort(col) {
   else { comSort.col = col; comSort.dir = (col === 'nome' || col === 'vendedor' || col === 'loja') ? 'asc' : 'desc'; }
   renderComissao();
 }
-function _comArrow(col) { return comSort.col === col ? (comSort.dir === 'asc' ? ' ▲' : ' ▼') : ''; }
+function _comArrow(col) { return comSort.col === col ? ` <span style="color:var(--accent)">${comSort.dir === 'asc' ? '▲' : '▼'}</span>` : ' <span style="opacity:.35;font-size:9px">⇅</span>'; }
 // Pedido é BOLETO? (p/ comissão: boleto conta cheio mesmo sem ter pago; os demais em aberto abatem a base)
 function ehBoletoPed(p) {
   const ov = formaOverrideMap[p.id];
