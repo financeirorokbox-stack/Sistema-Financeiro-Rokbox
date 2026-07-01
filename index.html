@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v204/06-228';
+const APP_VERSION = 'v205/06-229';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2471,9 +2471,10 @@ function renderComissao() {
     const pct = isento ? 0 : comissaoDaLoja(p.loja); // % vem do Cadastro → Lojas (por loja)
     // BOLETO conta cheio mesmo sem ter pago (não abate); os DEMAIS em aberto abatem a base.
     const diferenca = diferencaDoPedido(p, emAberto);
-    const base = baseDoPedido(p, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2));
+    const baseAuto = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
+    const base = baseDoPedido(p, baseAuto);
     const comissao = +(Math.max(0, base) * pct).toFixed(2); // base negativa (ex.: devolução > valor) → comissão ZERO
-    return { p, frete, outras, devol, emAberto, diferenca, vend, isento, pct, base, comissao };
+    return { p, frete, outras, devol, emAberto, diferenca, baseAuto, vend, isento, pct, base, comissao };
   });
   // Ordena conforme a coluna clicada no cabeçalho.
   const _comKey = l => {
@@ -2498,6 +2499,11 @@ function renderComissao() {
   const totDevol = linhas.reduce((s, l) => s + (l.devol || 0), 0);
   const totEmAberto = linhas.reduce((s, l) => s + (l.emAberto || 0), 0);
   const totDifer = linhas.reduce((s, l) => s + (l.diferenca || 0), 0);
+  const totBaseAuto = linhas.reduce((s, l) => s + (l.baseAuto || 0), 0);
+  const deltaBase = +(totBase - totBaseAuto).toFixed(2); // efeito das bases editadas na mão
+  const nFreteEdit = linhas.filter(l => freteOverride[l.p.id] != null).length;
+  const nDiferEdit = linhas.filter(l => diferencaOverride[l.p.id] != null).length;
+  const nBaseEdit = linhas.filter(l => baseOverride[l.p.id] != null).length;
   // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
   const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
   _comVisIds = linhas.map(l => l.p.id); // pedidos exibidos (respeita filtro) para marcar/desmarcar todos
@@ -2575,6 +2581,7 @@ function renderComissao() {
     <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td style="text-align:right">${totFrete?fmtVal(totFrete):'—'}</td><td style="text-align:right">${totOutras?fmtVal(totOutras):'—'}</td><td style="text-align:right;color:${totDevol?'var(--red)':'inherit'}">${totDevol?fmtVal(totDevol):'—'}</td><td style="text-align:right;color:${totEmAberto?'var(--amber)':'inherit'}">${totEmAberto?fmtVal(totEmAberto):'—'}</td><td style="text-align:right;color:${totDifer?'var(--red)':'inherit'}">${totDifer?fmtVal(totDifer):'—'}</td><td colspan="3"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td><td></td></tr>
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Outras − Devolução − <strong>Diferença</strong> · Comissão = % × Base<br>Vlr em Aberto = o que não foi pago. Diferença (o que abate) = 0 no <strong>boleto</strong> (conta cheio mesmo sem pagar); nos demais em aberto, abate o valor não pago.</div>
+    ${(nFreteEdit || nDiferEdit || nBaseEdit) ? `<div style="font-size:11px;color:var(--amber);margin-top:6px;background:rgba(255,180,0,.08);border:1px solid var(--amber);border-radius:6px;padding:6px 10px">✎ <strong>Ajustes manuais nesta lista:</strong> ${[nFreteEdit && (nFreteEdit + ' frete'), nDiferEdit && (nDiferEdit + ' diferença'), nBaseEdit && (nBaseEdit + ' base')].filter(Boolean).join(' · ')}.${nBaseEdit ? ` Por isso o <strong>Total Base</strong> (${fmtVal(totBase)}) fica ${deltaBase < 0 ? fmtVal(deltaBase) : '+' + fmtVal(deltaBase)} em relação à fórmula automática (${fmtVal(totBaseAuto)}).` : ''}</div>` : ''}
 
     <div class="section-title" style="margin-top:28px">🧾 Fechar comissão por vendedor</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Fecha o total do vendedor no período (<strong>${comPeriodoInfo().label}</strong>) e cria um lançamento em <a href="#" onclick="setView('pagar');return false" style="color:var(--accent)">Contas a Pagar</a> (categoria <strong>COMISSÃO</strong>, em aberto). Depois é só pagar/conciliar como as outras contas. Use <strong>↩ Reabrir</strong> para desfazer.</div>
