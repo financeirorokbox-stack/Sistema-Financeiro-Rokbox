@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v189/06-213';
+const APP_VERSION = 'v190/06-214';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -937,6 +937,7 @@ let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — sa
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
+let freteManual = {};          // { pedidoId: valorFrete } — frete digitado na mão (Comissão), vale acima do que veio da planilha
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
 let comissaoOutros = {};       // { nome: percentual } — funcionários que ganham % SOBRE O FATURAMENTO (ex.: Elaine = 0.5)
 let comissaoExcecoes = [];     // [vendedor] — vendedores que NÃO ganham comissão (ex.: Felliphe)
@@ -1453,11 +1454,14 @@ function renderVendas() {
         empresa,
         data, valor: 0,
         frete: 0,
-        outrasDespesas: 0
+        outrasDespesas: 0,
+        _freteLinhas: []
       };
       map[id].valor += val;
-      // Frete/Outras Despesas: SOMA de TODAS as linhas do mesmo pedido.
-      map[id].frete += colNum(r, 'frete');
+      // Frete/Outras Despesas: SOMA de TODAS as linhas (Frete proporcional é por linha de produto).
+      const _fr = colNum(r, 'frete');
+      map[id].frete += _fr;
+      if (_fr) map[id]._freteLinhas.push(+_fr.toFixed(2));
       map[id].outrasDespesas += colNum(r, 'outras desp', 'outras despesa');
     });
     const newPeds = Object.values(map);
@@ -2339,7 +2343,7 @@ function renderComissao() {
       <td>${l.p.nome||'—'}</td>
       <td><strong>#${l.p.id}</strong></td>
       <td style="text-align:right">${fmtVal(l.p.valor||0)}</td>
-      <td style="text-align:right;color:var(--muted)">${l.frete?fmtVal(l.frete):'—'}</td>
+      <td style="text-align:right;color:var(--muted)">${l.frete?`<span style="cursor:help;border-bottom:1px dotted var(--muted)" title="${(l.p._freteLinhas&&l.p._freteLinhas.length)?('Soma de '+l.p._freteLinhas.length+' linha(s):\n'+l.p._freteLinhas.map(f=>fmtVal(f)).join(' + ')+'\n= '+fmtVal(l.frete)):'Frete do pedido (re-suba as Vendas p/ ver a soma por linha)'}">${fmtVal(l.frete)}${(l.p._freteLinhas&&l.p._freteLinhas.length)?` <span style="font-size:9px;color:var(--accent)">(${l.p._freteLinhas.length})</span>`:''}</span>`:'—'}</td>
       <td style="text-align:right;color:var(--muted)">${l.outras?fmtVal(l.outras):'—'}</td>
       <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
       <td style="text-align:right;color:${l.emAberto?'var(--amber)':'var(--muted)'}">${l.emAberto?fmtVal(l.emAberto):'—'}</td>
