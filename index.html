@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v198/06-222';
+const APP_VERSION = 'v199/06-223';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -2299,6 +2299,66 @@ function toggleComSort(col) {
   renderComissao();
 }
 function _comArrow(col) { return comSort.col === col ? ` <span style="color:var(--accent)">${comSort.dir === 'asc' ? '▲' : '▼'}</span>` : ' <span style="opacity:.35;font-size:9px">⇅</span>'; }
+// ── Fechamento de comissão por vendedor → cria lançamento em Contas a Pagar ──
+let comissaoFechada = {}; // { 'Vendedor§periodoKey': {vend,total,qtd,periodo,data,numero} }
+// Rótulo/chave do período atual (filtro de data) para identificar o fechamento.
+function comPeriodoInfo() {
+  if (!dfAtivo()) return { key: 'todos', label: 'todo o período' };
+  const a = dateFilter.ano.join(','), m = dateFilter.mes.join(','), d = dateFilter.dia.join(',');
+  const label = [d && ('dia ' + d), m && ('mês ' + m), a].filter(Boolean).join(' / ') || 'período';
+  return { key: [a, m, d].join('-'), label };
+}
+// Recalcula o total de comissão de UM vendedor no período (mesma regra da tabela).
+function comissaoTotalVendedor(vend) {
+  const devolPorPed = {};
+  devolucoes.forEach(d => { const cp = String(credDevolucao(d)).match(/\d{4,6}/g) || []; if (!cp.length) return; const parc = (d.valorPago || 0) / cp.length; cp.forEach(pc => devolPorPed[pc] = (devolPorPed[pc] || 0) + parc); });
+  let total = 0, qtd = 0;
+  pedidos.forEach(p => {
+    if ((p.vendedor || 'Sem vendedor') !== vend) return;
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
+    const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return;
+    if (dfAtivo() && !passaData(p.data)) return;
+    if (comissaoExcecoes.includes(vend)) return; // isento não gera comissão
+    const frete = p.frete || 0, outras = p.outrasDespesas || 0, devol = devolPorPed[String(p.id)] || 0;
+    const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
+    const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
+    const diferenca = ehBoletoPed(p) ? 0 : emAberto;
+    const base = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
+    total += +(Math.max(0, base) * comissaoDaLoja(p.loja)).toFixed(2); qtd++;
+  });
+  return { total: +total.toFixed(2), qtd };
+}
+function fecharComissaoVendedor(vend) {
+  const { total, qtd } = comissaoTotalVendedor(vend);
+  const per = comPeriodoInfo();
+  const key = vend + '§' + per.key;
+  if (comissaoFechada[key]) { alert('A comissão de ' + vend + ' já está fechada nesse período.'); return; }
+  if (total <= 0) { alert('Sem comissão a fechar para ' + vend + ' no período.'); return; }
+  if (!confirm('Fechar a comissão de ' + vend + ' (' + per.label + ') no valor de ' + fmtVal(total) + ' e enviar para Contas a Pagar?\n\n' + qtd + ' pedido(s). Categoria: COMISSÃO (em aberto).')) return;
+  const venc = new Date();
+  const numero = 'COM-' + key.replace(/[^0-9A-Za-z]+/g, '').slice(0, 20);
+  contasPagar.push({ numero, fornecedor: vend, descricao: 'Comissão ' + vend + ' — ' + per.label, categoria: 'COMISSÃO', observacao: 'Fechamento da aba Comissão (' + qtd + ' pedidos)', empresa: '', rateio: [], vencimento: venc, dataPag: null, valor: total, situacao: 'Em Aberto', pago: false, _comissaoKey: key });
+  comissaoFechada[key] = { vend, total, qtd, periodo: per.label, data: venc.toISOString(), numero };
+  saveData('contasPagar', contasPagar);
+  saveData('comissaoFechada', comissaoFechada);
+  renderComissao();
+  alert('✅ Comissão de ' + vend + ' fechada e enviada para Contas a Pagar (' + fmtVal(total) + ').');
+}
+function reabrirComissaoVendedor(vend) {
+  const per = comPeriodoInfo();
+  const key = vend + '§' + per.key;
+  const info = comissaoFechada[key];
+  if (!info) { alert('A comissão de ' + vend + ' não está fechada nesse período.'); return; }
+  const idx = contasPagar.findIndex(c => c._comissaoKey === key);
+  const conta = idx >= 0 ? contasPagar[idx] : null;
+  if (conta && conta.pago) { if (!confirm('⚠ A conta em Contas a Pagar JÁ está marcada como PAGA. Reabrir vai REMOVER esse lançamento mesmo assim?')) return; }
+  else if (!confirm('Reabrir a comissão de ' + vend + ' e remover o lançamento de Contas a Pagar (' + fmtVal(info.total) + ')?')) return;
+  if (idx >= 0) contasPagar.splice(idx, 1);
+  delete comissaoFechada[key];
+  saveData('contasPagar', contasPagar);
+  saveData('comissaoFechada', comissaoFechada);
+  renderComissao();
+}
 // Pedido é BOLETO? (p/ comissão: boleto conta cheio mesmo sem ter pago; os demais em aberto abatem a base)
 function ehBoletoPed(p) {
   const ov = formaOverrideMap[p.id];
@@ -2435,6 +2495,23 @@ function renderComissao() {
     <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td><td></td></tr>
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Outras − Devolução − <strong>Diferença</strong> · Comissão = % × Base<br>Vlr em Aberto = o que não foi pago. Diferença (o que abate) = 0 no <strong>boleto</strong> (conta cheio mesmo sem pagar); nos demais em aberto, abate o valor não pago.</div>
+
+    <div class="section-title" style="margin-top:28px">🧾 Fechar comissão por vendedor</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Fecha o total do vendedor no período (<strong>${comPeriodoInfo().label}</strong>) e cria um lançamento em <a href="#" onclick="setView('pagar');return false" style="color:var(--accent)">Contas a Pagar</a> (categoria <strong>COMISSÃO</strong>, em aberto). Depois é só pagar/conciliar como as outras contas. Use <strong>↩ Reabrir</strong> para desfazer.</div>
+    ${(() => {
+      const per = comPeriodoInfo();
+      const vs = vendedores.map(v => ({ v, ...comissaoTotalVendedor(v) })).filter(x => x.total > 0 || comissaoFechada[x.v + '§' + per.key]);
+      if (!vs.length) return '<div style="font-size:12px;color:var(--muted)">Nenhum vendedor com comissão no período.</div>';
+      vs.sort((a, b) => b.total - a.total);
+      return `<div class="table-wrap" style="max-width:720px"><table><thead><tr><th>Vendedor</th><th style="text-align:right">Comissão</th><th style="text-align:right">Pedidos</th><th>Status</th><th></th></tr></thead><tbody>` +
+        vs.map(x => { const key = x.v + '§' + per.key; const fech = comissaoFechada[key]; const vjs = x.v.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); return `<tr>
+          <td><strong>${x.v}</strong></td>
+          <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(fech ? fech.total : x.total)}</td>
+          <td style="text-align:right;color:var(--muted)">${fech ? fech.qtd : x.qtd}</td>
+          <td>${fech ? `<span class="badge" style="background:var(--green);color:#fff">✓ fechado</span> <span style="font-size:11px;color:var(--muted)">${fech.periodo}</span>` : '<span style="font-size:11px;color:var(--muted)">em aberto</span>'}</td>
+          <td style="text-align:right">${fech ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="reabrirComissaoVendedor('${vjs}')" title="Remove o lançamento de Contas a Pagar e reabre">↩ Reabrir</button>` : `<button class="btn primary sm" onclick="fecharComissaoVendedor('${vjs}')" title="Fecha e envia p/ Contas a Pagar">✔ Fechar → Contas a Pagar</button>`}</td>
+        </tr>`; }).join('') + `</tbody></table></div>`;
+    })()}
 
     <div class="section-title" style="margin-top:28px">💼 Outros (% sobre uma base)</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Base = soma das bases de comissão dos pedidos do período (Total ou de um segmento). Cadastre em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
@@ -8050,7 +8127,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -8100,6 +8177,7 @@ function delCheckboxHeader(source) {
     else if (k==='comissaoOutros') comissaoOutros = v || {};
     else if (k==='comissaoExcecoes') comissaoExcecoes = v || [];
     else if (k==='comConferido') comConferido = v || {};
+    else if (k==='comissaoFechada') comissaoFechada = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
