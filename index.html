@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v192/06-216';
+const APP_VERSION = 'v193/06-217';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2328,7 +2328,7 @@ function renderComissao() {
     // BOLETO conta cheio mesmo sem ter pago (não abate); os DEMAIS em aberto abatem a base.
     const diferenca = ehBoletoPed(p) ? 0 : emAberto;
     const base = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
-    const comissao = +(base * pct).toFixed(2);
+    const comissao = +(Math.max(0, base) * pct).toFixed(2); // base negativa (ex.: devolução > valor) → comissão ZERO
     return { p, frete, outras, devol, emAberto, diferenca, vend, isento, pct, base, comissao };
   });
   // Ordena conforme a coluna clicada no cabeçalho.
@@ -2366,7 +2366,7 @@ function renderComissao() {
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
     const diferenca = ehBoletoPed(p) ? 0 : emAberto; // boleto conta cheio; demais abatem
-    const bp = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
+    const bp = Math.max(0, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2)); // base negativa → 0 (não puxa o total dos Outros p/ baixo)
     baseGeral += bp;
     const seg = cls.segmento || 'Sem segmento';
     basePorSeg[seg] = (basePorSeg[seg] || 0) + bp;
@@ -2446,10 +2446,10 @@ function exportarComissao() {
     const diferenca = ehBoletoPed(p) ? 0 : emAberto; // boleto conta cheio; demais abatem
     const pct = comissaoExcecoes.includes(p.vendedor||'Sem vendedor') ? 0 : comissaoDaLoja(p.loja);
     const base = +((p.valor||0)-frete-devol-outras-diferenca).toFixed(2);
-    aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, emAberto, diferenca, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(base*pct).toFixed(2)]);
+    aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, emAberto, diferenca, p.vendedor||'', p.loja||'', +(pct*100).toFixed(2), base, +(Math.max(0,base)*pct).toFixed(2)]);
   });
   // Outros — base = soma das bases de comissão dos pedidos do período (Total ou por segmento).
-  let baseGeral=0; const basePorSeg={}; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const cls=getClassificacao(p); const op=(cls.operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=p.frete||0, od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=Math.max(0,+((p.valor||0)-rec).toFixed(2)); const dif=ehBoletoPed(p)?0:ab; const bp=+((p.valor||0)-fr-dv-od-dif).toFixed(2); baseGeral+=bp; const sg=cls.segmento||'Sem segmento'; basePorSeg[sg]=(basePorSeg[sg]||0)+bp; });
+  let baseGeral=0; const basePorSeg={}; pedidos.forEach(p=>{ if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return; const cls=getClassificacao(p); const op=(cls.operacao||'').toLowerCase(); if(op!=='venda'&&op!=='troca') return; if (dfAtivo()&&!passaData(p.data)) return; const fr=p.frete||0, od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=Math.max(0,+((p.valor||0)-rec).toFixed(2)); const dif=ehBoletoPed(p)?0:ab; const bp=Math.max(0,+((p.valor||0)-fr-dv-od-dif).toFixed(2)); baseGeral+=bp; const sg=cls.segmento||'Sem segmento'; basePorSeg[sg]=(basePorSeg[sg]||0)+bp; });
   baseGeral = +baseGeral.toFixed(2);
   aoa.push([]); aoa.push(['OUTROS (% sobre uma base)']);
   aoa.push(['Nome','Base','%','Base (R$)','Comissão']);
