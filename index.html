@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v179/06-203';
+const APP_VERSION = 'v180/06-204';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2213,9 +2213,10 @@ function limparFiltrosBanco() { bancoConcSel = '__todos'; buscaPersist.banco = '
 function limparFiltrosVendas() {
   ['empresa','situacao','loja','vendedor','operacao'].forEach(f => vendasFilters[f] = []);
   buscaPersist.vendas = '';
+  const bEl = document.getElementById('busca-vendas'); if (bEl) bEl.value = ''; // zera o campo na hora (o filtro lê dele)
   if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); }
   saveData('vendasFilters', vendasFilters);
-  renderPedidosTable();
+  renderVendas(); // render COMPLETO: redesenha busca + filtros + tabela (renderPedidosTable só refazia a tabela)
 }
 function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderFluxo(); }
 function limparFiltrosComissao() { const e=document.getElementById('com-vend'); if(e) e.value=''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderComissao(); }
