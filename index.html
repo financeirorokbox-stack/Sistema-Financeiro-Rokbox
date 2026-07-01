@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v194/06-218';
+const APP_VERSION = 'v195/06-219';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -2281,6 +2281,16 @@ function setComissaoVendedor(vend, pctStr) {
   renderComissao();
 }
 // ── COMISSÃO ── Base = Valor − Frete − Devolução − Outras Despesas; Comissão = % (por vendedor) × Base
+// Marcação "conferido" na Comissão (checkbox por pedido).
+let comConferido = {}; // { pedidoId: true }
+function toggleComConferido(pedId, checked) {
+  if (checked) comConferido[pedId] = true; else delete comConferido[pedId];
+  saveData('comConferido', comConferido);
+  const tr = document.getElementById('comrow-' + pedId);
+  if (tr) tr.style.background = checked ? '#eafaf0' : '';
+  const cnt = document.getElementById('com-conf-cnt');
+  if (cnt) cnt.textContent = Object.keys(comConferido).length;
+}
 // Ordenação clicável da tabela de Comissão.
 let comSort = { col: 'pedido', dir: 'desc' };
 function toggleComSort(col) {
@@ -2392,15 +2402,16 @@ function renderComissao() {
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px">O <strong>% é por loja</strong>, definido em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>. A comissão é calculada por pedido (Venda/Troca) do período.</div>
     ${lojasSemPct.length ? `<div style="font-size:12px;color:var(--amber);margin-bottom:12px">⚠ Lojas sem % cadastrado (comissão = 0): ${lojasSemPct.slice(0,8).join(', ')}${lojasSemPct.length>8?` …(+${lojasSemPct.length-8})`:''} — defina em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>.</div>` : ''}
     <div class="cards-row" style="margin-bottom:16px">
-      <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${linhas.length}</div><div class="c-sub">${fmtVal(totVal)}</div></div>
+      <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${linhas.length}</div><div class="c-sub">${fmtVal(totVal)} · ✓ conferidos: <span id="com-conf-cnt">${Object.keys(comConferido).length}</span></div></div>
       <div class="card dark"><div class="c-label">Base comissão</div><div class="c-val">${fmtVal(totBase)}</div></div>
       <div class="card green"><div class="c-label">Total comissão</div><div class="c-val">${fmtVal(totCom)}</div></div>
     </div>
     ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
     <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
-      <th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vendedor${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right">% Comissão</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base Comissão${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Vlr Comissão${_comArrow('comissao')}</th>
+      <th style="text-align:center" title="Marque os que você já conferiu">✓</th><th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vendedor${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right">% Comissão</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base Comissão${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Vlr Comissão${_comArrow('comissao')}</th>
     </tr></thead><tbody>
-    ${linhas.map(l => `<tr>
+    ${linhas.map(l => `<tr id="comrow-${l.p.id}" style="background:${comConferido[l.p.id]?'#eafaf0':''}">
+      <td style="text-align:center"><input type="checkbox" ${comConferido[l.p.id]?'checked':''} onclick="toggleComConferido('${l.p.id}',this.checked)" title="Marcar como conferido"></td>
       <td>${l.p.nome||'—'}</td>
       <td><strong>#${l.p.id}</strong></td>
       <td style="text-align:right">${fmtVal(l.p.valor||0)}</td>
@@ -2415,7 +2426,7 @@ function renderComissao() {
       <td style="text-align:right;font-weight:600">${fmtVal(l.base)}</td>
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
     </tr>`).join('')}
-    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
+    <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="3">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td></tr>
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Outras − Devolução − <strong>Diferença</strong> · Comissão = % × Base<br>Vlr em Aberto = o que não foi pago. Diferença (o que abate) = 0 no <strong>boleto</strong> (conta cheio mesmo sem pagar); nos demais em aberto, abate o valor não pago.</div>
 
@@ -8033,7 +8044,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -8082,6 +8093,7 @@ function delCheckboxHeader(source) {
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
     else if (k==='comissaoExcecoes') comissaoExcecoes = v || [];
+    else if (k==='comConferido') comConferido = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
