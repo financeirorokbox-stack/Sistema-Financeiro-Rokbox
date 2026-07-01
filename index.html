@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v191/06-215';
+const APP_VERSION = 'v192/06-216';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2281,6 +2281,14 @@ function setComissaoVendedor(vend, pctStr) {
   renderComissao();
 }
 // ── COMISSÃO ── Base = Valor − Frete − Devolução − Outras Despesas; Comissão = % (por vendedor) × Base
+// Ordenação clicável da tabela de Comissão.
+let comSort = { col: 'pedido', dir: 'desc' };
+function toggleComSort(col) {
+  if (comSort.col === col) comSort.dir = comSort.dir === 'asc' ? 'desc' : 'asc';
+  else { comSort.col = col; comSort.dir = (col === 'nome' || col === 'vendedor' || col === 'loja') ? 'asc' : 'desc'; }
+  renderComissao();
+}
+function _comArrow(col) { return comSort.col === col ? (comSort.dir === 'asc' ? ' ▲' : ' ▼') : ''; }
 // Pedido é BOLETO? (p/ comissão: boleto conta cheio mesmo sem ter pago; os demais em aberto abatem a base)
 function ehBoletoPed(p) {
   const ov = formaOverrideMap[p.id];
@@ -2322,7 +2330,22 @@ function renderComissao() {
     const base = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
     const comissao = +(base * pct).toFixed(2);
     return { p, frete, outras, devol, emAberto, diferenca, vend, isento, pct, base, comissao };
-  }).sort((a, b) => Number(b.p.id) - Number(a.p.id));
+  });
+  // Ordena conforme a coluna clicada no cabeçalho.
+  const _comKey = l => {
+    switch (comSort.col) {
+      case 'valor': return l.p.valor || 0;
+      case 'frete': return l.frete || 0;
+      case 'base': return l.base || 0;
+      case 'comissao': return l.comissao || 0;
+      case 'nome': return (l.p.nome || '').toLowerCase();
+      case 'vendedor': return (l.vend || '').toLowerCase();
+      case 'loja': return (l.p.loja || '').toLowerCase();
+      default: return Number(l.p.id) || 0; // pedido
+    }
+  };
+  const _comDir = comSort.dir === 'asc' ? 1 : -1;
+  linhas.sort((a, b) => { const ka = _comKey(a), kb = _comKey(b); return (ka < kb ? -1 : ka > kb ? 1 : 0) * _comDir; });
   const totVal = linhas.reduce((s, l) => s + (l.p.valor || 0), 0);
   const totBase = linhas.reduce((s, l) => s + l.base, 0);
   const totCom = linhas.reduce((s, l) => s + l.comissao, 0);
@@ -2375,7 +2398,7 @@ function renderComissao() {
     </div>
     ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
     <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
-      <th>Nome</th><th>Pedido</th><th style="text-align:right">Valor</th><th style="text-align:right">Frete</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th>Vendedor</th><th>Loja</th><th style="text-align:right">% Comissão</th><th style="text-align:right">Base Comissão</th><th style="text-align:right">Vlr Comissão</th>
+      <th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vendedor${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right">% Comissão</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base Comissão${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Vlr Comissão${_comArrow('comissao')}</th>
     </tr></thead><tbody>
     ${linhas.map(l => `<tr>
       <td>${l.p.nome||'—'}</td>
