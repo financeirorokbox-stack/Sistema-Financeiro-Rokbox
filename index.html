@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v199/06-223';
+const APP_VERSION = 'v200/06-224';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -490,7 +490,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','freteOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -521,7 +521,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','freteOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -2299,6 +2299,25 @@ function toggleComSort(col) {
   renderComissao();
 }
 function _comArrow(col) { return comSort.col === col ? ` <span style="color:var(--accent)">${comSort.dir === 'asc' ? '▲' : '▼'}</span>` : ' <span style="opacity:.35;font-size:9px">⇅</span>'; }
+// ── Correção manual do frete de um pedido (só afeta a Comissão; não toca no pedido) ──
+let freteOverride = {}; // { pedidoId: valorCorrigido }
+function freteDoPedido(p) { return (freteOverride[p.id] != null) ? freteOverride[p.id] : (p.frete || 0); }
+function editarFretePedido(pedId) {
+  const p = pedidos.find(x => String(x.id) === String(pedId)); if (!p) return;
+  const orig = p.frete || 0;
+  const atual = (freteOverride[pedId] != null) ? freteOverride[pedId] : orig;
+  const s = prompt('Frete do pedido #' + pedId + ' (usado na comissão).\nVindo da planilha de Vendas: ' + fmtVal(orig) + '\n\nDigite o valor CORRETO (ou deixe vazio para voltar ao da planilha):', String(atual).replace('.', ','));
+  if (s === null) return;
+  const t = s.trim();
+  if (t === '') { delete freteOverride[pedId]; }
+  else {
+    const v = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t);
+    if (isNaN(v) || v < 0) { alert('Valor inválido.'); return; }
+    freteOverride[pedId] = +v.toFixed(2);
+  }
+  saveData('freteOverride', freteOverride);
+  renderComissao();
+}
 // ── Fechamento de comissão por vendedor → cria lançamento em Contas a Pagar ──
 let comissaoFechada = {}; // { 'Vendedor§periodoKey': {vend,total,qtd,periodo,data,numero} }
 // Rótulo/chave do período atual (filtro de data) para identificar o fechamento.
@@ -2319,7 +2338,7 @@ function comissaoTotalVendedor(vend) {
     const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return;
     if (dfAtivo() && !passaData(p.data)) return;
     if (comissaoExcecoes.includes(vend)) return; // isento não gera comissão
-    const frete = p.frete || 0, outras = p.outrasDespesas || 0, devol = devolPorPed[String(p.id)] || 0;
+    const frete = freteDoPedido(p), outras = p.outrasDespesas || 0, devol = devolPorPed[String(p.id)] || 0;
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
     const diferenca = ehBoletoPed(p) ? 0 : emAberto;
@@ -2388,7 +2407,7 @@ function renderComissao() {
     return true;
   });
   const linhas = peds.map(p => {
-    const frete = p.frete || 0, outras = p.outrasDespesas || 0;
+    const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
     const devol = devolPorPed[String(p.id)] || 0;
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2)); // o que realmente não foi pago
@@ -2431,7 +2450,7 @@ function renderComissao() {
     const op = (cls.operacao || '').toLowerCase();
     if (op !== 'venda' && op !== 'troca') return;
     if (dfAtivo() && !passaData(p.data)) return;
-    const frete = p.frete || 0, outras = p.outrasDespesas || 0;
+    const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
     const devol = devolPorPed[String(p.id)] || 0;
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
     const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
@@ -2480,7 +2499,7 @@ function renderComissao() {
       <td>${l.p.nome||'—'}</td>
       <td><strong>#${l.p.id}</strong></td>
       <td style="text-align:right">${fmtVal(l.p.valor||0)}</td>
-      <td style="text-align:right;color:var(--muted)">${l.frete?`<span style="cursor:help;border-bottom:1px dotted var(--muted)" title="${(l.p._freteLinhas&&l.p._freteLinhas.length)?('Soma de '+l.p._freteLinhas.length+' linha(s):\n'+l.p._freteLinhas.map(f=>fmtVal(f)).join(' + ')+'\n= '+fmtVal(l.frete)):'Frete do pedido (re-suba as Vendas p/ ver a soma por linha)'}">${fmtVal(l.frete)}${(l.p._freteLinhas&&l.p._freteLinhas.length)?` <span style="font-size:9px;color:var(--accent)">(${l.p._freteLinhas.length})</span>`:''}</span>`:'—'}</td>
+      <td style="text-align:right;color:var(--muted);cursor:pointer" onclick="editarFretePedido('${l.p.id}')" title="${freteOverride[l.p.id]!=null?('Frete CORRIGIDO manualmente. Planilha: '+fmtVal(l.p.frete||0)+'. Clique para editar.'):((l.p._freteLinhas&&l.p._freteLinhas.length)?('Soma de '+l.p._freteLinhas.length+' linha(s): '+l.p._freteLinhas.map(f=>fmtVal(f)).join(' + ')+' = '+fmtVal(l.p.frete||0)+'. Clique para corrigir.'):'Clique para corrigir o frete deste pedido.')}">${l.frete?fmtVal(l.frete):'—'}${freteOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:((l.p._freteLinhas&&l.p._freteLinhas.length)?` <span style="font-size:9px;color:var(--accent)">(${l.p._freteLinhas.length})</span>`:'')}</td>
       <td style="text-align:right;color:var(--muted)">${l.outras?fmtVal(l.outras):'—'}</td>
       <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
       <td style="text-align:right;color:${l.emAberto?'var(--amber)':'var(--muted)'}">${l.emAberto?fmtVal(l.emAberto):'—'}</td>
@@ -2534,7 +2553,7 @@ function exportarComissao() {
     if (fVend && (p.vendedor||'Sem vendedor')!==fVend) return false;
     return true;
   }).sort((a,b)=>Number(b.id)-Number(a.id)).forEach(p => {
-    const frete=p.frete||0, outras=p.outrasDespesas||0, devol=devolPorPed[String(p.id)]||0;
+    const frete=freteDoPedido(p), outras=p.outrasDespesas||0, devol=devolPorPed[String(p.id)]||0;
     const recebido = getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0);
     const emAberto = Math.max(0, +((p.valor||0)-recebido).toFixed(2));
     const diferenca = ehBoletoPed(p) ? 0 : emAberto; // boleto conta cheio; demais abatem
@@ -8127,7 +8146,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','comConferido','comissaoFechada','freteOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -8178,6 +8197,7 @@ function delCheckboxHeader(source) {
     else if (k==='comissaoExcecoes') comissaoExcecoes = v || [];
     else if (k==='comConferido') comConferido = v || {};
     else if (k==='comissaoFechada') comissaoFechada = v || {};
+    else if (k==='freteOverride') freteOverride = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
