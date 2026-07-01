@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v187/06-211';
+const APP_VERSION = 'v188/06-212';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1452,13 +1452,13 @@ function renderVendas() {
         vendedor: r['Nome - Vendedor']||r['Vendedor']||'',
         empresa,
         data, valor: 0,
-        frete: colNum(r, 'frete'),
-        outrasDespesas: colNum(r, 'outras desp', 'outras despesa')
+        frete: 0,
+        outrasDespesas: 0
       };
       map[id].valor += val;
-      // Frete/Outras: se vierem só em alguma linha, mantém o maior não-zero do pedido.
-      const fr = colNum(r, 'frete'); if (fr) map[id].frete = fr;
-      const od = colNum(r, 'outras desp', 'outras despesa'); if (od) map[id].outrasDespesas = od;
+      // Frete/Outras Despesas: SOMA de TODAS as linhas do mesmo pedido.
+      map[id].frete += colNum(r, 'frete');
+      map[id].outrasDespesas += colNum(r, 'outras desp', 'outras despesa');
     });
     const newPeds = Object.values(map);
     newPeds.forEach(np => {
