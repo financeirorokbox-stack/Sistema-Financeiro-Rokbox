@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v182/06-206';
+const APP_VERSION = 'v183/06-207';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4865,28 +4865,27 @@ function renderExtrato() {
       // - TEM FITID (id do banco) → casa SÓ por FITID-base (id sem o sufixo _N). Duas transações reais
       //   NUNCA têm o mesmo FITID, então dois lançamentos iguais no mesmo dia (2 tarifas, 2 PIX iguais) ENTRAM os dois.
       // - SEM FITID (ofx-N) → casa por CONTEÚDO (data+valor+texto), única opção possível.
+      // Duplicata SÓ quando FITID-base E CONTEÚDO batem juntos. Motivo: o FITID do Itaú é data+posição
+      // (ex.: 20260630001), NÃO é fixo por transação — então sozinho ele "falsa-pula" créditos legítimos.
+      // E duas transações iguais no mesmo dia têm FITID diferente → as duas entram. Nunca perde lançamento.
       const fitidBase = t => (t.id && !String(t.id).startsWith('ofx-')) ? String(t.id).split('_')[0] : '';
       const conteudo = t => [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor, (t.memo || '').trim().toLowerCase()].join('|');
-      const porFitid = {}, porConteudo = {};
-      extratoBancario.forEach(t => {
-        const tb = (t.banco || '');
-        const fb = fitidBase(t);
-        if (fb) porFitid[tb + '||' + fb] = t; else porConteudo[tb + '||' + conteudo(t)] = t;
-      });
+      const chaveDedup = t => fitidBase(t) + '§' + conteudo(t);
+      const porChave = {};
+      extratoBancario.forEach(t => { porChave[(t.banco || '') + '||' + chaveDedup(t)] = t; });
       const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
       let add = 0;
       novas.forEach(t => {
-        const fb = fitidBase(t);
-        const existe = fb ? porFitid[banco + '||' + fb] : porConteudo[banco + '||' + conteudo(t)];
-        if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // já existe NESTE banco
-        // Garante id único (evita colisão de 'ofx-N' entre arquivos, que quebraria os vínculos)
+        const existe = porChave[banco + '||' + chaveDedup(t)];
+        if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // mesmo FITID E mesmo conteúdo → já existe
+        // Garante id único (evita colisão de FITID posicional / 'ofx-N', que quebraria os vínculos)
         let id = String(t.id);
         let n = 1;
         while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); }
         t.id = id;
         t.banco = banco;
         idsUsados.add(id);
-        if (fb) porFitid[banco + '||' + fb] = t; else porConteudo[banco + '||' + conteudo(t)] = t;
+        porChave[banco + '||' + chaveDedup(t)] = t;
         extratoBancario.push(t);
         add++;
       });
@@ -6742,12 +6741,13 @@ function removerDuplicatasDoBanco() {
     alert('Selecione um BANCO específico no filtro (em cima) e rode de novo. Assim eu limpo as cópias só desse banco.');
     return;
   }
+  // Duplicata = MESMO FITID-base E MESMO conteúdo (data+valor+texto). Só FITID não basta: o do Itaú é
+  // posicional (pode repetir entre transações diferentes). Só conteúdo também não (2 iguais no mesmo dia são legítimas).
   const keyOf = t => {
     const dk = t.data instanceof Date && !isNaN(t.data) ? t.data.toISOString().slice(0, 10) : '';
     const idStr = String(t.id || '');
-    const temFitid = idStr && !idStr.startsWith('ofx-');
-    return temFitid ? ('fitid:' + idStr.split('_')[0]) // FITID sem o sufixo _N que o re-upload adiciona
-                    : ('c:' + dk + '|' + (t.valor || 0).toFixed(2) + '|' + (t.memo || '').trim().toLowerCase());
+    const fb = (idStr && !idStr.startsWith('ofx-')) ? idStr.split('_')[0] : '';
+    return fb + '§' + dk + '|' + (t.valor || 0).toFixed(2) + '|' + (t.memo || '').trim().toLowerCase();
   };
   const linked = id => !!(extratoLinks[id] || repasseLinks[id] || debitoLinks[id] || receitaLinks[id]);
   const doBanco = extratoBancario.filter(t => (t.banco || '') === banco);
