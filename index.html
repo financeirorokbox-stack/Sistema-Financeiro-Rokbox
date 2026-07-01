@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v197/06-221';
+const APP_VERSION = 'v198/06-222';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2287,7 +2287,7 @@ function toggleComConferido(pedId, checked) {
   if (checked) comConferido[pedId] = true; else delete comConferido[pedId];
   saveData('comConferido', comConferido);
   const tr = document.getElementById('comrow-' + pedId);
-  if (tr) tr.style.background = checked ? '#eafaf0' : '';
+  if (tr) { tr.style.background = checked ? '#eafaf0' : ''; if (tr.lastElementChild) tr.lastElementChild.style.background = checked ? '#eafaf0' : 'var(--card)'; }
   const cnt = document.getElementById('com-conf-cnt');
   if (cnt) cnt.textContent = Object.keys(comConferido).length;
 }
@@ -2407,8 +2407,14 @@ function renderComissao() {
       <div class="card green"><div class="c-label">Total comissão</div><div class="c-val">${fmtVal(totCom)}</div></div>
     </div>
     ${linhas.length === 0 ? '<div class="empty"><div class="e-icon">💸</div>Nenhum pedido no filtro</div>' : `
-    <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
-      <th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right">Outras Desp.</th><th style="text-align:right">Devolução</th><th style="text-align:right">Vlr em Aberto</th><th style="text-align:right">Diferença</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vendedor${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right">% Comissão</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base Comissão${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Vlr Comissão${_comArrow('comissao')}</th><th style="text-align:center" title="Marque os que você já conferiu">✓</th>
+    <style>
+      .com-tbl{font-size:11px;white-space:normal;border-collapse:collapse}
+      .com-tbl th,.com-tbl td{padding:3px 6px}
+      .com-tbl th{font-size:10px;line-height:1.05;vertical-align:bottom}
+      .com-tbl th:last-child,.com-tbl td:last-child{position:sticky;right:0;z-index:2;background:var(--card);box-shadow:-5px 0 6px -4px rgba(0,0,0,.18)}
+    </style>
+    <div class="table-wrap"><table class="com-tbl"><thead><tr>
+      <th style="cursor:pointer" onclick="toggleComSort('nome')" title="Ordenar por nome">Nome${_comArrow('nome')}</th><th style="cursor:pointer" onclick="toggleComSort('pedido')" title="Ordenar por pedido">Pedido${_comArrow('pedido')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('valor')" title="Ordenar por valor">Valor${_comArrow('valor')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('frete')" title="Ordenar por frete">Frete${_comArrow('frete')}</th><th style="text-align:right" title="Outras Despesas">Outras</th><th style="text-align:right" title="Devolução">Devol.</th><th style="text-align:right" title="Vlr em Aberto (o que não foi pago)">Em Aberto</th><th style="text-align:right" title="Diferença que abate a base">Difer.</th><th style="cursor:pointer" onclick="toggleComSort('vendedor')" title="Ordenar por vendedor">Vend.${_comArrow('vendedor')}</th><th style="cursor:pointer" onclick="toggleComSort('loja')" title="Ordenar por loja">Loja${_comArrow('loja')}</th><th style="text-align:right" title="% Comissão">%</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('base')" title="Ordenar por base">Base${_comArrow('base')}</th><th style="text-align:right;cursor:pointer" onclick="toggleComSort('comissao')" title="Ordenar por comissão">Comissão${_comArrow('comissao')}</th><th style="text-align:center" title="Marque os que você já conferiu">✓</th>
     </tr></thead><tbody>
     ${linhas.map(l => `<tr id="comrow-${l.p.id}" style="background:${comConferido[l.p.id]?'#eafaf0':''}">
       <td>${l.p.nome||'—'}</td>
@@ -2424,7 +2430,7 @@ function renderComissao() {
       <td style="text-align:right;${l.pct?'':'color:var(--amber)'}">${l.isento?'—':(l.pct*100).toFixed(2)+'%'}</td>
       <td style="text-align:right;font-weight:600">${fmtVal(l.base)}</td>
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
-      <td style="text-align:center"><input type="checkbox" ${comConferido[l.p.id]?'checked':''} onclick="toggleComConferido('${l.p.id}',this.checked)" title="Marcar como conferido"></td>
+      <td style="text-align:center;background:${comConferido[l.p.id]?'#eafaf0':'var(--card)'}"><input type="checkbox" ${comConferido[l.p.id]?'checked':''} onclick="toggleComConferido('${l.p.id}',this.checked)" title="Marcar como conferido"></td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td colspan="8"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td><td></td></tr>
     </tbody></table></div>`}
