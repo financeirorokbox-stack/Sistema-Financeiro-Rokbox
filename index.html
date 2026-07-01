@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v208/06-232';
+const APP_VERSION = 'v209/06-233';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1390,10 +1390,22 @@ function opKey(loja, situacao) {
 // ════════════════════════════════════════════════════════════════════
 // VENDAS
 // ════════════════════════════════════════════════════════════════════
+function toggleVendasUploads() {
+  const g = document.getElementById('vendas-uploads'), b = document.getElementById('btn-vendas-uploads');
+  if (!g) return;
+  const esconder = g.style.display !== 'none';
+  g.style.display = esconder ? 'none' : 'grid';
+  if (b) b.textContent = esconder ? '▸ Mostrar uploads' : '▾ Recolher uploads';
+  try { localStorage.setItem('vendasUploadsRecolhido', esconder ? '1' : '0'); } catch (e) {}
+}
 function renderVendas() {
   const el = document.getElementById('v-vendas');
+  const upRec = (() => { try { return localStorage.getItem('vendasUploadsRecolhido') === '1'; } catch (e) { return false; } })();
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+      <button class="btn ghost sm" id="btn-vendas-uploads" onclick="toggleVendasUploads()">${upRec ? '▸ Mostrar uploads' : '▾ Recolher uploads'}</button>
+    </div>
+    <div id="vendas-uploads" style="display:${upRec ? 'none' : 'grid'};grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
       <label class="upload-card" id="card-pedidos" for="file-pedidos">
         <div class="u-icon">📋</div>
         <div class="u-label">Relatório de Pedidos</div>
