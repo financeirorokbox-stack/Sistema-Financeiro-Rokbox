@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v180/06-204';
+const APP_VERSION = 'v181/06-205';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1587,7 +1587,7 @@ function filtrosBar({ nAtivos = 0, limpar = '', acoes = '', campos = '' }) {
   return `
     <div class="topbar">
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nAtivos ? ` <span class="cnt">${nAtivos}</span>` : ''}</button>
-      ${nAtivos && limpar ? `<button class="btn ghost sm" onclick="${limpar}" title="Limpa os filtros">✕ limpar</button>` : ''}
+      ${limpar ? `<button class="btn ghost sm" onclick="${limpar}" title="Limpa os filtros" ${nAtivos?'':'style="opacity:.55"'}>✕ limpar</button>` : ''}
       <span style="flex:1"></span>
       ${acoes}
     </div>
