@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v186/06-210';
+const APP_VERSION = 'v187/06-211';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4672,10 +4672,20 @@ function unlinkExtrato(id) {
   renderExtrato();
 }
 function syncExtratoToRecebimentos() {
-  // Remove só os PIX que ESTA função criou (têm _extratoId) — serão recriados a partir dos vínculos.
-  // PRESERVA PIX feitos na mão (ex.: "jogar sobra", sem _extratoId) para não apagar ajuste manual.
-  recebimentosConsolidado = recebimentosConsolidado.filter(r =>
-    r.gateway !== 'Transferência Bancária' && !(r.gateway === 'PIX (Extrato)' && r._extratoId));
+  // Limpa os PIX (Extrato) para reconstruir a partir dos vínculos ATUAIS:
+  //  - com _extratoId → foram gerados por vínculo, serão RECRIADOS abaixo com o valor certo do crédito.
+  //  - ÓRFÃOS (sem _extratoId, sem _sobraDe, sem _recebManual) → PIX "fantasma" sem lastro no extrato
+  //    (sobra de bagunça antiga, com valor que não bate) → REMOVE de vez (não volta mais).
+  //  - PRESERVA os manuais legítimos: "jogar sobra" (_sobraDe) e recebimento manual (_recebManual).
+  recebimentosConsolidado = recebimentosConsolidado.filter(r => {
+    if (r.gateway === 'Transferência Bancária') return false;
+    if (r.gateway === 'PIX (Extrato)') {
+      if (r._extratoId) return false;                 // recriado a partir do vínculo
+      if (r._sobraDe || r._recebManual) return true;  // manual legítimo → mantém
+      return false;                                   // órfão/fantasma → remove
+    }
+    return true;
+  });
 
   Object.entries(extratoLinks).forEach(([id, link]) => {
     const t = extratoBancario.find(x => x.id === id);
