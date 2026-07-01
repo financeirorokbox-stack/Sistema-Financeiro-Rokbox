@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v190/06-214';
+const APP_VERSION = 'v191/06-215';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1408,6 +1408,13 @@ function renderVendas() {
         <div class="u-status" id="status-forma">${formaPagamento.length ? '✓ ' + formaPagamento.length + ' linhas' : 'Nenhum arquivo'}</div>
         <input type="file" id="file-forma" accept=".xlsx,.xls" multiple>
       </label>
+      <label class="upload-card" id="card-frete" for="file-frete" style="border-color:#a8d9be">
+        <div class="u-icon">🚚</div>
+        <div class="u-label">Atualizar SÓ o Frete</div>
+        <div class="u-hint">Lê o mesmo relatório de Pedidos e corrige só o Frete (soma as linhas). NÃO mexe em nada mais — seguro.</div>
+        <div class="u-status" id="status-frete">Corrige o frete dos pedidos que já estão no sistema</div>
+        <input type="file" id="file-frete" accept=".xlsx,.xls" multiple>
+      </label>
     </div>
 
     <!-- Filtros multi-seleção -->
@@ -1475,6 +1482,37 @@ function renderVendas() {
     saveData('pedidos', pedidos);
     renderPedidosTable();
     document.getElementById('status-pedidos').textContent = '✓ ' + pedidos.length + ' pedidos' + (empresa ? ' (' + empresa + ')' : '');
+  });
+
+  // Atualiza SÓ o Frete (e Outras Despesas) dos pedidos JÁ EXISTENTES — sem tocar em valor/situação/conciliação.
+  setupUpload('file-frete', 'card-frete', 'status-frete', ({wb}) => {
+    const sheetName = wb.SheetNames.includes('Worksheet') ? 'Worksheet' : wb.SheetNames[0];
+    const rows = sheetToRows(wb, sheetName);
+    const colNum = (r, ...termos) => { for (const k of Object.keys(r)) { const kn = k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); if (termos.some(t => kn.includes(t))) return num(r[k]); } return 0; };
+    const acc = {}; // pedido → { frete, outras, linhas }
+    rows.forEach(r => {
+      const id = String(r['Número do pedido'] || r['Numero do pedido'] || '');
+      if (!id) return;
+      if (!acc[id]) acc[id] = { frete: 0, outras: 0, linhas: [] };
+      const fr = colNum(r, 'frete');
+      acc[id].frete += fr;
+      if (fr) acc[id].linhas.push(+fr.toFixed(2));
+      acc[id].outras += colNum(r, 'outras desp', 'outras despesa');
+    });
+    let atualizados = 0;
+    Object.entries(acc).forEach(([id, v]) => {
+      const ped = pedidos.find(p => String(p.id) === String(id));
+      if (!ped) return; // só mexe no que JÁ existe (não cria nada)
+      ped.frete = +v.frete.toFixed(2);
+      ped.outrasDespesas = +v.outras.toFixed(2);
+      ped._freteLinhas = v.linhas;
+      atualizados++;
+    });
+    saveData('pedidos', pedidos);
+    const stEl = document.getElementById('status-frete');
+    if (stEl) stEl.textContent = `✓ Frete atualizado em ${atualizados} pedido(s). Nada mais foi alterado.`;
+    try { renderComissao(); } catch (e) {}
+    alert(`✓ Frete corrigido em ${atualizados} pedido(s) — somando as linhas do "Frete proporcional".\n\nSó o Frete e Outras Despesas mudaram. Valor, situação, recebimentos e conciliação continuam intactos.`);
   });
 
   setupUpload('file-forma', 'card-forma', 'status-forma', ({wb}) => {
