@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v178/06-202';
+const APP_VERSION = 'v179/06-203';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3540,7 +3540,12 @@ function renderRecebimentos() {
     const files = Array.from(e.target.files);
     let pending = files.length;
     let newEntries = [];
-    const recKey = r => [r.gateway,(r.data?new Date(r.data).toISOString().slice(0,10):''),(r.bruto||0).toFixed(2),(r.nome||'').trim().toLowerCase(),r.nped||''].join('|');
+    // Chave à prova de RE-UPLOAD: usa o ID ÚNICO da transação quando existe (PayPal _txnId, Rede _nsu) —
+    // estável e não muda ao vincular pedido. Sem ID, usa conteúdo SEM o nº do pedido (que muda ao conciliar,
+    // e antes fazia o re-upload de um recebimento já vinculado DUPLICAR).
+    const recKey = r => r._txnId ? ('tx:' + String(r._txnId))
+      : (r._nsu ? ('nsu:' + String(r._nsu))
+      : ['k', r.gateway, (r.data ? new Date(r.data).toISOString().slice(0,10) : ''), (r.bruto||0).toFixed(2), (r.taxa||0).toFixed(2), (r.nome||'').trim().toLowerCase()].join('|'));
     const existKeys = new Set(recebimentosConsolidado.map(recKey));
 
     files.forEach(file => {
