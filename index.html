@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v200/06-224';
+const APP_VERSION = 'v201/06-225';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2283,6 +2283,14 @@ function setComissaoVendedor(vend, pctStr) {
 // ── COMISSÃO ── Base = Valor − Frete − Devolução − Outras Despesas; Comissão = % (por vendedor) × Base
 // Marcação "conferido" na Comissão (checkbox por pedido).
 let comConferido = {}; // { pedidoId: true }
+let _comVisIds = []; // ids dos pedidos atualmente exibidos na Comissão (respeita filtro) — p/ marcar/desmarcar todos
+function marcarTodosComissao(marcar) {
+  if (!_comVisIds.length) return;
+  if (!marcar && !confirm('Desmarcar o "conferido" de todos os ' + _comVisIds.length + ' pedidos da lista?')) return;
+  _comVisIds.forEach(id => { if (marcar) comConferido[id] = true; else delete comConferido[id]; });
+  saveData('comConferido', comConferido);
+  renderComissao();
+}
 function toggleComConferido(pedId, checked) {
   if (checked) comConferido[pedId] = true; else delete comConferido[pedId];
   saveData('comConferido', comConferido);
@@ -2440,6 +2448,7 @@ function renderComissao() {
   const totCom = linhas.reduce((s, l) => s + l.comissao, 0);
   // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
   const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
+  _comVisIds = linhas.map(l => l.p.id); // pedidos exibidos (respeita filtro) para marcar/desmarcar todos
 
   // Base dos "Outros" = MESMA base de comissão, somada sobre os pedidos do período (todos os vendedores),
   // separada por SEGMENTO (para quem ganha sobre um segmento, ex.: Vendas PL).
@@ -2472,7 +2481,7 @@ function renderComissao() {
     ${filtrosBar({
       nAtivos: (fVend?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosComissao()',
-      acoes: `<button class="btn primary sm" onclick="exportarComissao()" title="Exporta a planilha de comissão (vendedores + outros) para conferência">📤 Exportar</button>`,
+      acoes: `<button class="btn ghost sm" onclick="marcarTodosComissao(true)" title="Marca o ✓ conferido em todos os pedidos da lista">✓ Marcar todos</button><button class="btn ghost sm" onclick="marcarTodosComissao(false)" title="Desmarca o ✓ conferido de todos os pedidos da lista">✕ Desmarcar todos</button><button class="btn primary sm" onclick="exportarComissao()" title="Exporta a planilha de comissão (vendedores + outros) para conferência">📤 Exportar</button>`,
       campos:
         fdRow('Vendedor', `<select id="com-vend" onchange="renderComissao()"><option value="">Todos</option>${vendedores.map(v=>`<option value="${v.replace(/"/g,'&quot;')}" ${v===fVend?'selected':''}>${v}</option>`).join('')}</select>`) +
         fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
