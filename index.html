@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v239/07-263';
+const APP_VERSION = 'v240/07-264';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3599,7 +3599,7 @@ function renderPagar() {
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
-        const conc = chavesConcBanco.has(chaveContaPagar(c)); // travada: vínculo no banco
+        const conc = chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno; // travada: vínculo no banco OU estorno conciliado no recebimento
         const rateioStr = (c.rateio && c.rateio.length)
           ? c.rateio.map(r=>`${r.empresa} ${fmtVal(r.valor)}`).join('<br>')
           : '<span style="color:var(--muted)">—</span>';
@@ -3611,7 +3611,7 @@ function renderPagar() {
             <td class="cpcol-vencimento">${c.vencimento?fmtDate(c.vencimento):'—'}</td>
             <td class="cpcol-status">${stBadge}</td>
             <td class="cpcol-empresa">${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
-            <td class="cpcol-fornecedor"><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} <span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span></td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} ${c._origemEstorno?`<span class="badge ok" style="font-size:9px" title="↩ Estorno conciliado pelo RECEBIMENTO (repasse PayPal/Braavo). Travado pra não mexer — desfaça em Recebimentos (↩ desfazer estorno) se precisar.">🔒🔗 conciliado (receb.)</span>`:`<span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span>`}</td>
             <td class="cpcol-categoria"><input class="inline-input" style="width:140px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
@@ -3624,7 +3624,7 @@ function renderPagar() {
           <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
           <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
-          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}${c._origemEstorno?` <span class="badge ok" style="font-size:9px" title="↩ Estorno/reembolso conciliado pelo RECEBIMENTO (repasse PayPal/Braavo) — já veio descontado no depósito, por isso não tem débito próprio no banco. Está conciliado.">🔗 conciliado (recebimento)</span>`:''}</td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
           <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
