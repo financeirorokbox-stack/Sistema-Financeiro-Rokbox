@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v215/06-239';
+const APP_VERSION = 'v216/06-240';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1806,23 +1806,13 @@ function renderPedidosTable() {
   const totalFilt = filtered.reduce((s,p)=>s+p.valor,0);
   const hasFilter = Object.values(vendasFilters).some(a=>Array.isArray(a)?a.length:a) || (document.getElementById('busca-vendas')?.value||'');
 
-  // Faturamento real = valor dos pedidos − devoluções ABATIDAS (mesma regra da Comissão: a devolução
-  // abate o PEDIDO QUE RECEBEU O CRÉDITO — credDevolucao —, dividindo o valor se foram vários pedidos).
-  const devolPorPed = {}, devolItensPorPed = {};
-  devolucoes.forEach(d => {
-    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
-    if (!credPeds.length) return;
-    const parcela = (d.valorPago || 0) / credPeds.length;
-    credPeds.forEach(pc => {
-      devolPorPed[pc] = (devolPorPed[pc] || 0) + parcela;
-      (devolItensPorPed[pc] = devolItensPorPed[pc] || []).push({ d, parcela });
-    });
-  });
-  // Total soma SÓ os pedidos que existem no sistema (mesmo conjunto da lista/por-vendedor) — devoluções
-  // apontando para pedidos não carregados NÃO entram (senão o total fica maior que a soma detalhada).
-  const pedsDevol = hasFilter ? filtered : pedidos;
-  const baseDevol = +pedsDevol.reduce((s, p) => s + (devolPorPed[String(p.id)] || 0), 0).toFixed(2);
-  const baseFat = hasFilter ? totalFilt : totalGeral;
+  // Faturamento Real = Pedidos com operação VENDA e TROCA − Devoluções abatidas.
+  // A devolução abate o PEDIDO QUE RECEBEU O CRÉDITO (credDevolucao), com CAP no valor do pedido.
+  const { porPed: devolPorPed, itensPorPed: devolItensPorPed } = devolPorPedidoMap();
+  const ehVendaTroca = p => { const op = (getClassificacao(p).operacao || '').toLowerCase(); return op === 'venda' || op === 'troca'; };
+  const pedsBase = (hasFilter ? filtered : pedidos).filter(ehVendaTroca);
+  const baseFat = pedsBase.reduce((s, p) => s + (p.valor || 0), 0);
+  const baseDevol = +pedsBase.reduce((s, p) => s + (devolPorPed[String(p.id)] || 0), 0).toFixed(2);
   const fatReal = baseFat - baseDevol;
   // Frete somado dos pedidos (respeita filtro); usa o frete corrigido ✎ quando houver.
   const pedsFat = hasFilter ? filtered : pedidos;
@@ -1832,12 +1822,12 @@ function renderPedidosTable() {
   if (cardsEl) cardsEl.innerHTML = `
     <div class="card blue"><div class="c-label">Total geral</div><div class="c-val">${fmtVal(totalGeral)}</div><div class="c-sub">${pedidos.length} pedidos</div></div>
     ${hasFilter ? `<div class="card green"><div class="c-label">Subtotal filtrado</div><div class="c-val">${fmtVal(totalFilt)}</div><div class="c-sub">${filtered.length} pedidos</div></div>` : ''}
-    <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub">${baseFat>0?fmtVal(baseFat):'—'} − ${fmtVal(baseDevol)} devolução</div></div>
+    <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub" title="Só pedidos de Venda e Troca, menos devoluções">${baseFat>0?fmtVal(baseFat):'—'} (Venda+Troca) − ${fmtVal(baseDevol)} devol.</div></div>
     <div class="card dark"><div class="c-label">Frete${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseFrete)}</div><div class="c-sub">${pedsFat.length} pedidos</div></div>
     <div class="card red" style="cursor:pointer" onclick="toggleVendasDevol()" title="Ver os pedidos que compõem esse total"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento · <span style="text-decoration:underline">ver detalhe</span></div></div>`;
 
   // Detalhe das devoluções abatidas — POR PEDIDO que recebeu o crédito (mesma regra da Comissão).
-  const devolList = (hasFilter ? filtered : pedidos)
+  const devolList = pedsBase
     .filter(p => (devolPorPed[String(p.id)] || 0) > 0.005)
     .map(p => ({ p, valor: +(devolPorPed[String(p.id)]).toFixed(2), itens: devolItensPorPed[String(p.id)] || [] }))
     .sort((a, b) => b.valor - a.valor);
@@ -2385,7 +2375,7 @@ function editarBasePedido(pedId) {
   const p = pedidos.find(x => String(x.id) === String(pedId)); if (!p) return;
   const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
   const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
-  let devol = 0; devolucoes.forEach(d => { const cp = String(credDevolucao(d)).match(/\d{4,6}/g) || []; if (cp.includes(String(pedId))) devol += (d.valorPago || 0) / cp.length; });
+  const devol = devolPorPedidoMap().porPed[String(pedId)] || 0;
   const frete = freteDoPedido(p), outras = p.outrasDespesas || 0, diferenca = diferencaDoPedido(p, emAberto);
   const auto = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
   const atual = (baseOverride[pedId] != null) ? baseOverride[pedId] : auto;
@@ -2455,8 +2445,7 @@ function comPeriodoInfo() {
 }
 // Recalcula o total de comissão de UM vendedor no período (mesma regra da tabela).
 function comissaoTotalVendedor(vend) {
-  const devolPorPed = {};
-  devolucoes.forEach(d => { const cp = String(credDevolucao(d)).match(/\d{4,6}/g) || []; if (!cp.length) return; const parc = (d.valorPago || 0) / cp.length; cp.forEach(pc => devolPorPed[pc] = (devolPorPed[pc] || 0) + parc); });
+  const devolPorPed = devolPorPedidoMap().porPed;
   let total = 0, qtd = 0;
   pedidos.forEach(p => {
     if ((p.vendedor || 'Sem vendedor') !== vend) return;
@@ -2516,14 +2505,8 @@ function renderComissao() {
   if (!el) return;
   const fVend = el.querySelector('#com-vend')?.value || '';
   const vendedores = [...new Set(pedidos.map(p => p.vendedor || 'Sem vendedor'))].sort();
-  // Devolução abate o PEDIDO DA TROCA (crédito), não o original. Divide o valor se a troca foi p/ vários pedidos.
-  const devolPorPed = {};
-  devolucoes.forEach(d => {
-    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
-    if (!credPeds.length) return; // troca sem pedido de crédito informado → não abate aqui
-    const parcela = (d.valorPago || 0) / credPeds.length;
-    credPeds.forEach(pc => { devolPorPed[pc] = (devolPorPed[pc] || 0) + parcela; });
-  });
+  // Devolução abate o PEDIDO DO CRÉDITO (com cap no valor do pedido; sobra vai ao próximo).
+  const devolPorPed = devolPorPedidoMap().porPed;
   const peds = pedidos.filter(p => {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return false;
     const op = (getClassificacao(p).operacao || '').toLowerCase();
@@ -2682,8 +2665,7 @@ function renderComissao() {
 function exportarComissao() {
   const el = document.getElementById('v-comissao');
   const fVend = el?.querySelector('#com-vend')?.value || '';
-  const devolPorPed = {};
-  devolucoes.forEach(d => { const cp = String(credDevolucao(d)).match(/\d{4,6}/g) || []; if (!cp.length) return; const parc = (d.valorPago||0)/cp.length; cp.forEach(pc => devolPorPed[pc] = (devolPorPed[pc]||0)+parc); });
+  const devolPorPed = devolPorPedidoMap().porPed;
   const aoa = [['Nome','Pedido','Valor','Frete','Outras Desp.','Devolução','Vlr em Aberto','Diferença','Vendedor','Loja','% Comissão','Base Comissão','Vlr Comissão']];
   pedidos.filter(p => {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return false;
@@ -4620,13 +4602,44 @@ function credDevolucao(d) {
   if (raw === '__editando__' || raw === '__vazio__') return '';
   return raw || d.pedidoCredito || '';
 }
-// Parcela de uma devolução que cabe a UM pedido de crédito: DIVIDE o valor entre os pedidos do crédito
-// (ex.: troca com crédito para 2 pedidos → cada um recebe metade). Evita contar o crédito em dobro.
+// Parcela de uma devolução que cabe a UM pedido de crédito. REGRA: aloca por VALOR de cada pedido do
+// crédito, na ORDEM — cada pedido recebe no máximo o SEU valor (cap); o que sobra vai para o próximo
+// pedido do crédito (igual à lógica de "sobra" dos recebimentos). Se um pedido do crédito não estiver
+// carregado, ele leva o que resta (sem cap). Evita a devolução abater MAIS que o valor do pedido.
 function valorDevolucaoParaPedido(d, pedId) {
   const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
-  if (credPeds.includes(String(pedId))) return +((d.valorPago || 0) / credPeds.length).toFixed(2);
-  if (String(d.pedido) === String(pedId)) return d.valorPago || 0;
+  const idx = credPeds.indexOf(String(pedId));
+  if (idx < 0) { if (String(d.pedido) === String(pedId)) return d.valorPago || 0; return 0; }
+  let remaining = d.valorPago || 0;
+  for (let k = 0; k < credPeds.length; k++) {
+    const p = pedidos.find(x => String(x.id) === String(credPeds[k]));
+    const cap = p ? getValorConciliacaoPedido(p) : remaining; // pedido não carregado → leva o que resta
+    const aloc = Math.min(cap, Math.max(0, remaining));
+    if (k === idx) return +aloc.toFixed(2);
+    remaining = +(remaining - aloc).toFixed(2);
+  }
   return 0;
+}
+// Mapa {pedidoId: devoluçãoAbatida} + itens por pedido, já com o CAP por valor do pedido (regra acima).
+// Fonte única para Comissão, Vendas e Dashboard — todos batem entre si.
+function devolPorPedidoMap() {
+  const porPed = {}, itensPorPed = {};
+  devolucoes.forEach(d => {
+    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
+    if (!credPeds.length) return;
+    let remaining = d.valorPago || 0;
+    credPeds.forEach(pc => {
+      const p = pedidos.find(x => String(x.id) === String(pc));
+      const cap = p ? getValorConciliacaoPedido(p) : remaining;
+      const aloc = +Math.min(cap, Math.max(0, remaining)).toFixed(2);
+      remaining = +(remaining - aloc).toFixed(2);
+      if (aloc > 0.005) {
+        porPed[pc] = +((porPed[pc] || 0) + aloc).toFixed(2);
+        (itensPorPed[pc] = itensPorPed[pc] || []).push({ d, parcela: aloc });
+      }
+    });
+  });
+  return { porPed, itensPorPed };
 }
 function saveCredito(pedido, cliente, rowIdx) {
   const input1 = document.getElementById('dc-' + rowIdx);
@@ -6455,17 +6468,12 @@ function renderDashboard() {
   pedVenda.forEach(p => { segDoPed[String(p.id)] = getClassificacao(p).segmento || 'Sem segmento'; vendDoPed[String(p.id)] = p.vendedor || 'Sem vendedor'; });
   let totalDevolPeriodo = 0;
   // Mesma regra da Comissão/Vendas: a devolução abate o PEDIDO QUE RECEBEU O CRÉDITO (credDevolucao),
-  // dividindo o valor se foram vários; só conta pedidos deste período/carregados.
-  devolucoes.forEach(d => {
-    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
-    if (!credPeds.length) return;
-    const parcela = (d.valorPago || 0) / credPeds.length;
-    credPeds.forEach(pc => {
-      if (segDoPed[pc] === undefined) return; // crédito usado em pedido fora do período/sistema → ignora aqui
-      totalDevolPeriodo += parcela;
-      if (porSegmento[segDoPed[pc]]) porSegmento[segDoPed[pc]].valor -= parcela;
-      if (porVendedor[vendDoPed[pc]]) porVendedor[vendDoPed[pc]].valor -= parcela;
-    });
+  // com CAP no valor do pedido; só conta pedidos deste período/carregados.
+  Object.entries(devolPorPedidoMap().porPed).forEach(([pc, val]) => {
+    if (segDoPed[pc] === undefined) return; // crédito usado em pedido fora do período/sistema → ignora aqui
+    totalDevolPeriodo += val;
+    if (porSegmento[segDoPed[pc]]) porSegmento[segDoPed[pc]].valor -= val;
+    if (porVendedor[vendDoPed[pc]]) porVendedor[vendDoPed[pc]].valor -= val;
   });
   const totalFatReal = totalVendido - totalDevolPeriodo; // base do % das barras (faturamento real)
 
