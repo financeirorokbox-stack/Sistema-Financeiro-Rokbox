@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v229/07-253';
+const APP_VERSION = 'v230/07-254';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8543,10 +8543,17 @@ async function executarExclusao() {
     const [src, idx] = key.split(':');
     const arr = DELETE_SOURCES[src]?.getArr() || [];
     const item = arr[+idx];
-    const data = DATA_REGISTRO[src] ? DATA_REGISTRO[src](item) : null;
-    if (data && diaFechado(data, src === 'extrato' ? (item && item.banco) : undefined)) bloqueados++;
+    let bloq;
+    if (src === 'contasPagar') {
+      // Conta a pagar: só trava se estiver CONCILIADA a um débito de dia fechado (não pelo vencimento).
+      bloq = contaTravadaPorFechamento(item);
+    } else {
+      const data = DATA_REGISTRO[src] ? DATA_REGISTRO[src](item) : null;
+      bloq = data && diaFechado(data, src === 'extrato' ? (item && item.banco) : undefined);
+    }
+    if (bloq) bloqueados++;
   });
-  if (bloqueados) { alert(`🔒 ${bloqueados} registro(s) estão em dia(s) FECHADO(s) e não podem ser excluídos. Reabra o dia (admin) na Conciliação Bancária para excluir.`); return; }
+  if (bloqueados) { alert(`🔒 ${bloqueados} registro(s) estão conciliados em dia(s) FECHADO(s) e não podem ser excluídos. Reabra o dia (admin) na Conciliação Bancária para excluir.`); return; }
   if (!confirm(`Excluir ${deleteSelection.size} registro(s)? Esta ação não pode ser desfeita.`)) return;
 
   // Agrupa por fonte
