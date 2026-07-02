@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v230/07-254';
+const APP_VERSION = 'v231/07-255';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -488,7 +488,7 @@ async function deleteData(key) {
 // Exportar/Importar todos os dados (backup)
 async function exportarBackup() {
   const dados = {};
-  const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','recorrencias','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
@@ -517,7 +517,7 @@ async function zerarSistema() {
   if (!confirm('🧨 ZERAR O SISTEMA?\n\nIsto APAGA TODOS os dados — pedidos, recebimentos, contas a pagar, extrato, devoluções, conciliações e cadastros — no seu aparelho E na nuvem (todos os dispositivos).\n\nSeus usuários/login são mantidos.\n\nRECOMENDO clicar em 💾 Backup antes. Continuar?')) return;
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
-  const KEYS = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const KEYS = ['pedidos','contasPagar','recorrencias','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
@@ -962,6 +962,7 @@ let formaManualMap = {}; // forma digitada manualmente em Contas a Receber
 let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categoria do pedido)
 let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para exportação)
 let contasPagar = []; // contas a pagar (upload de planilha)
+let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -3331,6 +3332,75 @@ function updateContaPagar(idx, field, value) {
   saveData('contasPagar', contasPagar);
   renderPagar();
 }
+// ── Recorrências (contas fixas que geram lançamentos mensais) ──
+let _recAberto = false;
+function mesesEntre(ini, fim) {
+  const out = []; if (!ini || !fim) return out;
+  let [y, m] = ini.split('-').map(Number); const [yf, mf] = fim.split('-').map(Number);
+  let guard = 0;
+  while ((y < yf || (y === yf && m <= mf)) && guard++ < 240) { out.push(y + '-' + String(m).padStart(2, '0')); m++; if (m > 12) { m = 1; y++; } }
+  return out;
+}
+function _diasNoMes(y, m) { return new Date(y, m, 0).getDate(); }
+function addRecorrencia() {
+  const g = id => document.getElementById(id);
+  const forn = (g('rec-forn')?.value || '').trim();
+  if (!forn) { alert('Informe o fornecedor da conta fixa.'); return; }
+  const vt = (g('rec-valor')?.value || '').trim();
+  const valor = vt.includes(',') ? parseFloat(vt.replace(/\./g, '').replace(',', '.')) : parseFloat(vt);
+  recorrencias.push({
+    id: 'rec_' + Date.now(), fornecedor: forn, descricao: '',
+    categoria: (g('rec-cat')?.value || '').trim(), empresa: (g('rec-emp')?.value || '').trim(),
+    valor: isNaN(valor) ? 0 : +valor.toFixed(2), diaVenc: Math.min(31, Math.max(1, +(g('rec-dia')?.value) || 1)),
+    mesIni: g('rec-ini')?.value || '', mesFim: g('rec-fim')?.value || '', ativa: true
+  });
+  saveData('recorrencias', recorrencias);
+  renderPagar();
+}
+function updateRecorrencia(id, field, value) {
+  const r = recorrencias.find(x => x.id === id); if (!r) return;
+  if (field === 'valor') { const t = String(value || '').trim(); const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t); r.valor = isNaN(n) ? 0 : +n.toFixed(2); }
+  else if (field === 'diaVenc') { r.diaVenc = Math.min(31, Math.max(1, +value || 1)); }
+  else if (field === 'ativa') { r.ativa = !!value; }
+  else r[field] = value;
+  saveData('recorrencias', recorrencias);
+  renderPagar();
+}
+function removeRecorrencia(id) {
+  const r = recorrencias.find(x => x.id === id); if (!r) return;
+  const geradasAbertas = contasPagar.filter(c => c._recorrenciaId === id && !c.pago);
+  if (geradasAbertas.length) {
+    if (!confirm(`Remover a recorrência "${r.fornecedor}"?\n\nEla tem ${geradasAbertas.length} conta(s) EM ABERTO gerada(s).\nOK = remove a recorrência E apaga essas contas em aberto.\nCancelar = não faz nada.`)) return;
+    contasPagar = contasPagar.filter(c => !(c._recorrenciaId === id && !c.pago));
+    saveData('contasPagar', contasPagar);
+  } else if (!confirm(`Remover a recorrência "${r.fornecedor}"?`)) return;
+  recorrencias = recorrencias.filter(x => x.id !== id);
+  saveData('recorrencias', recorrencias);
+  renderPagar();
+}
+function gerarRecorrencias() {
+  let criadas = 0, jaExistiam = 0, semPeriodo = 0;
+  recorrencias.forEach(r => {
+    if (!r.ativa) return;
+    const meses = mesesEntre(r.mesIni, r.mesFim);
+    if (!meses.length) { semPeriodo++; return; }
+    meses.forEach(ym => {
+      if (contasPagar.some(c => c._recorrenciaId === r.id && c._recMes === ym)) { jaExistiam++; return; }
+      const [y, m] = ym.split('-').map(Number);
+      const dia = Math.min(Math.max(1, +r.diaVenc || 1), _diasNoMes(y, m));
+      contasPagar.push({
+        numero: '', fornecedor: r.fornecedor || 'Recorrência', descricao: r.descricao || '', categoria: r.categoria || '',
+        observacao: '🔁 Recorrência', empresa: r.empresa || '', rateio: [],
+        vencimento: new Date(y, m - 1, dia, 12, 0, 0), dataPag: null, valor: +r.valor || 0,
+        situacao: 'Em Aberto', pago: false, _recorrenciaId: r.id, _recMes: ym
+      });
+      criadas++;
+    });
+  });
+  saveData('contasPagar', contasPagar);
+  renderPagar();
+  alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
+}
 // Cria uma conta a pagar em branco (em aberto) para preencher na mão.
 function novaContaPagar() {
   contasPagar.push({ numero: '', fornecedor: 'Nova conta', descricao: '', categoria: '', observacao: '', empresa: '', rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true });
@@ -3409,6 +3479,42 @@ function renderPagar() {
       ${dcRateioOk
         ? '✓ Double-check — total = em aberto + pago; rateios fecham com o valor da conta.'
         : `⚠ Double-check — ${rateioRuim.length} conta(s) com rateio que não fecha o valor: ${rateioRuim.slice(0,5).map(c=>'#'+(c.numero||c.fornecedor||'')).join(', ')}${rateioRuim.length>5?'…':''}.`}
+    </div>
+
+    <div style="margin-bottom:16px">
+      <button class="btn ghost sm" onclick="_recAberto=!_recAberto;renderPagar()" style="font-weight:700">🔁 Recorrências (contas fixas) ${_recAberto?'▾':'▸'}${recorrencias.length?` <span class="badge neu">${recorrencias.length}</span>`:''}</button>
+      ${_recAberto ? `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:8px;background:var(--surface)">
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Contas que se repetem todo mês (aluguel, salários, sistemas…). Cadastre uma vez, defina <strong>De / Até</strong> e clique <strong>Gerar contas</strong> — cria os lançamentos <strong>EM ABERTO</strong> de cada mês (sem duplicar). Eles viram contas normais (editáveis) e entram no Fluxo como <strong>previstas</strong>.</p>
+        <datalist id="rec-cat-list">${cats.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">`).join('')}${Object.values(CATEGORIAS_DESPESA).flat().map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+        <datalist id="rec-emp-list">${empresas.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+        <div class="table-wrap" style="margin-bottom:10px"><table style="white-space:nowrap"><thead><tr>
+          <th>Ativa</th><th>Fornecedor</th><th>Categoria</th><th>Empresa</th><th style="text-align:right">Valor</th><th>Dia venc.</th><th>De</th><th>Até</th><th>Geradas</th><th></th>
+        </tr></thead><tbody>
+        ${recorrencias.length ? recorrencias.map(r=>{ const nGer = contasPagar.filter(c=>c._recorrenciaId===r.id).length; return `<tr>
+          <td style="text-align:center"><input type="checkbox" ${r.ativa?'checked':''} onchange="updateRecorrencia('${r.id}','ativa',this.checked)"></td>
+          <td><input class="inline-input" style="width:150px" value="${(r.fornecedor||'').replace(/"/g,'&quot;')}" onchange="updateRecorrencia('${r.id}','fornecedor',this.value)"></td>
+          <td><input class="inline-input" style="width:150px" list="rec-cat-list" value="${(r.categoria||'').replace(/"/g,'&quot;')}" onchange="updateRecorrencia('${r.id}','categoria',this.value)"></td>
+          <td><input class="inline-input" style="width:95px" list="rec-emp-list" value="${(r.empresa||'').replace(/"/g,'&quot;')}" onchange="updateRecorrencia('${r.id}','empresa',this.value)"></td>
+          <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${r.valor?r.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" onchange="updateRecorrencia('${r.id}','valor',this.value)"></td>
+          <td style="text-align:center"><input type="number" class="inline-input" style="width:55px;text-align:center" min="1" max="31" value="${r.diaVenc||''}" onchange="updateRecorrencia('${r.id}','diaVenc',this.value)"></td>
+          <td><input type="month" class="inline-input" style="width:130px" value="${r.mesIni||''}" onchange="updateRecorrencia('${r.id}','mesIni',this.value)"></td>
+          <td><input type="month" class="inline-input" style="width:130px" value="${r.mesFim||''}" onchange="updateRecorrencia('${r.id}','mesFim',this.value)"></td>
+          <td style="text-align:center;font-size:11px;color:var(--muted)">${nGer||'—'}</td>
+          <td><a href="#" onclick="removeRecorrencia('${r.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover recorrência">✕</a></td>
+        </tr>`; }).join('') : '<tr><td colspan="10" style="color:var(--muted);font-size:12px">Nenhuma recorrência. Cadastre uma abaixo.</td></tr>'}
+        </tbody></table></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+          <input class="inline-input" id="rec-forn" placeholder="Fornecedor (ex.: Aluguel)" style="width:170px">
+          <input class="inline-input" id="rec-cat" list="rec-cat-list" placeholder="Categoria" style="width:150px">
+          <input class="inline-input" id="rec-emp" list="rec-emp-list" placeholder="Empresa" style="width:95px">
+          <input class="inline-input" id="rec-valor" placeholder="Valor" style="width:90px;text-align:right">
+          <input type="number" class="inline-input" id="rec-dia" placeholder="Dia" min="1" max="31" style="width:55px" title="Dia do vencimento">
+          <input type="month" class="inline-input" id="rec-ini" title="De (mês inicial)" style="width:130px">
+          <input type="month" class="inline-input" id="rec-fim" title="Até (mês final)" style="width:130px">
+          <button class="btn primary sm" onclick="addRecorrencia()">+ Adicionar</button>
+        </div>
+        <button class="btn primary sm" onclick="gerarRecorrencias()" title="Cria as contas em aberto de cada mês das recorrências ativas (sem duplicar)">🔁 Gerar contas das recorrências</button>
+      </div>` : ''}
     </div>
 
     ${vis.length === 0
@@ -8600,7 +8706,7 @@ function delCheckboxHeader(source) {
   // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos
-  const keys = ['pedidos','contasPagar','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','recorrencias','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
@@ -8608,6 +8714,7 @@ function delCheckboxHeader(source) {
     if (!v) continue;
     if (k==='pedidos') pedidos = v.map(p=>({...p,data:p.data?new Date(p.data):null}));
     else if (k==='contasPagar') contasPagar = v.map(c=>({...c,vencimento:c.vencimento?new Date(c.vencimento):null,dataPag:c.dataPag?new Date(c.dataPag):null}));
+    else if (k==='recorrencias') recorrencias = v || [];
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
     else if (k==='boletoCobrancaStatus') {
