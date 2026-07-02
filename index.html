@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v214/06-238';
+const APP_VERSION = 'v215/06-239';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1818,10 +1818,11 @@ function renderPedidosTable() {
       (devolItensPorPed[pc] = devolItensPorPed[pc] || []).push({ d, parcela });
     });
   });
-  const totalDevol = Object.values(devolPorPed).reduce((s, v) => s + v, 0);
-  const devolFilt = filtered.reduce((s, p) => s + (devolPorPed[String(p.id)] || 0), 0);
+  // Total soma SÓ os pedidos que existem no sistema (mesmo conjunto da lista/por-vendedor) — devoluções
+  // apontando para pedidos não carregados NÃO entram (senão o total fica maior que a soma detalhada).
+  const pedsDevol = hasFilter ? filtered : pedidos;
+  const baseDevol = +pedsDevol.reduce((s, p) => s + (devolPorPed[String(p.id)] || 0), 0).toFixed(2);
   const baseFat = hasFilter ? totalFilt : totalGeral;
-  const baseDevol = +(hasFilter ? devolFilt : totalDevol).toFixed(2);
   const fatReal = baseFat - baseDevol;
   // Frete somado dos pedidos (respeita filtro); usa o frete corrigido ✎ quando houver.
   const pedsFat = hasFilter ? filtered : pedidos;
@@ -6453,13 +6454,18 @@ function renderDashboard() {
   const segDoPed = {}, vendDoPed = {};
   pedVenda.forEach(p => { segDoPed[String(p.id)] = getClassificacao(p).segmento || 'Sem segmento'; vendDoPed[String(p.id)] = p.vendedor || 'Sem vendedor'; });
   let totalDevolPeriodo = 0;
+  // Mesma regra da Comissão/Vendas: a devolução abate o PEDIDO QUE RECEBEU O CRÉDITO (credDevolucao),
+  // dividindo o valor se foram vários; só conta pedidos deste período/carregados.
   devolucoes.forEach(d => {
-    const pid = String(d.pedido);
-    if (segDoPed[pid] === undefined) return; // devolução de pedido fora do período/sistema → ignora aqui
-    const v = d.valorPago || 0;
-    totalDevolPeriodo += v;
-    if (porSegmento[segDoPed[pid]]) porSegmento[segDoPed[pid]].valor -= v;
-    if (porVendedor[vendDoPed[pid]]) porVendedor[vendDoPed[pid]].valor -= v;
+    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
+    if (!credPeds.length) return;
+    const parcela = (d.valorPago || 0) / credPeds.length;
+    credPeds.forEach(pc => {
+      if (segDoPed[pc] === undefined) return; // crédito usado em pedido fora do período/sistema → ignora aqui
+      totalDevolPeriodo += parcela;
+      if (porSegmento[segDoPed[pc]]) porSegmento[segDoPed[pc]].valor -= parcela;
+      if (porVendedor[vendDoPed[pc]]) porVendedor[vendDoPed[pc]].valor -= parcela;
+    });
   });
   const totalFatReal = totalVendido - totalDevolPeriodo; // base do % das barras (faturamento real)
 
