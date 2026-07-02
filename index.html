@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v217/06-241';
+const APP_VERSION = 'v218/06-242';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4613,7 +4613,7 @@ function valorDevolucaoParaPedido(d, pedId) {
   let remaining = d.valorPago || 0;
   for (let k = 0; k < credPeds.length; k++) {
     const p = pedidos.find(x => String(x.id) === String(credPeds[k]));
-    const cap = p ? getValorConciliacaoPedido(p) : remaining; // pedido não carregado → leva o que resta
+    const cap = p ? (p.valor || 0) : remaining; // teto = VALOR do pedido; não carregado → leva o que resta
     const aloc = Math.min(cap, Math.max(0, remaining));
     if (k === idx) return +aloc.toFixed(2);
     remaining = +(remaining - aloc).toFixed(2);
@@ -4630,7 +4630,7 @@ function devolPorPedidoMap() {
     let remaining = d.valorPago || 0;
     credPeds.forEach(pc => {
       const p = pedidos.find(x => String(x.id) === String(pc));
-      const cap = p ? getValorConciliacaoPedido(p) : remaining;
+      const cap = p ? (p.valor || 0) : remaining; // teto = VALOR do pedido (não o conciliado, que é menor em trocas pagas com crédito)
       const aloc = +Math.min(cap, Math.max(0, remaining)).toFixed(2);
       remaining = +(remaining - aloc).toFixed(2);
       if (aloc > 0.005) {
