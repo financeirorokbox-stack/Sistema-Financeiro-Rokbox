@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v221/06-245';
+const APP_VERSION = 'v222/06-246';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1848,7 +1848,7 @@ function renderPedidosTable() {
       })()}
       <div style="font-size:12px;font-weight:700;margin:2px 0 4px">Por pedido <span style="font-size:11px;font-weight:400;color:var(--muted)">— 🔶 = teto aplicado (devolução passava do valor do pedido)</span></div>
       <div class="table-wrap"><table><thead><tr>
-        <th>Pedido abatido</th><th>Cliente</th><th>Vendedor</th><th>Loja</th><th style="text-align:right">Valor pedido</th><th>Veio da devolução (pedido/data)</th><th style="text-align:right">Valor abatido</th>
+        <th>Pedido abatido</th><th>Cliente</th><th>Vendedor</th><th>Loja</th><th style="text-align:right">Valor pedido</th><th>Veio da devolução (pedido/data)</th><th style="text-align:right">Valor abatido</th><th>Sobra 🔶</th>
       </tr></thead><tbody>
       ${devolList.map(x => { const raw = devolRawPorPed[String(x.p.id)] || x.valor; const capado = raw > x.valor + 0.005; return `<tr${capado ? ' style="background:#fff6e6"' : ''}>
         <td><strong>#${x.p.id}</strong>${capado ? ' 🔶' : ''}</td>
@@ -1858,8 +1858,9 @@ function renderPedidosTable() {
         <td style="text-align:right;color:var(--muted)">${fmtVal(x.p.valor || 0)}</td>
         <td style="font-size:11px;color:var(--muted)">${x.itens.map(it => `#${it.d.pedido||'?'}${it.d.dataTroca ? ' ('+fmtDate(it.d.dataTroca)+')' : ''}`).join(', ') || '—'}</td>
         <td style="text-align:right;color:var(--red)">${fmtVal(x.valor)}${capado ? ` <span style="font-size:10px;color:var(--amber)" title="Sem teto seria ${fmtVal(raw)}">(de ${fmtVal(raw)})</span>` : ''}</td>
+        <td style="text-align:right">${capado ? (creditosCliente.some(c => c._devolSobra === String(x.p.id)) ? '<span style="color:var(--green);font-size:11px">✓ crédito criado</span>' : `<button class="btn ghost sm" style="font-size:10px;color:var(--accent)" onclick="virarSobraDevolucao('${x.p.id}')" title="Guarda a sobra (${fmtVal(raw - x.valor)}) como crédito da cliente">→ virar crédito (${fmtVal(raw - x.valor)})</button>`) : ''}</td>
       </tr>`; }).join('')}
-      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="6">Total (${devolList.length} pedidos)</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
+      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="6">Total (${devolList.length} pedidos)</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td><td></td></tr>
       </tbody></table></div>
     </div>`;
 
@@ -5836,6 +5837,27 @@ function virarCreditoCliente(pedId) {
   saveData('creditosCliente', creditosCliente);
   saveData('difAceita', difAceita);
   renderConcResult();
+  alert(`✓ Crédito de ${fmtVal(sobra)} guardado para ${ped.nome || 'a cliente'}.\n\nVeja/edite em Dev/Troca → 💳 Créditos de cliente.`);
+}
+// Vira a SOBRA da devolução (o que passou do valor do pedido, por causa do teto) em crédito da cliente.
+function virarSobraDevolucao(pedId) {
+  const ped = pedidos.find(p => String(p.id) === String(pedId));
+  if (!ped) return;
+  const m = devolPorPedidoMap();
+  const raw = m.rawPorPed[String(pedId)] || 0;
+  const cap = m.porPed[String(pedId)] || 0;
+  const sobra = +(raw - cap).toFixed(2);
+  if (sobra <= 0.01) { alert('Este pedido não tem sobra de devolução (não passou do valor do pedido).'); return; }
+  if (creditosCliente.some(c => c._devolSobra === String(pedId))) { alert('A sobra de devolução do pedido ' + pedId + ' já foi transformada em crédito. Veja em Dev/Troca → 💳 Créditos de cliente.'); return; }
+  if (!confirm(`Guardar ${fmtVal(sobra)} como CRÉDITO da cliente ${ped.nome || ''}?\n\n(É a sobra da devolução do pedido ${pedId}, que passou do valor do pedido — ${fmtVal(raw)} de devolução num pedido de ${fmtVal(ped.valor || 0)}.)`)) return;
+  const dataStr = ped.data ? new Date(ped.data).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  creditosCliente.push({
+    id: 'ccd_' + pedId + '_' + Date.now(),
+    cliente: ped.nome || '', pedidoOrigem: String(pedId), valor: sobra,
+    empresa: ped.empresa || '', data: dataStr, usadoEm: '', _devolSobra: String(pedId)
+  });
+  saveData('creditosCliente', creditosCliente);
+  renderVendas();
   alert(`✓ Crédito de ${fmtVal(sobra)} guardado para ${ped.nome || 'a cliente'}.\n\nVeja/edite em Dev/Troca → 💳 Créditos de cliente.`);
 }
 // Marca em qual pedido futuro o crédito da cliente foi usado (vazio = ainda em aberto).
