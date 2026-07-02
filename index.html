@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v235/07-259';
+const APP_VERSION = 'v236/07-260';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3401,6 +3401,15 @@ function gerarRecorrencias() {
   renderPagar();
   alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
 }
+// Colunas mostráveis/ocultáveis da tabela de Contas a Pagar.
+const CP_COLS = [['vencimento','Vencimento'],['status','Status'],['empresa','Empresa'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Pagamento'],['historico','Histórico']];
+let cpColsOcultas = (() => { try { return JSON.parse(localStorage.getItem('cpColsOcultas') || '[]'); } catch (e) { return []; } })();
+function toggleCpCol(key) {
+  if (cpColsOcultas.includes(key)) cpColsOcultas = cpColsOcultas.filter(k => k !== key);
+  else cpColsOcultas.push(key);
+  try { localStorage.setItem('cpColsOcultas', JSON.stringify(cpColsOcultas)); } catch (e) {}
+  renderPagar();
+}
 // Muda o status (pago/aberto) de uma conta. Se houver FILTRO de status ligado, atualiza no lugar
 // (sem re-renderizar) pra a linha não SUMIR do filtro no meio da edição.
 function setPagoConta(idx, sel) {
@@ -3538,16 +3547,21 @@ function renderPagar() {
       ? `<div class="empty"><div class="e-icon">📤</div>${contasPagar.length===0 ? 'Carregue a planilha de Contas a Pagar acima' : 'Nenhum resultado para os filtros'}</div>`
       : `<datalist id="cp-cat-list">${cats.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">`).join('')}${Object.values(CATEGORIAS_DESPESA).flat().map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('')}</datalist>
       <datalist id="cp-emp-list">${empresas.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">`).join('')}</datalist>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">✏️ Clique nas células para editar. 🔒 = conciliada no banco (desfaça no banco pra editar valor/vencimento). O <strong>Histórico</strong> aparece resumido — passe o mouse pra ver inteiro.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">✏️ Clique nas células para editar. 🔒 = conciliada no banco. O <strong>Histórico</strong> aparece resumido — passe o mouse pra ver inteiro.</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:11px">
+        <span style="color:var(--muted)">👁 Colunas:</span>
+        ${CP_COLS.map(([k,lbl])=>{ const oc=cpColsOcultas.includes(k); return `<span onclick="toggleCpCol('${k}')" title="${oc?'Mostrar':'Ocultar'} ${lbl}" style="cursor:pointer;padding:2px 9px;border-radius:11px;user-select:none;${oc?'opacity:.5;text-decoration:line-through;background:var(--bg);border:1px solid var(--border)':'background:var(--accent);color:#fff;border:1px solid var(--accent)'}">${lbl}</span>`; }).join('')}
+      </div>
       <style>
         .cp-tbl{font-size:11px;white-space:nowrap;border-collapse:collapse}
         .cp-tbl th,.cp-tbl td{padding:2px 5px}
         .cp-tbl th{font-size:10px}
         .cp-tbl .inline-input{font-size:11px;padding:2px 4px}
+        ${cpColsOcultas.map(k=>`.cp-tbl .cpcol-${k}{display:none}`).join('')}
       </style>
       <div class="table-wrap"><table class="cp-tbl"><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th>Vencimento</th><th>Status</th><th>Empresa</th><th>Fornecedor</th><th>Categoria</th><th style="text-align:right">Valor</th><th>Rateio</th><th>Pagamento</th><th>Histórico</th>
+        <th class="cpcol-vencimento">Vencimento</th><th class="cpcol-status">Status</th><th class="cpcol-empresa">Empresa</th><th class="cpcol-fornecedor">Fornecedor</th><th class="cpcol-categoria">Categoria</th><th class="cpcol-valor" style="text-align:right">Valor</th><th class="cpcol-rateio">Rateio</th><th class="cpcol-pagamento">Pagamento</th><th class="cpcol-historico">Histórico</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
@@ -3560,28 +3574,28 @@ function renderPagar() {
           const stBadge = c.pago ? '<span class="badge ok">PAGO</span>' : `<span class="badge err">EM ABERTO</span>`;
           return `<tr style="background:#f4f7fb">
             ${delCheckbox('contasPagar', realIdx)}
-            <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
-            <td>${stBadge}</td>
-            <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
-            <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} <span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span></td>
-            <td><input class="inline-input" style="width:140px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
-            <td style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
-            <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
-            <td style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
-            <td><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
+            <td class="cpcol-vencimento">${c.vencimento?fmtDate(c.vencimento):'—'}</td>
+            <td class="cpcol-status">${stBadge}</td>
+            <td class="cpcol-empresa">${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} <span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span></td>
+            <td class="cpcol-categoria"><input class="inline-input" style="width:140px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
+            <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
+            <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
+            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
+            <td class="cpcol-historico"><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
           </tr>`;
         }
         return `<tr${c._manual?' style="background:#fffbe6"':(c.pago?' style="background:#f0faf3"':'')}>
           ${delCheckbox('contasPagar', realIdx)}
-          <td><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
-          <td><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
-          <td><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
-          <td><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
-          <td><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
-          <td style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
-          <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
-          <td><input type="date" class="inline-input" style="width:120px" value="${_toDateInput(c.dataPag)}" onchange="updateContaPagar(${realIdx},'dataPag',this.value)"></td>
-          <td><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
+          <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
+          <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
+          <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
+          <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
+          <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
+          <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
+          <td class="cpcol-pagamento"><input type="date" class="inline-input" style="width:120px" value="${_toDateInput(c.dataPag)}" onchange="updateContaPagar(${realIdx},'dataPag',this.value)"></td>
+          <td class="cpcol-historico"><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
         </tr>`;
       }).join('')}
       </tbody></table></div>`}
