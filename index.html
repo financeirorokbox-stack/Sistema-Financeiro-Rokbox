@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v231/07-255';
+const APP_VERSION = 'v232/07-256';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3524,7 +3524,7 @@ function renderPagar() {
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">✏️ Clique nas células para editar. 🔒 = conciliada no banco (desfaça no banco pra editar valor/vencimento).</div>
       <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Categoria</th><th style="text-align:right">Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
+        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Descrição/Histórico</th><th>Categoria</th><th style="text-align:right">Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
@@ -3540,7 +3540,8 @@ function renderPagar() {
             <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
             <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
             <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} <span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span></td>
-            <td><input class="inline-input" style="width:150px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
+            <td><input class="inline-input" style="width:180px" value="${(c.descricao||'').replace(/"/g,'&quot;')}" placeholder="histórico" onchange="updateContaPagar(${realIdx},'descricao',this.value)"></td>
+            <td><input class="inline-input" style="width:150px" value="${(c.categoria||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
             <td style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
             <td>${stBadge}</td>
@@ -3553,7 +3554,8 @@ function renderPagar() {
           <td><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
           <td><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td><input class="inline-input" style="width:150px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
-          <td><input class="inline-input" style="width:150px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
+          <td><input class="inline-input" style="width:180px" value="${(c.descricao||'').replace(/"/g,'&quot;')}" placeholder="histórico" onchange="updateContaPagar(${realIdx},'descricao',this.value)"></td>
+          <td><input class="inline-input" style="width:150px" list="cp-cat-list" value="${(c.categoria||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
           <td><select class="inline-input" style="width:105px" onchange="updateContaPagar(${realIdx},'pago',this.value)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
