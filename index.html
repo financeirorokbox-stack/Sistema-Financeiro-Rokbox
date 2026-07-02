@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v210/06-234';
+const APP_VERSION = 'v211/06-235';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4739,8 +4739,8 @@ function renderDevolucao() {
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     <div class="cards-row">
-      ${segs.map(s=>{const v=devolucoes.filter(d=>d.segmento===s).reduce((a,d)=>a+d.valorPago,0);return `<div class="card amber"><div class="c-label">${s}</div><div class="c-val">${fmtVal(v)}</div><div class="c-sub">${devolucoes.filter(d=>d.segmento===s).length} itens</div></div>`;}).join('')}
-      <div class="card dark"><div class="c-label">Total</div><div class="c-val">${fmtVal(devolucoes.reduce((s,d)=>s+d.valorPago,0))}</div></div>
+      ${segs.map(s=>{const arr=vis.filter(d=>d.segmento===s);if(!arr.length)return '';const v=arr.reduce((a,d)=>a+d.valorPago,0);return `<div class="card amber"><div class="c-label">${s}${dfAtivo()?' (filtro)':''}</div><div class="c-val">${fmtVal(v)}</div><div class="c-sub">${arr.length} itens</div></div>`;}).join('')}
+      <div class="card dark"><div class="c-label">Total${(dfAtivo()||fSeg||fEmp||fQ)?' (filtro)':''}</div><div class="c-val">${fmtVal(vis.reduce((s,d)=>s+d.valorPago,0))}</div><div class="c-sub">${vis.length} itens</div></div>
     </div>
     ${creditosCliente.length ? `
       <div class="section-title" style="margin-top:4px">💳 Créditos de cliente <span style="font-size:11px;font-weight:400;color:var(--muted)">(sobra de pagamento guardada a favor da cliente)</span></div>
