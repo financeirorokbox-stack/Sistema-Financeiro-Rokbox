@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v237/07-261';
+const APP_VERSION = 'v238/07-262';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3453,8 +3453,9 @@ function renderPagar() {
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
   if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
-  if (fConc === 'sim') vis = vis.filter(c => chavesConcBanco.has(chaveContaPagar(c)));
-  if (fConc === 'nao') vis = vis.filter(c => !chavesConcBanco.has(chaveContaPagar(c)));
+  const _estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno; // estorno = conciliado pelo recebimento
+  if (fConc === 'sim') vis = vis.filter(_estaConc);
+  if (fConc === 'nao') vis = vis.filter(c => !_estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
 
@@ -3590,7 +3591,7 @@ function renderPagar() {
           <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
           <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
-          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}${c._origemEstorno?` <span class="badge" style="font-size:9px;background:var(--amber);color:#fff" title="Estorno/reembolso lançado a partir do Recebimento (PayPal/Braavo). Já veio descontado no repasse — não tem débito próprio no banco, então NÃO precisa conciliar aqui. Está resolvido pela conciliação do repasse.">↩ estorno</span>`:''}</td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}${c._origemEstorno?` <span class="badge ok" style="font-size:9px" title="↩ Estorno/reembolso conciliado pelo RECEBIMENTO (repasse PayPal/Braavo) — já veio descontado no depósito, por isso não tem débito próprio no banco. Está conciliado.">🔗 conciliado (recebimento)</span>`:''}</td>
           <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
