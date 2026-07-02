@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v238/07-262';
+const APP_VERSION = 'v239/07-263';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3427,6 +3427,36 @@ function setPagoConta(idx, sel) {
     renderPagar();
   }
 }
+// Exporta as Contas a Pagar FILTRADAS (o que está na tela) para .xlsx. Colunas ajustáveis.
+function exportarContasPagar() {
+  const el = document.getElementById('v-pagar');
+  const fSt = el?.querySelector('#cp-st')?.value || '';
+  const fCat = el?.querySelector('#cp-cat')?.value || '';
+  const fEmp = el?.querySelector('#cp-emp')?.value || '';
+  const fConc = el?.querySelector('#cp-conc')?.value || '';
+  const fDataPor = el?.querySelector('#cp-datapor')?.value || 'vencimento';
+  const fQ = (el?.querySelector('#cp-q')?.value || buscaPersist.pagar || '').toLowerCase();
+  const chavesConcBanco = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
+  const estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno;
+  let vis = contasPagar.slice();
+  if (fSt === 'pago') vis = vis.filter(c => c.pago);
+  if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
+  if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
+  if (fEmp) vis = vis.filter(c => (c.empresa || '') === fEmp);
+  if (fConc === 'sim') vis = vis.filter(estaConc);
+  if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
+  if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
+  vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0));
+  const fmtD = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : dt.toLocaleDateString('pt-BR'); };
+  const aoa = [['Vencimento', 'Liquidação', 'Empresa', 'Fornecedor', 'Categoria', 'Histórico', 'Valor', 'Status', 'Conciliado', 'Nº doc']];
+  vis.forEach(c => aoa.push([fmtD(c.vencimento), fmtD(c.dataPag), c.empresa || '', c.fornecedor || '', catContaPagar(c) || '', c.observacao || '', c.valor || 0, c.pago ? 'Pago' : 'Em Aberto', estaConc(c) ? 'Sim' : 'Não', c.numero || '']));
+  aoa.push([]); aoa.push(['', '', '', '', '', 'TOTAL', +vis.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2)]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Contas a Pagar');
+  XLSX.writeFile(wb, `contas_a_pagar_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`);
+}
 // Cria uma conta a pagar em branco (em aberto) para preencher na mão.
 function novaContaPagar() {
   contasPagar.push({ numero: '', fornecedor: 'Nova conta', descricao: '', categoria: '', observacao: '', empresa: '', rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true });
@@ -3440,6 +3470,7 @@ function renderPagar() {
   const fCat = el.querySelector('#cp-cat')?.value || '';
   const fEmp = el.querySelector('#cp-emp')?.value || '';
   const fConc = el.querySelector('#cp-conc')?.value || '';
+  const fDataPor = el.querySelector('#cp-datapor')?.value || 'vencimento'; // filtra a data por Vencimento ou Liquidação
   const fQraw = el.querySelector('#cp-q') ? el.querySelector('#cp-q').value : (buscaPersist.pagar || '');
   const fQ = fQraw.toLowerCase();
   const cats = [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].sort();
@@ -3457,7 +3488,7 @@ function renderPagar() {
   if (fConc === 'sim') vis = vis.filter(_estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !_estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
-  if (dfAtivo()) vis = vis.filter(c => passaData(c.vencimento));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
 
   const aberto = vis.filter(c => !c.pago);
   const pagos = vis.filter(c => c.pago);
@@ -3477,12 +3508,13 @@ function renderPagar() {
       <input type="file" id="file-pagar" accept=".xlsx,.xls" multiple>
     </label>
 
-    ${(() => { const nF = [fSt,fEmp,fCat,fConc,fQraw].filter(Boolean).length + (dfAtivo()?1:0); return `
+    ${(() => { const nF = [fSt,fEmp,fCat,fConc,fQraw].filter(Boolean).length + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0); return `
     <div class="topbar">
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nF?` <span class="cnt">${nF}</span>`:''}</button>
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosPagar()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
+      <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel">📤 Exportar</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
@@ -3494,7 +3526,8 @@ function renderPagar() {
       <div class="fd-row"><span class="f-label">Categoria</span><select id="cp-cat" onchange="renderPagar()"><option value="">Todas</option>${cats.map(c=>`<option value="${c}" ${c===fCat?'selected':''}>${c}</option>`).join('')}</select></div>
       <div class="fd-row"><span class="f-label">Banco</span><select id="cp-conc" onchange="renderPagar()"><option value="" ${fConc===''?'selected':''}>Todos</option><option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option><option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option></select></div>
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="cp-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Fornecedor ou descrição..." oninput="buscaPersist.pagar=this.value;debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
-      <div class="fd-row"><span class="f-label">Vencimento</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div></div>
+      <div class="fd-row"><span class="f-label">Data por</span><select id="cp-datapor" onchange="renderPagar()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (pagamento)</option></select></div>
+      <div class="fd-row"><span class="f-label">${fDataPor==='liquidacao'?'Liquidação':'Vencimento'}</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div></div>
     </div>`; })()}
 
     <div class="cards-row">
