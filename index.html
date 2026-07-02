@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v211/06-235';
+const APP_VERSION = 'v212/06-236';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1390,6 +1390,12 @@ function opKey(loja, situacao) {
 // ════════════════════════════════════════════════════════════════════
 // VENDAS
 // ════════════════════════════════════════════════════════════════════
+function toggleVendasDevol() {
+  const b = document.getElementById('vendas-devol-box'); if (!b) return;
+  const abrir = b.style.display === 'none';
+  b.style.display = abrir ? 'block' : 'none';
+  try { localStorage.setItem('vendasDevolAberto', abrir ? '1' : '0'); } catch (e) {}
+}
 function toggleVendasUploads() {
   const g = document.getElementById('vendas-uploads'), b = document.getElementById('btn-vendas-uploads');
   if (!g) return;
@@ -1443,6 +1449,7 @@ function renderVendas() {
     })}
 
     <div id="vendas-cards" class="cards-row"></div>
+    <div id="vendas-devol-detalhe"></div>
     <div id="vendas-loja-fix"></div>
     <div id="vendas-table"></div>
   `;
@@ -1816,7 +1823,31 @@ function renderPedidosTable() {
     ${hasFilter ? `<div class="card green"><div class="c-label">Subtotal filtrado</div><div class="c-val">${fmtVal(totalFilt)}</div><div class="c-sub">${filtered.length} pedidos</div></div>` : ''}
     <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub">${baseFat>0?fmtVal(baseFat):'—'} − ${fmtVal(baseDevol)} devolução</div></div>
     <div class="card dark"><div class="c-label">Frete${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseFrete)}</div><div class="c-sub">${pedsFat.length} pedidos</div></div>
-    <div class="card red"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento</div></div>`;
+    <div class="card red" style="cursor:pointer" onclick="toggleVendasDevol()" title="Ver os pedidos que compõem esse total"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento · <span style="text-decoration:underline">ver detalhe</span></div></div>`;
+
+  // Detalhe das devoluções abatidas (as que compõem o card acima) — prova item a item.
+  const devolList = (hasFilter ? devolucoes.filter(d => fIds.has(String(d.pedido))) : devolucoes.slice())
+    .filter(d => (d.valorPago || 0) !== 0)
+    .sort((a, b) => (b.valorPago || 0) - (a.valorPago || 0));
+  const devAberto = (() => { try { return localStorage.getItem('vendasDevolAberto') === '1'; } catch (e) { return false; } })();
+  const devEl = document.getElementById('vendas-devol-detalhe');
+  if (devEl) devEl.innerHTML = !devolList.length ? '' : `
+    <div id="vendas-devol-box" style="display:${devAberto ? 'block' : 'none'};margin:2px 0 18px">
+      <div class="section-title" style="margin-top:2px">🔄 Devoluções abatidas${hasFilter ? ' (filtro)' : ''} <span style="font-size:11px;font-weight:400;color:var(--muted)">— ${devolList.length} item(ns), somando ${fmtVal(baseDevol)}</span></div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>Pedido devolvido</th><th>Cliente</th><th>Segmento</th><th>Crédito usado no pedido</th><th>Data</th><th style="text-align:right">Valor abatido</th>
+      </tr></thead><tbody>
+      ${devolList.map(d => `<tr>
+        <td><strong>#${d.pedido}</strong></td>
+        <td>${d.cliente || '—'}</td>
+        <td>${d.segmento || '—'}</td>
+        <td>${credDevolucao(d) || '—'}</td>
+        <td>${d.dataTroca ? fmtDate(d.dataTroca) : '—'}</td>
+        <td style="text-align:right;color:var(--red)">${fmtVal(d.valorPago || 0)}</td>
+      </tr>`).join('')}
+      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="5">Total (${devolList.length})</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
+      </tbody></table></div>
+    </div>`;
 
   const tEl = document.getElementById('vendas-table');
   if (!tEl) return;
