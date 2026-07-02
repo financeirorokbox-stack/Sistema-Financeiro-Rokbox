@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v220/06-244';
+const APP_VERSION = 'v221/06-245';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4603,50 +4603,35 @@ function credDevolucao(d) {
   if (raw === '__editando__' || raw === '__vazio__') return '';
   return raw || d.pedidoCredito || '';
 }
-// Parcela de uma devolução que cabe a UM pedido de crédito. REGRA: aloca por VALOR de cada pedido do
-// crédito, na ORDEM — cada pedido recebe no máximo o SEU valor (cap); o que sobra vai para o próximo
-// pedido do crédito (igual à lógica de "sobra" dos recebimentos). Se um pedido do crédito não estiver
-// carregado, ele leva o que resta (sem cap). Evita a devolução abater MAIS que o valor do pedido.
+// Parcela de uma devolução que cabe a UM pedido de crédito: DIVIDE o valor entre os pedidos do crédito
+// (divisão simples). O TETO por valor do pedido é aplicado no total, em devolPorPedidoMap().
 function valorDevolucaoParaPedido(d, pedId) {
   const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
-  const idx = credPeds.indexOf(String(pedId));
-  if (idx < 0) { if (String(d.pedido) === String(pedId)) return d.valorPago || 0; return 0; }
-  let remaining = d.valorPago || 0;
-  for (let k = 0; k < credPeds.length; k++) {
-    const p = pedidos.find(x => String(x.id) === String(credPeds[k]));
-    const cap = p ? (p.valor || 0) : remaining; // teto = VALOR do pedido; não carregado → leva o que resta
-    const aloc = Math.min(cap, Math.max(0, remaining));
-    if (k === idx) return +aloc.toFixed(2);
-    remaining = +(remaining - aloc).toFixed(2);
-  }
+  if (credPeds.includes(String(pedId))) return +((d.valorPago || 0) / credPeds.length).toFixed(2);
+  if (String(d.pedido) === String(pedId)) return d.valorPago || 0;
   return 0;
 }
 // Mapa {pedidoId: devoluçãoAbatida} + itens por pedido, já com o CAP por valor do pedido (regra acima).
 // Fonte única para Comissão, Vendas e Dashboard — todos batem entre si.
 function devolPorPedidoMap() {
-  const porPed = {}, itensPorPed = {}, rawPorPed = {};
-  // rawPorPed = valor SEM o teto (divisão simples pelos pedidos do crédito) — só p/ mostrar "capado de X".
-  devolucoes.forEach(d => {
-    const cps = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
-    if (cps.length) cps.forEach(pc => rawPorPed[pc] = +(((rawPorPed[pc] || 0) + (d.valorPago || 0) / cps.length)).toFixed(2));
-  });
+  const rawPorPed = {}, itensPorPed = {};
+  // 1) Soma BRUTA por pedido do crédito (divisão simples entre os pedidos do crédito).
   devolucoes.forEach(d => {
     const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
     if (!credPeds.length) return;
-    let remaining = d.valorPago || 0;
+    const parcela = +((d.valorPago || 0) / credPeds.length).toFixed(2);
     credPeds.forEach(pc => {
-      const p = pedidos.find(x => String(x.id) === String(pc));
-      // Teto = quanto AINDA cabe no pedido (valor do pedido − o que já foi abatido nele por outras
-      // devoluções). Assim a SOMA das devoluções de um pedido nunca passa do valor dele; o excedente
-      // é sobra p/ outro pedido (a usuária aponta no campo "Usado no pedido").
-      const capacidade = p ? Math.max(0, +((p.valor || 0) - (porPed[pc] || 0)).toFixed(2)) : remaining;
-      const aloc = +Math.min(capacidade, Math.max(0, remaining)).toFixed(2);
-      remaining = +(remaining - aloc).toFixed(2);
-      if (aloc > 0.005) {
-        porPed[pc] = +((porPed[pc] || 0) + aloc).toFixed(2);
-        (itensPorPed[pc] = itensPorPed[pc] || []).push({ d, parcela: aloc });
-      }
+      rawPorPed[pc] = +((rawPorPed[pc] || 0) + parcela).toFixed(2);
+      (itensPorPed[pc] = itensPorPed[pc] || []).push({ d, parcela });
     });
+  });
+  // 2) TETO simples: cada pedido nunca abate MAIS que o próprio valor. O excedente é "sobra" —
+  //    a usuária realoca apontando outro pedido no campo "Usado no pedido" da devolução.
+  const porPed = {};
+  Object.keys(rawPorPed).forEach(pc => {
+    const p = pedidos.find(x => String(x.id) === String(pc));
+    const cap = p ? (p.valor || 0) : Infinity; // pedido não carregado → sem teto
+    porPed[pc] = +Math.min(rawPorPed[pc], cap).toFixed(2);
   });
   return { porPed, itensPorPed, rawPorPed };
 }
