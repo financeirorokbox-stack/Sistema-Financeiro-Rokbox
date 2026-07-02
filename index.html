@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v212/06-236';
+const APP_VERSION = 'v213/06-237';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1806,12 +1806,22 @@ function renderPedidosTable() {
   const totalFilt = filtered.reduce((s,p)=>s+p.valor,0);
   const hasFilter = Object.values(vendasFilters).some(a=>Array.isArray(a)?a.length:a) || (document.getElementById('busca-vendas')?.value||'');
 
-  // Faturamento real = valor dos pedidos − devoluções (respeita o filtro: devoluções dos pedidos filtrados).
-  const totalDevol = devolucoes.reduce((s,d)=>s+(d.valorPago||0),0);
-  const fIds = new Set(filtered.map(p=>String(p.id)));
-  const devolFilt = devolucoes.reduce((s,d)=> fIds.has(String(d.pedido)) ? s+(d.valorPago||0) : s, 0);
+  // Faturamento real = valor dos pedidos − devoluções ABATIDAS (mesma regra da Comissão: a devolução
+  // abate o PEDIDO QUE RECEBEU O CRÉDITO — credDevolucao —, dividindo o valor se foram vários pedidos).
+  const devolPorPed = {}, devolItensPorPed = {};
+  devolucoes.forEach(d => {
+    const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
+    if (!credPeds.length) return;
+    const parcela = (d.valorPago || 0) / credPeds.length;
+    credPeds.forEach(pc => {
+      devolPorPed[pc] = (devolPorPed[pc] || 0) + parcela;
+      (devolItensPorPed[pc] = devolItensPorPed[pc] || []).push({ d, parcela });
+    });
+  });
+  const totalDevol = Object.values(devolPorPed).reduce((s, v) => s + v, 0);
+  const devolFilt = filtered.reduce((s, p) => s + (devolPorPed[String(p.id)] || 0), 0);
   const baseFat = hasFilter ? totalFilt : totalGeral;
-  const baseDevol = hasFilter ? devolFilt : totalDevol;
+  const baseDevol = +(hasFilter ? devolFilt : totalDevol).toFixed(2);
   const fatReal = baseFat - baseDevol;
   // Frete somado dos pedidos (respeita filtro); usa o frete corrigido ✎ quando houver.
   const pedsFat = hasFilter ? filtered : pedidos;
@@ -1825,27 +1835,28 @@ function renderPedidosTable() {
     <div class="card dark"><div class="c-label">Frete${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseFrete)}</div><div class="c-sub">${pedsFat.length} pedidos</div></div>
     <div class="card red" style="cursor:pointer" onclick="toggleVendasDevol()" title="Ver os pedidos que compõem esse total"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento · <span style="text-decoration:underline">ver detalhe</span></div></div>`;
 
-  // Detalhe das devoluções abatidas (as que compõem o card acima) — prova item a item.
-  const devolList = (hasFilter ? devolucoes.filter(d => fIds.has(String(d.pedido))) : devolucoes.slice())
-    .filter(d => (d.valorPago || 0) !== 0)
-    .sort((a, b) => (b.valorPago || 0) - (a.valorPago || 0));
+  // Detalhe das devoluções abatidas — POR PEDIDO que recebeu o crédito (mesma regra da Comissão).
+  const devolList = (hasFilter ? filtered : pedidos)
+    .filter(p => (devolPorPed[String(p.id)] || 0) > 0.005)
+    .map(p => ({ p, valor: +(devolPorPed[String(p.id)]).toFixed(2), itens: devolItensPorPed[String(p.id)] || [] }))
+    .sort((a, b) => b.valor - a.valor);
   const devAberto = (() => { try { return localStorage.getItem('vendasDevolAberto') === '1'; } catch (e) { return false; } })();
   const devEl = document.getElementById('vendas-devol-detalhe');
   if (devEl) devEl.innerHTML = !devolList.length ? '' : `
     <div id="vendas-devol-box" style="display:${devAberto ? 'block' : 'none'};margin:2px 0 18px">
-      <div class="section-title" style="margin-top:2px">🔄 Devoluções abatidas${hasFilter ? ' (filtro)' : ''} <span style="font-size:11px;font-weight:400;color:var(--muted)">— ${devolList.length} item(ns), somando ${fmtVal(baseDevol)}</span></div>
+      <div class="section-title" style="margin-top:2px">🔄 Devoluções abatidas${hasFilter ? ' (filtro)' : ''} <span style="font-size:11px;font-weight:400;color:var(--muted)">— ${devolList.length} pedido(s), somando ${fmtVal(baseDevol)}</span></div>
       <div class="table-wrap"><table><thead><tr>
-        <th>Pedido devolvido</th><th>Cliente</th><th>Segmento</th><th>Crédito usado no pedido</th><th>Data</th><th style="text-align:right">Valor abatido</th>
+        <th>Pedido abatido</th><th>Cliente</th><th>Vendedor</th><th>Loja</th><th>Veio da devolução (pedido/data)</th><th style="text-align:right">Valor abatido</th>
       </tr></thead><tbody>
-      ${devolList.map(d => `<tr>
-        <td><strong>#${d.pedido}</strong></td>
-        <td>${d.cliente || '—'}</td>
-        <td>${d.segmento || '—'}</td>
-        <td>${credDevolucao(d) || '—'}</td>
-        <td>${d.dataTroca ? fmtDate(d.dataTroca) : '—'}</td>
-        <td style="text-align:right;color:var(--red)">${fmtVal(d.valorPago || 0)}</td>
+      ${devolList.map(x => `<tr>
+        <td><strong>#${x.p.id}</strong></td>
+        <td>${x.p.nome || '—'}</td>
+        <td>${x.p.vendedor || '—'}</td>
+        <td>${x.p.loja || '—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${x.itens.map(it => `#${it.d.pedido||'?'}${it.d.dataTroca ? ' ('+fmtDate(it.d.dataTroca)+')' : ''}`).join(', ') || '—'}</td>
+        <td style="text-align:right;color:var(--red)">${fmtVal(x.valor)}</td>
       </tr>`).join('')}
-      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="5">Total (${devolList.length})</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
+      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="5">Total (${devolList.length} pedidos)</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
       </tbody></table></div>
     </div>`;
 
