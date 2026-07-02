@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v216/06-240';
+const APP_VERSION = 'v217/06-241';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7181,25 +7181,48 @@ function removerDuplicatasDoBanco() {
     const fb = (idStr && !idStr.startsWith('ofx-')) ? idStr.split('_')[0] : '';
     return fb + '§' + dk + '|' + (t.valor || 0).toFixed(2) + '|' + (t.memo || '').trim().toLowerCase();
   };
+  // Chave só por CONTEÚDO (ignora o ID/FITID) — pega o caso do Itaú, onde 2 uploads dão FITIDs diferentes
+  // para o MESMO lançamento (então a chave estrita acima não casa). Mais agressiva → confirmação reforçada.
+  const keyConteudo = t => {
+    const dk = t.data instanceof Date && !isNaN(t.data) ? t.data.toISOString().slice(0, 10) : '';
+    return dk + '|' + (t.valor || 0).toFixed(2) + '|' + (t.memo || '').trim().toLowerCase();
+  };
   const linked = id => !!(extratoLinks[id] || repasseLinks[id] || debitoLinks[id] || receitaLinks[id]);
-  const doBanco = extratoBancario.filter(t => (t.banco || '') === banco);
-  const grupos = {};
-  doBanco.forEach(t => { const k = keyOf(t); (grupos[k] = grupos[k] || []).push(t); });
-  const removerIds = new Set();
-  let gruposDup = 0;
-  Object.values(grupos).forEach(arr => {
-    if (arr.length < 2) return;
-    gruposDup++;
-    const manter = arr.find(t => linked(t.id)) || arr[0]; // mantém a já conciliada, se houver
-    arr.forEach(t => { if (t !== manter) removerIds.add(String(t.id)); });
-  });
+  // Respeita o filtro de DATA da tela: se houver, limpa só o período/dia filtrado (mais seguro).
+  const doBanco = extratoBancario.filter(t => (t.banco || '') === banco && (!dfAtivo() || passaData(t.data)));
+  const acharDups = (chaveFn) => {
+    const grupos = {}; doBanco.forEach(t => { const k = chaveFn(t); (grupos[k] = grupos[k] || []).push(t); });
+    const ids = new Set(); let n = 0;
+    Object.values(grupos).forEach(arr => {
+      if (arr.length < 2) return; n++;
+      const manter = arr.find(t => linked(t.id)) || arr[0]; // mantém a já conciliada, se houver
+      arr.forEach(t => { if (t !== manter) ids.add(String(t.id)); });
+    });
+    return { ids, n };
+  };
+  let { ids: removerIds, n: gruposDup } = acharDups(keyOf);
+  let porConteudo = false;
+  if (!removerIds.size) {
+    // 2ª passada: por conteúdo (ignora FITID). Só entra aqui se a estrita não achou nada.
+    const c = acharDups(keyConteudo);
+    if (!c.ids.size) { alert(`✓ Nenhum lançamento duplicado em "${banco}"${dfAtivo() ? ' no período filtrado' : ''}. Está limpo.`); return; }
+    porConteudo = true; removerIds = c.ids; gruposDup = c.n;
+    const escopo = dfAtivo() ? ' (no período filtrado)' : ' (TODO o banco — dica: filtre o dia em cima p/ limitar)';
+    if (!confirm(`⚠ ATENÇÃO — limpeza por CONTEÚDO${escopo}\n\n` +
+      `A limpeza normal (por identificador) não achou duplicados, então vou comparar por DATA + VALOR + DESCRIÇÃO.\n\n` +
+      `Encontrei ${removerIds.size} cópia(s) com data, valor e descrição IGUAIS em "${banco}". Isso normalmente é o extrato subido 2×.\n\n` +
+      `⚠ CUIDADO: se existirem 2 lançamentos REAIS idênticos (mesmo valor, mesma descrição, mesmo dia), um seria removido. Faça um 💾 Backup antes.\n\n` +
+      `Manter 1 de cada e remover ${removerIds.size} cópia(s)?`)) return;
+  }
   if (!removerIds.size) { alert(`✓ Nenhum lançamento duplicado em "${banco}". Está limpo.`); return; }
   const fechadosAfetados = [...removerIds].some(id => { const t = extratoBancario.find(x => String(x.id) === id); return t && diaFechado(t.data, t.banco); });
-  let aviso = `Encontrei ${removerIds.size} cópia(s) duplicada(s) DENTRO de "${banco}" (${gruposDup} lançamento(s) repetido(s)).\n\n` +
-    `Vou MANTER 1 de cada e remover só as cópias extras (mexe SÓ neste banco).`;
-  if (fechadosAfetados) aviso += '\n\n⚠ Algumas estão em dias fechados — só removo as cópias.';
-  aviso += '\n\nConfirmar?';
-  if (!confirm(aviso)) return;
+  if (!porConteudo) {
+    let aviso = `Encontrei ${removerIds.size} cópia(s) duplicada(s) DENTRO de "${banco}" (${gruposDup} lançamento(s) repetido(s)).\n\n` +
+      `Vou MANTER 1 de cada e remover só as cópias extras (mexe SÓ neste banco).`;
+    if (fechadosAfetados) aviso += '\n\n⚠ Algumas estão em dias fechados — só removo as cópias.';
+    aviso += '\n\nConfirmar?';
+    if (!confirm(aviso)) return;
+  } else if (fechadosAfetados && !confirm('⚠ Algumas cópias estão em dias FECHADOS — remover as cópias mesmo assim?')) return;
   // Tira os vínculos só das cópias removidas (a que fica preserva o vínculo dela).
   removerIds.forEach(id => { delete extratoLinks[id]; delete repasseLinks[id]; delete debitoLinks[id]; delete receitaLinks[id]; });
   extratoBancario = extratoBancario.filter(t => !removerIds.has(String(t.id)));
