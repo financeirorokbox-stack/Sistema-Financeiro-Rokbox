@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v228/07-252';
+const APP_VERSION = 'v229/07-253';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3308,6 +3308,35 @@ function aplicarBaixaConciliada() {
   if (mudou) saveData('contasPagar', contasPagar);
   return mudou;
 }
+// data → 'AAAA-MM-DD' (para <input type=date>), sem escorregar de dia por fuso.
+function _toDateInput(d) { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return ''; return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0'); }
+// Edita um campo de uma conta a pagar na mão. Conciliadas no banco ficam travadas (protege o vínculo).
+function updateContaPagar(idx, field, value) {
+  const c = contasPagar[idx];
+  if (!c) return;
+  if (field === 'vencimento' || field === 'dataPag') {
+    c[field] = value ? new Date(value + 'T12:00:00') : null;
+  } else if (field === 'valor') {
+    const t = String(value || '').trim();
+    const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, ''));
+    c.valor = isNaN(n) ? 0 : +n.toFixed(2);
+  } else if (field === 'pago') {
+    c.pago = (value === 'pago' || value === true);
+    if (c.pago && !c.dataPag) c.dataPag = c.vencimento || new Date();
+    if (!c.pago) c.dataPag = null;
+    c.situacao = c.pago ? 'Pago' : 'Em Aberto';
+  } else {
+    c[field] = value;
+  }
+  saveData('contasPagar', contasPagar);
+  renderPagar();
+}
+// Cria uma conta a pagar em branco (em aberto) para preencher na mão.
+function novaContaPagar() {
+  contasPagar.push({ numero: '', fornecedor: 'Nova conta', descricao: '', categoria: '', observacao: '', empresa: '', rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true });
+  saveData('contasPagar', contasPagar);
+  renderPagar();
+}
 function renderPagar() {
   setDateFilterRender(renderPagar);
   const el = document.getElementById('v-pagar');
@@ -3356,6 +3385,7 @@ function renderPagar() {
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nF?` <span class="cnt">${nF}</span>`:''}</button>
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosPagar()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
+      <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
@@ -3383,29 +3413,46 @@ function renderPagar() {
 
     ${vis.length === 0
       ? `<div class="empty"><div class="e-icon">📤</div>${contasPagar.length===0 ? 'Carregue a planilha de Contas a Pagar acima' : 'Nenhum resultado para os filtros'}</div>`
-      : `<div class="table-wrap"><table><thead><tr>
+      : `<datalist id="cp-cat-list">${cats.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">`).join('')}${Object.values(CATEGORIAS_DESPESA).flat().map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <datalist id="cp-emp-list">${empresas.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">✏️ Clique nas células para editar. 🔒 = conciliada no banco (desfaça no banco pra editar valor/vencimento).</div>
+      <div class="table-wrap"><table style="white-space:nowrap"><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Categoria</th><th>Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
+        <th>Vencimento</th><th>Empresa</th><th>Fornecedor</th><th>Categoria</th><th style="text-align:right">Valor</th><th>Rateio</th><th>Status</th><th>Pagamento</th><th>Observação</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
-        const stBadge = c.pago
-          ? '<span class="badge ok">PAGO</span>'
-          : `<span class="badge err">${c.situacao && !/aberto/i.test(c.situacao) ? c.situacao : 'EM ABERTO'}</span>`;
+        const conc = chavesConcBanco.has(chaveContaPagar(c)); // travada: vínculo no banco
         const rateioStr = (c.rateio && c.rateio.length)
           ? c.rateio.map(r=>`${r.empresa} ${fmtVal(r.valor)}`).join('<br>')
           : '<span style="color:var(--muted)">—</span>';
-        return `<tr>
+        if (conc) {
+          // Conta conciliada no banco → só leitura nos campos-chave (protege o vínculo).
+          const stBadge = c.pago ? '<span class="badge ok">PAGO</span>' : `<span class="badge err">EM ABERTO</span>`;
+          return `<tr style="background:#f4f7fb">
+            ${delCheckbox('contasPagar', realIdx)}
+            <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
+            <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
+            <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} <span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span></td>
+            <td><input class="inline-input" style="width:150px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
+            <td style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
+            <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
+            <td>${stBadge}</td>
+            <td style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
+            <td><input class="inline-input" style="width:130px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
+          </tr>`;
+        }
+        return `<tr${c._manual?' style="background:#fffbe6"':''}>
           ${delCheckbox('contasPagar', realIdx)}
-          <td>${c.vencimento?fmtDate(c.vencimento):'—'}</td>
-          <td>${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
-          <td><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}${(chavesConcBanco.has(chaveContaPagar(c)) && c.pago)?` <span class="badge ok" style="font-size:9px" title="Conciliada na Conciliação Bancária">🔗 conciliado</span>`:''}</td>
-          <td>${catContaPagar(c)?`<span class="badge neu">${catContaPagar(c)}</span>`:'—'}</td>
-          <td><strong>${fmtVal(c.valor)}</strong></td>
+          <td><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
+          <td><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
+          <td><input class="inline-input" style="width:150px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
+          <td><input class="inline-input" style="width:150px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
+          <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
-          <td>${stBadge}</td>
-          <td style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
-          <td style="font-size:11px;color:var(--muted)">${c.observacao||'—'}</td>
+          <td><select class="inline-input" style="width:105px" onchange="updateContaPagar(${realIdx},'pago',this.value)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
+          <td><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.dataPag)}" onchange="updateContaPagar(${realIdx},'dataPag',this.value)"></td>
+          <td><input class="inline-input" style="width:130px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="obs" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
         </tr>`;
       }).join('')}
       </tbody></table></div>`}
