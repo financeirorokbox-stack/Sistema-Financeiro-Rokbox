@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v213/06-237';
+const APP_VERSION = 'v214/06-238';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1845,6 +1845,17 @@ function renderPedidosTable() {
   if (devEl) devEl.innerHTML = !devolList.length ? '' : `
     <div id="vendas-devol-box" style="display:${devAberto ? 'block' : 'none'};margin:2px 0 18px">
       <div class="section-title" style="margin-top:2px">🔄 Devoluções abatidas${hasFilter ? ' (filtro)' : ''} <span style="font-size:11px;font-weight:400;color:var(--muted)">— ${devolList.length} pedido(s), somando ${fmtVal(baseDevol)}</span></div>
+      ${(() => {
+        const pv = {};
+        devolList.forEach(x => { const v = x.p.vendedor || 'Sem vendedor'; pv[v] = (pv[v] || 0) + x.valor; });
+        const arr = Object.entries(pv).sort((a, b) => b[1] - a[1]);
+        return `<div style="font-size:12px;font-weight:700;margin:2px 0 4px">Por vendedor</div>
+        <div class="table-wrap" style="max-width:420px;margin-bottom:14px"><table><thead><tr><th>Vendedor</th><th style="text-align:right">Devolução abatida</th></tr></thead><tbody>
+          ${arr.map(([v, t]) => `<tr><td>${v}</td><td style="text-align:right;color:var(--red)">${fmtVal(+t.toFixed(2))}</td></tr>`).join('')}
+          <tr style="border-top:2px solid var(--border);font-weight:700"><td>Total</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
+        </tbody></table></div>`;
+      })()}
+      <div style="font-size:12px;font-weight:700;margin:2px 0 4px">Por pedido</div>
       <div class="table-wrap"><table><thead><tr>
         <th>Pedido abatido</th><th>Cliente</th><th>Vendedor</th><th>Loja</th><th>Veio da devolução (pedido/data)</th><th style="text-align:right">Valor abatido</th>
       </tr></thead><tbody>
