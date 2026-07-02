@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v218/06-242';
+const APP_VERSION = 'v219/06-243';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4630,8 +4630,11 @@ function devolPorPedidoMap() {
     let remaining = d.valorPago || 0;
     credPeds.forEach(pc => {
       const p = pedidos.find(x => String(x.id) === String(pc));
-      const cap = p ? (p.valor || 0) : remaining; // teto = VALOR do pedido (não o conciliado, que é menor em trocas pagas com crédito)
-      const aloc = +Math.min(cap, Math.max(0, remaining)).toFixed(2);
+      // Teto = quanto AINDA cabe no pedido (valor do pedido − o que já foi abatido nele por outras
+      // devoluções). Assim a SOMA das devoluções de um pedido nunca passa do valor dele; o excedente
+      // é sobra p/ outro pedido (a usuária aponta no campo "Usado no pedido").
+      const capacidade = p ? Math.max(0, +((p.valor || 0) - (porPed[pc] || 0)).toFixed(2)) : remaining;
+      const aloc = +Math.min(capacidade, Math.max(0, remaining)).toFixed(2);
       remaining = +(remaining - aloc).toFixed(2);
       if (aloc > 0.005) {
         porPed[pc] = +((porPed[pc] || 0) + aloc).toFixed(2);
