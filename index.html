@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v233/07-257';
+const APP_VERSION = 'v234/07-258';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3401,6 +3401,23 @@ function gerarRecorrencias() {
   renderPagar();
   alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
 }
+// Muda o status (pago/aberto) de uma conta. Se houver FILTRO de status ligado, atualiza no lugar
+// (sem re-renderizar) pra a linha não SUMIR do filtro no meio da edição.
+function setPagoConta(idx, sel) {
+  const c = contasPagar[idx]; if (!c) return;
+  c.pago = (sel.value === 'pago');
+  if (c.pago && !c.dataPag) c.dataPag = c.vencimento || new Date();
+  if (!c.pago) c.dataPag = null;
+  c.situacao = c.pago ? 'Pago' : 'Em Aberto';
+  saveData('contasPagar', contasPagar);
+  const fSt = document.getElementById('cp-st')?.value || '';
+  if (fSt === 'pago' || fSt === 'aberto') {
+    sel.style.color = c.pago ? 'var(--green)' : 'var(--red)';
+    const tr = sel.closest('tr'); if (tr && !(tr.getAttribute('style') || '').includes('fffbe6')) tr.style.background = c.pago ? '#f0faf3' : '';
+  } else {
+    renderPagar();
+  }
+}
 // Cria uma conta a pagar em branco (em aberto) para preencher na mão.
 function novaContaPagar() {
   contasPagar.push({ numero: '', fornecedor: 'Nova conta', descricao: '', categoria: '', observacao: '', empresa: '', rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true });
@@ -3552,7 +3569,7 @@ function renderPagar() {
         return `<tr${c._manual?' style="background:#fffbe6"':(c.pago?' style="background:#f0faf3"':'')}>
           ${delCheckbox('contasPagar', realIdx)}
           <td><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
-          <td><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="updateContaPagar(${realIdx},'pago',this.value)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
+          <td><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td><input class="inline-input" style="width:150px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
           <td><input class="inline-input" style="width:180px" value="${(c.descricao||'').replace(/"/g,'&quot;')}" placeholder="histórico" onchange="updateContaPagar(${realIdx},'descricao',this.value)"></td>
