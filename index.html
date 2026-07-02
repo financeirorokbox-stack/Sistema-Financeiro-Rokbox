@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v219/06-243';
+const APP_VERSION = 'v220/06-244';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1808,7 +1808,7 @@ function renderPedidosTable() {
 
   // Faturamento Real = Pedidos com operação VENDA e TROCA − Devoluções abatidas.
   // A devolução abate o PEDIDO QUE RECEBEU O CRÉDITO (credDevolucao), com CAP no valor do pedido.
-  const { porPed: devolPorPed, itensPorPed: devolItensPorPed } = devolPorPedidoMap();
+  const { porPed: devolPorPed, itensPorPed: devolItensPorPed, rawPorPed: devolRawPorPed } = devolPorPedidoMap();
   const ehVendaTroca = p => { const op = (getClassificacao(p).operacao || '').toLowerCase(); return op === 'venda' || op === 'troca'; };
   const pedsBase = (hasFilter ? filtered : pedidos).filter(ehVendaTroca);
   const baseFat = pedsBase.reduce((s, p) => s + (p.valor || 0), 0);
@@ -1846,19 +1846,20 @@ function renderPedidosTable() {
           <tr style="border-top:2px solid var(--border);font-weight:700"><td>Total</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
         </tbody></table></div>`;
       })()}
-      <div style="font-size:12px;font-weight:700;margin:2px 0 4px">Por pedido</div>
+      <div style="font-size:12px;font-weight:700;margin:2px 0 4px">Por pedido <span style="font-size:11px;font-weight:400;color:var(--muted)">— 🔶 = teto aplicado (devolução passava do valor do pedido)</span></div>
       <div class="table-wrap"><table><thead><tr>
-        <th>Pedido abatido</th><th>Cliente</th><th>Vendedor</th><th>Loja</th><th>Veio da devolução (pedido/data)</th><th style="text-align:right">Valor abatido</th>
+        <th>Pedido abatido</th><th>Cliente</th><th>Vendedor</th><th>Loja</th><th style="text-align:right">Valor pedido</th><th>Veio da devolução (pedido/data)</th><th style="text-align:right">Valor abatido</th>
       </tr></thead><tbody>
-      ${devolList.map(x => `<tr>
-        <td><strong>#${x.p.id}</strong></td>
+      ${devolList.map(x => { const raw = devolRawPorPed[String(x.p.id)] || x.valor; const capado = raw > x.valor + 0.005; return `<tr${capado ? ' style="background:#fff6e6"' : ''}>
+        <td><strong>#${x.p.id}</strong>${capado ? ' 🔶' : ''}</td>
         <td>${x.p.nome || '—'}</td>
         <td>${x.p.vendedor || '—'}</td>
         <td>${x.p.loja || '—'}</td>
+        <td style="text-align:right;color:var(--muted)">${fmtVal(x.p.valor || 0)}</td>
         <td style="font-size:11px;color:var(--muted)">${x.itens.map(it => `#${it.d.pedido||'?'}${it.d.dataTroca ? ' ('+fmtDate(it.d.dataTroca)+')' : ''}`).join(', ') || '—'}</td>
-        <td style="text-align:right;color:var(--red)">${fmtVal(x.valor)}</td>
-      </tr>`).join('')}
-      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="5">Total (${devolList.length} pedidos)</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
+        <td style="text-align:right;color:var(--red)">${fmtVal(x.valor)}${capado ? ` <span style="font-size:10px;color:var(--amber)" title="Sem teto seria ${fmtVal(raw)}">(de ${fmtVal(raw)})</span>` : ''}</td>
+      </tr>`; }).join('')}
+      <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="6">Total (${devolList.length} pedidos)</td><td style="text-align:right;color:var(--red)">${fmtVal(baseDevol)}</td></tr>
       </tbody></table></div>
     </div>`;
 
@@ -4623,7 +4624,12 @@ function valorDevolucaoParaPedido(d, pedId) {
 // Mapa {pedidoId: devoluçãoAbatida} + itens por pedido, já com o CAP por valor do pedido (regra acima).
 // Fonte única para Comissão, Vendas e Dashboard — todos batem entre si.
 function devolPorPedidoMap() {
-  const porPed = {}, itensPorPed = {};
+  const porPed = {}, itensPorPed = {}, rawPorPed = {};
+  // rawPorPed = valor SEM o teto (divisão simples pelos pedidos do crédito) — só p/ mostrar "capado de X".
+  devolucoes.forEach(d => {
+    const cps = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
+    if (cps.length) cps.forEach(pc => rawPorPed[pc] = +(((rawPorPed[pc] || 0) + (d.valorPago || 0) / cps.length)).toFixed(2));
+  });
   devolucoes.forEach(d => {
     const credPeds = String(credDevolucao(d)).match(/\d{4,6}/g) || [];
     if (!credPeds.length) return;
@@ -4642,7 +4648,7 @@ function devolPorPedidoMap() {
       }
     });
   });
-  return { porPed, itensPorPed };
+  return { porPed, itensPorPed, rawPorPed };
 }
 function saveCredito(pedido, cliente, rowIdx) {
   const input1 = document.getElementById('dc-' + rowIdx);
