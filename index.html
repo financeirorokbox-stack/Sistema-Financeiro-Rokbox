@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v225/07-249';
+const APP_VERSION = 'v226/07-250';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6493,6 +6493,19 @@ function barrasHTML(dataObj, total, cor) {
     </div>`;
   }).join('');
 }
+let _dashAberto = (() => { try { return JSON.parse(localStorage.getItem('dashAberto') || 'null') || { vendas: true, financeiro: true }; } catch (e) { return { vendas: true, financeiro: true }; } })();
+function toggleDashSecao(slug) {
+  _dashAberto[slug] = !_dashAberto[slug];
+  const c = document.getElementById('dash-sec-' + slug); if (c) c.style.display = _dashAberto[slug] ? '' : 'none';
+  const b = document.getElementById('dash-btn-' + slug); if (b) b.textContent = _dashAberto[slug] ? '▾ Recolher' : '▸ Expandir';
+  try { localStorage.setItem('dashAberto', JSON.stringify(_dashAberto)); } catch (e) {}
+}
+function dashHeader(slug, titulo) {
+  return `<div style="display:flex;align-items:center;gap:12px;margin:6px 0 12px;border-top:2px solid var(--border);padding-top:14px">
+    <div style="font-size:17px;font-weight:800">${titulo}</div>
+    <button id="dash-btn-${slug}" class="btn ghost sm" onclick="toggleDashSecao('${slug}')">${_dashAberto[slug]?'▾ Recolher':'▸ Expandir'}</button>
+  </div>`;
+}
 function renderDashboard() {
   const el = document.getElementById('v-dashboard');
 
@@ -6537,9 +6550,9 @@ function renderDashboard() {
     if (!porVendedor[vend]) porVendedor[vend] = { pedidos: 0, valor: 0 };
     porVendedor[vend].pedidos++; porVendedor[vend].valor += p.valor;
   });
-  // FATURAMENTO REAL = valor dos pedidos − devoluções (dos pedidos deste período), por segmento/vendedor.
-  const segDoPed = {}, vendDoPed = {};
-  pedVenda.forEach(p => { segDoPed[String(p.id)] = getClassificacao(p).segmento || 'Sem segmento'; vendDoPed[String(p.id)] = p.vendedor || 'Sem vendedor'; });
+  // FATURAMENTO REAL = valor dos pedidos − devoluções (dos pedidos deste período), por empresa/segmento/vendedor.
+  const segDoPed = {}, vendDoPed = {}, empDoPed = {};
+  pedVenda.forEach(p => { segDoPed[String(p.id)] = getClassificacao(p).segmento || 'Sem segmento'; vendDoPed[String(p.id)] = p.vendedor || 'Sem vendedor'; empDoPed[String(p.id)] = p.empresa || 'Sem empresa'; });
   let totalDevolPeriodo = 0;
   // Mesma regra da Comissão/Vendas: a devolução abate o PEDIDO QUE RECEBEU O CRÉDITO (credDevolucao),
   // com CAP no valor do pedido; só conta pedidos deste período/carregados.
@@ -6548,6 +6561,7 @@ function renderDashboard() {
     totalDevolPeriodo += val;
     if (porSegmento[segDoPed[pc]]) porSegmento[segDoPed[pc]].valor -= val;
     if (porVendedor[vendDoPed[pc]]) porVendedor[vendDoPed[pc]].valor -= val;
+    if (porEmpresa[empDoPed[pc]]) porEmpresa[empDoPed[pc]].valor -= val;
   });
   const totalFatReal = totalVendido - totalDevolPeriodo; // base do % das barras (faturamento real)
 
@@ -6619,31 +6633,49 @@ function renderDashboard() {
       </div>
     </div>
 
-    <!-- Cards principais -->
-    <div class="cards-row" style="margin-bottom:24px">
-      <div class="card blue"><div class="c-label">Total Vendido</div><div class="c-val">${fmtVal(totalVendido)}</div><div class="c-sub">${totalVendas} pedidos</div></div>
-      <div class="card green"><div class="c-label">Total Recebido (líq.)</div><div class="c-val">${fmtVal(totalRecebido)}</div><div class="c-sub">Taxas: ${fmtVal(totalTaxas)}</div></div>
-      <div class="card red"><div class="c-label">Em Aberto</div><div class="c-val">${fmtVal(totalAberto)}</div><div class="c-sub">${countAberto} parcelas</div></div>
-      <div class="card amber"><div class="c-label">Boletos Pendentes</div><div class="c-val">${boletosAbertos.length}</div><div class="c-sub">${fmtVal(boletosAbertos.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
-    </div>
-
-    <!-- Por empresa -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-      <div>
-        <div class="section-title">Vendas por Empresa</div>
-        <div class="table-wrap"><table><thead><tr>
-          <th>Empresa</th><th>Pedidos</th><th>Valor</th><th>% do total</th>
+    <!-- ══ VENDAS (faturamento) ══ -->
+    ${dashHeader('vendas','📦 Vendas')}
+    <div id="dash-sec-vendas" style="display:${_dashAberto['vendas']?'':'none'}">
+      <div class="cards-row" style="margin-bottom:20px">
+        <div class="card blue"><div class="c-label">Total Vendido (bruto)</div><div class="c-val">${fmtVal(totalVendido)}</div><div class="c-sub">${totalVendas} pedidos</div></div>
+        <div class="card red"><div class="c-label">Devoluções</div><div class="c-val">${fmtVal(totalDevolPeriodo)}</div><div class="c-sub">abatidas do faturamento</div></div>
+        <div class="card green"><div class="c-label">Faturamento (Venda+Troca − Devol.)</div><div class="c-val">${fmtVal(totalFatReal)}</div><div class="c-sub">faturamento real do período</div></div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div class="section-title">Faturamento por Empresa</div>
+        <div class="table-wrap" style="max-width:560px"><table><thead><tr>
+          <th>Empresa</th><th>Pedidos</th><th>Faturamento</th><th>% do total</th>
         </tr></thead><tbody>
         ${Object.entries(porEmpresa).sort((a,b)=>b[1].valor-a[1].valor).map(([emp,d])=>`<tr>
           <td><strong>${emp}</strong></td>
           <td>${d.pedidos}</td>
           <td>${fmtVal(d.valor)}</td>
-          <td style="color:var(--muted)">${totalVendido>0?(d.valor/totalVendido*100).toFixed(1)+'%':'—'}</td>
+          <td style="color:var(--muted)">${totalFatReal>0?(d.valor/totalFatReal*100).toFixed(1)+'%':'—'}</td>
         </tr>`).join('')}
-        <tr style="border-top:2px solid var(--border)"><td><strong>Total</strong></td><td><strong>${totalVendas}</strong></td><td><strong>${fmtVal(totalVendido)}</strong></td><td>100%</td></tr>
+        <tr style="border-top:2px solid var(--border)"><td><strong>Total</strong></td><td><strong>${totalVendas}</strong></td><td><strong>${fmtVal(totalFatReal)}</strong></td><td>100%</td></tr>
         </tbody></table></div>
       </div>
-      <div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:8px">
+        <div>
+          <div class="section-title">Faturamento por Segmento <span style="font-size:11px;font-weight:400;color:var(--muted)">· ${fmtVal(totalFatReal)}</span></div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasHTML(porSegmento, totalFatReal, 'var(--accent)')}</div>
+        </div>
+        <div>
+          <div class="section-title">Faturamento por Vendedor <span style="font-size:11px;font-weight:400;color:var(--muted)">· ${fmtVal(totalFatReal)}</span></div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasHTML(porVendedor, totalFatReal, 'var(--green)')}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ FINANCEIRO ══ -->
+    ${dashHeader('financeiro','💰 Financeiro')}
+    <div id="dash-sec-financeiro" style="display:${_dashAberto['financeiro']?'':'none'}">
+      <div class="cards-row" style="margin-bottom:20px">
+        <div class="card green"><div class="c-label">Total Recebido (líq.)</div><div class="c-val">${fmtVal(totalRecebido)}</div><div class="c-sub">Taxas: ${fmtVal(totalTaxas)}</div></div>
+        <div class="card red"><div class="c-label">Em Aberto</div><div class="c-val">${fmtVal(totalAberto)}</div><div class="c-sub">${countAberto} parcelas</div></div>
+        <div class="card amber"><div class="c-label">Boletos Pendentes</div><div class="c-val">${boletosAbertos.length}</div><div class="c-sub">${fmtVal(boletosAbertos.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
+      </div>
+      <div style="max-width:640px">
         <div class="section-title">Recebimentos por Gateway</div>
         <div class="table-wrap"><table><thead><tr>
           <th>Gateway</th><th>Transações</th><th>Líquido</th><th>Taxas</th>
@@ -6658,23 +6690,6 @@ function renderDashboard() {
         </tbody></table></div>
       </div>
     </div>
-
-    <!-- Por Segmento e por Vendedor (gráficos) -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-      <div>
-        <div class="section-title">Faturamento por Segmento <span style="font-size:11px;font-weight:400;color:var(--muted)">(pedidos − devoluções) · ${fmtVal(totalFatReal)}</span></div>
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
-          ${barrasHTML(porSegmento, totalFatReal, 'var(--accent)')}
-        </div>
-      </div>
-      <div>
-        <div class="section-title">Faturamento por Vendedor <span style="font-size:11px;font-weight:400;color:var(--muted)">(pedidos − devoluções) · ${fmtVal(totalFatReal)}</span></div>
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
-          ${barrasHTML(porVendedor, totalFatReal, 'var(--green)')}
-        </div>
-      </div>
-    </div>
-
   `;
 }
 
