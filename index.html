@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v227/07-251';
+const APP_VERSION = 'v228/07-252';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2854,8 +2854,18 @@ function renderFluxo() {
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     sai[g] = (sai[g] || 0) + (c.valor || 0);
   });
+  // SAÍDAS PREVISTAS — contas a pagar EM ABERTO (por vencimento), por grupo. É a projeção.
+  const saiPrev = {};
+  contasPagar.forEach(c => {
+    if (c.pago) return;
+    if (!noPeriodo(c.vencimento)) return;
+    const cat = catContaPagar(c);
+    const g = grupoDespesa(cat) || cat || 'Outras despesas';
+    saiPrev[g] = (saiPrev[g] || 0) + (c.valor || 0);
+  });
   const totEnt = Object.values(ent).reduce((s,v)=>s+v,0);
   const totSai = Object.values(sai).reduce((s,v)=>s+v,0);
+  const totSaiPrev = Object.values(saiPrev).reduce((s,v)=>s+v,0);
   const saldo = totEnt - totSai;
   // Barra comparativa entradas × saídas (visual do saldo)
   const maxES = Math.max(1, totEnt, totSai);
@@ -2905,12 +2915,12 @@ function renderFluxo() {
   // ── EVOLUÇÃO MENSAL (gráfico de barras por mês) — respeita só o filtro de ANO ──
   const anoOk = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return false; return !dateFilter.ano.length || dateFilter.ano.includes(String(dt.getFullYear())); };
   const meses = {};
-  const addMes = (d, tipo, val) => { if (!anoOk(d)) return; const dt = d instanceof Date ? d : new Date(d); const k = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'); (meses[k] = meses[k] || {ent:0,sai:0})[tipo] += (val||0); };
+  const addMes = (d, tipo, val) => { if (!anoOk(d)) return; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return; const k = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'); (meses[k] = meses[k] || {ent:0,sai:0,prev:0})[tipo] += (val||0); };
   recebimentosConsolidado.forEach(r => { if (!r._estornoChave) addMes(r.data, 'ent', r.liq||0); });
   receitasAvulsas.forEach(r => addMes(r.data, 'ent', r.valor||0));
-  contasPagar.forEach(c => { if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); });
+  contasPagar.forEach(c => { if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); else addMes(c.vencimento, 'prev', c.valor||0); });
   const mesesOrd = Object.keys(meses).sort();
-  const maxMes = Math.max(1, ...mesesOrd.map(k => Math.max(meses[k].ent, meses[k].sai)));
+  const maxMes = Math.max(1, ...mesesOrd.map(k => Math.max(meses[k].ent, meses[k].sai, meses[k].prev)));
   const MESNOMES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const chartH = 150;
   const graficoMensal = mesesOrd.length > 1 ? `
@@ -2918,18 +2928,20 @@ function renderFluxo() {
       <div style="font-weight:700;font-size:13px;margin-bottom:12px">📈 Evolução mensal — entradas × saídas (saldo do mês embaixo)</div>
       <div style="display:flex;gap:12px;align-items:flex-end">
         ${mesesOrd.map(k => { const m = meses[k]; const [yy,mm] = k.split('-'); const sal = m.ent - m.sai;
-          return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:50px">
+          return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">
             <div style="display:flex;gap:3px;align-items:flex-end;height:${chartH}px">
-              <div title="Entradas: ${fmtVal(m.ent)}" style="width:16px;height:${Math.max(2,m.ent/maxMes*chartH)}px;background:var(--green);border-radius:3px 3px 0 0"></div>
-              <div title="Saídas: ${fmtVal(m.sai)}" style="width:16px;height:${Math.max(2,m.sai/maxMes*chartH)}px;background:var(--red);border-radius:3px 3px 0 0"></div>
+              <div title="Entradas: ${fmtVal(m.ent)}" style="width:14px;height:${Math.max(2,m.ent/maxMes*chartH)}px;background:var(--green);border-radius:3px 3px 0 0"></div>
+              <div title="Saídas pagas: ${fmtVal(m.sai)}" style="width:14px;height:${Math.max(2,m.sai/maxMes*chartH)}px;background:var(--red);border-radius:3px 3px 0 0"></div>
+              ${m.prev ? `<div title="Saídas previstas (em aberto): ${fmtVal(m.prev)}" style="width:14px;height:${Math.max(2,m.prev/maxMes*chartH)}px;background:repeating-linear-gradient(45deg,var(--amber),var(--amber) 4px,#fff2d6 4px,#fff2d6 8px);border:1px solid var(--amber);border-radius:3px 3px 0 0"></div>` : ''}
             </div>
             <div style="font-size:10px;color:var(--muted);white-space:nowrap">${MESNOMES[+mm-1]}/${yy.slice(2)}</div>
             <div style="font-size:9px;font-weight:700;color:${sal>=0?'var(--green)':'var(--red)'};white-space:nowrap">${fmtVal(sal)}</div>
           </div>`; }).join('')}
       </div>
-      <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:10px">
+      <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:10px;flex-wrap:wrap">
         <span><span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;vertical-align:middle"></span> Entradas</span>
-        <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px;vertical-align:middle"></span> Saídas</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px;vertical-align:middle"></span> Saídas pagas</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:repeating-linear-gradient(45deg,var(--amber),var(--amber) 3px,#fff2d6 3px,#fff2d6 6px);border:1px solid var(--amber);border-radius:2px;vertical-align:middle"></span> Saídas previstas (em aberto)</span>
       </div>
     </div>` : '';
 
@@ -2941,7 +2953,7 @@ function renderFluxo() {
       campos: fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Fluxo de Caixa</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas pagas) do período. Use o ⚙ Filtros para escolher mês/dia.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas <strong>pagas</strong>) do período — regime de caixa. As <strong>🔮 previstas</strong> (contas em aberto, por vencimento) aparecem à parte, pra você projetar. Use o ⚙ Filtros para escolher mês/dia.</div>
     <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:16px">
       <div><div class="f-label">${dfAtivo()?'Saldo anterior (antes do período)':'Saldo inicial'}</div><div style="font-weight:800;font-size:18px">${fmtVal(saldoAnterior)}</div></div>
       <div style="font-size:18px;color:var(--green)">+ ${fmtVal(totEnt)}</div>
@@ -2952,8 +2964,10 @@ function renderFluxo() {
     </div>
     <div class="cards-row" style="margin-bottom:16px">
       <div class="card green"><div class="c-label">⬆ Entradas</div><div class="c-val">${fmtVal(totEnt)}</div></div>
-      <div class="card red"><div class="c-label">⬇ Saídas</div><div class="c-val">${fmtVal(totSai)}</div></div>
-      <div class="card ${saldo>=0?'blue':'amber'}"><div class="c-label">= Saldo do período</div><div class="c-val">${fmtVal(saldo)}</div></div>
+      <div class="card red"><div class="c-label">⬇ Saídas pagas</div><div class="c-val">${fmtVal(totSai)}</div></div>
+      <div class="card amber"><div class="c-label">🔮 Previsto a pagar (em aberto)</div><div class="c-val">${fmtVal(totSaiPrev)}</div><div class="c-sub">por vencimento</div></div>
+      <div class="card ${saldo>=0?'blue':'amber'}"><div class="c-label">= Saldo do período (realizado)</div><div class="c-val">${fmtVal(saldo)}</div></div>
+      <div class="card dark"><div class="c-label">= Saldo projetado (após previstas)</div><div class="c-val" style="color:${(saldoFinal-totSaiPrev)>=0?'#fff':'var(--red)'}">${fmtVal(saldoFinal - totSaiPrev)}</div><div class="c-sub">saldo final − previstas</div></div>
     </div>
     ${graficoMensal}
     ${saldoBancarioDiarioHTML()}
@@ -2969,10 +2983,14 @@ function renderFluxo() {
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasFluxoHTML(ent, totEnt, 'var(--green)')}</div>
       </div>
       <div>
-        <div class="section-title" style="margin-top:0;color:var(--red)">⬇ Saídas por grupo — ${fmtVal(totSai)}</div>
+        <div class="section-title" style="margin-top:0;color:var(--red)">⬇ Saídas PAGAS por grupo — ${fmtVal(totSai)}</div>
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasFluxoHTML(sai, totSai, 'var(--red)')}</div>
       </div>
     </div>
+    ${totSaiPrev > 0 ? `<div style="margin-top:20px">
+      <div class="section-title" style="margin-top:0;color:var(--amber)">🔮 Saídas PREVISTAS por grupo (contas em aberto, por vencimento) — ${fmtVal(totSaiPrev)}</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasFluxoHTML(saiPrev, totSaiPrev, 'var(--amber)')}</div>
+    </div>` : ''}
     <div style="display:flex;align-items:center;gap:12px;margin-top:28px;flex-wrap:wrap">
       <div class="section-title" style="margin:0">📋 Detalhe por grupo — clique para abrir os subgrupos · valores por empresa</div>
       <button id="dre-toggle-btn" class="btn ghost sm" onclick="toggleDreTudo()">▸ Expandir tudo</button>
