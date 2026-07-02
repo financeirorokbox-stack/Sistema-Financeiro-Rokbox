@@ -299,6 +299,7 @@ tr:hover td{background:#fafaf8}
   <div class="subnav-item" id="sub-banco" onclick="setSub('banco')">Conciliação Bancária</div>
   <div class="subnav-item" id="sub-fluxo" onclick="setSub('fluxo')">📊 Fluxo de Caixa</div>
   <div class="subnav-item" id="sub-comissao" onclick="setSub('comissao')">💸 Comissão</div>
+  <div class="subnav-item" id="sub-compras" onclick="setSub('compras')">🛒 Compras</div>
 </div>
 
 <!-- VIEWS -->
@@ -325,6 +326,7 @@ tr:hover td{background:#fafaf8}
   <div id="v-banco" class="main" style="display:none"></div>
   <div id="v-fluxo" class="main" style="display:none"></div>
   <div id="v-comissao" class="main" style="display:none"></div>
+  <div id="v-compras" class="main" style="display:none"></div>
 </div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
@@ -384,7 +386,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v242/07-266';
+const APP_VERSION = 'v243/07-267';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -488,7 +490,7 @@ async function deleteData(key) {
 // Exportar/Importar todos os dados (backup)
 async function exportarBackup() {
   const dados = {};
-  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
@@ -517,7 +519,7 @@ async function zerarSistema() {
   if (!confirm('🧨 ZERAR O SISTEMA?\n\nIsto APAGA TODOS os dados — pedidos, recebimentos, contas a pagar, extrato, devoluções, conciliações e cadastros — no seu aparelho E na nuvem (todos os dispositivos).\n\nSeus usuários/login são mantidos.\n\nRECOMENDO clicar em 💾 Backup antes. Continuar?')) return;
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
-  const KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
@@ -699,6 +701,7 @@ const PERM_FIN = [
   ['fin:banco',     'Financeiro · Conciliação Bancária'],
   ['fin:fluxo',     'Financeiro · Fluxo de Caixa'],
   ['fin:comissao',  'Financeiro · Comissão'],
+  ['fin:compras',   'Financeiro · Compras'],
 ];
 const ALL_PERMS = [...PERM_PRINCIPAIS, ...PERM_FIN];
 let currentUser = null;
@@ -965,6 +968,7 @@ let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let condicoesPagamento = []; // prazos p/ Compras: [{id,nome,nParcelas,primeiroDias,intervaloDias}] (À vista=1/0/0; 30/60/90=3/30/30)
 let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa,obs}]
+let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,insumo,unidade,qtd,custoUnit,custoTotal,colecao,dataLimite,categoria,solicitante,empresa,status,condicaoId,nf,dataReceb,obs,_pedidoContas}]
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -1076,11 +1080,11 @@ function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de aba
   currentSub = s;
-  ['contas','pagar','extrato','banco','fluxo','comissao'].forEach(x => {
+  ['contas','pagar','extrato','banco','fluxo','comissao','compras'].forEach(x => {
     document.getElementById('sub-' + x)?.classList.toggle('active', x === s);
   });
   // Esconde todas as views do financeiro
-  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo','comissao'].forEach(x => {
+  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo','comissao','compras'].forEach(x => {
     const v = document.getElementById('v-' + x); if (v) v.style.display = 'none';
   });
   // Sub-navegação interna só aparece em Contas a Receber
@@ -1088,7 +1092,7 @@ function setSub(s) {
   if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
   const pills = document.getElementById('conc-pills'); if (pills) pills.style.display = 'none';
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
-  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao };
+  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao, compras: renderCompras };
   const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
   if (renders[s]) renders[s]();
 }
@@ -8339,6 +8343,126 @@ function addBanco() {
 }
 function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro', bancosCadastro); renderCadastro(); }
 
+// ════════════════════════════════════════════════════════════════════
+// COMPRAS (requisição → aprovação → pedido → recebimento → Contas a Pagar)
+// ════════════════════════════════════════════════════════════════════
+const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
+function _fmtDataCell(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date) return isNaN(v) ? '' : v.toLocaleDateString('pt-BR');
+  if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 86400 * 1000)); return isNaN(d) ? String(v) : d.toLocaleDateString('pt-BR'); }
+  return String(v).trim();
+}
+function renderCompras() {
+  const el = document.getElementById('v-compras'); if (!el) return;
+  const fSt = el.querySelector('#cmp-st')?.value || '';
+  const fForn = el.querySelector('#cmp-forn')?.value || '';
+  const fQ = (el.querySelector('#cmp-q')?.value || '').toLowerCase();
+  const forns = [...new Set(compras.map(c => c.fornecedor).filter(Boolean))].sort();
+  let vis = compras.slice();
+  if (fSt) vis = vis.filter(c => (c.status || 'pendente') === fSt);
+  if (fForn) vis = vis.filter(c => c.fornecedor === fForn);
+  if (fQ) vis = vis.filter(c => (c.insumo || '').toLowerCase().includes(fQ) || (c.fornecedor || '').toLowerCase().includes(fQ) || (c.colecao || '').toLowerCase().includes(fQ) || (c.categoria || '').toLowerCase().includes(fQ));
+  const cnt = st => compras.filter(c => (c.status || 'pendente') === st).length;
+  const somaVis = vis.reduce((s, c) => s + (+c.custoTotal || 0), 0);
+  el.innerHTML = `
+    <div style="max-width:520px;margin-bottom:16px">
+      <label class="upload-card" id="card-compras" for="file-compras">
+        <div class="u-icon">🛒</div>
+        <div class="u-label">Planilha de Requisição de Compras</div>
+        <div class="u-hint">.xlsx/.xls — Data Solicitação · Fornecedor · Insumo · Un · Qtde · Custo un. · Custo total · Coleção/PL · Data Limite · Categoria · Solicitante</div>
+        <div class="u-status" id="status-compras">${compras.length ? '✓ ' + compras.length + ' itens' : 'Nenhum arquivo'}</div>
+        <input type="file" id="file-compras" accept=".xlsx,.xls" multiple>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <select class="inline-input" id="cmp-st" onchange="renderCompras()"><option value="">Todos status</option>${Object.keys(COMPRA_ST).map(s => `<option value="${s}" ${s === fSt ? 'selected' : ''}>${COMPRA_ST[s][0]}</option>`).join('')}</select>
+      <select class="inline-input" id="cmp-forn" onchange="renderCompras()"><option value="">Todos fornecedores</option>${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}" ${f === fForn ? 'selected' : ''}>${f}</option>`).join('')}</select>
+      <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="Buscar insumo/fornecedor/coleção" oninput="debounceRender('renderCompras')" style="width:220px">
+      <span style="flex:1"></span>
+      <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
+    </div>
+    <div class="cards-row" style="margin-bottom:14px">
+      <div class="card red"><div class="c-label">Pendentes</div><div class="c-val">${cnt('pendente')}</div></div>
+      <div class="card green"><div class="c-label">Aprovados</div><div class="c-val">${cnt('aprovado')}</div></div>
+      <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${cnt('pedido')}</div></div>
+      <div class="card dark"><div class="c-label">Recebidos</div><div class="c-val">${cnt('recebido')}</div></div>
+    </div>
+    ${vis.length === 0 ? '<div class="empty"><div class="e-icon">🛒</div>Nenhuma compra no filtro. Suba a planilha de requisição ou clique ➕ Nova compra.</div>' : `
+    <datalist id="cmp-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('')}</datalist>
+    <datalist id="cmp-forn-list">${fornecedoresCompras.map(f => `<option value="${(f.nome || '').replace(/"/g, '&quot;')}">`).join('')}</datalist>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
+    <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
+      <th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
+    </tr></thead><tbody>
+    ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
+      <td>${_fmtDataCell(c.dataSolic)}</td>
+      <td>${ro ? `<strong>${c.fornecedor || '—'}</strong>` : `<input class="inline-input" style="width:120px" list="cmp-forn-list" value="${(c.fornecedor || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','fornecedor',this.value)">`}</td>
+      <td>${ro ? (c.insumo || '—') : `<input class="inline-input" style="width:200px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
+      <td>${ro ? (c.unidade || '') : `<input class="inline-input" style="width:40px" value="${(c.unidade || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','unidade',this.value)">`}</td>
+      <td style="text-align:right">${ro ? (c.qtd || '') : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
+      <td style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
+      <td style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
+      <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" value="${(c.colecao || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
+      <td>${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:110px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
+      <td>${c.solicitante || '—'}</td>
+      <td><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span></td>
+      <td>${acoesCompra(c)}</td>
+    </tr>`; }).join('')}
+    </tbody></table></div>`}
+  `;
+  setupUpload('file-compras', 'card-compras', 'status-compras', ({ wb }) => importarCompras(wb));
+}
+function acoesCompra(c) {
+  const st = c.status || 'pendente';
+  let b = '';
+  if (st === 'pendente') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','aprovado')">✅ Aprovar</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="setStatusCompra('${c.id}','rejeitado')" title="Rejeitar">❌</button>`;
+  else if (st === 'aprovado') b = `<span style="font-size:10px;color:var(--muted)">→ Pedido (em breve)</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')" title="Voltar p/ pendente">↩</button>`;
+  else if (st === 'rejeitado') b = `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')">↩ reabrir</button>`;
+  else b = `<span style="font-size:10px;color:var(--muted)">${COMPRA_ST[st][0]}</span>`;
+  return b + ` <a href="#" onclick="removerCompra('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700;margin-left:4px" title="Remover">✕</a>`;
+}
+function importarCompras(wb) {
+  const sheet = wb.Sheets[wb.SheetNames.includes('Worksheet') ? 'Worksheet' : wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+  if (!rows.length) { alert('Planilha vazia ou sem cabeçalho reconhecido.'); return; }
+  const col = (r, ...ns) => { for (const k of Object.keys(r)) { const kl = k.toLowerCase().trim(); if (ns.some(n => kl.includes(n))) return r[k]; } return null; };
+  const chave = c => [c.fornecedor, c.insumo, c.colecao, (c.custoTotal || 0).toFixed(2), c.dataSolic].join('|');
+  const existentes = new Set(compras.map(chave));
+  let add = 0, dup = 0;
+  rows.forEach(r => {
+    const forn = col(r, 'fornecedor'); const insumo = col(r, 'insumo', 'produto');
+    if (!forn && !insumo) return;
+    const qtd = num(col(r, 'qtde', 'quantidade', 'qtd a')); const cu = num(col(r, 'custo un', 'custo unit', 'unit'));
+    const ct = num(col(r, 'custo total', 'total')) || +(qtd * cu).toFixed(2);
+    const c = {
+      id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6),
+      dataSolic: _fmtDataCell(col(r, 'data solicita', 'data')),
+      fornecedor: String(forn || '').trim(), insumo: String(insumo || '').trim(),
+      unidade: String(col(r, 'un', 'unidade') || '').trim(), qtd, custoUnit: cu, custoTotal: ct,
+      colecao: String(col(r, 'coleç', 'colecao', 'pl') || '').trim(), dataLimite: _fmtDataCell(col(r, 'data limite', 'limite')),
+      categoria: String(col(r, 'categoria') || '').trim(), solicitante: String(col(r, 'solicitante') || '').trim(),
+      empresa: '', status: 'pendente'
+    };
+    if (existentes.has(chave(c))) { dup++; return; }
+    existentes.add(chave(c)); compras.push(c); add++;
+  });
+  saveData('compras', compras); renderCompras();
+  alert(`✓ ${add} item(ns) importado(s) como PENDENTES${dup ? ` · ${dup} já existiam (não dupliquei)` : ''}.`);
+}
+function novaCompra() {
+  compras.push({ id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'), fornecedor: '', insumo: '', unidade: 'un', qtd: 0, custoUnit: 0, custoTotal: 0, colecao: '', dataLimite: '', categoria: '', solicitante: '', empresa: '', status: 'pendente' });
+  saveData('compras', compras); renderCompras();
+}
+function updateCompra(id, field, value) {
+  const c = compras.find(x => x.id === id); if (!c) return;
+  if (field === 'qtd' || field === 'custoUnit') { c[field] = num(value); c.custoTotal = +((+c.qtd || 0) * (+c.custoUnit || 0)).toFixed(2); }
+  else if (field === 'custoTotal') { c.custoTotal = num(value); }
+  else c[field] = value;
+  saveData('compras', compras); renderCompras();
+}
+function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; saveData('compras', compras); renderCompras(); }
+function removerCompra(id) { const c = compras.find(x => x.id === id); if (!c) return; if (!confirm('Remover esta compra?')) return; compras = compras.filter(x => x.id !== id); saveData('compras', compras); renderCompras(); }
 // ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
 function condicaoLabel(c) {
   if (!c) return '—';
@@ -8906,7 +9030,7 @@ function delCheckboxHeader(source) {
   // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos
-  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
@@ -8917,6 +9041,7 @@ function delCheckboxHeader(source) {
     else if (k==='recorrencias') recorrencias = v || [];
     else if (k==='condicoesPagamento') condicoesPagamento = v || [];
     else if (k==='fornecedoresCompras') fornecedoresCompras = v || [];
+    else if (k==='compras') compras = v || [];
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
     else if (k==='boletoCobrancaStatus') {
