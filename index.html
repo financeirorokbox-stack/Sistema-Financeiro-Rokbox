@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v241/07-265';
+const APP_VERSION = 'v242/07-266';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -488,7 +488,7 @@ async function deleteData(key) {
 // Exportar/Importar todos os dados (backup)
 async function exportarBackup() {
   const dados = {};
-  const keys = ['pedidos','contasPagar','recorrencias','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
@@ -517,7 +517,7 @@ async function zerarSistema() {
   if (!confirm('🧨 ZERAR O SISTEMA?\n\nIsto APAGA TODOS os dados — pedidos, recebimentos, contas a pagar, extrato, devoluções, conciliações e cadastros — no seu aparelho E na nuvem (todos os dispositivos).\n\nSeus usuários/login são mantidos.\n\nRECOMENDO clicar em 💾 Backup antes. Continuar?')) return;
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
-  const KEYS = ['pedidos','contasPagar','recorrencias','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
@@ -963,6 +963,8 @@ let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categ
 let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para exportação)
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
+let condicoesPagamento = []; // prazos p/ Compras: [{id,nome,nParcelas,primeiroDias,intervaloDias}] (À vista=1/0/0; 30/60/90=3/30/30)
+let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa,obs}]
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -8337,6 +8339,63 @@ function addBanco() {
 }
 function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro', bancosCadastro); renderCadastro(); }
 
+// ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
+function condicaoLabel(c) {
+  if (!c) return '—';
+  const n = Math.max(1, +c.nParcelas || 1);
+  if (n <= 1) return `${c.nome} (${(+c.primeiroDias||0) ? (c.primeiroDias + ' dias') : 'à vista'})`;
+  return `${c.nome} (${n}x — 1ª em ${(+c.primeiroDias||0)}d, a cada ${(+c.intervaloDias||0)}d)`;
+}
+function addCondicaoPag() {
+  const g = id => document.getElementById(id);
+  const nome = (g('cond-nome')?.value || '').trim();
+  if (!nome) { alert('Dê um nome à condição (ex.: 30/60/90).'); return; }
+  condicoesPagamento.push({ id: 'cond_' + Date.now(), nome, nParcelas: Math.max(1, +(g('cond-n')?.value) || 1), primeiroDias: Math.max(0, +(g('cond-pri')?.value) || 0), intervaloDias: Math.max(0, +(g('cond-int')?.value) || 30) });
+  saveData('condicoesPagamento', condicoesPagamento); renderCadastro();
+}
+function updateCondicaoPag(id, field, value) {
+  const c = condicoesPagamento.find(x => x.id === id); if (!c) return;
+  if (field === 'nome') c.nome = value; else c[field] = Math.max(0, +value || 0);
+  saveData('condicoesPagamento', condicoesPagamento); renderCadastro();
+}
+function removeCondicaoPag(id) {
+  const c = condicoesPagamento.find(x => x.id === id); if (!c) return;
+  if (!confirm('Remover a condição "' + c.nome + '"?')) return;
+  condicoesPagamento = condicoesPagamento.filter(x => x.id !== id);
+  saveData('condicoesPagamento', condicoesPagamento); renderCadastro();
+}
+// Gera as parcelas de uma condição sobre um valor total, a partir de uma data base (p/ as Compras).
+function gerarParcelasCondicao(cond, valorTotal, dataBase) {
+  const n = Math.max(1, +(cond && cond.nParcelas) || 1);
+  const base = dataBase instanceof Date ? new Date(dataBase) : new Date(dataBase || Date.now());
+  const pri = +(cond && cond.primeiroDias) || 0, inter = +(cond && cond.intervaloDias) || 0;
+  const parc = []; let acum = 0;
+  for (let i = 0; i < n; i++) {
+    const venc = new Date(base); venc.setDate(venc.getDate() + pri + i * inter);
+    let v = +((valorTotal || 0) / n).toFixed(2);
+    if (i === n - 1) v = +((valorTotal || 0) - acum).toFixed(2); // última acerta arredondamento
+    acum += v; parc.push({ venc, valor: v });
+  }
+  return parc;
+}
+// ── Fornecedores (Compras) ──
+function addFornecedorCompras() {
+  const g = id => document.getElementById(id);
+  const nome = (g('forn-nome')?.value || '').trim();
+  if (!nome) { alert('Informe o nome do fornecedor.'); return; }
+  fornecedoresCompras.push({ id: 'forn_' + Date.now(), nome, whatsapp: (g('forn-wpp')?.value || '').trim(), condicaoId: g('forn-cond')?.value || '', categoria: (g('forn-cat')?.value || '').trim(), empresa: (g('forn-emp')?.value || '').trim(), obs: '' });
+  saveData('fornecedoresCompras', fornecedoresCompras); renderCadastro();
+}
+function updateFornecedorCompras(id, field, value) {
+  const f = fornecedoresCompras.find(x => x.id === id); if (!f) return;
+  f[field] = value; saveData('fornecedoresCompras', fornecedoresCompras); renderCadastro();
+}
+function removeFornecedorCompras(id) {
+  const f = fornecedoresCompras.find(x => x.id === id); if (!f) return;
+  if (!confirm('Remover o fornecedor "' + f.nome + '"?')) return;
+  fornecedoresCompras = fornecedoresCompras.filter(x => x.id !== id);
+  saveData('fornecedoresCompras', fornecedoresCompras); renderCadastro();
+}
 function renderCadastro() {
   initLojaCadastro();
   seedEmpresas();
@@ -8470,6 +8529,52 @@ function renderCadastro() {
       </tbody></table></div>
       <p style="font-size:11px;color:var(--muted);margin-top:8px">Segmentos vêm do campo <strong>Segmento</strong> das lojas (Cadastro → Lojas). Segmento sem faixa preenchida usa o % da loja.</p>`;
     })()}
+    </div>
+
+    ${cadHeader('condpag','⏳ Condições de Pagamento (prazos das Compras)')}
+    <div id="cad-condpag" style="display:${_cadAberto['condpag']?'':'none'}">
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Prazos que as compras usam pra virar <strong>parcelas</strong> no Contas a Pagar. Cada condição = <strong>nº de parcelas</strong>, <strong>1º vencimento</strong> (dias após o pedido) e <strong>intervalo</strong> entre parcelas. Ex.: <em>À vista</em> = 1 / 0 / 0 · <em>30/60/90</em> = 3 / 30 / 30 · <em>Boleto 28dd</em> = 1 / 28 / 0.</p>
+    <div class="table-wrap" style="max-width:640px;margin-bottom:10px"><table><thead><tr><th>Nome</th><th style="text-align:center">Nº parcelas</th><th style="text-align:center">1º venc. (dias)</th><th style="text-align:center">Intervalo (dias)</th><th></th></tr></thead><tbody>
+    ${condicoesPagamento.length ? condicoesPagamento.map(c=>`<tr>
+      <td><input class="inline-input" style="width:150px" value="${(c.nome||'').replace(/"/g,'&quot;')}" onchange="updateCondicaoPag('${c.id}','nome',this.value)"></td>
+      <td style="text-align:center"><input type="number" class="inline-input" style="width:60px;text-align:center" min="1" value="${c.nParcelas||1}" onchange="updateCondicaoPag('${c.id}','nParcelas',this.value)"></td>
+      <td style="text-align:center"><input type="number" class="inline-input" style="width:70px;text-align:center" min="0" value="${c.primeiroDias||0}" onchange="updateCondicaoPag('${c.id}','primeiroDias',this.value)"></td>
+      <td style="text-align:center"><input type="number" class="inline-input" style="width:70px;text-align:center" min="0" value="${c.intervaloDias||0}" onchange="updateCondicaoPag('${c.id}','intervaloDias',this.value)"></td>
+      <td><a href="#" onclick="removeCondicaoPag('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover">✕</a></td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--muted);font-size:12px">Nenhuma condição. Cadastre abaixo.</td></tr>'}
+    </tbody></table></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:24px">
+      <input class="inline-input" id="cond-nome" placeholder="Nome (ex.: 30/60/90)" style="width:170px">
+      <input type="number" class="inline-input" id="cond-n" placeholder="Parc." min="1" value="1" style="width:60px" title="Nº de parcelas">
+      <input type="number" class="inline-input" id="cond-pri" placeholder="1º(d)" min="0" value="0" style="width:65px" title="1º vencimento (dias após o pedido)">
+      <input type="number" class="inline-input" id="cond-int" placeholder="Interv.(d)" min="0" value="30" style="width:75px" title="Intervalo entre parcelas (dias)">
+      <button class="btn primary sm" onclick="addCondicaoPag()">+ Adicionar</button>
+    </div>
+    </div>
+
+    ${cadHeader('fornec','🏭 Fornecedores (Compras)')}
+    <div id="cad-fornec" style="display:${_cadAberto['fornec']?'':'none'}">
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Fornecedores das compras, com <strong>WhatsApp</strong>, <strong>condição de pagamento padrão</strong> (dos prazos acima) e categoria. A compra herda a condição do fornecedor (você ajusta no pedido, se precisar).</p>
+    <datalist id="forn-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    <datalist id="forn-emp-list">${getEmpresasList().map(e=>`<option value="${e.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    <div class="table-wrap" style="margin-bottom:10px"><table style="white-space:nowrap"><thead><tr><th>Fornecedor</th><th>WhatsApp</th><th>Condição padrão</th><th>Categoria</th><th>Empresa</th><th></th></tr></thead><tbody>
+    ${fornecedoresCompras.length ? fornecedoresCompras.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(f=>`<tr>
+      <td><input class="inline-input" style="width:160px" value="${(f.nome||'').replace(/"/g,'&quot;')}" onchange="updateFornecedorCompras('${f.id}','nome',this.value)"></td>
+      <td><input class="inline-input" style="width:120px" value="${(f.whatsapp||'').replace(/"/g,'&quot;')}" placeholder="ex.: 11 99999-9999" onchange="updateFornecedorCompras('${f.id}','whatsapp',this.value)"></td>
+      <td><select class="inline-input" style="width:190px" onchange="updateFornecedorCompras('${f.id}','condicaoId',this.value)"><option value="">—</option>${condicoesPagamento.map(c=>`<option value="${c.id}" ${c.id===f.condicaoId?'selected':''}>${(c.nome||'').replace(/"/g,'&quot;')}</option>`).join('')}</select></td>
+      <td><input class="inline-input" style="width:140px" list="forn-cat-list" value="${(f.categoria||'').replace(/"/g,'&quot;')}" onchange="updateFornecedorCompras('${f.id}','categoria',this.value)"></td>
+      <td><input class="inline-input" style="width:100px" list="forn-emp-list" value="${(f.empresa||'').replace(/"/g,'&quot;')}" onchange="updateFornecedorCompras('${f.id}','empresa',this.value)"></td>
+      <td><a href="#" onclick="removeFornecedorCompras('${f.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover">✕</a></td>
+    </tr>`).join('') : '<tr><td colspan="6" style="color:var(--muted);font-size:12px">Nenhum fornecedor. Cadastre abaixo.</td></tr>'}
+    </tbody></table></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:24px">
+      <input class="inline-input" id="forn-nome" placeholder="Fornecedor" style="width:160px">
+      <input class="inline-input" id="forn-wpp" placeholder="WhatsApp" style="width:120px">
+      <select class="inline-input" id="forn-cond" style="width:180px"><option value="">Condição padrão…</option>${condicoesPagamento.map(c=>`<option value="${c.id}">${(c.nome||'').replace(/"/g,'&quot;')}</option>`).join('')}</select>
+      <input class="inline-input" id="forn-cat" list="forn-cat-list" placeholder="Categoria" style="width:140px">
+      <input class="inline-input" id="forn-emp" list="forn-emp-list" placeholder="Empresa" style="width:100px">
+      <button class="btn primary sm" onclick="addFornecedorCompras()">+ Adicionar</button>
+    </div>
     </div>
 
     ${cadHeader('lojas','🏬 Cadastro de Lojas')}
@@ -8801,7 +8906,7 @@ function delCheckboxHeader(source) {
   // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos
-  const keys = ['pedidos','contasPagar','recorrencias','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
@@ -8810,6 +8915,8 @@ function delCheckboxHeader(source) {
     if (k==='pedidos') pedidos = v.map(p=>({...p,data:p.data?new Date(p.data):null}));
     else if (k==='contasPagar') contasPagar = v.map(c=>({...c,vencimento:c.vencimento?new Date(c.vencimento):null,dataPag:c.dataPag?new Date(c.dataPag):null}));
     else if (k==='recorrencias') recorrencias = v || [];
+    else if (k==='condicoesPagamento') condicoesPagamento = v || [];
+    else if (k==='fornecedoresCompras') fornecedoresCompras = v || [];
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
     else if (k==='boletoCobrancaStatus') {
