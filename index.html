@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v224/07-248';
+const APP_VERSION = 'v225/07-249';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8151,7 +8151,7 @@ function renderCadastro() {
       <div class="table-wrap" style="max-width:420px"><table><thead><tr><th>Vendedor</th><th style="text-align:right">Meta do mês (R$)</th></tr></thead><tbody>
       ${vends.length ? vends.map(v => { const meta = metaDoVendedor(v, mAno, mMes); const esc = v.replace(/'/g, "\\'"); return `<tr${meta?' style="background:#eef6ff"':''}>
         <td><strong>${v}</strong></td>
-        <td style="text-align:right"><input class="inline-input" style="width:130px;text-align:right" placeholder="— sem meta —" value="${meta?meta.toLocaleString('pt-BR'):''}" onchange="updateMetaComissao('${esc}','${mAno}','${mMes}',this.value)"></td>
+        <td style="text-align:right"><input class="inline-input" style="width:130px;text-align:right" placeholder="— sem meta —" value="${meta?meta.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" onchange="updateMetaComissao('${esc}','${mAno}','${mMes}',this.value)"></td>
       </tr>`; }).join('') : '<tr><td colspan="2" style="color:var(--muted);font-size:12px">Nenhum vendedor</td></tr>'}
       </tbody></table></div>
       <p style="font-size:11px;color:var(--muted);margin-top:8px">Linhas azuis = têm meta neste mês. Ao virar o mês, troque o seletor e preencha as metas novas.</p>`;
