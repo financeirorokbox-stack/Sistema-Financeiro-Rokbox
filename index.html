@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v226/07-250';
+const APP_VERSION = 'v227/07-251';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6512,6 +6512,15 @@ function renderDashboard() {
   // Período filtro
   const fMes = el.querySelector('#dash-mes')?.value || '';
   const fAno = el.querySelector('#dash-ano')?.value || new Date().getFullYear().toString();
+  const fEmp = el.querySelector('#dash-emp')?.value || '';
+  const empresasDash = [...new Set(pedidos.map(p => p.empresa || 'Sem empresa').filter(Boolean))].sort();
+  // empresa de um recebimento (via 1º pedido do nped, se houver)
+  const empresaDoRec = r => {
+    const nped = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean)[0];
+    if (!nped) return '';
+    const p = pedidos.find(x => String(x.id) === nped);
+    return p ? (p.empresa || 'Sem empresa') : '';
+  };
 
   // ── Calcula métricas ──────────────────────────────────────────────
   const pedVenda = pedidos.filter(p => {
@@ -6519,6 +6528,7 @@ function renderDashboard() {
     const op = (cls.operacao||'').toLowerCase();
     if (cls.naoAplicavel || OPERACOES_SEM_RECEBIMENTO.includes(op)) return false;
     if (!['venda','troca',''].includes(op)) return false;
+    if (fEmp && (p.empresa||'Sem empresa') !== fEmp) return false;
     if (!p.data) return false;
     const d = new Date(p.data);
     if (fAno && d.getFullYear() !== +fAno) return false;
@@ -6574,6 +6584,7 @@ function renderDashboard() {
     const op = (cls.operacao||'').toLowerCase();
     if (cls.naoAplicavel || OPERACOES_SEM_RECEBIMENTO.includes(op)) return;
     if (!['venda','troca',''].includes(op)) return;
+    if (fEmp && (ped.empresa||'Sem empresa') !== fEmp) return;
     if (fMes || fAno) {
       const d = ped.data ? new Date(ped.data) : null;
       if (!d) return;
@@ -6591,6 +6602,7 @@ function renderDashboard() {
   const recPeriodo = recebimentosConsolidado.filter(r => {
     if (r._estornoChave) return false;
     if (!r.data) return false;
+    if (fEmp && empresaDoRec(r) !== fEmp) return false;
     const d = new Date(r.data);
     if (fAno && d.getFullYear() !== +fAno) return false;
     if (fMes && (d.getMonth()+1) !== +fMes) return false;
@@ -6608,6 +6620,7 @@ function renderDashboard() {
 
   // Boletos em aberto
   const boletosAbertos = getBoletosPorPedido().filter(b => {
+    if (fEmp) { const p = pedidos.find(x => String(x.id) === String(b.pedido)); if ((p ? (p.empresa||'Sem empresa') : '') !== fEmp) return false; }
     const parc = getParcelas(b);
     return parc.length > 0 && !parc.every(p=>boletoStatus[p.key]);
   });
@@ -6628,6 +6641,11 @@ function renderDashboard() {
         <span class="f-label">Ano:</span>
         <select onchange="renderDashboard()" id="dash-ano" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
           ${anos.map(a=>`<option value="${a}" ${String(a)===fAno?'selected':''}>${a}</option>`).join('')}
+        </select>
+        <span class="f-label">Empresa:</span>
+        <select onchange="renderDashboard()" id="dash-emp" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          <option value="">Todas</option>
+          ${empresasDash.map(e=>`<option value="${e.replace(/"/g,'&quot;')}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}
         </select>
         <button class="btn primary sm" onclick="exportarExcel()">⬇ Exportar Excel</button>
       </div>
