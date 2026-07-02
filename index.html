@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v209/06-233';
+const APP_VERSION = 'v210/06-234';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5706,6 +5706,24 @@ function jogarSobra(pedId) {
   });
   if (i < 0) { alert(`Não achei um único recebimento do pedido ${pedId} que comporte a sobra de ${fmtVal(sobra)} inteira. Faça o ajuste manual (ou vincule o recebimento ao outro pedido na aba "Recebimentos sem pedido").`); return; }
   const r = recebimentosConsolidado[i];
+  // CASO EXTRATO (PIX do banco): não adianta "cortar" o recebimento — o syncExtratoToRecebimentos
+  // recria o PIX pelo valor CHEIO do crédito e a sobra volta. A forma DURÁVEL é vincular o crédito
+  // do extrato TAMBÉM ao pedido destino: o alocRecebGateway divide por valor (origem fica exata,
+  // destino recebe a sobra) e isso sobrevive a qualquer reconciliação.
+  if (r._extratoId && extratoLinks[r._extratoId]) {
+    // Limpa sobras manuais ANTIGAS desta mesma origem (evita duplicar ao migrar p/ o modelo de vínculo).
+    recebimentosConsolidado = recebimentosConsolidado.filter(x => x._sobraDe !== String(pedId));
+    const link = extratoLinks[r._extratoId];
+    const peds = String(link.pedido).split(',').map(s => s.trim()).filter(Boolean);
+    if (!peds.includes(String(alvo))) peds.push(String(alvo));
+    link.pedido = peds.join(',');
+    saveData('extratoLinks', extratoLinks);
+    saveData('recebimentosConsolidado', recebimentosConsolidado);
+    syncExtratoToRecebimentos(); // recria o PIX com nped="origem,destino" e split por valor
+    renderConcResult();
+    alert(`Pronto! O crédito do extrato passou a pagar #${pedId} (valor cheio) e a sobra de ${fmtVal(sobra)} foi para #${alvo}. Agora fica salvo mesmo depois de reconciliar.`);
+    return;
+  }
   // Recorta a sobra do recebimento (taxa proporcional) e cria a parte movida para o pedido destino.
   const frac = sobra / (r.bruto || sobra);
   const taxaMov = +((r.taxa || 0) * frac).toFixed(2);
