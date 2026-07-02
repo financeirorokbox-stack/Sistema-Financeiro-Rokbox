@@ -384,7 +384,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v240/07-264';
+const APP_VERSION = 'v241/07-265';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3448,10 +3448,34 @@ function exportarContasPagar() {
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
   vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0));
-  const fmtD = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : dt.toLocaleDateString('pt-BR'); };
-  const aoa = [['Vencimento', 'Liquidação', 'Empresa', 'Fornecedor', 'Categoria', 'Histórico', 'Valor', 'Status', 'Conciliado', 'Nº doc']];
-  vis.forEach(c => aoa.push([fmtD(c.vencimento), fmtD(c.dataPag), c.empresa || '', c.fornecedor || '', catContaPagar(c) || '', c.observacao || '', c.valor || 0, c.pago ? 'Pago' : 'Em Aberto', estaConc(c) ? 'Sim' : 'Não', c.numero || '']));
-  aoa.push([]); aoa.push(['', '', '', '', '', 'TOTAL', +vis.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2)]);
+  const _d = x => { if (!x) return null; const dt = x instanceof Date ? x : new Date(x); return isNaN(dt) ? null : dt; };
+  const fmtD = x => { const dt = _d(x); return dt ? dt.toLocaleDateString('pt-BR') : ''; };
+  const mesAno = x => { const dt = _d(x); return dt ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
+  const comp = x => { const dt = _d(x); return dt ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
+  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Descrição', 'Observações', 'Liquidação', 'Mês_Despesa', 'Mês_Liquidado', 'Valor', 'Data FCX', 'Categoria', 'Empresa', 'Rateio']];
+  vis.forEach(c => aoa.push([
+    fmtD(c.vencimento),                                  // Data de vencimento
+    c.numero || '',                                      // Número
+    c.fornecedor || '',                                  // Nome
+    c.valor || 0,                                        // Valor
+    '',                                                  // Juro (não há campo no sistema)
+    '',                                                  // Desconto (não há campo no sistema)
+    c.pago ? (c.valor || 0) : 0,                         // Pago (valor pago)
+    c.situacao || (c.pago ? 'Pago' : 'Em Aberto'),       // Situação
+    comp(c.vencimento),                                  // Competência (1º dia do mês do vencimento)
+    c.descricao || '',                                   // Descrição (texto da planilha)
+    c.observacao || '',                                  // Observações (histórico)
+    fmtD(c.dataPag),                                     // Liquidação
+    mesAno(c.vencimento),                                // Mês_Despesa
+    mesAno(c.dataPag),                                   // Mês_Liquidado
+    c.valor || 0,                                        // Valor (2ª)
+    fmtD(c.dataPag || c.vencimento),                     // Data FCX (liquidação; se não pago, vencimento)
+    catContaPagar(c) || '',                              // Categoria
+    c.empresa || '',                                     // Empresa
+    (c.rateio && c.rateio.length) ? c.rateio.map(r => `${r.empresa}: ${(r.valor || 0).toFixed(2)}`).join(' | ') : '' // Rateio
+  ]));
+  const totV = +vis.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2);
+  aoa.push([]); aoa.push(['', '', 'TOTAL', totV, '', '', +vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0).toFixed(2), '', '', '', '', '', '', '', totV]);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Contas a Pagar');
