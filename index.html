@@ -386,7 +386,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v246/07-270';
+const APP_VERSION = 'v247/07-273';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3438,6 +3438,59 @@ function setPagoConta(idx, sel) {
   }
 }
 // Exporta as Contas a Pagar FILTRADAS (o que está na tela) para .xlsx. Colunas ajustáveis.
+// Contas a Pagar filtradas (mesmos filtros da tela) — usado pelo relatório por banco.
+function _contasPagarFiltradas() {
+  const el = document.getElementById('v-pagar');
+  const fSt = el?.querySelector('#cp-st')?.value || '';
+  const fCat = el?.querySelector('#cp-cat')?.value || '';
+  const fEmp = el?.querySelector('#cp-emp')?.value || '';
+  const fConc = el?.querySelector('#cp-conc')?.value || '';
+  const fDataPor = el?.querySelector('#cp-datapor')?.value || 'vencimento';
+  const fQ = (el?.querySelector('#cp-q')?.value || buscaPersist.pagar || '').toLowerCase();
+  const chavesConcBanco = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
+  const estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno;
+  let vis = contasPagar.slice();
+  if (fSt === 'pago') vis = vis.filter(c => c.pago);
+  if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
+  if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
+  if (fEmp) vis = vis.filter(c => (c.empresa || '') === fEmp);
+  if (fConc === 'sim') vis = vis.filter(estaConc);
+  if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
+  if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
+  return { vis: vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0)), fSt, fDataPor };
+}
+// Relatório por banco (agrupa as contas filtradas por banco de pagamento) — abre pra imprimir/PDF/enviar.
+function relatorioContasPorBanco() {
+  const { vis, fSt, fDataPor } = _contasPagarFiltradas();
+  if (!vis.length) { alert('Nenhuma conta no filtro atual pra montar o relatório.\n\nDica: filtre por Status = Em Aberto e a Data (Vencimento) do dia.'); return; }
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const fmtD = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : dt.toLocaleDateString('pt-BR'); };
+  const grupos = {};
+  vis.forEach(c => { const b = (c.banco || '').trim() || '(sem banco definido)'; (grupos[b] = grupos[b] || []).push(c); });
+  const bancos = Object.keys(grupos).sort();
+  const totalGeral = vis.reduce((s, c) => s + (c.valor || 0), 0);
+  let body = '';
+  bancos.forEach(b => {
+    const arr = grupos[b]; const sub = arr.reduce((s, c) => s + (c.valor || 0), 0);
+    body += `<h2>🏦 ${esc(b)} <span class="cnt">${arr.length} conta(s) · ${fmtVal(sub)}</span></h2>
+    <table><thead><tr><th>Vencimento</th><th>Fornecedor</th><th>Categoria</th><th>Histórico</th><th>Empresa</th><th class="r">Valor</th></tr></thead><tbody>
+    ${arr.map(c => `<tr><td>${fmtD(c.vencimento)}</td><td>${esc(c.fornecedor || '—')}</td><td>${esc(catContaPagar(c) || '—')}</td><td>${esc(c.observacao || '')}</td><td>${esc(c.empresa || '')}</td><td class="r">${fmtVal(c.valor || 0)}</td></tr>`).join('')}
+    <tr class="sub"><td colspan="5">Subtotal — ${esc(b)}</td><td class="r">${fmtVal(sub)}</td></tr></tbody></table>`;
+  });
+  const filtroTxt = `Status: ${fSt === 'aberto' ? 'Em Aberto' : fSt === 'pago' ? 'Pago' : 'Todos'} · Data por: ${fDataPor === 'liquidacao' ? 'Liquidação' : 'Vencimento'} · ${dfAtivo() ? 'período filtrado' : 'todo o período'}`;
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Contas a Pagar por Banco</title>
+    <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222;margin:24px;font-size:13px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #333;padding-bottom:3px}.cnt{font-size:12px;font-weight:400;color:#666}.meta{color:#666;font-size:12px;margin-bottom:8px}table{border-collapse:collapse;width:100%;margin-bottom:4px}th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}th{background:#f2f2f2;font-size:12px}.r{text-align:right}.sub{font-weight:700;background:#fafafa}.tot{margin-top:22px;font-size:17px;border-top:3px solid #333;padding-top:8px}.noprint button{padding:8px 16px;font-size:14px;cursor:pointer;margin-top:16px}@media print{.noprint{display:none}}</style></head><body>
+    <h1>Contas a Pagar — por Banco</h1>
+    <div class="meta">${esc(filtroTxt)} · ${vis.length} conta(s) · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+    ${body}
+    <div class="tot">💰 TOTAL GERAL — ${fmtVal(totalGeral)}</div>
+    <div class="noprint"><button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button></div>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('Permita pop-ups (janelas) para abrir o relatório.'); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
 function exportarContasPagar() {
   const el = document.getElementById('v-pagar');
   const fSt = el?.querySelector('#cp-st')?.value || '';
@@ -3549,6 +3602,7 @@ function renderPagar() {
       <span style="flex:1"></span>
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel">📤 Exportar</button>
+      <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
@@ -4380,15 +4434,16 @@ function getParcelas(pedido) {
   const vencimentos = calcVencimentos(dataSaida, prazo);
   if (!vencimentos.length || !prazo) return [];
   const dias = prazo.split('/');
-  const valorParcela = +(pedido.valorTotal / dias.length).toFixed(2);
-  return vencimentos.map((v, i) => ({
-    pedido: pedido.pedido,
-    parcela: i + 1,
-    totalParcelas: dias.length,
-    valor: valorParcela,
-    vencimento: v,
-    key: pedido.pedido + '-' + (i + 1)
-  }));
+  const taxa = (() => { const t = String(cfg.taxa || '').trim(); if (!t) return 0; const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t); return isNaN(n) ? 0 : n; })();
+  const totalComTaxa = +((pedido.valorTotal || 0) + taxa).toFixed(2); // taxa/juros por mudança de prazo entra no total
+  const valorParcela = +(totalComTaxa / dias.length).toFixed(2);
+  let acum = 0;
+  return vencimentos.map((v, i) => {
+    let valor = valorParcela;
+    if (i === dias.length - 1) valor = +(totalComTaxa - acum).toFixed(2); // última acerta o arredondamento
+    acum += valor;
+    return { pedido: pedido.pedido, parcela: i + 1, totalParcelas: dias.length, valor, vencimento: v, key: pedido.pedido + '-' + (i + 1) };
+  });
 }
 function getBoletosDaForma() {
   const pedidosB = getBoletosPorPedido();
@@ -4528,7 +4583,7 @@ function renderBoletos() {
     </div>
     <div class="table-wrap"><table><thead><tr>
       <th style="width:32px"></th>
-      <th>Pedido</th><th>Cliente</th><th>Loja</th><th>Valor Total</th>
+      <th>Pedido</th><th>Cliente</th><th>Loja</th><th>Valor Total</th><th>Taxa/Juros</th>
       <th>Parcelamento</th><th>Data de Saída</th><th>Vencimentos</th><th>Ação</th>
     </tr></thead><tbody>
     ${vis.map(ped => {
@@ -4551,6 +4606,7 @@ function renderBoletos() {
         <td><strong>#${ped.pedido}</strong></td>
         <td>${ped.cliente}</td><td>${ped.loja}</td>
         <td><strong>${fmtVal(ped.valorTotal)}</strong></td>
+        <td><input class="inline-input" style="width:80px;text-align:right" value="${cfg.taxa||''}" placeholder="0,00" title="Taxa/juros por mudança de prazo — soma no total e se distribui nas parcelas" onchange="setBoletoConfig('${ped.pedido}','taxa',this.value)"></td>
         <td><select class="inline-input" style="width:120px" onchange="setBoletoConfig('${ped.pedido}','prazo',this.value)">
           <option value="">Prazo...</option>
           ${PRAZO_OPTIONS.map(o=>`<option value="${o}" ${o===prazo?'selected':''}>${o} dias</option>`).join('')}
@@ -8548,22 +8604,33 @@ function gerarPedidoCompra(fornecedor, i) {
 }
 function removerCompra(id) { const c = compras.find(x => x.id === id); if (!c) return; if (!confirm('Remover esta compra?')) return; compras = compras.filter(x => x.id !== id); saveData('compras', compras); renderCompras(); }
 // ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
+// Modelo: {id, nome, dias:[28,56,84]} — os dias contam a partir da Data de Faturamento.
+function parseDiasPrazo(s) { return String(s || '').split(/[^0-9]+/).map(x => parseInt(x, 10)).filter(x => !isNaN(x) && x >= 0); }
+function condicaoDias(c) {
+  if (c && c.dias && c.dias.length) return c.dias;
+  // compat formato antigo (nParcelas/primeiroDias/intervaloDias)
+  const n = Math.max(1, +(c && c.nParcelas) || 1), pri = +(c && c.primeiroDias) || 0, inter = +(c && c.intervaloDias) || 0;
+  return Array.from({ length: n }, (_, i) => pri + i * inter);
+}
 function condicaoLabel(c) {
   if (!c) return '—';
-  const n = Math.max(1, +c.nParcelas || 1);
-  if (n <= 1) return `${c.nome} (${(+c.primeiroDias||0) ? (c.primeiroDias + ' dias') : 'à vista'})`;
-  return `${c.nome} (${n}x — 1ª em ${(+c.primeiroDias||0)}d, a cada ${(+c.intervaloDias||0)}d)`;
+  const d = condicaoDias(c);
+  if (d.length <= 1) return `${c.nome} (${d[0] ? d[0] + ' dias' : 'à vista'})`;
+  return `${c.nome} (${d.join('/')} dias — ${d.length}x)`;
 }
 function addCondicaoPag() {
   const g = id => document.getElementById(id);
   const nome = (g('cond-nome')?.value || '').trim();
-  if (!nome) { alert('Dê um nome à condição (ex.: 30/60/90).'); return; }
-  condicoesPagamento.push({ id: 'cond_' + Date.now(), nome, nParcelas: Math.max(1, +(g('cond-n')?.value) || 1), primeiroDias: Math.max(0, +(g('cond-pri')?.value) || 0), intervaloDias: Math.max(0, +(g('cond-int')?.value) || 30) });
+  if (!nome) { alert('Dê um nome à condição (ex.: 28/56/84).'); return; }
+  const dias = parseDiasPrazo(g('cond-dias')?.value || '');
+  if (!dias.length) { alert('Informe os prazos em dias — ex.: 28/56/84 (ou 0 para à vista).'); return; }
+  condicoesPagamento.push({ id: 'cond_' + Date.now(), nome, dias });
   saveData('condicoesPagamento', condicoesPagamento); renderCadastro();
 }
 function updateCondicaoPag(id, field, value) {
   const c = condicoesPagamento.find(x => x.id === id); if (!c) return;
-  if (field === 'nome') c.nome = value; else c[field] = Math.max(0, +value || 0);
+  if (field === 'nome') c.nome = value;
+  else if (field === 'dias') { const d = parseDiasPrazo(value); if (d.length) { c.dias = d; delete c.nParcelas; delete c.primeiroDias; delete c.intervaloDias; } }
   saveData('condicoesPagamento', condicoesPagamento); renderCadastro();
 }
 function removeCondicaoPag(id) {
@@ -8572,14 +8639,13 @@ function removeCondicaoPag(id) {
   condicoesPagamento = condicoesPagamento.filter(x => x.id !== id);
   saveData('condicoesPagamento', condicoesPagamento); renderCadastro();
 }
-// Gera as parcelas de uma condição sobre um valor total, a partir de uma data base (p/ as Compras).
+// Gera as parcelas de uma condição sobre um valor total, a partir da data base (Data de Faturamento).
 function gerarParcelasCondicao(cond, valorTotal, dataBase) {
-  const n = Math.max(1, +(cond && cond.nParcelas) || 1);
+  const dias = condicaoDias(cond); const n = dias.length || 1;
   const base = dataBase instanceof Date ? new Date(dataBase) : new Date(dataBase || Date.now());
-  const pri = +(cond && cond.primeiroDias) || 0, inter = +(cond && cond.intervaloDias) || 0;
   const parc = []; let acum = 0;
   for (let i = 0; i < n; i++) {
-    const venc = new Date(base); venc.setDate(venc.getDate() + pri + i * inter);
+    const venc = new Date(base); venc.setDate(venc.getDate() + (+dias[i] || 0));
     let v = +((valorTotal || 0) / n).toFixed(2);
     if (i === n - 1) v = +((valorTotal || 0) - acum).toFixed(2); // última acerta arredondamento
     acum += v; parc.push({ venc, valor: v });
@@ -8741,21 +8807,18 @@ function renderCadastro() {
 
     ${cadHeader('condpag','⏳ Condições de Pagamento (prazos das Compras)')}
     <div id="cad-condpag" style="display:${_cadAberto['condpag']?'':'none'}">
-    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Prazos que as compras usam pra virar <strong>parcelas</strong> no Contas a Pagar. Cada condição = <strong>nº de parcelas</strong>, <strong>1º vencimento</strong> (dias após o pedido) e <strong>intervalo</strong> entre parcelas. Ex.: <em>À vista</em> = 1 / 0 / 0 · <em>30/60/90</em> = 3 / 30 / 30 · <em>Boleto 28dd</em> = 1 / 28 / 0.</p>
-    <div class="table-wrap" style="max-width:640px;margin-bottom:10px"><table><thead><tr><th>Nome</th><th style="text-align:center">Nº parcelas</th><th style="text-align:center">1º venc. (dias)</th><th style="text-align:center">Intervalo (dias)</th><th></th></tr></thead><tbody>
-    ${condicoesPagamento.length ? condicoesPagamento.map(c=>`<tr>
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Prazos que as compras usam pra virar <strong>parcelas</strong> no Contas a Pagar. Digite os <strong>dias de cada parcela</strong> separados por barra — contados <strong>a partir da Data de Faturamento</strong>. Ex.: <em>À vista</em> = <strong>0</strong> · <em>30 dias</em> = <strong>30</strong> · <em>28/56/84</em> = <strong>28/56/84</strong> (3 parcelas) · <em>30/45/90</em> (irregular) = <strong>30/45/90</strong>.</p>
+    <div class="table-wrap" style="max-width:560px;margin-bottom:10px"><table><thead><tr><th>Nome</th><th>Prazos (dias) — ex.: 28/56/84</th><th style="text-align:center">Parcelas</th><th></th></tr></thead><tbody>
+    ${condicoesPagamento.length ? condicoesPagamento.map(c=>{ const d=condicaoDias(c); return `<tr>
       <td><input class="inline-input" style="width:150px" value="${(c.nome||'').replace(/"/g,'&quot;')}" onchange="updateCondicaoPag('${c.id}','nome',this.value)"></td>
-      <td style="text-align:center"><input type="number" class="inline-input" style="width:60px;text-align:center" min="1" value="${c.nParcelas||1}" onchange="updateCondicaoPag('${c.id}','nParcelas',this.value)"></td>
-      <td style="text-align:center"><input type="number" class="inline-input" style="width:70px;text-align:center" min="0" value="${c.primeiroDias||0}" onchange="updateCondicaoPag('${c.id}','primeiroDias',this.value)"></td>
-      <td style="text-align:center"><input type="number" class="inline-input" style="width:70px;text-align:center" min="0" value="${c.intervaloDias||0}" onchange="updateCondicaoPag('${c.id}','intervaloDias',this.value)"></td>
+      <td><input class="inline-input" style="width:170px" value="${d.join('/')}" placeholder="ex.: 28/56/84" onchange="updateCondicaoPag('${c.id}','dias',this.value)"></td>
+      <td style="text-align:center;color:var(--muted)">${d.length}x</td>
       <td><a href="#" onclick="removeCondicaoPag('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover">✕</a></td>
-    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--muted);font-size:12px">Nenhuma condição. Cadastre abaixo.</td></tr>'}
+    </tr>`; }).join('') : '<tr><td colspan="4" style="color:var(--muted);font-size:12px">Nenhuma condição. Cadastre abaixo.</td></tr>'}
     </tbody></table></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:24px">
-      <input class="inline-input" id="cond-nome" placeholder="Nome (ex.: 30/60/90)" style="width:170px">
-      <input type="number" class="inline-input" id="cond-n" placeholder="Parc." min="1" value="1" style="width:60px" title="Nº de parcelas">
-      <input type="number" class="inline-input" id="cond-pri" placeholder="1º(d)" min="0" value="0" style="width:65px" title="1º vencimento (dias após o pedido)">
-      <input type="number" class="inline-input" id="cond-int" placeholder="Interv.(d)" min="0" value="30" style="width:75px" title="Intervalo entre parcelas (dias)">
+      <input class="inline-input" id="cond-nome" placeholder="Nome (ex.: 28/56/84)" style="width:170px">
+      <input class="inline-input" id="cond-dias" placeholder="Prazos: 28/56/84" style="width:170px" title="Dias de cada parcela (a partir da data de faturamento), separados por /">
       <button class="btn primary sm" onclick="addCondicaoPag()">+ Adicionar</button>
     </div>
     </div>
