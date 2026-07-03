@@ -386,7 +386,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v245/07-269';
+const APP_VERSION = 'v246/07-270';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8507,10 +8507,12 @@ function novaCompra() {
 }
 function updateCompra(id, field, value) {
   const c = compras.find(x => x.id === id); if (!c) return;
+  let semRerender = false;
   if (field === 'qtd' || field === 'custoUnit') { c[field] = num(value); c.custoTotal = +((+c.qtd || 0) * (+c.custoUnit || 0)).toFixed(2); }
   else if (field === 'custoTotal' || field === 'frete') { c[field] = num(value); }
-  else c[field] = value;
-  saveData('compras', compras); renderCompras();
+  else { c[field] = value; semRerender = true; } // data/texto: salva sem recarregar (não perde o foco no meio da digitação)
+  saveData('compras', compras);
+  if (!semRerender) renderCompras();
 }
 function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; saveData('compras', compras); renderCompras(); }
 // PEDIDO: agrupa os itens APROVADOS de um fornecedor, aplica a condição de pagamento a partir da
