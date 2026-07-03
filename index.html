@@ -386,7 +386,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v247/07-273';
+const APP_VERSION = 'v248/07-275';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8512,10 +8512,75 @@ function acoesCompra(c) {
   let b = '';
   if (st === 'pendente') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','aprovado')">✅ Aprovar</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="setStatusCompra('${c.id}','rejeitado')" title="Rejeitar">❌</button>`;
   else if (st === 'aprovado') b = `<span style="font-size:10px;color:var(--muted)">use 📦 acima</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')" title="Voltar p/ pendente">↩</button>`;
-  else if (st === 'pedido') b = `<span style="font-size:10px;color:var(--green)">✓ Contas a Pagar</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="desfazerPedidoCompra('${c._pedidoId || ''}')" title="Desfazer pedido: remove as parcelas em aberto e volta p/ aprovado">↩ desfazer</button>`;
+  else if (st === 'pedido') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="receberPedidoCompra('${c._pedidoId || ''}')" title="Confere a NF: registra o nº da nota, ajusta o valor das parcelas se veio diferente e marca como Recebido">📄 Conferir NF</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="desfazerPedidoCompra('${c._pedidoId || ''}')" title="Desfazer pedido: remove as parcelas em aberto e volta p/ aprovado">↩ desfazer</button>`;
+  else if (st === 'recebido') b = `<span style="font-size:10px;color:var(--green)">✓ Recebido${c.nfNumero ? ' · NF ' + c.nfNumero : ''}</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pedido')" title="Voltar p/ pedido (reconferir)">↩</button>`;
   else if (st === 'rejeitado') b = `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')">↩ reabrir</button>`;
   else b = `<span style="font-size:10px;color:var(--muted)">${COMPRA_ST[st][0]}</span>`;
   return b + ` <a href="#" onclick="removerCompra('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700;margin-left:4px" title="Remover">✕</a>`;
+}
+// Conferir NF: registra o nº da nota, ajusta valor E/OU reparcelamento e marca RECEBIDO.
+function receberPedidoCompra(pedidoId) {
+  if (!pedidoId) { alert('Pedido não encontrado.'); return; }
+  const itens = compras.filter(c => c._pedidoId === pedidoId);
+  if (!itens.length) { alert('Pedido não encontrado.'); return; }
+  let parc = contasPagar.filter(c => c._compraPedidoId === pedidoId);
+  const totalAtual = +parc.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2);
+  const forn = itens[0].fornecedor || '';
+  const pagas = parc.filter(c => c.pago).length;
+  const parseNum = s => { const t = String(s || '').trim(); if (!t) return null; const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, '')); return isNaN(n) ? null : n; };
+  const toISO = s => { s = String(s || '').trim(); if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : s; };
+  // 1) Nº da NF
+  const nf = prompt(`📄 Conferir NF — ${forn}\n\nNº da Nota Fiscal (deixe em branco se ainda não tiver):`, itens[0].nfNumero || '');
+  if (nf === null) return;
+  const nfTxt = String(nf || '').trim();
+  // 2) Valor total da NF
+  const vStr = prompt(`Valor TOTAL da NF (com frete):\n\nPedido gerado: ${fmtVal(totalAtual)} em ${parc.length} parcela(s).\n\nDeixe igual se estiver certo, ou digite o valor da NF.`, totalAtual.toFixed(2).replace('.', ','));
+  if (vStr === null) return;
+  const valorNF = parseNum(vStr);
+  const totalFinal = (valorNF && valorNF > 0) ? +valorNF.toFixed(2) : totalAtual;
+  // 3) Reparcelar? (mudar prazo/nº de parcelas) — só se nenhuma parcela estiver paga
+  let reparcelou = false;
+  if (pagas) {
+    if (Math.abs(totalFinal - totalAtual) > 0.01) alert('⚠ Há parcela(s) já PAGAS neste pedido — não vou mexer nos valores automaticamente. Ajuste as parcelas na mão no Contas a Pagar se precisar.');
+  } else if (confirm(`Precisa mudar o PARCELAMENTO (prazo / nº de parcelas)?\n\nOK = digitar o novo parcelamento\nCancelar = manter as ${parc.length} parcela(s) atuais${Math.abs(totalFinal - totalAtual) > 0.01 ? ' (só reajusto os valores)' : ''}`)) {
+    {
+      const condAtual = condicoesPagamento.find(c => c.id === itens[0].condicaoId);
+      const prazoDefault = condAtual ? condicaoDias(condAtual).join('/') : condicoesPagamento.map(c => condicaoDias(c).join('/'))[0] || '30';
+      const dias = parseDiasPrazo(prompt(`Novo parcelamento — digite os PRAZOS em dias separados por / :\n\n• à vista (1 parcela) → 0\n• 1 parcela em 30 dias → 30\n• 2 parcelas → 15/30\n• 3 parcelas → 28/56/84\n\nCondições cadastradas: ${condicoesPagamento.map(c => c.nome + ' (' + condicaoDias(c).join('/') + ')').join(', ') || 'nenhuma'}`, prazoDefault));
+      if (!dias.length) { alert('Parcelamento vazio — mantive as parcelas atuais.'); }
+      else {
+        const dfISO = toISO(prompt('Data de Faturamento (DD/MM/AAAA) — o prazo conta a partir dela:', (itens[0].dataFatur || '').split('-').reverse().join('/')) || '');
+        const dt = new Date(dfISO + 'T12:00:00');
+        if (isNaN(dt)) { alert('Data inválida — mantive as parcelas atuais.'); }
+        else {
+          const modelo = parc[0] || {};
+          const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
+          const novas = gerarParcelasCondicao({ dias }, totalFinal, dt);
+          contasPagar = contasPagar.filter(c => c._compraPedidoId !== pedidoId);
+          novas.forEach((p, k) => contasPagar.push({
+            numero: nfTxt || '', fornecedor: forn,
+            descricao: 'Compra' + (colecoes ? ' — ' + colecoes : '') + (novas.length > 1 ? ` (parc. ${k + 1}/${novas.length})` : ''),
+            categoria: modelo.categoria || 'PEDIDOS', observacao: modelo.observacao || ('🛒 Pedido de compra (' + itens.length + ' itens)'),
+            empresa: modelo.empresa || '', rateio: [], vencimento: p.venc, dataPag: null, valor: p.valor, situacao: 'Em Aberto', pago: false, _compraPedidoId: pedidoId
+          }));
+          itens.forEach(c => { c.condicaoId = ''; c.dataFatur = dfISO; });
+          reparcelou = true;
+        }
+      }
+    }
+  }
+  // Se não reparcelou mas o valor mudou, redistribui proporcionalmente nas parcelas em aberto
+  if (!reparcelou && !pagas && Math.abs(totalFinal - totalAtual) > 0.01) {
+    let acum = 0;
+    parc.forEach((c, k) => { let v = +(totalFinal * ((c.valor || 0) / totalAtual)).toFixed(2); if (k === parc.length - 1) v = +(totalFinal - acum).toFixed(2); acum += v; c.valor = v; });
+  }
+  // Grava o nº da NF em todas as parcelas do pedido e marca recebido
+  contasPagar.filter(c => c._compraPedidoId === pedidoId).forEach(c => { if (nfTxt) c.numero = nfTxt; });
+  itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; });
+  saveData('contasPagar', contasPagar); saveData('compras', compras);
+  renderCompras();
+  const nParc = contasPagar.filter(c => c._compraPedidoId === pedidoId).length;
+  alert(`✓ Pedido de "${forn}" marcado como RECEBIDO.${nfTxt ? '\nNF ' + nfTxt : ''}\n${nParc} parcela(s) · total ${fmtVal(totalFinal)} no Contas a Pagar${reparcelou ? ' (reparcelado)' : ''}.`);
 }
 // Desfaz um pedido: remove as parcelas EM ABERTO geradas e volta os itens p/ aprovado.
 function desfazerPedidoCompra(pedidoId) {
