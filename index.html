@@ -386,7 +386,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v248/07-275';
+const APP_VERSION = 'v249/07-277';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8410,7 +8410,7 @@ function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro'
 // COMPRAS (requisição → aprovação → pedido → recebimento → Contas a Pagar)
 // ════════════════════════════════════════════════════════════════════
 const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
-function totalCompra(c) { return +(((+c.custoTotal || 0) + (+c.frete || 0))).toFixed(2); } // total da compra = produtos + frete
+function totalCompra(c) { return +(((+c.custoTotal || 0) + (+c.frete || 0) - (+c.desconto || 0))).toFixed(2); } // total da compra = produtos + frete − desconto
 // Converte célula de data da planilha p/ 'AAAA-MM-DD' (p/ o <input type=date> da Data de Faturamento).
 function _toISOCell(v) {
   if (v == null || v === '') return '';
@@ -8484,7 +8484,7 @@ function renderCompras() {
     <datalist id="cmp-forn-list">${fornecedoresCompras.map(f => `<option value="${(f.nome || '').replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
     <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
-      <th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
+      <th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
       <td>${_fmtDataCell(c.dataSolic)}</td>
@@ -8495,6 +8495,7 @@ function renderCompras() {
       <td style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
       <td style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
       <td style="text-align:right">${ro ? fmtVal(c.frete || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.frete || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','frete',this.value)">`}</td>
+      <td style="text-align:right">${ro ? fmtVal(c.desconto || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.desconto || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','desconto',this.value)" title="Desconto do item — subtrai do total">`}</td>
       <td style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
       <td>${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:120px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
       <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" value="${(c.colecao || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
@@ -8630,7 +8631,7 @@ function updateCompra(id, field, value) {
   const c = compras.find(x => x.id === id); if (!c) return;
   let semRerender = false;
   if (field === 'qtd' || field === 'custoUnit') { c[field] = num(value); c.custoTotal = +((+c.qtd || 0) * (+c.custoUnit || 0)).toFixed(2); }
-  else if (field === 'custoTotal' || field === 'frete') { c[field] = num(value); }
+  else if (field === 'custoTotal' || field === 'frete' || field === 'desconto') { c[field] = num(value); }
   else { c[field] = value; semRerender = true; } // data/texto: salva sem recarregar (não perde o foco no meio da digitação)
   saveData('compras', compras);
   if (!semRerender) renderCompras();
