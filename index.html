@@ -289,6 +289,7 @@ tr:hover td{background:#fafaf8}
 <div class="topnav">
   <div class="topnav-item" id="nav-dashboard" onclick="setView('dashboard')" style="font-weight:800;color:var(--accent)">Dashboard</div>
   <div class="topnav-item active" id="nav-vendas" onclick="setView('vendas')">Vendas</div>
+  <div class="topnav-item" id="nav-compras" onclick="setView('compras')">🛒 Compras</div>
   <div class="topnav-item" id="nav-financeiro" onclick="setView('financeiro')">Financeiro</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
 </div>
@@ -299,7 +300,6 @@ tr:hover td{background:#fafaf8}
   <div class="subnav-item" id="sub-banco" onclick="setSub('banco')">Conciliação Bancária</div>
   <div class="subnav-item" id="sub-fluxo" onclick="setSub('fluxo')">📊 Fluxo de Caixa</div>
   <div class="subnav-item" id="sub-comissao" onclick="setSub('comissao')">💸 Comissão</div>
-  <div class="subnav-item" id="sub-compras" onclick="setSub('compras')">🛒 Compras</div>
 </div>
 
 <!-- VIEWS -->
@@ -326,8 +326,8 @@ tr:hover td{background:#fafaf8}
   <div id="v-banco" class="main" style="display:none"></div>
   <div id="v-fluxo" class="main" style="display:none"></div>
   <div id="v-comissao" class="main" style="display:none"></div>
-  <div id="v-compras" class="main" style="display:none"></div>
 </div>
+<div id="v-compras" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
 </div><!-- /app -->
@@ -386,7 +386,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v243/07-267';
+const APP_VERSION = 'v244/07-268';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -687,6 +687,7 @@ async function getCredentials() {
 const PERM_PRINCIPAIS = [
   ['dashboard', 'Dashboard'],
   ['vendas',    'Vendas'],
+  ['compras',   'Compras'],
   ['cadastro',  'Cadastro'],
 ];
 const PERM_FIN = [
@@ -701,7 +702,6 @@ const PERM_FIN = [
   ['fin:banco',     'Financeiro · Conciliação Bancária'],
   ['fin:fluxo',     'Financeiro · Fluxo de Caixa'],
   ['fin:comissao',  'Financeiro · Comissão'],
-  ['fin:compras',   'Financeiro · Compras'],
 ];
 const ALL_PERMS = [...PERM_PRINCIPAIS, ...PERM_FIN];
 let currentUser = null;
@@ -743,7 +743,7 @@ function viewAllowed(v) {
   return v === 'financeiro' ? canFinanceiro() : can(v);
 }
 function firstAllowedView() {
-  return ['dashboard', 'vendas', 'financeiro', 'cadastro'].find(viewAllowed) || null;
+  return ['dashboard', 'vendas', 'compras', 'financeiro', 'cadastro'].find(viewAllowed) || null;
 }
 function firstAllowedSub() {
   return ['contas', 'pagar', 'extrato', 'banco'].find(subAllowed) || null;
@@ -1053,17 +1053,19 @@ function setView(v) {
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','financeiro','cadastro'].forEach(x => {
-    document.getElementById('nav-' + x).classList.toggle('active', x === v);
+  ['dashboard','vendas','compras','financeiro','cadastro'].forEach(x => {
+    document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
   document.getElementById('v-vendas').style.display = v === 'vendas' ? 'block' : 'none';
+  document.getElementById('v-compras').style.display = v === 'compras' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
   document.getElementById('sub-fin').style.display = v === 'financeiro' ? 'flex' : 'none';
   document.getElementById('conc-pills').style.display = 'none';
   if (v === 'dashboard') renderDashboard();
   if (v === 'vendas') renderVendas();
+  if (v === 'compras') renderCompras();
   if (v === 'financeiro') {
     // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
     let s = currentSub === 'conc' ? 'contas' : currentSub;
@@ -1080,11 +1082,11 @@ function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de aba
   currentSub = s;
-  ['contas','pagar','extrato','banco','fluxo','comissao','compras'].forEach(x => {
+  ['contas','pagar','extrato','banco','fluxo','comissao'].forEach(x => {
     document.getElementById('sub-' + x)?.classList.toggle('active', x === s);
   });
   // Esconde todas as views do financeiro
-  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo','comissao','compras'].forEach(x => {
+  [...RECEBER_GROUP, 'pagar','extrato','banco','fluxo','comissao'].forEach(x => {
     const v = document.getElementById('v-' + x); if (v) v.style.display = 'none';
   });
   // Sub-navegação interna só aparece em Contas a Receber
@@ -1092,7 +1094,7 @@ function setSub(s) {
   if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
   const pills = document.getElementById('conc-pills'); if (pills) pills.style.display = 'none';
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
-  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao, compras: renderCompras };
+  const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao };
   const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
   if (renders[s]) renders[s]();
 }
@@ -3321,8 +3323,10 @@ function _toDateInput(d) { if (!d) return ''; const dt = d instanceof Date ? d :
 function updateContaPagar(idx, field, value) {
   const c = contasPagar[idx];
   if (!c) return;
+  let semRerender = false;
   if (field === 'vencimento' || field === 'dataPag') {
     c[field] = value ? new Date(value + 'T12:00:00') : null;
+    semRerender = true; // não recarrega a tabela (senão perde o foco do campo de data no meio da digitação)
   } else if (field === 'valor') {
     const t = String(value || '').trim();
     const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, ''));
@@ -3333,10 +3337,10 @@ function updateContaPagar(idx, field, value) {
     if (!c.pago) c.dataPag = null;
     c.situacao = c.pago ? 'Pago' : 'Em Aberto';
   } else {
-    c[field] = value;
+    c[field] = value; semRerender = true; // texto (fornecedor/categoria/obs): salva sem recarregar, não perde o cursor
   }
   saveData('contasPagar', contasPagar);
-  renderPagar();
+  if (!semRerender) renderPagar();
 }
 // ── Recorrências (contas fixas que geram lançamentos mensais) ──
 let _recAberto = false;
@@ -8347,6 +8351,16 @@ function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro'
 // COMPRAS (requisição → aprovação → pedido → recebimento → Contas a Pagar)
 // ════════════════════════════════════════════════════════════════════
 const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
+function totalCompra(c) { return +(((+c.custoTotal || 0) + (+c.frete || 0))).toFixed(2); } // total da compra = produtos + frete
+// Converte célula de data da planilha p/ 'AAAA-MM-DD' (p/ o <input type=date> da Data de Faturamento).
+function _toISOCell(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date) return isNaN(v) ? '' : _toDateInput(v);
+  if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 86400 * 1000)); return isNaN(d) ? '' : _toDateInput(d); }
+  const s = String(v).trim(); const m = s.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (m) { const y = m[3] ? (m[3].length === 2 ? '20' + m[3] : m[3]) : String(new Date().getFullYear()); return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  return '';
+}
 function _fmtDataCell(v) {
   if (v == null || v === '') return '';
   if (v instanceof Date) return isNaN(v) ? '' : v.toLocaleDateString('pt-BR');
@@ -8364,7 +8378,11 @@ function renderCompras() {
   if (fForn) vis = vis.filter(c => c.fornecedor === fForn);
   if (fQ) vis = vis.filter(c => (c.insumo || '').toLowerCase().includes(fQ) || (c.fornecedor || '').toLowerCase().includes(fQ) || (c.colecao || '').toLowerCase().includes(fQ) || (c.categoria || '').toLowerCase().includes(fQ));
   const cnt = st => compras.filter(c => (c.status || 'pendente') === st).length;
-  const somaVis = vis.reduce((s, c) => s + (+c.custoTotal || 0), 0);
+  const somaVis = vis.reduce((s, c) => s + totalCompra(c), 0);
+  // Aprovados agrupados por fornecedor → viram Pedido (gera parcelas no Contas a Pagar).
+  const aprovForn = {};
+  compras.filter(c => (c.status || '') === 'aprovado').forEach(c => { const f = c.fornecedor || '(sem fornecedor)'; (aprovForn[f] = aprovForn[f] || []).push(c); });
+  const fornsAprov = Object.keys(aprovForn).sort();
   el.innerHTML = `
     <div style="max-width:520px;margin-bottom:16px">
       <label class="upload-card" id="card-compras" for="file-compras">
@@ -8388,12 +8406,26 @@ function renderCompras() {
       <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${cnt('pedido')}</div></div>
       <div class="card dark"><div class="c-label">Recebidos</div><div class="c-val">${cnt('recebido')}</div></div>
     </div>
+    ${fornsAprov.length ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;background:var(--surface)">
+      <div style="font-weight:700;margin-bottom:8px">📦 Fazer pedido — itens aprovados por fornecedor</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Escolha a <strong>condição de pagamento</strong> e a <strong>Data de Faturamento</strong> (o prazo conta a partir dela) → gera as parcelas <strong>em aberto</strong> no Contas a Pagar (previstas no Fluxo).</div>
+      <div class="table-wrap"><table style="white-space:nowrap;font-size:12px"><thead><tr><th>Fornecedor</th><th style="text-align:right">Itens</th><th style="text-align:right">Total (c/ frete)</th><th>Condição (prazo)</th><th>Data Faturamento</th><th></th></tr></thead><tbody>
+      ${fornsAprov.map((f, i) => { const itens = aprovForn[f]; const tot = itens.reduce((s, c) => s + totalCompra(c), 0); const fc = fornecedoresCompras.find(x => x.nome === f); const condDef = fc ? fc.condicaoId : ''; const dfDef = (itens.find(c => c.dataFatur) || {}).dataFatur || ''; return `<tr>
+        <td><strong>${f}</strong></td>
+        <td style="text-align:right">${itens.length}</td>
+        <td style="text-align:right"><strong>${fmtVal(tot)}</strong></td>
+        <td><select class="inline-input" id="ped-cond-${i}" style="width:200px"><option value="">— escolha —</option>${condicoesPagamento.map(cc => `<option value="${cc.id}" ${cc.id === condDef ? 'selected' : ''}>${(cc.nome || '').replace(/"/g, '&quot;')}</option>`).join('')}</select></td>
+        <td><input type="date" class="inline-input" id="ped-datafat-${i}" style="width:130px" value="${dfDef}"></td>
+        <td><button class="btn primary sm" onclick="gerarPedidoCompra('${f.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}',${i})">📦 Gerar pedido</button></td>
+      </tr>`; }).join('')}
+      </tbody></table></div>
+    </div>` : ''}
     ${vis.length === 0 ? '<div class="empty"><div class="e-icon">🛒</div>Nenhuma compra no filtro. Suba a planilha de requisição ou clique ➕ Nova compra.</div>' : `
     <datalist id="cmp-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <datalist id="cmp-forn-list">${fornecedoresCompras.map(f => `<option value="${(f.nome || '').replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
     <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
-      <th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
+      <th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
       <td>${_fmtDataCell(c.dataSolic)}</td>
@@ -8403,9 +8435,12 @@ function renderCompras() {
       <td style="text-align:right">${ro ? (c.qtd || '') : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
       <td style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
       <td style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
+      <td style="text-align:right">${ro ? fmtVal(c.frete || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.frete || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','frete',this.value)">`}</td>
+      <td style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
+      <td>${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:120px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
       <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" value="${(c.colecao || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
       <td>${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:110px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
-      <td>${c.solicitante || '—'}</td>
+      <td>${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:100px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
       <td><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span></td>
       <td>${acoesCompra(c)}</td>
     </tr>`; }).join('')}
@@ -8417,10 +8452,23 @@ function acoesCompra(c) {
   const st = c.status || 'pendente';
   let b = '';
   if (st === 'pendente') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','aprovado')">✅ Aprovar</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="setStatusCompra('${c.id}','rejeitado')" title="Rejeitar">❌</button>`;
-  else if (st === 'aprovado') b = `<span style="font-size:10px;color:var(--muted)">→ Pedido (em breve)</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')" title="Voltar p/ pendente">↩</button>`;
+  else if (st === 'aprovado') b = `<span style="font-size:10px;color:var(--muted)">use 📦 acima</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')" title="Voltar p/ pendente">↩</button>`;
+  else if (st === 'pedido') b = `<span style="font-size:10px;color:var(--green)">✓ Contas a Pagar</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="desfazerPedidoCompra('${c._pedidoId || ''}')" title="Desfazer pedido: remove as parcelas em aberto e volta p/ aprovado">↩ desfazer</button>`;
   else if (st === 'rejeitado') b = `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')">↩ reabrir</button>`;
   else b = `<span style="font-size:10px;color:var(--muted)">${COMPRA_ST[st][0]}</span>`;
   return b + ` <a href="#" onclick="removerCompra('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700;margin-left:4px" title="Remover">✕</a>`;
+}
+// Desfaz um pedido: remove as parcelas EM ABERTO geradas e volta os itens p/ aprovado.
+function desfazerPedidoCompra(pedidoId) {
+  if (!pedidoId) return;
+  const parc = contasPagar.filter(c => c._compraPedidoId === pedidoId);
+  const pagas = parc.filter(c => c.pago).length;
+  if (pagas) { if (!confirm(`⚠ ${pagas} parcela(s) desse pedido já estão PAGAS. Desfazer mesmo assim vai REMOVER todas as parcelas do pedido. Continuar?`)) return; }
+  else if (!confirm('Desfazer o pedido? Remove as parcelas em aberto do Contas a Pagar e volta os itens para APROVADO.')) return;
+  contasPagar = contasPagar.filter(c => c._compraPedidoId !== pedidoId);
+  compras.forEach(c => { if (c._pedidoId === pedidoId) { c.status = 'aprovado'; delete c._pedidoId; } });
+  saveData('contasPagar', contasPagar); saveData('compras', compras);
+  renderCompras();
 }
 function importarCompras(wb) {
   const sheet = wb.Sheets[wb.SheetNames.includes('Worksheet') ? 'Worksheet' : wb.SheetNames[0]];
@@ -8439,8 +8487,8 @@ function importarCompras(wb) {
       id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6),
       dataSolic: _fmtDataCell(col(r, 'data solicita', 'data')),
       fornecedor: String(forn || '').trim(), insumo: String(insumo || '').trim(),
-      unidade: String(col(r, 'un', 'unidade') || '').trim(), qtd, custoUnit: cu, custoTotal: ct,
-      colecao: String(col(r, 'coleç', 'colecao', 'pl') || '').trim(), dataLimite: _fmtDataCell(col(r, 'data limite', 'limite')),
+      unidade: String(col(r, 'un', 'unidade') || '').trim(), qtd, custoUnit: cu, custoTotal: ct, frete: num(col(r, 'frete')),
+      colecao: String(col(r, 'coleç', 'colecao', 'pl') || '').trim(), dataLimite: _fmtDataCell(col(r, 'data limite', 'limite')), dataFatur: _toISOCell(col(r, 'data fatur', 'data limite', 'faturamento', 'limite')),
       categoria: String(col(r, 'categoria') || '').trim(), solicitante: String(col(r, 'solicitante') || '').trim(),
       empresa: '', status: 'pendente'
     };
@@ -8451,17 +8499,48 @@ function importarCompras(wb) {
   alert(`✓ ${add} item(ns) importado(s) como PENDENTES${dup ? ` · ${dup} já existiam (não dupliquei)` : ''}.`);
 }
 function novaCompra() {
-  compras.push({ id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'), fornecedor: '', insumo: '', unidade: 'un', qtd: 0, custoUnit: 0, custoTotal: 0, colecao: '', dataLimite: '', categoria: '', solicitante: '', empresa: '', status: 'pendente' });
+  compras.push({ id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'), fornecedor: '', insumo: '', unidade: 'un', qtd: 0, custoUnit: 0, custoTotal: 0, frete: 0, colecao: '', dataLimite: '', dataFatur: '', categoria: '', solicitante: '', empresa: '', status: 'pendente' });
   saveData('compras', compras); renderCompras();
 }
 function updateCompra(id, field, value) {
   const c = compras.find(x => x.id === id); if (!c) return;
   if (field === 'qtd' || field === 'custoUnit') { c[field] = num(value); c.custoTotal = +((+c.qtd || 0) * (+c.custoUnit || 0)).toFixed(2); }
-  else if (field === 'custoTotal') { c.custoTotal = num(value); }
+  else if (field === 'custoTotal' || field === 'frete') { c[field] = num(value); }
   else c[field] = value;
   saveData('compras', compras); renderCompras();
 }
 function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; saveData('compras', compras); renderCompras(); }
+// PEDIDO: agrupa os itens APROVADOS de um fornecedor, aplica a condição de pagamento a partir da
+// Data de Faturamento e gera as PARCELAS (em aberto) no Contas a Pagar (origem=Compras → previstas no Fluxo).
+function gerarPedidoCompra(fornecedor, i) {
+  const itens = compras.filter(c => c.fornecedor === fornecedor && (c.status || '') === 'aprovado');
+  if (!itens.length) { alert('Nenhum item aprovado de "' + fornecedor + '".'); return; }
+  const condId = document.getElementById('ped-cond-' + i)?.value || '';
+  const cond = condicoesPagamento.find(c => c.id === condId);
+  if (!cond) { alert('Escolha a Condição de Pagamento (prazo) do pedido.\nCadastre em Cadastro → ⏳ Condições de Pagamento se ainda não tiver.'); return; }
+  const dataFat = document.getElementById('ped-datafat-' + i)?.value || '';
+  if (!dataFat) { alert('Informe a Data de Faturamento — o prazo das parcelas conta a partir dela.'); return; }
+  const total = +itens.reduce((s, c) => s + totalCompra(c), 0).toFixed(2);
+  const parcelas = gerarParcelasCondicao(cond, total, new Date(dataFat + 'T12:00:00'));
+  const fc = fornecedoresCompras.find(x => x.nome === fornecedor) || {};
+  const catCount = {}; itens.forEach(c => { const k = c.categoria || fc.categoria || ''; if (k) catCount[k] = (catCount[k] || 0) + 1; });
+  const categoria = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])[0] || fc.categoria || 'PEDIDOS';
+  const empresa = fc.empresa || (itens.find(c => c.empresa) || {}).empresa || '';
+  const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
+  if (!confirm(`Fazer o pedido de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${cond.nome} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
+  const pedidoId = 'pedcompra_' + Date.now();
+  parcelas.forEach((p, k) => {
+    contasPagar.push({
+      numero: '', fornecedor, descricao: 'Compra' + (colecoes ? ' — ' + colecoes : '') + (parcelas.length > 1 ? ` (parc. ${k + 1}/${parcelas.length})` : ''),
+      categoria, observacao: '🛒 Pedido de compra (' + itens.length + ' itens)', empresa, rateio: [],
+      vencimento: p.venc, dataPag: null, valor: p.valor, situacao: 'Em Aberto', pago: false, _compraPedidoId: pedidoId
+    });
+  });
+  itens.forEach(c => { c.status = 'pedido'; c._pedidoId = pedidoId; c.condicaoId = condId; c.dataFatur = dataFat; });
+  saveData('contasPagar', contasPagar); saveData('compras', compras);
+  renderCompras();
+  alert(`✓ Pedido de "${fornecedor}" gerado!\n\n${parcelas.length} parcela(s) no Contas a Pagar (${fmtVal(total)}). Já aparecem no Fluxo como previstas.`);
+}
 function removerCompra(id) { const c = compras.find(x => x.id === id); if (!c) return; if (!confirm('Remover esta compra?')) return; compras = compras.filter(x => x.id !== id); saveData('compras', compras); renderCompras(); }
 // ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
 function condicaoLabel(c) {
