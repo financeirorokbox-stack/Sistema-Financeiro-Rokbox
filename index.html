@@ -233,6 +233,7 @@ tr:hover td{background:#fafaf8}
   display:none;align-items:center;gap:16px;z-index:400;
   box-shadow:0 4px 24px rgba(0,0,0,0.25);white-space:nowrap">
   <span id="delete-bar-count" style="font-size:13px;font-weight:600"></span>
+  <span id="delete-bar-sum" style="font-size:13px;font-weight:700;color:#ffd479"></span>
   <button class="btn danger sm" onclick="executarExclusao()" style="padding:6px 16px">🗑 Excluir selecionados</button>
   <button onclick="limparSelecao()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;line-height:1">✕</button>
 </div>
@@ -386,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v249/07-277';
+const APP_VERSION = 'v250/07-285';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -923,7 +924,7 @@ let recebimentosConsolidado = [];
 let boletoStatus = {};
 let boletoConfig = {};
 let boletoCobrancaStatus = {};
-let boletosAvulsos = []; // boletos PAGOS de pedidos que NÃO estão no sistema (importados do relatório Itaú)
+let boletosAvulsos = []; // boletos de pedidos fora do sistema (relatório Itaú): PAGOS (dataPagamento) ou EM ABERTO a receber (dataPagamento null, campo fone p/ cobrança)
 let extratoBancario = [];
 let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
@@ -969,6 +970,7 @@ let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao
 let condicoesPagamento = []; // prazos p/ Compras: [{id,nome,nParcelas,primeiroDias,intervaloDias}] (À vista=1/0/0; 30/60/90=3/30/30)
 let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa,obs}]
 let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,insumo,unidade,qtd,custoUnit,custoTotal,colecao,dataLimite,categoria,solicitante,empresa,status,condicaoId,nf,dataReceb,obs,_pedidoContas}]
+let comprasSel = new Set(); // seleção (transitória) p/ aprovar vários pedidos de uma vez
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -2322,7 +2324,8 @@ function limparFiltrosContas() {
 }
 // Limpa todos os filtros do Contas a Pagar.
 function limparFiltrosPagar() {
-  ['cp-st','cp-emp','cp-cat','cp-conc','cp-q'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  ['cp-st','cp-emp','cp-conc','cp-q'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  cpCatSel.clear();
   buscaPersist.pagar = '';
   if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
   renderPagar();
@@ -3412,7 +3415,13 @@ function gerarRecorrencias() {
   alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
 }
 // Colunas mostráveis/ocultáveis da tabela de Contas a Pagar.
-const CP_COLS = [['vencimento','Vencimento'],['status','Status'],['empresa','Empresa'],['banco','Banco'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Pagamento'],['historico','Histórico']];
+const CP_COLS = [['vencimento','Vencimento'],['competencia','Competência'],['status','Status'],['empresa','Empresa'],['banco','Banco'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Pagamento'],['historico','Histórico']];
+// Competência da conta (mês da despesa, p/ DRE): usa c.competencia (AAAA-MM) ou, se vazio, o mês do vencimento.
+function competenciaConta(c) { if (c && c.competencia) return c.competencia; const v = c && c.vencimento ? new Date(c.vencimento) : null; return v && !isNaN(v) ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}` : ''; }
+// Filtro de categorias (múltipla seleção por checkbox) no Contas a Pagar
+let cpCatSel = new Set();
+function cpCatToggle(cat, on) { if (on) cpCatSel.add(cat); else cpCatSel.delete(cat); renderPagar(); }
+function cpCatTodas(on) { cpCatSel.clear(); if (on) [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].forEach(c => cpCatSel.add(c)); renderPagar(); }
 let cpColsOcultas = (() => { try { return JSON.parse(localStorage.getItem('cpColsOcultas') || '[]'); } catch (e) { return []; } })();
 function toggleCpCol(key) {
   if (cpColsOcultas.includes(key)) cpColsOcultas = cpColsOcultas.filter(k => k !== key);
@@ -3452,7 +3461,7 @@ function _contasPagarFiltradas() {
   let vis = contasPagar.slice();
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
-  if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
+  if (cpCatSel.size) vis = vis.filter(c => cpCatSel.has(catContaPagar(c)));
   if (fEmp) vis = vis.filter(c => (c.empresa || '') === fEmp);
   if (fConc === 'sim') vis = vis.filter(estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
@@ -3504,7 +3513,7 @@ function exportarContasPagar() {
   let vis = contasPagar.slice();
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
-  if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
+  if (cpCatSel.size) vis = vis.filter(c => cpCatSel.has(catContaPagar(c)));
   if (fEmp) vis = vis.filter(c => (c.empresa || '') === fEmp);
   if (fConc === 'sim') vis = vis.filter(estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
@@ -3525,11 +3534,11 @@ function exportarContasPagar() {
     '',                                                  // Desconto (não há campo no sistema)
     c.pago ? (c.valor || 0) : 0,                         // Pago (valor pago)
     c.situacao || (c.pago ? 'Pago' : 'Em Aberto'),       // Situação
-    comp(c.vencimento),                                  // Competência (1º dia do mês do vencimento)
+    (competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : ''), // Competência (1º dia do mês da COMPETÊNCIA, p/ DRE)
     c.descricao || '',                                   // Descrição (texto da planilha)
     c.observacao || '',                                  // Observações (histórico)
     fmtD(c.dataPag),                                     // Liquidação
-    mesAno(c.vencimento),                                // Mês_Despesa
+    (competenciaConta(c) ? competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : mesAno(c.vencimento)), // Mês_Despesa (competência)
     mesAno(c.dataPag),                                   // Mês_Liquidado
     c.valor || 0,                                        // Valor (2ª)
     fmtD(c.dataPag || c.vencimento),                     // Data FCX (liquidação; se não pago, vencimento)
@@ -3545,8 +3554,14 @@ function exportarContasPagar() {
   XLSX.writeFile(wb, `contas_a_pagar_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`);
 }
 // Cria uma conta a pagar em branco (em aberto) para preencher na mão.
+let _novaContaRef = null; // transitório (não salvo): última conta criada na mão, p/ aparecer mesmo com filtro ativo
 function novaContaPagar() {
-  contasPagar.push({ numero: '', fornecedor: 'Nova conta', descricao: '', categoria: '', observacao: '', empresa: '', rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true });
+  const el = document.getElementById('v-pagar');
+  const fCat = cpCatSel.size === 1 ? [...cpCatSel][0] : ''; // herda a categoria se só uma estiver marcada no filtro
+  const fEmp = el?.querySelector('#cp-emp')?.value || ''; // e a empresa do filtro (digita menos)
+  const nova = { numero: '', fornecedor: 'Nova conta', descricao: '', categoria: fCat, observacao: '', empresa: fEmp, rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true };
+  contasPagar.push(nova);
+  _novaContaRef = nova;
   saveData('contasPagar', contasPagar);
   renderPagar();
 }
@@ -3569,13 +3584,15 @@ function renderPagar() {
   let vis = contasPagar;
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
-  if (fCat) vis = vis.filter(c => catContaPagar(c) === fCat);
+  if (cpCatSel.size) vis = vis.filter(c => cpCatSel.has(catContaPagar(c)));
   if (fEmp) vis = vis.filter(c => (c.empresa||'') === fEmp);
   const _estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno; // estorno = conciliado pelo recebimento
   if (fConc === 'sim') vis = vis.filter(_estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !_estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
+  // Conta recém-criada na mão aparece mesmo que o filtro a esconderia (pra você preencher ali mesmo)
+  if (_novaContaRef && contasPagar.includes(_novaContaRef) && !vis.includes(_novaContaRef)) vis = vis.concat([_novaContaRef]);
 
   const aberto = vis.filter(c => !c.pago);
   const pagos = vis.filter(c => c.pago);
@@ -3595,7 +3612,7 @@ function renderPagar() {
       <input type="file" id="file-pagar" accept=".xlsx,.xls" multiple>
     </label>
 
-    ${(() => { const nF = [fSt,fEmp,fCat,fConc,fQraw].filter(Boolean).length + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0); return `
+    ${(() => { const nF = [fSt,fEmp,fConc,fQraw].filter(Boolean).length + (cpCatSel.size?1:0) + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0); return `
     <div class="topbar">
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nF?` <span class="cnt">${nF}</span>`:''}</button>
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosPagar()" title="Limpa todos os filtros">✕ limpar</button>`:''}
@@ -3611,7 +3628,11 @@ function renderPagar() {
       <div class="fd-head"><b>⚙ Filtros</b><button class="fd-x" onclick="toggleFiltros(false)">✕</button></div>
       <div class="fd-row"><span class="f-label">Status</span><select id="cp-st" onchange="renderPagar()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option></select></div>
       <div class="fd-row"><span class="f-label">Empresa</span><select id="cp-emp" onchange="renderPagar()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select></div>
-      <div class="fd-row"><span class="f-label">Categoria</span><select id="cp-cat" onchange="renderPagar()"><option value="">Todas</option>${cats.map(c=>`<option value="${c}" ${c===fCat?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="fd-row" style="align-items:flex-start"><span class="f-label">Categorias</span><div style="display:flex;flex-wrap:wrap;gap:4px;max-width:520px">
+        <button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(true)">todas</button>
+        <button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(false)">nenhuma</button>
+        ${cats.map(c=>`<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;background:${cpCatSel.has(c)?'var(--accent)':'var(--bg)'};color:${cpCatSel.has(c)?'#fff':'inherit'};border:1px solid var(--border);border-radius:11px;padding:2px 8px;cursor:pointer"><input type="checkbox" ${cpCatSel.has(c)?'checked':''} onchange="cpCatToggle('${c.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',this.checked)">${c}</label>`).join('')}
+      </div></div>
       <div class="fd-row"><span class="f-label">Banco</span><select id="cp-conc" onchange="renderPagar()"><option value="" ${fConc===''?'selected':''}>Todos</option><option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option><option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option></select></div>
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="cp-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Fornecedor ou descrição..." oninput="buscaPersist.pagar=this.value;debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
       <div class="fd-row"><span class="f-label">Data por</span><select id="cp-datapor" onchange="renderPagar()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (pagamento)</option></select></div>
@@ -3684,7 +3705,7 @@ function renderPagar() {
       </style>
       <div class="table-wrap"><table class="cp-tbl"><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th class="cpcol-vencimento">Vencimento</th><th class="cpcol-status">Status</th><th class="cpcol-empresa">Empresa</th><th class="cpcol-banco">Banco</th><th class="cpcol-fornecedor">Fornecedor</th><th class="cpcol-categoria">Categoria</th><th class="cpcol-valor" style="text-align:right">Valor</th><th class="cpcol-rateio">Rateio</th><th class="cpcol-pagamento">Pagamento</th><th class="cpcol-historico">Histórico</th>
+        <th class="cpcol-vencimento">Vencimento</th><th class="cpcol-competencia">Competência</th><th class="cpcol-status">Status</th><th class="cpcol-empresa">Empresa</th><th class="cpcol-banco">Banco</th><th class="cpcol-fornecedor">Fornecedor</th><th class="cpcol-categoria">Categoria</th><th class="cpcol-valor" style="text-align:right">Valor</th><th class="cpcol-rateio">Rateio</th><th class="cpcol-pagamento">Pagamento</th><th class="cpcol-historico">Histórico</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
@@ -3698,6 +3719,7 @@ function renderPagar() {
           return `<tr style="background:#f4f7fb">
             ${delCheckbox('contasPagar', realIdx)}
             <td class="cpcol-vencimento">${c.vencimento?fmtDate(c.vencimento):'—'}</td>
+            <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
             <td class="cpcol-status">${stBadge}</td>
             <td class="cpcol-empresa">${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
             <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
@@ -3712,6 +3734,7 @@ function renderPagar() {
         return `<tr${c._manual?' style="background:#fffbe6"':(c.pago?' style="background:#f0faf3"':'')}>
           ${delCheckbox('contasPagar', realIdx)}
           <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
+          <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
           <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
@@ -4469,6 +4492,20 @@ function setBoletoConfig(pedido, campo, valor) {
   saveData('boletoConfig', boletoConfig);
   renderBoletos();
 }
+// Cobrança por WhatsApp: abre o wa.me com a mensagem pronta dos boletos do pedido.
+function cobrarBoletoWpp(pedidoId) {
+  const ped = getBoletosPorPedido().find(b => String(b.pedido) === String(pedidoId));
+  if (!ped) { alert('Pedido não encontrado.'); return; }
+  const cfg = boletoConfig[ped.pedido] || {};
+  const todas = getParcelas(ped);
+  const pend = todas.filter(p => !boletoStatus[p.key]);
+  const alvo = pend.length ? pend : todas;
+  const linhas = alvo.map(p => `• Parcela ${p.parcela}/${p.totalParcelas} — vencimento ${fmtDate(p.vencimento)} — ${fmtVal(p.valor)}`).join('\n');
+  const msg = `Olá, ${ped.cliente}! 😊\n\nPassando pra lembrar do(s) boleto(s) do pedido #${ped.pedido}:\n\n${linhas}\n\nQualquer dúvida, estou à disposição. Obrigada! 🧡`;
+  const fone = String(cfg.fone || '').replace(/\D/g, '');
+  const num = fone ? (fone.length <= 11 ? '55' + fone : fone) : '';
+  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+}
 function setDataSaida(pedido, campo, valor) {
   if (!boletoConfig[pedido]) boletoConfig[pedido] = {};
   const cfg = boletoConfig[pedido];
@@ -4531,6 +4568,7 @@ function syncBoletosToRecebimentos() {
 
   // Boletos AVULSOS (pagos, de pedidos fora do sistema) — importados do relatório Itaú.
   boletosAvulsos.forEach(a => {
+    if (!a.dataPagamento) return; // em aberto (a receber) NÃO entra em Recebimentos — só quando baixado
     recebimentosConsolidado.push({
       gateway: 'Boleto Itaú',
       bruto: a.valorPago != null ? a.valorPago : a.valorTitulo,
@@ -4566,6 +4604,10 @@ function renderBoletos() {
   const dataDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.data;
   const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp) && (!dfAtivo() || passaData(dataDoPed(b.pedido))));
   const totalEmitidos = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])}).length;
+  const hoje0 = new Date(); hoje0.setHours(0,0,0,0);
+  const diasAviso = 5; // "prestes a vencer" = vence em até 5 dias
+  let nVencidos = 0, nAVencer = 0;
+  vis.forEach(b => getParcelas(b).forEach(p => { if (!boletoStatus[p.key] && p.vencimento) { const dd = Math.floor((p.vencimento - hoje0) / 86400000); if (dd < 0) nVencidos++; else if (dd <= diasAviso) nAVencer++; } }));
 
   el.innerHTML = `
     ${filtrosBar({
@@ -4580,6 +4622,8 @@ function renderBoletos() {
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
       <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div></div>
       <div class="card red"><div class="c-label">Pendentes</div><div class="c-val">${vis.length-totalEmitidos}</div></div>
+      <div class="card amber"><div class="c-label">🟡 A vencer (${diasAviso}d)</div><div class="c-val">${nAVencer}</div></div>
+      <div class="card red"><div class="c-label">🔴 Vencidos</div><div class="c-val">${nVencidos}</div></div>
     </div>
     <div class="table-wrap"><table><thead><tr>
       <th style="width:32px"></th>
@@ -4604,7 +4648,7 @@ function renderBoletos() {
         <td style="text-align:center;padding:6px 4px"><input type="checkbox" class="del-check" data-source="formaPagamento" data-idx="${idxFP}"
           style="width:14px;height:14px;cursor:pointer" onchange="toggleDeleteRow('formaPagamento',${idxFP},this.checked)"></td>
         <td><strong>#${ped.pedido}</strong></td>
-        <td>${ped.cliente}</td><td>${ped.loja}</td>
+        <td>${ped.cliente}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(cfg.fone||'').replace(/"/g,'&quot;')}" placeholder="📱 WhatsApp cliente" title="Telefone do cliente com DDD — usado no botão Cobrar" onchange="setBoletoConfig('${ped.pedido}','fone',this.value)"></td><td>${ped.loja}</td>
         <td><strong>${fmtVal(ped.valorTotal)}</strong></td>
         <td><input class="inline-input" style="width:80px;text-align:right" value="${cfg.taxa||''}" placeholder="0,00" title="Taxa/juros por mudança de prazo — soma no total e se distribui nas parcelas" onchange="setBoletoConfig('${ped.pedido}','taxa',this.value)"></td>
         <td><select class="inline-input" style="width:120px" onchange="setBoletoConfig('${ped.pedido}','prazo',this.value)">
@@ -4624,8 +4668,8 @@ function renderBoletos() {
             <option value="">Ano</option>${anos.map(a=>`<option value="${a}" ${String(a)===dsAno?'selected':''}>${a}</option>`).join('')}
           </select>
         </div></td>
-        <td style="font-size:11px">${parcelas.length ? parcelas.map(p=>`${p.parcela}/${p.totalParcelas}: ${fmtDate(p.vencimento)} ${fmtVal(p.valor)} ${boletoStatus[p.key]?'<span class="badge ok">✓</span>':''}`).join('<br>') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
-        <td>${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}</td>
+        <td style="font-size:11px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<span style="${cor}">${p.parcela}/${p.totalParcelas}: ${fmtDate(p.vencimento)} ${fmtVal(p.valor)}</span> ${st?'<span class="badge ok">✓</span>':''}`;}).join('<br>') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem de cobrança pronta">📱 Cobrar</button>`:''}</div></td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
@@ -4736,13 +4780,51 @@ function processCobrancaWorkbook(wb) {
     alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\nBaixados no sistema: ${nBaixados}.`);
   }
 
+  // Boletos EM ABERTO (a receber) de pedidos fora do sistema → entram pra acompanhar e cobrar por WhatsApp.
+  const candAberto = cobrancaRows.filter(c => {
+    const pago = !!c.dataPagamento || (c.status || '').includes('pag');
+    if (pago) return false;
+    if (c.pedido && pedidos.find(p => String(p.id) === String(c.pedido))) return false; // já está no sistema
+    return !boletosAvulsos.some(a => String(a.pedido) === String(c.pedido) && Math.abs((a.valorTitulo || 0) - (c.valorTitulo || 0)) <= 0.05 && daysDiff(a.vencimento, c.vencimento) <= 1);
+  });
+  if (candAberto.length) {
+    const total = candAberto.reduce((s, c) => s + (c.valorTitulo || 0), 0);
+    const lista = candAberto.slice(0, 15).map(c => `#${c.pedido || '—'} ${(c.pagador || '').slice(0, 24)} — ${fmtVal(c.valorTitulo)} venc ${c.vencimento ? fmtDate(c.vencimento) : '—'}`).join('\n');
+    if (confirm(`${candAberto.length} boleto(s) EM ABERTO (a receber) fora do sistema (total ${fmtVal(total)}):\n\n${lista}${candAberto.length > 15 ? '\n…' : ''}\n\nAdicionar para acompanhar e cobrar por WhatsApp?`)) {
+      candAberto.forEach(c => boletosAvulsos.push({
+        pedido: String(c.pedido || ''), cliente: c.pagador || '', valorTitulo: c.valorTitulo,
+        valorPago: 0, dataPagamento: null, vencimento: c.vencimento, fone: ''
+      }));
+      saveData('boletosAvulsos', boletosAvulsos);
+    }
+  }
+
   syncBoletosToRecebimentos();
 }
 function removerBoletoAvulso(i) {
   const a = boletosAvulsos[i];
   if (!a) return;
-  if (!confirm(`Remover o boleto avulso #${a.pedido} (${fmtVal(a.valorPago||0)})?`)) return;
+  if (!confirm(`Remover o boleto avulso #${a.pedido} (${fmtVal(a.valorPago||a.valorTitulo||0)})?`)) return;
   boletosAvulsos.splice(i, 1);
+  saveData('boletosAvulsos', boletosAvulsos);
+  syncBoletosToRecebimentos();
+  renderCobranca();
+}
+// Telefone do cliente no boleto avulso (a receber) — usado no botão Cobrar
+function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].fone = val; saveData('boletosAvulsos', boletosAvulsos); }
+// Cobrança por WhatsApp de um boleto avulso em aberto
+function cobrarAvulsoWpp(i) {
+  const a = boletosAvulsos[i]; if (!a) return;
+  const msg = `Olá, ${a.cliente || ''}! 😊\n\nPassando pra lembrar do seu boleto${a.pedido ? ' do pedido #' + a.pedido : ''}:\n\n• Valor ${fmtVal(a.valorTitulo || 0)}${a.vencimento ? ' — vencimento ' + fmtDate(a.vencimento) : ''}\n\nQualquer dúvida, estou à disposição. Obrigada! 🧡`;
+  const fone = String(a.fone || '').replace(/\D/g, '');
+  const num = fone ? (fone.length <= 11 ? '55' + fone : fone) : '';
+  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+// Marca um boleto avulso em aberto como RECEBIDO
+function baixarAvulso(i) {
+  const a = boletosAvulsos[i]; if (!a) return;
+  if (!confirm(`Marcar o boleto de ${a.cliente || 'cliente'} (${fmtVal(a.valorTitulo || 0)}) como RECEBIDO?`)) return;
+  a.dataPagamento = new Date(); a.valorPago = a.valorTitulo || 0;
   saveData('boletosAvulsos', boletosAvulsos);
   syncBoletosToRecebimentos();
   renderCobranca();
@@ -4788,18 +4870,28 @@ function renderCobranca() {
         fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
-    ${boletosAvulsos.length ? `
-    <div class="section-title">Boletos pagos de pedidos fora do sistema (${boletosAvulsos.length})</div>
-    <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr>
-      <th>Pedido</th><th>Pagador</th><th>Valor Pago</th><th>Pagamento</th><th></th>
-    </tr></thead><tbody>
-      ${boletosAvulsos.map((a,i)=>`<tr>
-        <td><strong>#${a.pedido}</strong></td><td>${a.cliente||'—'}</td>
-        <td>${fmtVal(a.valorPago||0)}</td><td>${a.dataPagamento?fmtDate(a.dataPagamento):'—'}</td>
-        <td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover este boleto avulso">🗑</button></td>
-      </tr>`).join('')}
-      <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total</strong></td><td><strong>${fmtVal(boletosAvulsos.reduce((s,a)=>s+(a.valorPago||0),0))}</strong></td><td colspan="2"></td></tr>
-    </tbody></table></div>` : ''}`;
+    ${boletosAvulsos.length ? (() => {
+      const idxAll = boletosAvulsos.map((a, i) => i);
+      const abertos = idxAll.filter(i => !boletosAvulsos[i].dataPagamento);
+      const pagos = idxAll.filter(i => boletosAvulsos[i].dataPagamento);
+      const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+      const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr>
+        <td><strong>#${a.pedido || '—'}</strong></td>
+        <td>${a.cliente || '—'}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(a.fone || '').replace(/"/g, '&quot;')}" placeholder="📱 WhatsApp cliente" onchange="setAvulsoFone(${i},this.value)"></td>
+        <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 Cobrar</button><button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
+      const rowPago = i => { const a = boletosAvulsos[i]; return `<tr><td><strong>#${a.pedido || '—'}</strong></td><td>${a.cliente || '—'}</td><td>${fmtVal(a.valorPago || a.valorTitulo || 0)}</td><td>${a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td><td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></td></tr>`; };
+      return `${abertos.length ? `<div class="section-title">📱 A receber fora do sistema — a cobrar (${abertos.length})</div>
+      <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Ações</th></tr></thead><tbody>
+        ${abertos.map(rowAberto).join('')}
+        <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total a receber</strong></td><td colspan="2"><strong>${fmtVal(abertos.reduce((s, i) => s + (boletosAvulsos[i].valorTitulo || 0), 0))}</strong></td><td></td></tr>
+      </tbody></table></div>` : ''}
+      ${pagos.length ? `<div class="section-title">Boletos pagos de pedidos fora do sistema (${pagos.length})</div>
+      <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Pagador</th><th>Valor Pago</th><th>Pagamento</th><th></th></tr></thead><tbody>
+        ${pagos.map(rowPago).join('')}
+        <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total</strong></td><td><strong>${fmtVal(pagos.reduce((s, i) => s + (boletosAvulsos[i].valorPago || 0), 0))}</strong></td><td colspan="2"></td></tr>
+      </tbody></table></div>` : ''}`;
+    })() : ''}`;
 
   // Anexa o upload SÓ DEPOIS de todo o innerHTML (o += abaixo recria o input e apagaria o listener).
   const attachCobUpload = () => setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
@@ -8457,6 +8549,7 @@ function renderCompras() {
       <select class="inline-input" id="cmp-forn" onchange="renderCompras()"><option value="">Todos fornecedores</option>${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}" ${f === fForn ? 'selected' : ''}>${f}</option>`).join('')}</select>
       <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="Buscar insumo/fornecedor/coleção" oninput="debounceRender('renderCompras')" style="width:220px">
       <span style="flex:1"></span>
+      <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar selecionados${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
     <div class="cards-row" style="margin-bottom:14px">
@@ -8484,9 +8577,10 @@ function renderCompras() {
     <datalist id="cmp-forn-list">${fornecedoresCompras.map(f => `<option value="${(f.nome || '').replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
     <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
-      <th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
+      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
+      <td style="text-align:center">${st === 'pendente' ? `<input type="checkbox" class="cmp-selbox" data-id="${c.id}" ${comprasSel.has(c.id) ? 'checked' : ''} onchange="toggleCompraSel('${c.id}',this.checked)">` : ''}</td>
       <td>${_fmtDataCell(c.dataSolic)}</td>
       <td>${ro ? `<strong>${c.fornecedor || '—'}</strong>` : `<input class="inline-input" style="width:120px" list="cmp-forn-list" value="${(c.fornecedor || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','fornecedor',this.value)">`}</td>
       <td>${ro ? (c.insumo || '—') : `<input class="inline-input" style="width:200px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
@@ -8501,7 +8595,7 @@ function renderCompras() {
       <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" value="${(c.colecao || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
       <td>${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:110px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
       <td>${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:100px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
-      <td><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span></td>
+      <td><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
       <td>${acoesCompra(c)}</td>
     </tr>`; }).join('')}
     </tbody></table></div>`}
@@ -8556,11 +8650,12 @@ function receberPedidoCompra(pedidoId) {
         else {
           const modelo = parc[0] || {};
           const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
+          const numPed = itens[0]._pedidoNum || '';
           const novas = gerarParcelasCondicao({ dias }, totalFinal, dt);
           contasPagar = contasPagar.filter(c => c._compraPedidoId !== pedidoId);
           novas.forEach((p, k) => contasPagar.push({
             numero: nfTxt || '', fornecedor: forn,
-            descricao: 'Compra' + (colecoes ? ' — ' + colecoes : '') + (novas.length > 1 ? ` (parc. ${k + 1}/${novas.length})` : ''),
+            descricao: numPed ? descricaoPedidoCompra(numPed, colecoes, k, novas.length) : ('Compra' + (colecoes ? ' — ' + colecoes : '') + (novas.length > 1 ? ` (parc. ${k + 1}/${novas.length})` : '')),
             categoria: modelo.categoria || 'PEDIDOS', observacao: modelo.observacao || ('🛒 Pedido de compra (' + itens.length + ' itens)'),
             empresa: modelo.empresa || '', rateio: [], vencimento: p.venc, dataPag: null, valor: p.valor, situacao: 'Em Aberto', pago: false, _compraPedidoId: pedidoId
           }));
@@ -8637,6 +8732,19 @@ function updateCompra(id, field, value) {
   if (!semRerender) renderCompras();
 }
 function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; saveData('compras', compras); renderCompras(); }
+// Seleção múltipla p/ aprovar vários pedidos de uma vez (quadradinhos)
+function toggleCompraSel(id, on) {
+  if (on) comprasSel.add(id); else comprasSel.delete(id);
+  const b = document.getElementById('cmp-aprovar-sel');
+  if (b) { const n = comprasSel.size; b.disabled = !n; b.textContent = '✅ Aprovar selecionados' + (n ? ` (${n})` : ''); }
+}
+function toggleCompraSelTodos(on) { document.querySelectorAll('.cmp-selbox').forEach(cb => { cb.checked = on; toggleCompraSel(cb.dataset.id, on); }); }
+function aprovarComprasSel() {
+  const ids = [...comprasSel]; if (!ids.length) { alert('Marque ao menos um item (quadradinho) para aprovar.'); return; }
+  let n = 0; ids.forEach(id => { const c = compras.find(x => x.id === id); if (c && (c.status || 'pendente') === 'pendente') { c.status = 'aprovado'; n++; } });
+  comprasSel.clear(); saveData('compras', compras); renderCompras();
+  alert(`✓ ${n} item(ns) aprovado(s).` + (n ? '\nAgora gere o pedido no quadro "📦 Fazer pedido" acima.' : ''));
+}
 // PEDIDO: agrupa os itens APROVADOS de um fornecedor, aplica a condição de pagamento a partir da
 // Data de Faturamento e gera as PARCELAS (em aberto) no Contas a Pagar (origem=Compras → previstas no Fluxo).
 function gerarPedidoCompra(fornecedor, i) {
@@ -8654,20 +8762,28 @@ function gerarPedidoCompra(fornecedor, i) {
   const categoria = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])[0] || fc.categoria || 'PEDIDOS';
   const empresa = fc.empresa || (itens.find(c => c.empresa) || {}).empresa || '';
   const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
-  if (!confirm(`Fazer o pedido de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${cond.nome} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
+  // Número do pedido (sequencial automático, editável) + observação livre
+  const numPed = String(prompt('Número do pedido (deixe o sugerido ou digite o seu):', String(proxNumPedidoCompra())) || '').trim();
+  if (numPed === '') { alert('Pedido cancelado (sem número).'); return; }
+  const obsPed = String(prompt('Observação do pedido (opcional — ex.: prazo negociado, aguardando amostra):', '') || '').trim();
+  if (!confirm(`Fazer o pedido #${numPed} de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${cond.nome} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}${obsPed ? '\n• Obs.: ' + obsPed : ''}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
   const pedidoId = 'pedcompra_' + Date.now();
   parcelas.forEach((p, k) => {
     contasPagar.push({
-      numero: '', fornecedor, descricao: 'Compra' + (colecoes ? ' — ' + colecoes : '') + (parcelas.length > 1 ? ` (parc. ${k + 1}/${parcelas.length})` : ''),
-      categoria, observacao: '🛒 Pedido de compra (' + itens.length + ' itens)', empresa, rateio: [],
+      numero: '', fornecedor, descricao: descricaoPedidoCompra(numPed, colecoes, k, parcelas.length),
+      categoria, observacao: obsPedidoCompra(numPed, itens.length, obsPed), empresa, rateio: [],
       vencimento: p.venc, dataPag: null, valor: p.valor, situacao: 'Em Aberto', pago: false, _compraPedidoId: pedidoId
     });
   });
-  itens.forEach(c => { c.status = 'pedido'; c._pedidoId = pedidoId; c.condicaoId = condId; c.dataFatur = dataFat; });
+  itens.forEach(c => { c.status = 'pedido'; c._pedidoId = pedidoId; c.condicaoId = condId; c.dataFatur = dataFat; c._pedidoNum = numPed; c._pedidoObs = obsPed; });
   saveData('contasPagar', contasPagar); saveData('compras', compras);
   renderCompras();
-  alert(`✓ Pedido de "${fornecedor}" gerado!\n\n${parcelas.length} parcela(s) no Contas a Pagar (${fmtVal(total)}). Já aparecem no Fluxo como previstas.`);
+  alert(`✓ Pedido #${numPed} de "${fornecedor}" gerado!\n\n${parcelas.length} parcela(s) no Contas a Pagar (${fmtVal(total)}). Já aparecem no Fluxo como previstas.`);
 }
+// Próximo nº de pedido de compra (maior existente + 1; começa em 1)
+function proxNumPedidoCompra() { const nums = compras.map(c => parseInt(c._pedidoNum, 10)).filter(n => !isNaN(n)); return (nums.length ? Math.max(...nums) : 0) + 1; }
+function descricaoPedidoCompra(numPed, colecoes, k, n) { return `Pedido #${numPed}` + (colecoes ? ' — ' + colecoes : '') + (n > 1 ? ` (parc. ${k + 1}/${n})` : ''); }
+function obsPedidoCompra(numPed, nItens, obsPed) { return `🛒 Pedido #${numPed} de compra (${nItens} itens)` + (obsPed ? ' — ' + obsPed : ''); }
 function removerCompra(id) { const c = compras.find(x => x.id === id); if (!c) return; if (!confirm('Remover esta compra?')) return; compras = compras.filter(x => x.id !== id); saveData('compras', compras); renderCompras(); }
 // ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
 // Modelo: {id, nome, dias:[28,56,84]} — os dias contam a partir da Data de Faturamento.
@@ -9147,6 +9263,15 @@ function updateDeleteBar() {
   } else {
     bar.style.display = 'flex';
     document.getElementById('delete-bar-count').textContent = count + ' linha' + (count > 1 ? 's' : '') + ' selecionada' + (count > 1 ? 's' : '');
+    let soma = 0;
+    deleteSelection.forEach(key => {
+      const [src, idx] = key.split(':');
+      const arr = DELETE_SOURCES[src]?.getArr() || [];
+      const v = VAL_REGISTRO[src] ? VAL_REGISTRO[src](arr[+idx]) : null;
+      if (typeof v === 'number' && !isNaN(v)) soma += v;
+    });
+    const sumEl = document.getElementById('delete-bar-sum');
+    if (sumEl) sumEl.textContent = soma ? '· Σ ' + fmtVal(soma) : '';
   }
 }
 
@@ -9169,6 +9294,15 @@ function toggleSelectAllDel(source, checked) {
   updateDeleteBar();
 }
 
+// Valor de cada fonte (para somar as linhas selecionadas na barra de seleção).
+const VAL_REGISTRO = {
+  contasPagar: c => c && c.valor,
+  pedidos: p => p && p.valorTotal,
+  formaPagamento: f => f && f.valor,
+  recebimentos: r => r && (r.liq != null ? r.liq : r.bruto),
+  extrato: t => t && Math.abs(t.valor || 0),
+  devolucoes: d => d && d.valor
+};
 // Data do registro de cada fonte (para checar fechamento por dia).
 const DATA_REGISTRO = {
   pedidos: p => p && p.data,
