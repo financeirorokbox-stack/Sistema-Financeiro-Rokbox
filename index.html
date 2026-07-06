@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v257/07-306';
+const APP_VERSION = 'v258/07-308';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1970,6 +1970,18 @@ function salvarVendedorInline(id) {
 // ════════════════════════════════════════════════════════════════════
 // CONTAS A RECEBER
 // ════════════════════════════════════════════════════════════════════
+// Data de liquidação (recebimento) de uma linha de Contas a Receber — pelo recebimento vinculado ou parcela do boleto.
+function _dataLiqReceb(l) {
+  if (!l || !l.st || !l.st.recebido) return null;
+  const pid = String(l.f && l.f.pedido != null ? l.f.pedido : '');
+  let mx = null;
+  recebimentosConsolidado.forEach(r => { if (r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pid) && (!mx || r.data > mx)) mx = r.data; });
+  if (!mx && l.cat === 'Boleto Itaú') {
+    const bPed = getBoletosPorPedido().find(bb => String(bb.pedido) === pid);
+    if (bPed) getParcelas(bPed).forEach(p => { const d = boletoCobrancaStatus[p.key] && boletoCobrancaStatus[p.key].dataPagamento; if (d && (!mx || d > mx)) mx = d; });
+  }
+  return mx;
+}
 function renderContas() {
   const el = document.getElementById('v-contas');
   if (!el) return;
@@ -2150,13 +2162,14 @@ function _renderContasImpl(el) {
   const fQ   = fQraw.toLowerCase();
   const fOp  = el.querySelector('#fc-op')?.value || '';
   const fEmp = el.querySelector('#fc-emp')?.value || '';
+  const fDataPor = el.querySelector('#fc-datapor')?.value || 'vencimento'; // filtra a data por Vencimento ou Liquidação (recebimento)
   const cats = [...new Set(linhas.map(l=>l.cat).filter(c=>c!=='—'))].sort();
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
 
   let vis = linhas;
   if (fCat) vis = vis.filter(l => l.cat === fCat);
   if (fEmp) vis = vis.filter(l => (l.ped.empresa||'') === fEmp);
-  if (dfAtivo()) vis = vis.filter(l => passaData(l.venc));
+  if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? _dataLiqReceb(l) : l.venc));
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
   if (fSt === 'semforma') vis = vis.filter(l => l.semForma);
@@ -2211,7 +2224,7 @@ function _renderContasImpl(el) {
   const bateVT = pedidosNaoFecham.length === 0; // bate quando só há (no máximo) arredondamento de centavos
 
   el.innerHTML = `
-    ${(() => { const nF = [fCat,fEmp,fOp,fSt,fConc,fQraw].filter(Boolean).length + (dfAtivo()?1:0); return `
+    ${(() => { const nF = [fCat,fEmp,fOp,fSt,fConc,fQraw].filter(Boolean).length + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0); return `
     <div class="topbar">
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nF?` <span class="cnt">${nF}</span>`:''}</button>
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosContas()" title="Limpa todos os filtros">✕ limpar</button>`:''}
@@ -2226,6 +2239,7 @@ function _renderContasImpl(el) {
       <div class="fd-row"><span class="f-label">Empresa</span><select id="fc-emp" onchange="renderContas()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select></div>
       <div class="fd-row"><span class="f-label">Operação</span><select id="fc-op" onchange="renderContas()"><option value="">Todas</option>${OP_OPTIONS.map(o=>`<option value="${o}" ${o===fOp?'selected':''}>${o}</option>`).join('')}</select></div>
       <div class="fd-row"><span class="f-label">Status</span><select id="fc-st" onchange="renderContas()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option><option value="semforma" ${fSt==='semforma'?'selected':''}>Sem forma de recebimento</option></select></div>
+      <div class="fd-row"><span class="f-label">Data por</span><select id="fc-datapor" onchange="renderContas()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (recebimento)</option></select></div>
       <div class="fd-row"><span class="f-label">Banco</span><select id="fc-conc" onchange="renderContas()"><option value="" ${fConc===''?'selected':''}>Todos</option><option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option><option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option></select></div>
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="fc-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.contas=this.value;debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
       <div class="fd-row"><span class="f-label">Data</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div></div>
@@ -2319,6 +2333,7 @@ function _renderContasImpl(el) {
 // Limpa todos os filtros do Contas a Receber.
 function limparFiltrosContas() {
   ['fc-cat','fc-emp','fc-op','fc-st','fc-conc','fc-q'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  const dp = document.getElementById('fc-datapor'); if (dp) dp.value = 'vencimento';
   buscaPersist.contas = '';
   if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
   renderContas();
