@@ -228,9 +228,9 @@ tr:hover td{background:#fafaf8}
 
 <!-- LIMPEZA MODAL -->
 <!-- BARRA FLUTUANTE DE EXCLUSÃO -->
-<div id="delete-bar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-  background:#1a1a18;color:#fff;border-radius:12px;padding:12px 20px;
-  display:none;align-items:center;gap:16px;z-index:400;
+<div id="delete-bar" style="display:none;position:fixed;bottom:20px;right:20px;left:auto;transform:none;
+  background:#1a1a18;color:#fff;border-radius:12px;padding:10px 16px;
+  display:none;align-items:center;gap:12px;z-index:400;
   box-shadow:0 4px 24px rgba(0,0,0,0.25);white-space:nowrap">
   <span id="delete-bar-count" style="font-size:13px;font-weight:600"></span>
   <span id="delete-bar-sum" style="font-size:13px;font-weight:700;color:#ffd479"></span>
@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v250/07-285';
+const APP_VERSION = 'v251/07-287';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3420,6 +3420,7 @@ const CP_COLS = [['vencimento','Vencimento'],['competencia','Competência'],['st
 function competenciaConta(c) { if (c && c.competencia) return c.competencia; const v = c && c.vencimento ? new Date(c.vencimento) : null; return v && !isNaN(v) ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}` : ''; }
 // Filtro de categorias (múltipla seleção por checkbox) no Contas a Pagar
 let cpCatSel = new Set();
+let cpCatAberto = false; // painel de categorias (lista suspensa) aberto/fechado
 function cpCatToggle(cat, on) { if (on) cpCatSel.add(cat); else cpCatSel.delete(cat); renderPagar(); }
 function cpCatTodas(on) { cpCatSel.clear(); if (on) [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].forEach(c => cpCatSel.add(c)); renderPagar(); }
 let cpColsOcultas = (() => { try { return JSON.parse(localStorage.getItem('cpColsOcultas') || '[]'); } catch (e) { return []; } })();
@@ -3628,10 +3629,12 @@ function renderPagar() {
       <div class="fd-head"><b>⚙ Filtros</b><button class="fd-x" onclick="toggleFiltros(false)">✕</button></div>
       <div class="fd-row"><span class="f-label">Status</span><select id="cp-st" onchange="renderPagar()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="aberto" ${fSt==='aberto'?'selected':''}>Em Aberto</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option></select></div>
       <div class="fd-row"><span class="f-label">Empresa</span><select id="cp-emp" onchange="renderPagar()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select></div>
-      <div class="fd-row" style="align-items:flex-start"><span class="f-label">Categorias</span><div style="display:flex;flex-wrap:wrap;gap:4px;max-width:520px">
-        <button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(true)">todas</button>
-        <button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(false)">nenhuma</button>
-        ${cats.map(c=>`<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;background:${cpCatSel.has(c)?'var(--accent)':'var(--bg)'};color:${cpCatSel.has(c)?'#fff':'inherit'};border:1px solid var(--border);border-radius:11px;padding:2px 8px;cursor:pointer"><input type="checkbox" ${cpCatSel.has(c)?'checked':''} onchange="cpCatToggle('${c.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',this.checked)">${c}</label>`).join('')}
+      <div class="fd-row" style="align-items:flex-start"><span class="f-label">Categorias</span><div style="max-width:520px;width:100%">
+        <button class="btn ghost sm" style="font-size:11px" onclick="cpCatAberto=!cpCatAberto;renderPagar()">📂 ${cpCatSel.size ? cpCatSel.size + ' selecionada' + (cpCatSel.size > 1 ? 's' : '') : 'Todas as categorias'} ${cpCatAberto ? '▾' : '▸'}</button>
+        ${cpCatAberto ? `<div style="margin-top:6px;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface)">
+          <div style="display:flex;gap:4px;margin-bottom:6px"><button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(true)">todas</button><button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(false)">nenhuma</button></div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">${cats.map(c=>`<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;background:${cpCatSel.has(c)?'var(--accent)':'var(--bg)'};color:${cpCatSel.has(c)?'#fff':'inherit'};border:1px solid var(--border);border-radius:11px;padding:2px 8px;cursor:pointer"><input type="checkbox" ${cpCatSel.has(c)?'checked':''} onchange="cpCatToggle('${c.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',this.checked)">${c}</label>`).join('')}</div>
+        </div>` : ''}
       </div></div>
       <div class="fd-row"><span class="f-label">Banco</span><select id="cp-conc" onchange="renderPagar()"><option value="" ${fConc===''?'selected':''}>Todos</option><option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option><option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option></select></div>
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="cp-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Fornecedor ou descrição..." oninput="buscaPersist.pagar=this.value;debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
