@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v258/07-308';
+const APP_VERSION = 'v259/07-309';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3183,7 +3183,8 @@ function dadosRecebimentoLinha(l) {
 
 function exportarModeloCR() {
   if (!_linhasCR.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
-  const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações'];
+  const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
+  const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   const rows = [headers];
   _linhasCR.forEach(l => {
     const liq = l.st.recebido ? getLiqDate(l) : null;
@@ -3193,9 +3194,12 @@ function exportarModeloCR() {
     const aliquota = l.f.valor ? +(taxa / l.f.valor * 100).toFixed(2) : 0;
     const descricao = descricaoReceita(l.f.descricao) || descricaoReceita(l.cat) || l.cat || l.f.descricao || '';
     const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
+    const venc = l.venc ? new Date(l.venc) : '';
+    const dataFcx = liq || venc || '';
     rows.push([
-      liq || '', l.venc ? new Date(l.venc) : '', String(l.f.pedido), l.ped.nome || '', situacao,
-      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, descricao, obs
+      liq || '', venc, String(l.f.pedido), l.ped.nome || '', situacao,
+      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, descricao, obs,
+      l.cat || '', _ma(liq || (l.venc ? new Date(l.venc) : null)), _ma(liq), l.f.valor, dataFcx, l.ped.empresa || ''
     ]);
   });
   const wb = XLSX.utils.book_new();
