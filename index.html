@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v259/07-309';
+const APP_VERSION = 'v260/07-310';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3187,6 +3187,7 @@ function exportarModeloCR() {
   const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   const rows = [headers];
   _linhasCR.forEach(l => {
+    if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
     const liq = l.st.recebido ? getLiqDate(l) : null;
     const { recebido, taxa, juros, desconto } = dadosRecebimentoLinha(l);
     const situacao = l.st.recebido ? 'Pago' : (l.st.parcial ? 'Parcial' : 'Em Aberto');
