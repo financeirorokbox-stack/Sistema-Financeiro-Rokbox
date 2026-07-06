@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v261/07-312';
+const APP_VERSION = 'v262/07-313';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2182,6 +2182,7 @@ function _renderContasImpl(el) {
     return op.toLowerCase() === fOp.toLowerCase();
   });
 
+  _linhasCR = vis; // o export agora respeita os filtros da tela (status, data por, empresa, categoria, período)
   const emAberto = linhas.filter(l => !l.st.recebido);
   const pagos    = linhas.filter(l =>  l.st.recebido);
   const vAberto  = emAberto.reduce((s,l) => s + l.f.valor, 0);
@@ -2229,7 +2230,7 @@ function _renderContasImpl(el) {
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nF?` <span class="cnt">${nF}</span>`:''}</button>
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosContas()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
-      <button class="btn primary sm" onclick="exportarModeloCR()" title="Exportar no modelo Contas a Receber (15 colunas)">📤 Exportar</button>
+      <button class="btn primary sm" onclick="exportarModeloCR()" title="Exporta o que está FILTRADO na tela (respeita status, data por, empresa, categoria e período)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="reprocessarTudo()" title="Recalcula conciliação e contas a receber com os dados atuais; remove pareamentos antigos">🔄 Atualizar tudo</button>
     </div>
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
