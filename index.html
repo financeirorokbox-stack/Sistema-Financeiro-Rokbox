@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v262/07-313';
+const APP_VERSION = 'v263/07-314';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3173,7 +3173,7 @@ function dadosRecebimentoLinha(l) {
     });
   } else if (l.cat === 'PayPal' || l.cat === 'BraavoPay') {
     recebimentosConsolidado.filter(r => r.gateway === l.cat && String(r.nped) === pedId).forEach(r => {
-      recebido += r.bruto || r.liq || 0;
+      recebido += (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0)); // LÍQUIDO (o que caiu no banco), não o bruto
       taxa += r.taxa || 0;
     });
   } else if (l.st.recebido) {
