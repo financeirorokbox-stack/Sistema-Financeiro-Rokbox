@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v252/07-295';
+const APP_VERSION = 'v253/07-297';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5511,6 +5511,19 @@ function syncExtratoToRecebimentos() {
     if (!t) return;
     const pedIds = String(link.pedido).split(',').map(s=>s.trim()).filter(Boolean);
     if (!pedIds.length) return;
+    // Depósito de BOLETOS (lote): a receita vem dos próprios boletos. Cria receita SÓ da parte ainda
+    // NÃO recebida (evita duplicar com os boletos que já constam recebidos); os já recebidos ficam
+    // apenas conciliados ao banco (o vínculo já foi salvo em extratoLinks).
+    if (/boleto/i.test(t.memo || '')) {
+      const jaRecebPed = new Set(recebimentosConsolidado.filter(r => r.gateway === 'Boleto Itaú').flatMap(r => String(r.nped).split(',').map(s => s.trim())));
+      const abertos = pedIds.filter(pid => !jaRecebPed.has(String(pid)));
+      const valAbertos = abertos.reduce((s, pid) => { const f = formaPagamento.find(x => String(x.pedido) === String(pid) && classificaForma(x.descricao).categoria === 'Boleto Itaú'); return s + (f ? (f.valor || 0) : 0); }, 0);
+      if (valAbertos > 0.005) {
+        const p0 = pedidos.find(p => String(p.id) === String(abertos[0]));
+        recebimentosConsolidado.push({ gateway: 'PIX (Extrato)', bruto: valAbertos, taxa: 0, liq: valAbertos, data: t.data, nped: abertos.join(','), nome: p0 ? p0.nome : '', tipo: 'Boleto', status: 'pago', _extratoId: id });
+      }
+      return;
+    }
     const ped0 = pedidos.find(p => String(p.id) === String(pedIds[0]));
     // UMA entrada por crédito, listando TODOS os pedidos vinculados. O valor é DIVIDIDO entre eles
     // por `alocRecebGateway` (pelo valor de cada pedido). Antes criava 1 entrada de valor CHEIO por
@@ -5681,9 +5694,11 @@ function renderExtrato() {
                 const sit = ped.situacao || '';
                 if (SITUACOES_NAO_APLICAVEL.includes(sit.toLowerCase())) return false;
                 const st = statusForma(f.pedido, c.categoria, f.valor);
-                // Em ABERTO: sempre. JÁ RECEBIDO: só se o valor bate com este crédito (p/ re-vincular o banco
-                // a um pedido que o Contas a Receber já mostra recebido — caso da recuperação).
-                if (st.recebido && Math.abs((f.valor||0) - t.valor) > 1) return false;
+                // Depósito de BOLETOS (lote): mostra TAMBÉM os já recebidos, pois o crédito é a soma
+                // dos boletos em aberto + os que já constam recebidos. Assim o "Flegado" fecha o total.
+                const ehLoteBoleto = /boleto/i.test(t.memo || '');
+                // Em ABERTO: sempre. JÁ RECEBIDO: se for lote de boleto, também; senão só quando o valor bate.
+                if (st.recebido && !ehLoteBoleto && Math.abs((f.valor||0) - t.valor) > 1) return false;
                 return true;
               });
               // Ordena por proximidade de valor com o crédito do extrato
