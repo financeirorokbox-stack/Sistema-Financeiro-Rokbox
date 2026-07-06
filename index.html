@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v263/07-314';
+const APP_VERSION = 'v264/07-315';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1970,18 +1970,6 @@ function salvarVendedorInline(id) {
 // ════════════════════════════════════════════════════════════════════
 // CONTAS A RECEBER
 // ════════════════════════════════════════════════════════════════════
-// Data de liquidação (recebimento) de uma linha de Contas a Receber — pelo recebimento vinculado ou parcela do boleto.
-function _dataLiqReceb(l) {
-  if (!l || !l.st || !l.st.recebido) return null;
-  const pid = String(l.f && l.f.pedido != null ? l.f.pedido : '');
-  let mx = null;
-  recebimentosConsolidado.forEach(r => { if (r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pid) && (!mx || r.data > mx)) mx = r.data; });
-  if (!mx && l.cat === 'Boleto Itaú') {
-    const bPed = getBoletosPorPedido().find(bb => String(bb.pedido) === pid);
-    if (bPed) getParcelas(bPed).forEach(p => { const d = boletoCobrancaStatus[p.key] && boletoCobrancaStatus[p.key].dataPagamento; if (d && (!mx || d > mx)) mx = d; });
-  }
-  return mx;
-}
 function renderContas() {
   const el = document.getElementById('v-contas');
   if (!el) return;
@@ -2169,7 +2157,7 @@ function _renderContasImpl(el) {
   let vis = linhas;
   if (fCat) vis = vis.filter(l => l.cat === fCat);
   if (fEmp) vis = vis.filter(l => (l.ped.empresa||'') === fEmp);
-  if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? _dataLiqReceb(l) : l.venc));
+  if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? getLiqDate(l) : l.venc)); // MESMA data de liquidação do relatório (getLiqDate)
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
   if (fSt === 'semforma') vis = vis.filter(l => l.semForma);
