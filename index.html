@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v253/07-297';
+const APP_VERSION = 'v254/07-299';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5679,12 +5679,13 @@ function renderExtrato() {
         ${delCheckbox('extrato', realIdx)}
         <td>${fmtDate(t.data)}</td><td>${t.memo}</td><td>${fmtVal(t.valor)}</td>
         <td>${link
-          ? `<span class="saved-label">✓ ${link.pedido.split(',').map(p=>`#${p}`).join(' + ')}</span>
+          ? `<span class="saved-label">✓ ${link.pedido.split(',').map(p=>p.startsWith('AV:')?'boleto Itaú':`#${p}`).join(' + ')}</span>
              <button class="btn ghost sm" onclick="unlinkExtrato('${t.id}');renderExtrato()">Desfazer</button>`
           : (() => {
               // Pedidos EM ABERTO que entram pelo banco (PIX, Boleto, Depósito, Dinheiro…).
               // Exclui gateways que conciliam por fora (PayPal/Braavo/Cartão) e o que não é receita.
               const GW_FORA = ['PayPal', 'BraavoPay', 'Cartão'];
+              const ehLoteBoleto = /boleto/i.test(t.memo || ''); // depósito de BOLETOS RECEBIDOS (lote)
               const pixAbertos = formaPagamento.filter(f => {
                 const c = classificaForma(f.descricao);
                 if (!c.isReceita) return false;
@@ -5696,13 +5697,15 @@ function renderExtrato() {
                 const st = statusForma(f.pedido, c.categoria, f.valor);
                 // Depósito de BOLETOS (lote): mostra TAMBÉM os já recebidos, pois o crédito é a soma
                 // dos boletos em aberto + os que já constam recebidos. Assim o "Flegado" fecha o total.
-                const ehLoteBoleto = /boleto/i.test(t.memo || '');
                 // Em ABERTO: sempre. JÁ RECEBIDO: se for lote de boleto, também; senão só quando o valor bate.
                 if (st.recebido && !ehLoteBoleto && Math.abs((f.valor||0) - t.valor) > 1) return false;
                 return true;
               });
               // Ordena por proximidade de valor com o crédito do extrato
               pixAbertos.sort((a, b) => Math.abs(a.valor - t.valor) - Math.abs(b.valor - t.valor));
+              // Lote de BOLETOS: inclui também os boletos IMPORTADOS do Itaú (avulsos, fora do sistema),
+              // pra flegar junto com os de Vendas. Entram só como CONCILIAÇÃO (não recriam receita).
+              if (ehLoteBoleto) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: a.valorTitulo || a.valorPago || 0, descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)') + (a.pedido ? ' #' + a.pedido : ''), _avulso: true, _avPago: !!a.dataPagamento }));
               const hasAutoMatch = pixAbertos.length > 0 && Math.abs(pixAbertos[0].valor - t.valor) <= 0.10;
               const listId = 'ext-list-' + t.id;
               return `<div style="min-width:260px;max-width:340px">
@@ -5724,13 +5727,13 @@ function renderExtrato() {
                     const bg = diff <= 0.10 ? 'background:var(--green-bg)' : '';
                     const cat = classificaForma(f.descricao).categoria;
                     const isBol = cat === 'Boleto Itaú';
-                    const jaReceb = statusForma(f.pedido, cat, f.valor).recebido;
+                    const jaReceb = f._avulso ? f._avPago : statusForma(f.pedido, cat, f.valor).recebido;
                     const badge = `<span style="font-size:10px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;${isBol?'background:#fde9c8;color:#8a5a00':'background:var(--blue-bg,#e3f0ff);color:#1565c0'}">${isBol?'Boleto':(cat==='Pix (Extrato/OFX)'?'PIX':cat)}</span>${jaReceb?` <span style="font-size:9px;padding:1px 5px;border-radius:8px;white-space:nowrap;flex-shrink:0;background:#e6f4ea;color:#1b7a3d">✓ já recebido</span>`:''}`;
                     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);${bg};font-size:12px">
                       <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}" data-v="${f.valor||0}"
                         style="width:14px;height:14px;cursor:pointer;flex-shrink:0"
                         ${diff<=0.10?'checked':''} onchange="extCheckLimit('${t.id}',this)">
-                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}</span>
+                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}${f._avulso?`<span class="badge" style="font-size:9px;background:#8a5a00;color:#fff">Itaú</span> ${f.cliente}`:`<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}`}</span>
                       ${badge}
                       <span style="color:var(--muted);font-size:11px;white-space:nowrap;margin-left:4px">${fmtVal(f.valor)}</span>
                     </label>`;
