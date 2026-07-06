@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v256/07-305';
+const APP_VERSION = 'v257/07-306';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2342,7 +2342,7 @@ function limparFiltrosExtrato() { limparFiltrosGen(['ext-banco','ext-emp','ext-q
 function limparFiltrosReceb() { limparFiltrosGen(['rr-gw','rr-emp','rr-ped','rr-q'], 'receb', renderRecebimentos); }
 function limparFiltrosBoletos() { limparFiltrosGen(['bl-emp','bl-q'], 'boletos', renderBoletos); }
 function limparFiltrosDevolucao() { limparFiltrosGen(['dev-seg','dev-emp','dev-q'], null, renderDevolucao); }
-function limparFiltrosCobranca() { limparFiltrosGen(['cob-emp','cob-st','cob-q'], null, renderCobranca); }
+function limparFiltrosCobranca() { limparFiltrosGen(['cob-emp','cob-st','cob-q','cob-datapor'], null, renderCobranca); }
 function limparFiltrosBanco() { bancoConcSel = '__todos'; buscaPersist.banco = ''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderBanco(); }
 function limparFiltrosVendas() {
   ['empresa','situacao','loja','vendedor','operacao'].forEach(f => vendasFilters[f] = []);
@@ -4870,6 +4870,7 @@ function renderCobranca() {
   const fSt = el.querySelector('#cob-st')?.value||'';
   const fQ  = (el.querySelector('#cob-q')?.value||'').toLowerCase();
   const fEmp = el.querySelector('#cob-emp')?.value||'';
+  const fDataPor = el.querySelector('#cob-datapor')?.value || 'vencimento'; // filtra a data por Vencimento ou Liquidação (pagamento)
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
 
@@ -4883,11 +4884,12 @@ function renderCobranca() {
     </label>
 
     ${filtrosBar({
-      nAtivos: [fEmp,fSt,fQ].filter(Boolean).length + (dfAtivo()?1:0),
+      nAtivos: [fEmp,fSt,fQ].filter(Boolean).length + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0),
       limpar: 'limparFiltrosCobranca()',
       campos:
         fdRow('Empresa', `<select id="cob-emp" onchange="renderCobranca()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
         fdRow('Status', `<select id="cob-st" onchange="renderCobranca()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option><option value="atrasado" ${fSt==='atrasado'?'selected':''}>Atrasado</option><option value="avencer" ${fSt==='avencer'?'selected':''}>A Vencer</option></select>`) +
+        fdRow('Data por', `<select id="cob-datapor" onchange="renderCobranca()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (pagamento)</option></select>`) +
         fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
@@ -4933,7 +4935,7 @@ function renderCobranca() {
   if (fSt==='avencer') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
   if (fQ) vis = vis.filter(b=>String(b.pedido).includes(fQ)||b.cliente.toLowerCase().includes(fQ));
   if (fEmp) vis = vis.filter(b=>empresaDoPed(b.pedido)===fEmp);
-  if (dfAtivo()) vis = vis.filter(b=>passaData(boletoCobrancaStatus[b.key]?.dataPagamento || b.vencimento));
+  if (dfAtivo()) vis = vis.filter(b=>passaData(fDataPor==='liquidacao' ? boletoCobrancaStatus[b.key]?.dataPagamento : b.vencimento));
 
   const pagos=vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
   const atrasados=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
