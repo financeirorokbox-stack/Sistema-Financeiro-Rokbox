@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v285/07-351';
+const APP_VERSION = 'v286/07-353';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2162,7 +2162,7 @@ function _renderContasImpl(el) {
   // Avulsos do Itaú (boletos "a receber fora do sistema") entram como linhas de Contas a Receber também.
   (boletosAvulsos || []).forEach((a, ai) => {
     linhas.push({
-      ped: { id: 'AV' + ai, nome: a.cliente || '(avulso Itaú)', loja: '', situacao: '', empresa: '' },
+      ped: { id: 'AV' + ai, nome: a.cliente || '(avulso Itaú)', loja: '', situacao: '', empresa: a.empresa || '' },
       f: { pedido: a.pedido || ('AV' + ai), valor: a.valorTitulo || 0, descricao: 'Boleto Itaú', vencimento: a.vencimento || null },
       cat: 'Boleto Itaú', st: { recebido: !!a.dataPagamento }, venc: a.vencimento || null, realIdx: -1, semForma: false, _avulso: true, _avIdx: ai
     });
@@ -3275,7 +3275,8 @@ function exportarModeloCR() {
     const descricao = descricaoReceita(l.f.descricao) || descricaoReceita(l.cat) || l.cat || l.f.descricao || '';
     const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
     const cat = l.cat || '';
-    const emp = l.ped.empresa || '';
+    // Empresa: do pedido; se vier em branco, puxa da LOJA (Cadastro → Lojas). Assim para de vir "sem empresa".
+    const emp = l.ped.empresa || (lojaCadastro[l.ped.loja] && lojaCadastro[l.ped.loja].empresa) || '';
     const vencDt = _asDate(l.venc);
     // Filtro por VENCIMENTO: a data é da LINHA → se não passa, pula a linha inteira.
     if (_dfOn && !_porLiq && !passaData(vencDt)) return;
@@ -5092,6 +5093,18 @@ function deduparBoletosAvulsos() {
   boletosAvulsos = out; saveData('boletosAvulsos', boletosAvulsos); syncBoletosToRecebimentos(); renderCobranca();
   alert(`✓ ${removidos} duplicado(s) removido(s).`);
 }
+// Pergunta a EMPRESA (lista as cadastradas; aceita o número ou o nome; em branco = nenhuma).
+function escolherEmpresa(titulo) {
+  const emps = (typeof getEmpresasList === 'function' ? getEmpresasList() : (empresasCadastro || [])).filter(Boolean);
+  const lista = emps.map((e, i) => `${i + 1}) ${e}`).join('\n');
+  const r = prompt(`${titulo}\n\n${lista || '(nenhuma empresa cadastrada)'}\n\nDigite o NÚMERO (ou o nome). Deixe em branco pra não definir.`, '');
+  if (r === null) return '';
+  const t = r.trim(); if (!t) return '';
+  const idx = parseInt(t, 10) - 1;
+  if (!isNaN(idx) && emps[idx]) return emps[idx];
+  const byName = emps.find(e => e.toLowerCase() === t.toLowerCase());
+  return byName || t;
+}
 function processCobrancaWorkbook(wb) {
   const cobrancaRows = parseItauCobrancaSheet(wb);
   const boletos = getBoletosDaForma(); // boletos do sistema (vindos da Forma de Pagamento)
@@ -5151,8 +5164,10 @@ function processCobrancaWorkbook(wb) {
   let addP = false, addA = false;
   if (novosPagos.length) addP = confirm(`${novosPagos.length} boleto(s) PAGO(s) de pedidos fora do sistema (total ${fmtVal(novosPagos.reduce((s, n) => s + (n.valorPago || 0), 0))}).\n\nAdicionar como recebidos (Boleto Itaú)?`);
   if (novosAbertos.length) addA = confirm(`${novosAbertos.length} boleto(s) EM ABERTO (a receber) fora do sistema (total ${fmtVal(novosAbertos.reduce((s, n) => s + (n.valorTitulo || 0), 0))}).\n\nAdicionar para acompanhar e cobrar por WhatsApp?`);
+  let empAvulso = '';
+  if ((addP && novosPagos.length) || (addA && novosAbertos.length)) empAvulso = escolherEmpresa('Qual EMPRESA desses boletos do Itaú?');
   let nAdd = 0;
-  novos.forEach(n => { const add = n._pago ? addP : addA; delete n._pago; if (add) { boletosAvulsos.push(n); nAdd++; } });
+  novos.forEach(n => { const add = n._pago ? addP : addA; delete n._pago; if (add) { n.empresa = empAvulso; boletosAvulsos.push(n); nAdd++; } });
   if (nAtualizados || nAdd) saveData('boletosAvulsos', boletosAvulsos);
   alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\n• Baixados no sistema: ${nBaixados}\n• Atualizados (já existiam, sem duplicar): ${nAtualizados}\n• Adicionados (novos, fora do sistema): ${nAdd}` + ((nBaixados === 0 && nAdd === 0 && nAtualizados === 0) ? `\n\nNenhum casou. Confirme que o "Seu Número" do relatório é o nº do pedido, ou marque os boletos como "Emitido" em Boletos a Emitir.` : ''));
 
