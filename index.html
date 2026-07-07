@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v267/07-320';
+const APP_VERSION = 'v268/07-321';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3794,7 +3794,7 @@ function renderPagar() {
             <td class="cpcol-status">${c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>'}</td>
             <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
             <td class="cpcol-banco">${c.banco || mut}</td>
-            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${c.pix ? ` <a href="#" title="Copiar PIX" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''}</td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${c.pix ? ` <a href="#" title="💠 PIX: ${String(c.pix).replace(/"/g,'&quot;')}&#10;(clique para copiar)" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''}</td>
             <td class="cpcol-categoria">${catContaPagar(c) || mut}</td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr}</td>
