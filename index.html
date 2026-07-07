@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v276/07-336';
+const APP_VERSION = 'v277/07-338';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -494,7 +494,7 @@ async function deleteData(key) {
 async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
@@ -523,7 +523,7 @@ async function zerarSistema() {
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
   const KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
     'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
@@ -928,6 +928,8 @@ let boletoStatus = {};
 let boletoConfig = {};
 let boletoCobrancaStatus = {};
 let boletosAvulsos = []; // boletos de pedidos fora do sistema (relatório Itaú): PAGOS (dataPagamento) ou EM ABERTO a receber (dataPagamento null, campo fone p/ cobrança)
+let msgCobrancaTpl = {}; // {lembrete, cobranca} — textos editáveis das mensagens de WhatsApp (aba Cobrança); vazio = usa o padrão
+let _msgCobAberto = false; // editor de mensagens do WhatsApp começa RECOLHIDO
 let extratoBancario = [];
 let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
@@ -4679,18 +4681,20 @@ function _diaVencTxt(venc) {
   if (dd === 0) return { vencido: false, txt: ' (vence hoje)' };
   return { vencido: false, txt: ` (vence em ${dd} dia${dd > 1 ? 's' : ''})` };
 }
-// Monta a mensagem de WhatsApp: LEMBRETE se está a vencer, COBRANÇA se já venceu (decide pela data).
+// Mensagens padrão do WhatsApp (a usuária pode editar na aba Cobrança). Marcadores: {cliente} {itens} {ref}
+const MSG_TPL_DEFAULT = {
+  lembrete: 'Olá, {cliente}! 😊\n\nPassando só pra lembrar do vencimento{ref}:\n\n{itens}\n\nQualquer dúvida, estou à disposição. Obrigada! 🧡',
+  cobranca: 'Olá, {cliente}! 😊\n\nTudo bem? Passando pra avisar sobre boleto(s) em aberto{ref}:\n\n{itens}\n\nConsegue regularizar? Se já pagou, pode desconsiderar 🙏 Qualquer dúvida, estou à disposição. Obrigada! 🧡'
+};
+function getTplCob(tipo) { return (msgCobrancaTpl && msgCobrancaTpl[tipo]) || MSG_TPL_DEFAULT[tipo]; }
+function setTplCob(tipo, val) { msgCobrancaTpl[tipo] = val; saveData('msgCobrancaTpl', msgCobrancaTpl); }
+// Monta a mensagem: LEMBRETE se está a vencer, COBRANÇA se já venceu (decide pela data), usando o template da usuária.
 function montarMsgCobranca(cliente, refTxt, itens) {
   let algumVencido = false;
   const linhas = itens.map(it => { const info = _diaVencTxt(it.venc); if (info.vencido) algumVencido = true; return `• ${it.label}${it.venc ? ' — venc. ' + fmtDate(it.venc) : ''} — ${fmtVal(it.valor || 0)}${info.txt}`; }).join('\n');
   const ref = refTxt ? ' (' + refTxt + ')' : '';
-  const abertura = algumVencido
-    ? `Tudo bem? Passando pra avisar sobre ${itens.length > 1 ? 'boletos' : 'um boleto'} em aberto${ref}:`
-    : `Passando só pra lembrar do vencimento${ref}:`;
-  const fecho = algumVencido
-    ? `Consegue regularizar? Se já pagou, pode desconsiderar 🙏 Qualquer dúvida, estou à disposição. Obrigada! 🧡`
-    : `Qualquer dúvida, estou à disposição. Obrigada! 🧡`;
-  return `Olá, ${cliente || ''}! 😊\n\n${abertura}\n\n${linhas}\n\n${fecho}`;
+  return getTplCob(algumVencido ? 'cobranca' : 'lembrete')
+    .replace(/{cliente}/g, cliente || '').replace(/{ref}/g, ref).replace(/{itens}/g, linhas);
 }
 function _abrirWpp(fone, msg) {
   const f = String(fone || '').replace(/\D/g, '');
@@ -5196,6 +5200,17 @@ function renderCobranca() {
       <div class="card green"><div class="c-label">Pagos</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(pagos.reduce((s,b)=>s+b.valor,0))}</div></div>
       <div class="card red"><div class="c-label">Atrasados</div><div class="c-val">${atrasados.length}</div><div class="c-sub">${fmtVal(atrasados.reduce((s,b)=>s+b.valor,0))}</div></div>
       <div class="card amber"><div class="c-label">A Vencer</div><div class="c-val">${aVencer.length}</div><div class="c-sub">${fmtVal(aVencer.reduce((s,b)=>s+b.valor,0))}</div></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <button class="btn ghost sm" style="font-size:11px" onclick="_msgCobAberto=!_msgCobAberto;renderCobranca()">✏️ Mensagens do WhatsApp ${_msgCobAberto?'▾':'▸'}</button>
+      ${_msgCobAberto ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:6px;background:var(--surface);font-size:12px;max-width:640px">
+        <p style="margin:0 0 8px;color:var(--muted)">Marcadores: <strong>{cliente}</strong> = nome · <strong>{itens}</strong> = lista dos boletos (parcela, vencimento, valor) · <strong>{ref}</strong> = pedido. O sistema escolhe sozinho: <strong>lembrete</strong> se está a vencer, <strong>cobrança</strong> se já venceu.</p>
+        <label style="display:block;font-weight:700;margin-bottom:2px">🟡 A vencer (lembrete)</label>
+        <textarea onchange="setTplCob('lembrete',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('lembrete').replace(/</g,'&lt;')}</textarea>
+        <label style="display:block;font-weight:700;margin:10px 0 2px">🔴 Vencido (cobrança)</label>
+        <textarea onchange="setTplCob('cobranca',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('cobranca').replace(/</g,'&lt;')}</textarea>
+        <button class="btn ghost sm" style="margin-top:8px" onclick="if(confirm('Voltar as duas mensagens ao texto padrão?')){msgCobrancaTpl={};saveData('msgCobrancaTpl',msgCobrancaTpl);renderCobranca()}">↩ Restaurar padrão</button>
+      </div>` : ''}
     </div>
     ${(()=>{ const r=resumoCobranca(); if(!r.vencidos.length && !r.aVencer.length) return ''; return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:#fff4f4;border:1px solid #f0c9c9;border-radius:8px;padding:8px 12px;font-size:12px">
       <strong>⏰ A cobrar:</strong> <span style="color:var(--red);font-weight:700">${r.vencidos.length} vencido(s)</span>${r.aVencer.length?` · <span style="color:var(--amber);font-weight:700">${r.aVencer.length} a vencer</span>`:''}
@@ -9748,7 +9763,7 @@ function delCheckboxHeader(source) {
 
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
@@ -9767,6 +9782,7 @@ function delCheckboxHeader(source) {
       Object.entries(v).forEach(([kk,vv])=>{boletoCobrancaStatus[kk]={...vv,dataPagamento:vv.dataPagamento?new Date(vv.dataPagamento):null};});
     }
     else if (k==='boletosAvulsos') boletosAvulsos = (v||[]).map(a=>({...a,dataPagamento:a.dataPagamento?new Date(a.dataPagamento):null,vencimento:a.vencimento?new Date(a.vencimento):null}));
+    else if (k==='msgCobrancaTpl') msgCobrancaTpl = v || {};
     else if (k==='extratoBancario') extratoBancario = v.map(t=>({...t,data:t.data?new Date(t.data):null}));
     else if (k==='devolucoes') devolucoes = v.map(d=>({...d,dataTroca:d.dataTroca?new Date(d.dataTroca):null}));
     else if (k==='boletoConfig') {
