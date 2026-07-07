@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v265/07-316';
+const APP_VERSION = 'v266/07-318';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3368,6 +3368,14 @@ function updateContaPagar(idx, field, value) {
   saveData('contasPagar', contasPagar);
   if (!semRerender) renderPagar();
 }
+// Ao sair do campo de data, se a conta saiu do filtro ativo, recarrega a lista pra tirá-la da tela.
+function reavaliarFiltroConta(idx) {
+  if (!dfAtivo()) return;
+  const c = contasPagar[idx]; if (!c) return;
+  const dp = document.getElementById('v-pagar')?.querySelector('#cp-datapor')?.value || 'vencimento';
+  const dataRef = dp === 'liquidacao' ? c.dataPag : c.vencimento;
+  if (!passaData(dataRef)) renderPagar();
+}
 // ── Recorrências (contas fixas que geram lançamentos mensais) ──
 let _recAberto = false;
 function mesesEntre(ini, fim) {
@@ -3724,6 +3732,7 @@ function renderPagar() {
       : `<datalist id="cp-cat-list">${cats.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">`).join('')}${Object.values(CATEGORIAS_DESPESA).flat().map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('')}</datalist>
       <datalist id="cp-emp-list">${empresas.map(e=>`<option value="${e.replace(/"/g,'&quot;')}">`).join('')}</datalist>
       <datalist id="cp-banco-list">${bancosCadastro.map(b=>`<option value="${b.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <datalist id="cp-forn-list">${[...new Set([...fornecedoresCompras.map(f=>f.nome).filter(Boolean),...contasPagar.map(c=>c.fornecedor).filter(Boolean)])].sort().map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('')}</datalist>
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">✏️ Clique nas células para editar. 🔒 = conciliada no banco. O <strong>Histórico</strong> aparece resumido — passe o mouse pra ver inteiro.</div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:11px">
         <span style="color:var(--muted)">👁 Colunas:</span>
@@ -3766,12 +3775,12 @@ function renderPagar() {
         }
         return `<tr${c._manual?' style="background:#fffbe6"':(c.pago?' style="background:#f0faf3"':'')}>
           ${delCheckbox('contasPagar', realIdx)}
-          <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)"></td>
+          <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)" onblur="reavaliarFiltroConta(${realIdx})"></td>
           <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
           <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
-          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
           <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
