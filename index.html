@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v280/07-343';
+const APP_VERSION = 'v281/07-344';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8927,6 +8927,7 @@ function renderCompras() {
       <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="Buscar insumo/fornecedor/coleção" oninput="debounceRender('renderCompras')" style="width:220px">
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar selecionados${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
+      <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px;margin-left:2px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) : ''}</span>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
     <div class="cards-row" style="margin-bottom:14px">
@@ -9110,10 +9111,14 @@ function updateCompra(id, field, value) {
 }
 function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; saveData('compras', compras); renderCompras(); }
 // Seleção múltipla p/ aprovar vários pedidos de uma vez (quadradinhos)
+function _comprasSelSoma() { return [...comprasSel].reduce((s, id) => { const c = compras.find(x => x.id === id); return s + (c ? totalCompra(c) : 0); }, 0); }
 function toggleCompraSel(id, on) {
   if (on) comprasSel.add(id); else comprasSel.delete(id);
+  const n = comprasSel.size;
   const b = document.getElementById('cmp-aprovar-sel');
-  if (b) { const n = comprasSel.size; b.disabled = !n; b.textContent = '✅ Aprovar selecionados' + (n ? ` (${n})` : ''); }
+  if (b) { b.disabled = !n; b.textContent = '✅ Aprovar selecionados' + (n ? ` (${n})` : ''); }
+  const s = document.getElementById('cmp-sel-soma');
+  if (s) s.textContent = n ? 'Σ ' + fmtVal(_comprasSelSoma()) : '';
 }
 function toggleCompraSelTodos(on) { document.querySelectorAll('.cmp-selbox').forEach(cb => { cb.checked = on; toggleCompraSel(cb.dataset.id, on); }); }
 function aprovarComprasSel() {
