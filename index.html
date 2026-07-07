@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v271/07-326';
+const APP_VERSION = 'v272/07-329';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1120,7 +1120,7 @@ function setSubR(r) {
 // ════════════════════════════════════════════════════════════════════
 // Envolve um card de upload com um botão Expandir/Recolher (lembra o estado por aba, no localStorage).
 function uploadWrap(key, cardHTML) {
-  let coll = false; try { coll = localStorage.getItem(LS_PREFIX + 'uplColl_' + key) === '1'; } catch (e) {}
+  let coll = true; try { const s = localStorage.getItem(LS_PREFIX + 'uplColl_' + key); coll = (s === null) ? true : (s === '1'); } catch (e) {} // padrão: FECHADO
   return `<div style="margin-bottom:12px">
     <button class="btn ghost sm" id="uplbtn-${key}" onclick="toggleUploadColl('${key}')" style="font-size:11px;margin-bottom:6px">${coll ? '▸ Mostrar upload' : '▾ Ocultar upload'}</button>
     <div id="upl-${key}" style="display:${coll ? 'none' : 'block'}">${cardHTML}</div>
@@ -1132,7 +1132,7 @@ function toggleUploadColl(key) {
   const hide = d.style.display !== 'none';
   d.style.display = hide ? 'none' : 'block';
   if (btn) btn.textContent = hide ? '▸ Mostrar upload' : '▾ Ocultar upload';
-  try { localStorage.setItem(LS_PREFIX + 'uplColl_' + key, hide ? '1' : ''); } catch (e) {}
+  try { localStorage.setItem(LS_PREFIX + 'uplColl_' + key, hide ? '1' : '0'); } catch (e) {}
 }
 function setupUpload(inputId, cardId, statusId, onLoad) {
   const el = document.getElementById(inputId);
@@ -4638,6 +4638,38 @@ function setBoletoConfig(pedido, campo, valor) {
   renderBoletos();
 }
 // Cobrança por WhatsApp: abre o wa.me com a mensagem pronta dos boletos do pedido.
+// Dias até o vencimento (negativo = já venceu). Compara só a data (sem hora).
+function _diasVenc(venc) {
+  if (!venc) return null;
+  const d = venc instanceof Date ? venc : new Date(venc); if (isNaN(d)) return null;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - hoje) / 86400000);
+}
+function _diaVencTxt(venc) {
+  const dd = _diasVenc(venc);
+  if (dd === null) return { vencido: false, txt: '' };
+  if (dd < 0) return { vencido: true, txt: ` (venceu há ${-dd} dia${-dd > 1 ? 's' : ''})` };
+  if (dd === 0) return { vencido: false, txt: ' (vence hoje)' };
+  return { vencido: false, txt: ` (vence em ${dd} dia${dd > 1 ? 's' : ''})` };
+}
+// Monta a mensagem de WhatsApp: LEMBRETE se está a vencer, COBRANÇA se já venceu (decide pela data).
+function montarMsgCobranca(cliente, refTxt, itens) {
+  let algumVencido = false;
+  const linhas = itens.map(it => { const info = _diaVencTxt(it.venc); if (info.vencido) algumVencido = true; return `• ${it.label}${it.venc ? ' — venc. ' + fmtDate(it.venc) : ''} — ${fmtVal(it.valor || 0)}${info.txt}`; }).join('\n');
+  const ref = refTxt ? ' (' + refTxt + ')' : '';
+  const abertura = algumVencido
+    ? `Tudo bem? Passando pra avisar sobre ${itens.length > 1 ? 'boletos' : 'um boleto'} em aberto${ref}:`
+    : `Passando só pra lembrar do vencimento${ref}:`;
+  const fecho = algumVencido
+    ? `Consegue regularizar? Se já pagou, pode desconsiderar 🙏 Qualquer dúvida, estou à disposição. Obrigada! 🧡`
+    : `Qualquer dúvida, estou à disposição. Obrigada! 🧡`;
+  return `Olá, ${cliente || ''}! 😊\n\n${abertura}\n\n${linhas}\n\n${fecho}`;
+}
+function _abrirWpp(fone, msg) {
+  const f = String(fone || '').replace(/\D/g, '');
+  const num = f ? (f.length <= 11 ? '55' + f : f) : '';
+  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+}
 function cobrarBoletoWpp(pedidoId) {
   const ped = getBoletosPorPedido().find(b => String(b.pedido) === String(pedidoId));
   if (!ped) { alert('Pedido não encontrado.'); return; }
@@ -4645,11 +4677,8 @@ function cobrarBoletoWpp(pedidoId) {
   const todas = getParcelas(ped);
   const pend = todas.filter(p => !boletoStatus[p.key]);
   const alvo = pend.length ? pend : todas;
-  const linhas = alvo.map(p => `• Parcela ${p.parcela}/${p.totalParcelas} — vencimento ${fmtDate(p.vencimento)} — ${fmtVal(p.valor)}`).join('\n');
-  const msg = `Olá, ${ped.cliente}! 😊\n\nPassando pra lembrar do(s) boleto(s) do pedido #${ped.pedido}:\n\n${linhas}\n\nQualquer dúvida, estou à disposição. Obrigada! 🧡`;
-  const fone = String(cfg.fone || '').replace(/\D/g, '');
-  const num = fone ? (fone.length <= 11 ? '55' + fone : fone) : '';
-  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+  const itens = alvo.map(p => ({ label: `Parcela ${p.parcela}/${p.totalParcelas}`, venc: p.vencimento, valor: p.valor }));
+  _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
 }
 function setDataSaida(pedido, campo, valor) {
   if (!boletoConfig[pedido]) boletoConfig[pedido] = {};
@@ -4962,10 +4991,7 @@ function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[
 // Cobrança por WhatsApp de um boleto avulso em aberto
 function cobrarAvulsoWpp(i) {
   const a = boletosAvulsos[i]; if (!a) return;
-  const msg = `Olá, ${a.cliente || ''}! 😊\n\nPassando pra lembrar do seu boleto${a.pedido ? ' do pedido #' + a.pedido : ''}:\n\n• Valor ${fmtVal(a.valorTitulo || 0)}${a.vencimento ? ' — vencimento ' + fmtDate(a.vencimento) : ''}\n\nQualquer dúvida, estou à disposição. Obrigada! 🧡`;
-  const fone = String(a.fone || '').replace(/\D/g, '');
-  const num = fone ? (fone.length <= 11 ? '55' + fone : fone) : '';
-  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+  _abrirWpp(a.fone, montarMsgCobranca(a.cliente, a.pedido ? 'pedido #' + a.pedido : '', [{ label: 'Boleto', venc: a.vencimento, valor: a.valorTitulo || 0 }]));
 }
 // Marca um boleto avulso em aberto como RECEBIDO
 function baixarAvulso(i) {
