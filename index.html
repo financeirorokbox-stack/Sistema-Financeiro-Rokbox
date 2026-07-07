@@ -238,6 +238,8 @@ tr:hover td{background:#fafaf8}
   <button onclick="limparSelecao()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;line-height:1">✕</button>
 </div>
 
+<div id="cobranca-aviso" style="display:none;background:#b3261e;color:#fff;padding:9px 16px;text-align:center;font-size:13px;position:sticky;top:0;z-index:350"></div>
+
 <!-- HEADER -->
 <div class="header">
   <div class="header-title">Painel de Gestão RK</div>
@@ -312,7 +314,7 @@ tr:hover td{background:#fafaf8}
     <div class="subnav-item active" id="subr-contas" onclick="setSubR('contas')">📋 Contas a Receber</div>
     <div class="subnav-item" id="subr-receb" onclick="setSubR('receb')">💳 Recebimentos</div>
     <div class="subnav-item" id="subr-boletos" onclick="setSubR('boletos')">🧾 Boletos a Emitir</div>
-    <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança</div>
+    <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança <span id="badge-cobranca" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:2px"></span></div>
     <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
     <div class="subnav-item" id="subr-conc" onclick="setSubR('conc')">✅ Conciliação de Recebíveis</div>
   </div>
@@ -387,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v272/07-329';
+const APP_VERSION = 'v273/07-331';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -796,6 +798,7 @@ function enterApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   applyPermissions();
+  try { atualizarBadgeCobranca(); mostrarAvisoCobranca(); } catch (e) {}
 }
 
 // Mostra/esconde abas conforme o usuário logado e vai para a 1ª permitida.
@@ -4680,6 +4683,66 @@ function cobrarBoletoWpp(pedidoId) {
   const itens = alvo.map(p => ({ label: `Parcela ${p.parcela}/${p.totalParcelas}`, venc: p.vencimento, valor: p.valor }));
   _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
 }
+// ── Lembretes de cobrança (aviso ao abrir + selo no menu + cobrar vencidos) ──
+// Lista de boletos A COBRAR (em aberto): avulsos do Itaú + boletos do sistema emitidos e não pagos.
+function boletosACobrar() {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const out = [];
+  (boletosAvulsos || []).forEach((a, i) => {
+    if (a.dataPagamento || !a.vencimento) return;
+    const venc = new Date(a.vencimento); if (isNaN(venc)) return;
+    out.push({ tipo: 'avulso', ref: i, cliente: a.cliente || '', valor: a.valorTitulo || 0, venc, vencido: venc < hoje, fone: a.fone || '' });
+  });
+  try {
+    getBoletosDaForma().forEach(b => {
+      if (!boletoStatus[b.key]) return;
+      if (boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) return;
+      if (!b.vencimento) return;
+      const venc = new Date(b.vencimento); if (isNaN(venc)) return;
+      out.push({ tipo: 'sistema', ref: b.pedido, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: venc < hoje });
+    });
+  } catch (e) {}
+  return out;
+}
+function resumoCobranca() {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const lim = new Date(hoje); lim.setDate(lim.getDate() + 5); // "a vencer" = próximos 5 dias
+  const lista = boletosACobrar();
+  const vencidos = lista.filter(x => x.vencido);
+  const aVencer = lista.filter(x => !x.vencido && x.venc <= lim);
+  return { vencidos, aVencer, total: vencidos.length + aVencer.length };
+}
+function atualizarBadgeCobranca() {
+  const el = document.getElementById('badge-cobranca'); if (!el) return;
+  const r = resumoCobranca();
+  if (r.vencidos.length || r.aVencer.length) { el.textContent = r.vencidos.length ? r.vencidos.length + '⚠' : r.aVencer.length; el.style.display = 'inline-block'; el.style.background = r.vencidos.length ? 'var(--red)' : 'var(--amber)'; el.title = `${r.vencidos.length} vencido(s) · ${r.aVencer.length} a vencer`; }
+  else el.style.display = 'none';
+}
+// Aviso ao abrir o sistema (uma vez por sessão) se houver boletos a cobrar.
+function mostrarAvisoCobranca() {
+  try { if (sessionStorage.getItem('avisoCob') === '1') return; } catch (e) {}
+  const r = resumoCobranca();
+  if (!r.vencidos.length && !r.aVencer.length) return;
+  const bar = document.getElementById('cobranca-aviso'); if (!bar) return;
+  bar.innerHTML = `⏰ <strong>Cobrança:</strong> ${r.vencidos.length} vencido(s)${r.aVencer.length ? ' · ' + r.aVencer.length + ' vence(m) em breve' : ''}.
+    <button class="btn sm" style="background:#fff;color:#b3261e;margin-left:10px" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';setSubR('cobranca')">Ver cobrança →</button>
+    <a href="#" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';return false" style="color:#fff;margin-left:8px;text-decoration:none">✕</a>`;
+  bar.style.display = 'block';
+}
+// Cobra os VENCIDOS um por clique (evita bloqueio de pop-up). Guarda a posição na fila.
+let _filaCobranca = null, _filaCobPos = 0;
+function cobrarVencidos() {
+  const venc = boletosACobrar().filter(x => x.vencido).sort((a, b) => a.venc - b.venc);
+  if (!venc.length) { alert('Nenhum boleto vencido pra cobrar. 🎉'); return; }
+  _filaCobranca = venc; _filaCobPos = 0;
+  cobrarProximoDaFila();
+}
+function cobrarProximoDaFila() {
+  if (!_filaCobranca || _filaCobPos >= _filaCobranca.length) { _filaCobranca = null; renderCobranca(); alert('✓ Você passou por todos os vencidos.'); return; }
+  const x = _filaCobranca[_filaCobPos]; _filaCobPos++;
+  if (x.tipo === 'avulso') cobrarAvulsoWpp(x.ref); else cobrarBoletoWpp(x.ref);
+  renderCobranca(); // atualiza o botão "próximo"
+}
 function setDataSaida(pedido, campo, valor) {
   if (!boletoConfig[pedido]) boletoConfig[pedido] = {};
   const cfg = boletoConfig[pedido];
@@ -5099,6 +5162,11 @@ function renderCobranca() {
       <div class="card red"><div class="c-label">Atrasados</div><div class="c-val">${atrasados.length}</div><div class="c-sub">${fmtVal(atrasados.reduce((s,b)=>s+b.valor,0))}</div></div>
       <div class="card amber"><div class="c-label">A Vencer</div><div class="c-val">${aVencer.length}</div><div class="c-sub">${fmtVal(aVencer.reduce((s,b)=>s+b.valor,0))}</div></div>
     </div>
+    ${(()=>{ const r=resumoCobranca(); if(!r.vencidos.length && !r.aVencer.length) return ''; return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:#fff4f4;border:1px solid #f0c9c9;border-radius:8px;padding:8px 12px;font-size:12px">
+      <strong>⏰ A cobrar:</strong> <span style="color:var(--red);font-weight:700">${r.vencidos.length} vencido(s)</span>${r.aVencer.length?` · <span style="color:var(--amber);font-weight:700">${r.aVencer.length} a vencer</span>`:''}
+      ${_filaCobranca ? `<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarProximoDaFila()">📱 Cobrar próximo (${_filaCobPos}/${_filaCobranca.length}) →</button>` : (r.vencidos.length?`<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarVencidos()">📱 Cobrar vencidos (${r.vencidos.length})</button>`:'')}
+      <span style="color:var(--muted)">abre o WhatsApp de um por vez (você confirma cada envio)</span>
+    </div>`; })()}
     <div class="table-wrap"><table><thead><tr>
       <th style="width:32px"></th>
       <th>Pedido</th><th>Cliente</th><th>Parcela</th><th>Valor</th>
@@ -5125,6 +5193,7 @@ function renderCobranca() {
     </tbody></table></div>`;
 
   attachCobUpload();
+  atualizarBadgeCobranca();
 }
 
 // ════════════════════════════════════════════════════════════════════
