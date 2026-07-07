@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v282/07-345';
+const APP_VERSION = 'v283/07-347';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3091,14 +3091,28 @@ function statusFormaSemForma(ped, concOk, recs) {
 }
 
 // Retorna a data de liquidação (pagamento) de uma linha de Contas a Receber
+// Data em que o recebimento (PayPal/Braavo) caiu no BANCO — o repasse/depósito.
+// (O gateway processa 1 dia antes; a liquidação que bate com o extrato é a do banco.)
+function dataRepasseBanco(rec) {
+  if (!rec) return null;
+  let recK; try { recK = recKeyGlobal(rec); } catch (e) { return null; }
+  for (const [extId, rep] of Object.entries(repasseLinks)) {
+    if ((rep.itens || []).includes(recK)) {
+      const t = extratoBancario.find(x => x.id === extId);
+      if (t && t.data) return t.data;
+      if (rep.data) return new Date(rep.data);
+    }
+  }
+  return null;
+}
 function getDataLiquidacao(l) {
   const pedId = String(l.f.pedido);
   const cat = l.cat;
   const valor = l.f.valor;
 
-  // 1. Conciliação (results.ok) — usa a data do recebimento conciliado
+  // 1. Conciliação (results.ok) — data do BANCO (repasse) se houver; senão a do recebimento
   const concOk = results.ok.find(x => String(x.ped.id) === pedId);
-  if (concOk?.rec?.data) return fmtDate(concOk.rec.data);
+  if (concOk?.rec) { const bd = dataRepasseBanco(concOk.rec); if (bd) return fmtDate(bd); if (concOk.rec.data) return fmtDate(concOk.rec.data); }
 
   // 2. Extrato OFX (PIX vinculado)
   if (cat === 'Pix (Extrato/OFX)') {
@@ -3111,11 +3125,11 @@ function getDataLiquidacao(l) {
     }
   }
 
-  // 3. Recebimentos com nped preenchido
+  // 3. Recebimentos com nped preenchido → data do BANCO (repasse) se houver; senão a do gateway
   const recComPed = recebimentosConsolidado
     .filter(r => String(r.nped) === pedId && r.data)
     .sort((a,b) => (b.data||0) - (a.data||0));
-  if (recComPed.length > 0) return fmtDate(recComPed[0].data);
+  if (recComPed.length > 0) { const bd = dataRepasseBanco(recComPed[0]); return fmtDate(bd || recComPed[0].data); }
 
   // 4. Recebimentos sem nped — busca por valor próximo e gateway compatível
   const gatewayMap = {
@@ -3222,6 +3236,8 @@ function exportarModeloCR() {
   if (!_linhasCR.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
   const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
   const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
+  // Datas AO MEIO-DIA local, senão o SheetJS converte pra UTC e "volta 1 dia" no Excel (mostrava 31/05 no lugar de 01/06).
+  const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
   const rows = [headers];
   _linhasCR.forEach(l => {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
@@ -3232,12 +3248,10 @@ function exportarModeloCR() {
     const aliquota = l.f.valor ? +(taxa / l.f.valor * 100).toFixed(2) : 0;
     const descricao = descricaoReceita(l.f.descricao) || descricaoReceita(l.cat) || l.cat || l.f.descricao || '';
     const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
-    const venc = l.venc ? new Date(l.venc) : '';
-    const dataFcx = liq || venc || '';
     rows.push([
-      liq || '', venc, String(l.f.pedido), l.ped.nome || '', situacao,
+      _noon(liq), _noon(l.venc), String(l.f.pedido), l.ped.nome || '', situacao,
       competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, descricao, obs,
-      l.cat || '', _ma(liq || (l.venc ? new Date(l.venc) : null)), _ma(liq), l.f.valor, dataFcx, l.ped.empresa || ''
+      l.cat || '', _ma(liq || l.venc), _ma(liq), l.f.valor, _noon(liq || l.venc), l.ped.empresa || ''
     ]);
   });
   const wb = XLSX.utils.book_new();
