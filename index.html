@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v277/07-338';
+const APP_VERSION = 'v278/07-339';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4688,6 +4688,16 @@ const MSG_TPL_DEFAULT = {
 };
 function getTplCob(tipo) { return (msgCobrancaTpl && msgCobrancaTpl[tipo]) || MSG_TPL_DEFAULT[tipo]; }
 function setTplCob(tipo, val) { msgCobrancaTpl[tipo] = val; saveData('msgCobrancaTpl', msgCobrancaTpl); }
+let _tplFoco = 'lembrete'; // qual textarea de mensagem está em foco (p/ inserir emoji)
+function inserirEmojiTpl(e) {
+  const tipo = (_tplFoco === 'cobranca') ? 'cobranca' : 'lembrete';
+  const ta = document.getElementById('tpl-' + tipo); if (!ta) return;
+  const s = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+  const en = ta.selectionEnd != null ? ta.selectionEnd : ta.value.length;
+  ta.value = ta.value.slice(0, s) + e + ta.value.slice(en);
+  const pos = s + e.length; ta.focus(); ta.setSelectionRange(pos, pos);
+  setTplCob(tipo, ta.value);
+}
 // Monta a mensagem: LEMBRETE se está a vencer, COBRANÇA se já venceu (decide pela data), usando o template da usuária.
 function montarMsgCobranca(cliente, refTxt, itens) {
   let algumVencido = false;
@@ -5205,10 +5215,14 @@ function renderCobranca() {
       <button class="btn ghost sm" style="font-size:11px" onclick="_msgCobAberto=!_msgCobAberto;renderCobranca()">✏️ Mensagens do WhatsApp ${_msgCobAberto?'▾':'▸'}</button>
       ${_msgCobAberto ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:6px;background:var(--surface);font-size:12px;max-width:640px">
         <p style="margin:0 0 8px;color:var(--muted)">Marcadores: <strong>{cliente}</strong> = nome · <strong>{itens}</strong> = lista dos boletos (parcela, vencimento, valor) · <strong>{ref}</strong> = pedido. O sistema escolhe sozinho: <strong>lembrete</strong> se está a vencer, <strong>cobrança</strong> se já venceu.</p>
+        <div style="margin-bottom:6px">
+          <span style="color:var(--muted);font-size:11px">Inserir emoji (clique no texto onde quer, depois no emoji): </span>
+          ${['😊','🧡','❤️','🙏','✅','📅','💰','🔔','😉','👍','🤝','⚠️'].map(e=>`<button type="button" onclick="inserirEmojiTpl('${e}')" style="border:1px solid var(--border);background:#fff;border-radius:6px;padding:2px 5px;cursor:pointer;font-size:15px;line-height:1">${e}</button>`).join(' ')}
+        </div>
         <label style="display:block;font-weight:700;margin-bottom:2px">🟡 A vencer (lembrete)</label>
-        <textarea onchange="setTplCob('lembrete',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('lembrete').replace(/</g,'&lt;')}</textarea>
+        <textarea id="tpl-lembrete" onfocus="_tplFoco='lembrete'" onchange="setTplCob('lembrete',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('lembrete').replace(/</g,'&lt;')}</textarea>
         <label style="display:block;font-weight:700;margin:10px 0 2px">🔴 Vencido (cobrança)</label>
-        <textarea onchange="setTplCob('cobranca',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('cobranca').replace(/</g,'&lt;')}</textarea>
+        <textarea id="tpl-cobranca" onfocus="_tplFoco='cobranca'" onchange="setTplCob('cobranca',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('cobranca').replace(/</g,'&lt;')}</textarea>
         <button class="btn ghost sm" style="margin-top:8px" onclick="if(confirm('Voltar as duas mensagens ao texto padrão?')){msgCobrancaTpl={};saveData('msgCobrancaTpl',msgCobrancaTpl);renderCobranca()}">↩ Restaurar padrão</button>
       </div>` : ''}
     </div>
