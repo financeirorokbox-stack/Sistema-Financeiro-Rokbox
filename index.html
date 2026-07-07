@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v275/07-334';
+const APP_VERSION = 'v276/07-336';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2154,6 +2154,15 @@ function _renderContasImpl(el) {
     }
   });
 
+  // Avulsos do Itaú (boletos "a receber fora do sistema") entram como linhas de Contas a Receber também.
+  (boletosAvulsos || []).forEach((a, ai) => {
+    linhas.push({
+      ped: { id: 'AV' + ai, nome: a.cliente || '(avulso Itaú)', loja: '', situacao: '', empresa: '' },
+      f: { pedido: a.pedido || ('AV' + ai), valor: a.valorTitulo || 0, descricao: 'Boleto Itaú', vencimento: a.vencimento || null },
+      cat: 'Boleto Itaú', st: { recebido: !!a.dataPagamento }, venc: a.vencimento || null, realIdx: -1, semForma: false, _avulso: true, _avIdx: ai
+    });
+  });
+
   _linhasCR = linhas; // guarda para a exportação (modelo Contas a Receber)
 
   // Pedidos já CONCILIADOS no banco (crédito vinculado no Extrato OU recebimento amarrado a um repasse) → selo e filtro.
@@ -2285,6 +2294,19 @@ function _renderContasImpl(el) {
       <th>Forma de Pagamento</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Liquidação</th><th>Detalhe</th>
     </tr></thead><tbody>
     ${[...vis].sort((a,b)=>Number(b.f.pedido)-Number(a.f.pedido)).map(l=>{
+      if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; return `<tr style="background:#fffaf0">
+        <td></td>
+        <td><strong>${l.f.pedido && !String(l.f.pedido).startsWith('AV') ? '#' + l.f.pedido : '—'}</strong> <span class="badge" style="font-size:9px;background:#8a5a00;color:#fff" title="Boleto importado do Itaú (cliente fora do sistema)">Itaú</span></td>
+        <td>${l.ped.nome || '—'}</td>
+        <td>—</td>
+        <td><span class="badge neu">—</span></td>
+        <td><span class="badge info">Boleto Itaú</span> <span style="font-size:10px;color:var(--muted)">fora do sistema</span></td>
+        <td>${l.venc ? fmtDate(l.venc) : '—'}</td>
+        <td>${fmtVal(l.f.valor)}</td>
+        <td>${l.st.recebido ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>'}</td>
+        <td style="font-size:11px;color:var(--green);font-weight:600">${l.st.recebido && a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td>
+        <td style="font-size:11px;color:var(--muted)">avulso importado (Itaú)</td>
+      </tr>`; }
       const cls = getClassificacao(l.ped);
       const op = cls.naoAplicavel ? '—' : (cls.operacao || opMapping[opKey(l.ped.loja, l.ped.situacao)] || '');
       const opBadge = op && op!=='—' ? `<span class="badge ok">${op}</span>` : '<span class="badge neu">—</span>';
@@ -3162,11 +3184,13 @@ function trocarForma(pedId, val) {
 // ── Exportação modelo "Contas a Receber" (15 colunas) ──────────────
 // Data de liquidação da linha como Date (reusa getDataLiquidacao e converte).
 function getLiqDate(l) {
+  if (l && l._avulso) { const a = boletosAvulsos[l._avIdx]; return a && a.dataPagamento ? new Date(a.dataPagamento) : null; }
   const m = String(getDataLiquidacao(l)).match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 // Recebido, taxa, juros e desconto de uma linha de Contas a Receber.
 function dadosRecebimentoLinha(l) {
+  if (l && l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; const rec = a.dataPagamento ? (a.valorPago != null ? a.valorPago : (a.valorTitulo || 0)) : 0; return { recebido: +(+rec).toFixed(2), taxa: 0, juros: 0, desconto: 0 }; }
   const pedId = String(l.f.pedido);
   let recebido = 0, taxa = 0, juros = 0, desconto = 0;
   if (l.cat === 'Boleto Itaú') {
@@ -5115,12 +5139,13 @@ function renderCobranca() {
         fdRow('Empresa', `<select id="cob-emp" onchange="renderCobranca()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
         fdRow('Status', `<select id="cob-st" onchange="renderCobranca()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option><option value="atrasado" ${fSt==='atrasado'?'selected':''}>Atrasado</option><option value="avencer" ${fSt==='avencer'?'selected':''}>A Vencer</option></select>`) +
         fdRow('Data por', `<select id="cob-datapor" onchange="renderCobranca()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (pagamento)</option></select>`) +
-        fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="renderCobranca()" onclick="event.stopPropagation()">`) +
+        fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderCobranca')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     ${boletosAvulsos.length ? (() => {
       const idxAll = boletosAvulsos.map((a, i) => i);
-      const abertos = idxAll.filter(i => !boletosAvulsos[i].dataPagamento);
+      const _vencMs = a => a && a.vencimento ? new Date(a.vencimento).getTime() : 0;
+      const abertos = idxAll.filter(i => !boletosAvulsos[i].dataPagamento).sort((x, y) => _vencMs(boletosAvulsos[y]) - _vencMs(boletosAvulsos[x])); // vencimento decrescente
       const pagos = idxAll.filter(i => boletosAvulsos[i].dataPagamento);
       const t0 = new Date(); t0.setHours(0, 0, 0, 0);
       const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr>
@@ -5182,7 +5207,7 @@ function renderCobranca() {
       <th>Pedido</th><th>Cliente</th><th>Parcela</th><th>Valor</th>
       <th>Vencimento</th><th>Data Pagto</th><th>Status</th><th>Dias atraso</th>
     </tr></thead><tbody>
-    ${vis.sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(b=>{
+    ${vis.sort((a,b)=>(b.vencimento||0)-(a.vencimento||0)).map(b=>{
       const c = boletoCobrancaStatus[b.key];
       let badge, dias='—';
       if (c?.pago) { badge='<span class="badge ok">Pago</span>'; if(c.dataPagamento&&b.vencimento){const d=Math.round((new Date(c.dataPagamento)-new Date(b.vencimento))/86400000);dias=d>0?`+${d}`:'0';} }
