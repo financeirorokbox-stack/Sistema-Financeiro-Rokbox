@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v278/07-339';
+const APP_VERSION = 'v279/07-341';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4709,6 +4709,9 @@ function montarMsgCobranca(cliente, refTxt, itens) {
 function _abrirWpp(fone, msg) {
   const f = String(fone || '').replace(/\D/g, '');
   const num = f ? (f.length <= 11 ? '55' + f : f) : '';
+  // Copia a mensagem pra área de transferência: se o WhatsApp Desktop quebrar os emojis (bug do Windows),
+  // é só colar (Ctrl+V) que vão perfeitos.
+  try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(msg); } catch (e) {}
   window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 function cobrarBoletoWpp(pedidoId) {
@@ -5229,7 +5232,7 @@ function renderCobranca() {
     ${(()=>{ const r=resumoCobranca(); if(!r.vencidos.length && !r.aVencer.length) return ''; return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:#fff4f4;border:1px solid #f0c9c9;border-radius:8px;padding:8px 12px;font-size:12px">
       <strong>⏰ A cobrar:</strong> <span style="color:var(--red);font-weight:700">${r.vencidos.length} vencido(s)</span>${r.aVencer.length?` · <span style="color:var(--amber);font-weight:700">${r.aVencer.length} a vencer</span>`:''}
       ${_filaCobranca ? `<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarProximoDaFila()">📱 Cobrar próximo (${_filaCobPos}/${_filaCobranca.length}) →</button>` : (r.vencidos.length?`<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarVencidos()">📱 Cobrar vencidos (${r.vencidos.length})</button>`:'')}
-      <span style="color:var(--muted)">abre o WhatsApp de um por vez (você confirma cada envio)</span>
+      <span style="color:var(--muted)">abre o WhatsApp um por vez (você confirma cada envio). 💡 A mensagem também é copiada — se o WhatsApp Desktop quebrar os emojis, cole (Ctrl+V).</span>
     </div>`; })()}
     <div class="table-wrap"><table><thead><tr>
       <th style="width:32px"></th>
