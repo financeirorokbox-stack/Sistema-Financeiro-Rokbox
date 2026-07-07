@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v274/07-333';
+const APP_VERSION = 'v275/07-334';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4706,11 +4706,12 @@ function boletosACobrar() {
 }
 function resumoCobranca() {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-  const lim = new Date(hoje); lim.setDate(lim.getDate() + 5); // "a vencer" = próximos 5 dias
+  const lim = new Date(hoje); lim.setDate(lim.getDate() + 5); // "em breve" = próximos 5 dias
   const lista = boletosACobrar();
   const vencidos = lista.filter(x => x.vencido);
-  const aVencer = lista.filter(x => !x.vencido && x.venc <= lim);
-  return { vencidos, aVencer, total: vencidos.length + aVencer.length };
+  const aVencer = lista.filter(x => !x.vencido); // TODOS os em aberto a vencer
+  const aVencerBreve = aVencer.filter(x => x.venc <= lim);
+  return { vencidos, aVencer, aVencerBreve, total: vencidos.length + aVencer.length };
 }
 function atualizarBadgeCobranca() {
   const el = document.getElementById('badge-cobranca'); if (!el) return;
@@ -4726,13 +4727,16 @@ function irParaCobranca() {
 }
 // Aviso ao abrir o sistema (uma vez por sessão) se houver boletos a cobrar.
 function mostrarAvisoCobranca() {
-  try { if (sessionStorage.getItem('avisoCob') === '1') return; } catch (e) {}
+  const hojeK = _toDateInput(new Date());
+  try { if (localStorage.getItem(LS_PREFIX + 'avisoCobDia') === hojeK) return; } catch (e) {}
   const r = resumoCobranca();
   if (!r.vencidos.length && !r.aVencer.length) return;
   const bar = document.getElementById('cobranca-aviso'); if (!bar) return;
-  bar.innerHTML = `⏰ <strong>Cobrança:</strong> ${r.vencidos.length} vencido(s)${r.aVencer.length ? ' · ' + r.aVencer.length + ' vence(m) em breve' : ''}.
-    <button class="btn sm" style="background:#fff;color:#b3261e;margin-left:10px" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';irParaCobranca()">Ver cobrança →</button>
-    <a href="#" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';return false" style="color:#fff;margin-left:8px;text-decoration:none">✕</a>`;
+  const txtAV = r.aVencer.length ? ' · ' + r.aVencer.length + ' a vencer' + (r.aVencerBreve.length ? ' (' + r.aVencerBreve.length + ' em breve)' : '') : '';
+  const fecha = `try{localStorage.setItem(LS_PREFIX+'avisoCobDia','${hojeK}')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';`;
+  bar.innerHTML = `⏰ <strong>Cobrança:</strong> ${r.vencidos.length} vencido(s)${txtAV}.
+    <button class="btn sm" style="background:#fff;color:#b3261e;margin-left:10px" onclick="${fecha}irParaCobranca()">Ver cobrança →</button>
+    <a href="#" onclick="${fecha}return false" style="color:#fff;margin-left:8px;text-decoration:none">✕</a>`;
   bar.style.display = 'block';
 }
 // Cobra os VENCIDOS um por clique (evita bloqueio de pop-up). Guarda a posição na fila.
