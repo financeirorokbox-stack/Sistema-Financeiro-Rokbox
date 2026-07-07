@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v281/07-344';
+const APP_VERSION = 'v282/07-345';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8953,9 +8953,10 @@ function renderCompras() {
     ${vis.length === 0 ? '<div class="empty"><div class="e-icon">🛒</div>Nenhuma compra no filtro. Suba a planilha de requisição ou clique ➕ Nova compra.</div>' : `
     <datalist id="cmp-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <datalist id="cmp-forn-list">${[...new Set([...fornecedoresCompras.map(f => f.nome).filter(Boolean), ...compras.map(c => c.fornecedor).filter(Boolean), ...contasPagar.map(c => c.fornecedor).filter(Boolean)])].sort().map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
+    <datalist id="cmp-col-list">${colecoes.map(cc => `<option value="${(cc.nome || '').replace(/"/g, '&quot;')}">${(cc.subgrupo || '').replace(/"/g, '&quot;')}</option>`).join('')}${[...new Set(compras.map(c => c.colecao).filter(Boolean))].filter(n => !colecoes.some(cc => cc.nome === n)).map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
     <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
-      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
+      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL/WL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
       <td style="text-align:center">${st === 'pendente' ? `<input type="checkbox" class="cmp-selbox" data-id="${c.id}" ${comprasSel.has(c.id) ? 'checked' : ''} onchange="toggleCompraSel('${c.id}',this.checked)">` : ''}</td>
@@ -8970,7 +8971,7 @@ function renderCompras() {
       <td style="text-align:right">${ro ? fmtVal(c.desconto || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.desconto || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','desconto',this.value)" title="Desconto do item — subtrai do total">`}</td>
       <td style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
       <td>${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:120px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
-      <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" value="${(c.colecao || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
+      <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
       <td>${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:110px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
       <td>${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:100px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
       <td><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
