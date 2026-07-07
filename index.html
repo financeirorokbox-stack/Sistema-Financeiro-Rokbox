@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v270/07-324';
+const APP_VERSION = 'v271/07-326';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1118,6 +1118,22 @@ function setSubR(r) {
 // ════════════════════════════════════════════════════════════════════
 // UPLOAD HELPERS
 // ════════════════════════════════════════════════════════════════════
+// Envolve um card de upload com um botão Expandir/Recolher (lembra o estado por aba, no localStorage).
+function uploadWrap(key, cardHTML) {
+  let coll = false; try { coll = localStorage.getItem(LS_PREFIX + 'uplColl_' + key) === '1'; } catch (e) {}
+  return `<div style="margin-bottom:12px">
+    <button class="btn ghost sm" id="uplbtn-${key}" onclick="toggleUploadColl('${key}')" style="font-size:11px;margin-bottom:6px">${coll ? '▸ Mostrar upload' : '▾ Ocultar upload'}</button>
+    <div id="upl-${key}" style="display:${coll ? 'none' : 'block'}">${cardHTML}</div>
+  </div>`;
+}
+function toggleUploadColl(key) {
+  const d = document.getElementById('upl-' + key); const btn = document.getElementById('uplbtn-' + key);
+  if (!d) return;
+  const hide = d.style.display !== 'none';
+  d.style.display = hide ? 'none' : 'block';
+  if (btn) btn.textContent = hide ? '▸ Mostrar upload' : '▾ Ocultar upload';
+  try { localStorage.setItem(LS_PREFIX + 'uplColl_' + key, hide ? '1' : ''); } catch (e) {}
+}
 function setupUpload(inputId, cardId, statusId, onLoad) {
   const el = document.getElementById(inputId);
   if (!el) return;
@@ -3685,13 +3701,13 @@ function renderPagar() {
   const dcRateioOk = rateioRuim.length === 0;
 
   el.innerHTML = `
-    <label class="upload-card" id="card-pagar" for="file-pagar">
+    ${uploadWrap('pagar', `<label class="upload-card" id="card-pagar" for="file-pagar">
       <div class="u-icon">📤</div>
       <div class="u-label">Planilha de Contas a Pagar</div>
       <div class="u-hint">.xls/.xlsx — colunas: Fornecedor, Descrição, Vencimento, Valor, Situação, Liquidação</div>
       <div class="u-status" id="status-pagar">${contasPagar.length ? '✓ ' + contasPagar.length + ' contas' : 'Nenhum arquivo'}</div>
       <input type="file" id="file-pagar" accept=".xlsx,.xls" multiple>
-    </label>
+    </label>`)}
 
     ${(() => { const nF = [fSt,fEmp,fConc,fQraw].filter(Boolean).length + (cpCatSel.size?1:0) + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0); return `
     <div class="topbar">
@@ -4352,13 +4368,13 @@ function renderRecebimentos() {
   visSoma.forEach(r => { const g = r.gateway; if (!byGwFull[g]) byGwFull[g] = { bruto: 0, taxa: 0, devol: 0, liq: 0 }; const o = byGwFull[g]; const b = r.bruto || 0; if (b < 0) { o.devol += b; totDevol += b; } else { o.bruto += b; totBruto += b; } o.taxa += r.taxa || 0; o.liq += r.liq || 0; });
 
   el.innerHTML = `
-    <label class="upload-card" id="card-cr2" for="file-cr2">
+    ${uploadWrap('receb', `<label class="upload-card" id="card-cr2" for="file-cr2">
       <div class="u-icon">💳</div>
       <div class="u-label">Planilha de Recebimentos</div>
       <div class="u-hint">PayPal (.csv), BraavoPay (.xlsx), Boleto Itaú, Rede, Extrato OFX — selecione um ou mais</div>
       <div class="u-status" id="status-cr2">${recebimentosConsolidado.length ? '✓ ' + recebimentosConsolidado.length + ' lançamentos' : 'Nenhum arquivo'}</div>
       <input type="file" id="file-cr2" accept=".xlsx,.xls,.csv,.ofx,.qfx" multiple>
-    </label>
+    </label>`)}
 
     <div id="estorno-manual-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin:0 0 16px">
       <div style="font-weight:700;font-size:13px;margin-bottom:8px">➖ Estorno manual <span style="font-weight:400;color:var(--muted);font-size:11px">(ex.: Braavo que não vem no relatório — entra como negativo p/ abater o depósito e pode ir pro Contas a Pagar)</span></div>
@@ -4985,13 +5001,13 @@ function renderCobranca() {
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
 
   el.innerHTML = `
-    <label class="upload-card" id="card-cobranca" for="file-cobranca">
+    ${uploadWrap('cobranca', `<label class="upload-card" id="card-cobranca" for="file-cobranca">
       <div class="u-icon">📥</div>
       <div class="u-label">Relatório de Boletos Recebidos (Itaú)</div>
       <div class="u-hint">.xlsx — exportado do Itaú com Pagador, Valor Título, Valor Pago, Vencimento, Data Pagamento</div>
       <div class="u-status" id="status-cobranca">Clique para carregar</div>
       <input type="file" id="file-cobranca" accept=".xlsx,.xls">
-    </label>
+    </label>`)}
 
     ${filtrosBar({
       nAtivos: [fEmp,fSt,fQ].filter(Boolean).length + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0),
@@ -5770,13 +5786,13 @@ function renderExtrato() {
   if (dfAtivo()) visC = visC.filter(t => passaData(t.data));
 
   el.innerHTML = `
-    <label class="upload-card" id="card-ext" for="file-ext">
+    ${uploadWrap('extrato', `<label class="upload-card" id="card-ext" for="file-ext">
       <div class="u-icon">🏦</div>
       <div class="u-label">Extrato Bancário (.ofx)</div>
       <div class="u-hint">Exportado do internet banking — créditos de PIX entram automaticamente em Recebimentos quando vinculados</div>
       <div class="u-status" id="status-ext">${extratoBancario.length?'✓ '+extratoBancario.length+' lançamentos':'Nenhum arquivo'}</div>
       <input type="file" id="file-ext" accept=".ofx,.qfx">
-    </label>
+    </label>`)}
     ${filtrosBar({
       nAtivos: [fBanco,fEmp,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
       limpar: 'limparFiltrosExtrato()',
@@ -8724,13 +8740,13 @@ function renderCompras() {
   const fornsAprov = Object.keys(aprovForn).sort();
   el.innerHTML = `
     <div style="max-width:520px;margin-bottom:16px">
-      <label class="upload-card" id="card-compras" for="file-compras">
+      ${uploadWrap('compras', `<label class="upload-card" id="card-compras" for="file-compras">
         <div class="u-icon">🛒</div>
         <div class="u-label">Planilha de Requisição de Compras</div>
         <div class="u-hint">.xlsx/.xls — Data Solicitação · Fornecedor · Insumo · Un · Qtde · Custo un. · Custo total · Coleção/PL · Data Limite · Categoria · Solicitante</div>
         <div class="u-status" id="status-compras">${compras.length ? '✓ ' + compras.length + ' itens' : 'Nenhum arquivo'}</div>
         <input type="file" id="file-compras" accept=".xlsx,.xls" multiple>
-      </label>
+      </label>`)}
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       <select class="inline-input" id="cmp-st" onchange="renderCompras()"><option value="">Todos status</option>${Object.keys(COMPRA_ST).map(s => `<option value="${s}" ${s === fSt ? 'selected' : ''}>${COMPRA_ST[s][0]}</option>`).join('')}</select>
