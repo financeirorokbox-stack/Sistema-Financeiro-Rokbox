@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v266/07-318';
+const APP_VERSION = 'v267/07-320';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3368,6 +3368,13 @@ function updateContaPagar(idx, field, value) {
   saveData('contasPagar', contasPagar);
   if (!semRerender) renderPagar();
 }
+// Copia o PIX da conta pra área de transferência (e mostra pra conferir).
+function copiarPix(idx) {
+  const c = contasPagar[idx]; if (!c || !c.pix) return;
+  const t = String(c.pix).trim();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => alert('💠 PIX copiado:\n\n' + t)).catch(() => alert('💠 PIX:\n\n' + t));
+  else alert('💠 PIX:\n\n' + t);
+}
 // Ao sair do campo de data, se a conta saiu do filtro ativo, recarrega a lista pra tirá-la da tela.
 function reavaliarFiltroConta(idx) {
   if (!dfAtivo()) return;
@@ -3587,6 +3594,7 @@ function exportarContasPagar() {
 }
 // Cria uma conta a pagar em branco (em aberto) para preencher na mão.
 let _novaContaRef = null; // transitório (não salvo): última conta criada na mão, p/ aparecer mesmo com filtro ativo
+let _cpEdit = null; // índice da conta em modo EDIÇÃO (as demais ficam só-leitura, com ✏️ pra abrir)
 function novaContaPagar() {
   const el = document.getElementById('v-pagar');
   const fCat = cpCatSel.size === 1 ? [...cpCatSel][0] : ''; // herda a categoria se só uma estiver marcada no filtro
@@ -3594,6 +3602,7 @@ function novaContaPagar() {
   const nova = { numero: '', fornecedor: 'Nova conta', descricao: '', categoria: fCat, observacao: '', empresa: fEmp, rateio: [], vencimento: new Date(), dataPag: null, valor: 0, situacao: 'Em Aberto', pago: false, _manual: true };
   contasPagar.push(nova);
   _novaContaRef = nova;
+  _cpEdit = contasPagar.length - 1; // já abre a conta nova em modo edição
   saveData('contasPagar', contasPagar);
   renderPagar();
 }
@@ -3773,14 +3782,34 @@ function renderPagar() {
             <td class="cpcol-historico"><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
           </tr>`;
         }
-        return `<tr${c._manual?' style="background:#fffbe6"':(c.pago?' style="background:#f0faf3"':'')}>
+        // Linha FECHADA (só-leitura) por padrão — clica no ✏️ pra editar só esta linha.
+        if (realIdx !== _cpEdit) {
+          const compRaw = competenciaConta(c); const compTxt = compRaw ? compRaw.split('-')[1] + '/' + compRaw.split('-')[0] : '<span style="color:var(--muted)">—</span>';
+          const hist = c.observacao || '';
+          const mut = '<span style="color:var(--muted)">—</span>';
+          return `<tr${c._manual ? ' style="background:#fffbe6"' : (c.pago ? ' style="background:#f0faf3"' : '')}>
+            ${delCheckbox('contasPagar', realIdx)}
+            <td class="cpcol-vencimento" style="white-space:nowrap">${c.vencimento ? fmtDate(c.vencimento) : mut} <a href="#" title="Editar esta conta" onclick="_cpEdit=${realIdx};renderPagar();return false" style="text-decoration:none;opacity:.55">✏️</a></td>
+            <td class="cpcol-competencia">${compTxt}</td>
+            <td class="cpcol-status">${c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>'}</td>
+            <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
+            <td class="cpcol-banco">${c.banco || mut}</td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${c.pix ? ` <a href="#" title="Copiar PIX" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''}</td>
+            <td class="cpcol-categoria">${catContaPagar(c) || mut}</td>
+            <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
+            <td class="cpcol-rateio" style="font-size:11px">${rateioStr}</td>
+            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)">${c.dataPag ? fmtDate(c.dataPag) : mut}</td>
+            <td class="cpcol-historico" title="${hist.replace(/"/g, '&quot;')}">${hist ? (hist.length > 28 ? hist.slice(0, 28) + '…' : hist) : mut}</td>
+          </tr>`;
+        }
+        return `<tr style="box-shadow:inset 0 0 0 2px var(--accent)"${c._manual?' ':''}>
           ${delCheckbox('contasPagar', realIdx)}
-          <td class="cpcol-vencimento"><input type="date" class="inline-input" style="width:130px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)" onblur="reavaliarFiltroConta(${realIdx})"></td>
+          <td class="cpcol-vencimento" style="white-space:nowrap"><input type="date" class="inline-input" style="width:118px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)" onblur="reavaliarFiltroConta(${realIdx})"> <a href="#" title="Concluir edição" onclick="_cpEdit=null;renderPagar();return false" style="text-decoration:none">✓</a></td>
           <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
           <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
-          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}</td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}<br><input class="inline-input" style="width:170px;margin-top:2px;font-size:10px" value="${(c.pix||'').replace(/"/g,'&quot;')}" placeholder="💠 PIX (só aqui na edição)" title="Chave PIX do fornecedor — fica guardada e aparece como 💠 na linha fechada" onchange="updateContaPagar(${realIdx},'pix',this.value)"></td>
           <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
