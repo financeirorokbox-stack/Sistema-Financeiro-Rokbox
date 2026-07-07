@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v268/07-321';
+const APP_VERSION = 'v269/07-323';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -493,7 +493,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -524,7 +524,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -939,6 +939,8 @@ let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na 
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
+let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). Usado no Relatório por banco (aprovação).
+let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI); vazio = hoje
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
 let freteManual = {};          // { pedidoId: valorFrete } — frete digitado na mão (Comissão), vale acima do que veio da planilha
@@ -3508,6 +3510,22 @@ function _contasPagarFiltradas() {
   if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
   return { vis: vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0)), fSt, fDataPor };
 }
+// Saldo inicial do dia (todos os bancos) informado pela usuária — com CARRY-FORWARD (repete o último informado).
+function getSaldoInicialDia(dateStr) {
+  if (saldoInicialDia[dateStr] != null) return +saldoInicialDia[dateStr] || 0;
+  const ds = Object.keys(saldoInicialDia).filter(d => d <= dateStr).sort();
+  return ds.length ? (+saldoInicialDia[ds[ds.length - 1]] || 0) : 0;
+}
+function saldoDiaDataAtual() { return _saldoDiaData || _toDateInput(new Date()); }
+function setSaldoInicialDia(valor) {
+  const dateStr = saldoDiaDataAtual();
+  const t = String(valor || '').trim();
+  if (!t) delete saldoInicialDia[dateStr];
+  else { const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, '')); saldoInicialDia[dateStr] = isNaN(n) ? 0 : +n.toFixed(2); }
+  saveData('saldoInicialDia', saldoInicialDia);
+  renderPagar();
+}
+function setSaldoDiaData(v) { _saldoDiaData = v; renderPagar(); }
 // Relatório por banco (agrupa as contas filtradas por banco de pagamento) — abre pra imprimir/PDF/enviar.
 function relatorioContasPorBanco() {
   const { vis, fSt, fDataPor } = _contasPagarFiltradas();
@@ -3527,12 +3545,21 @@ function relatorioContasPorBanco() {
     <tr class="sub"><td colspan="5">Subtotal — ${esc(b)}</td><td class="r">${fmtVal(sub)}</td></tr></tbody></table>`;
   });
   const filtroTxt = `Status: ${fSt === 'aberto' ? 'Em Aberto' : fSt === 'pago' ? 'Pago' : 'Todos'} · Data por: ${fDataPor === 'liquidacao' ? 'Liquidação' : 'Vencimento'} · ${dfAtivo() ? 'período filtrado' : 'todo o período'}`;
+  const repData = saldoDiaDataAtual();
+  const repDataBR = repData.split('-').reverse().join('/');
+  const saldoIni = getSaldoInicialDia(repData);
+  const saldoFinal = +(saldoIni - totalGeral).toFixed(2);
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Contas a Pagar por Banco</title>
     <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222;margin:24px;font-size:13px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #333;padding-bottom:3px}.cnt{font-size:12px;font-weight:400;color:#666}.meta{color:#666;font-size:12px;margin-bottom:8px}table{border-collapse:collapse;width:100%;margin-bottom:4px}th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}th{background:#f2f2f2;font-size:12px}.r{text-align:right}.sub{font-weight:700;background:#fafafa}.tot{margin-top:22px;font-size:17px;border-top:3px solid #333;padding-top:8px}.noprint button{padding:8px 16px;font-size:14px;cursor:pointer;margin-top:16px}@media print{.noprint{display:none}}</style></head><body>
     <h1>Contas a Pagar — por Banco</h1>
     <div class="meta">${esc(filtroTxt)} · ${vis.length} conta(s) · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+    <div style="background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 14px;margin:6px 0 14px;font-size:14px"><strong>🏦 Saldo inicial (todos os bancos) em ${repDataBR}:</strong> ${fmtVal(saldoIni)}</div>
     ${body}
-    <div class="tot">💰 TOTAL GERAL — ${fmtVal(totalGeral)}</div>
+    <div class="tot" style="border-top:3px solid #333;margin-top:22px;padding-top:10px">
+      <div>🏦 Saldo inicial (todos os bancos) em ${repDataBR}: <strong>${fmtVal(saldoIni)}</strong></div>
+      <div style="color:#b3261e">− Total a pagar: <strong>${fmtVal(totalGeral)}</strong></div>
+      <div style="font-size:19px;margin-top:4px;border-top:1px solid #999;padding-top:6px">= Saldo final: <strong style="color:${saldoFinal < 0 ? '#b3261e' : '#1b7a3d'}">${fmtVal(saldoFinal)}</strong></div>
+    </div>
     <div class="noprint"><button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button></div>
   </body></html>`;
   const w = window.open('', '_blank');
@@ -3663,6 +3690,12 @@ function renderPagar() {
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+      <span style="font-weight:700">💰 Saldo inicial do dia (todos os bancos):</span>
+      <input type="date" class="inline-input" value="${saldoDiaDataAtual()}" onchange="setSaldoDiaData(this.value)" style="width:130px" title="Dia do saldo">
+      <input class="inline-input" style="width:120px;text-align:right" value="${saldoInicialDia[saldoDiaDataAtual()]!=null?(+saldoInicialDia[saldoDiaDataAtual()]).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="${getSaldoInicialDia(saldoDiaDataAtual())?fmtVal(getSaldoInicialDia(saldoDiaDataAtual())).replace('R$ ',''):'0,00'}" onchange="setSaldoInicialDia(this.value)" title="Digite o saldo do dia. Se deixar em branco, repete o último informado (mostrado em cinza).">
+      <span style="color:var(--muted)">Entra no 📋 Relatório por banco: Saldo inicial − contas = Saldo final. Se não digitar, repete o último.</span>
     </div>
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
     <div class="filtros-drawer ${filtrosAbertos?'open':''}">
@@ -9552,7 +9585,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -9602,6 +9635,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
+    else if (k==='saldoInicialDia') saldoInicialDia = v || {};
     else if (k==='creditosCliente') creditosCliente = v || [];
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
