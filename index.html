@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v279/07-341';
+const APP_VERSION = 'v280/07-343';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -494,7 +494,7 @@ async function deleteData(key) {
 async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
@@ -523,7 +523,7 @@ async function zerarSistema() {
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
   const KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
     'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
@@ -929,6 +929,7 @@ let boletoConfig = {};
 let boletoCobrancaStatus = {};
 let boletosAvulsos = []; // boletos de pedidos fora do sistema (relatório Itaú): PAGOS (dataPagamento) ou EM ABERTO a receber (dataPagamento null, campo fone p/ cobrança)
 let msgCobrancaTpl = {}; // {lembrete, cobranca} — textos editáveis das mensagens de WhatsApp (aba Cobrança); vazio = usa o padrão
+let boletoAvisado = {}; // { 'pedido' : 'YYYY-MM-DD' } — quando o aviso/cobrança foi enviado (marcado ao clicar 📱 Cobrar). Avulsos usam a.cobradoEm.
 let _msgCobAberto = false; // editor de mensagens do WhatsApp começa RECOLHIDO
 let extratoBancario = [];
 let extratoLinks = {};
@@ -4714,6 +4715,14 @@ function _abrirWpp(fone, msg) {
   try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(msg); } catch (e) {}
   window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
 }
+// Marcações de "aviso enviado" (ao clicar 📱 Cobrar). Boletos de pedido: por pedido. Avulsos: a.cobradoEm.
+function _hojeISO() { return _toDateInput(new Date()); }
+function fmtDiaBR(iso) { const p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : (iso || ''); }
+function _reRenderCob() { try { renderCobranca(); } catch (e) {} try { if (document.getElementById('v-boletos') && document.getElementById('v-boletos').style.display !== 'none') renderBoletos(); } catch (e) {} }
+function marcarAvisadoBoleto(pedido) { boletoAvisado[String(pedido)] = _hojeISO(); saveData('boletoAvisado', boletoAvisado); _reRenderCob(); }
+function desmarcarAvisadoBoleto(pedido) { delete boletoAvisado[String(pedido)]; saveData('boletoAvisado', boletoAvisado); _reRenderCob(); }
+function marcarAvisadoAvulso(i) { if (boletosAvulsos[i]) { boletosAvulsos[i].cobradoEm = _hojeISO(); saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); } }
+function desmarcarAvisadoAvulso(i) { if (boletosAvulsos[i]) { delete boletosAvulsos[i].cobradoEm; saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); } }
 function cobrarBoletoWpp(pedidoId) {
   const ped = getBoletosPorPedido().find(b => String(b.pedido) === String(pedidoId));
   if (!ped) { alert('Pedido não encontrado.'); return; }
@@ -4723,6 +4732,7 @@ function cobrarBoletoWpp(pedidoId) {
   const alvo = pend.length ? pend : todas;
   const itens = alvo.map(p => ({ label: `Parcela ${p.parcela}/${p.totalParcelas}`, venc: p.vencimento, valor: p.valor }));
   _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
+  marcarAvisadoBoleto(ped.pedido);
 }
 // ── Lembretes de cobrança (aviso ao abrir + selo no menu + cobrar vencidos) ──
 // Lista de boletos A COBRAR (em aberto): avulsos do Itaú + boletos do sistema emitidos e não pagos.
@@ -4957,7 +4967,7 @@ function renderBoletos() {
           </select>
         </div></td>
         <td style="font-size:11px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<span style="${cor}">${p.parcela}/${p.totalParcelas}: ${fmtDate(p.vencimento)} ${fmtVal(p.valor)}</span> ${st?'<span class="badge ok">✓</span>':''}`;}).join('<br>') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
-        <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem de cobrança pronta">📱 Cobrar</button>`:''}</div></td>
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem de cobrança pronta">📱 ${boletoAvisado[String(ped.pedido)]?'Cobrar de novo':'Cobrar'}</button>${boletoAvisado[String(ped.pedido)]?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ ${fmtDiaBR(boletoAvisado[String(ped.pedido)])}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${ped.pedido}');return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>`:''}`:''}</div></td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
@@ -5106,6 +5116,7 @@ function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[
 function cobrarAvulsoWpp(i) {
   const a = boletosAvulsos[i]; if (!a) return;
   _abrirWpp(a.fone, montarMsgCobranca(a.cliente, a.pedido ? 'pedido #' + a.pedido : '', [{ label: 'Boleto', venc: a.vencimento, valor: a.valorTitulo || 0 }]));
+  marcarAvisadoAvulso(i);
 }
 // Marca um boleto avulso em aberto como RECEBIDO
 function baixarAvulso(i) {
@@ -5169,7 +5180,7 @@ function renderCobranca() {
         <td><strong>#${a.pedido || '—'}</strong></td>
         <td>${a.cliente || '—'}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(a.fone || '').replace(/"/g, '&quot;')}" placeholder="📱 WhatsApp cliente" onchange="setAvulsoFone(${i},this.value)"></td>
         <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
-        <td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 Cobrar</button><button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 ${a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${a.cobradoEm ? `<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(a.cobradoEm)}</span> <a href="#" onclick="desmarcarAvisadoAvulso(${i});return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
       const rowPago = i => { const a = boletosAvulsos[i]; return `<tr><td><strong>#${a.pedido || '—'}</strong></td><td>${a.cliente || '—'}</td><td>${fmtVal(a.valorPago || a.valorTitulo || 0)}</td><td>${a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td><td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></td></tr>`; };
       return `<div style="margin:10px 0 4px"><button class="btn ghost sm" style="font-size:11px" onclick="deduparBoletosAvulsos()" title="Remove boletos duplicados (mantém um de cada)">🧹 Remover duplicados</button></div>${abertos.length ? `<div class="section-title">📱 A receber fora do sistema — a cobrar (${abertos.length})</div>
       <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Ações</th></tr></thead><tbody>
@@ -9780,7 +9791,7 @@ function delCheckboxHeader(source) {
 
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
@@ -9800,6 +9811,7 @@ function delCheckboxHeader(source) {
     }
     else if (k==='boletosAvulsos') boletosAvulsos = (v||[]).map(a=>({...a,dataPagamento:a.dataPagamento?new Date(a.dataPagamento):null,vencimento:a.vencimento?new Date(a.vencimento):null}));
     else if (k==='msgCobrancaTpl') msgCobrancaTpl = v || {};
+    else if (k==='boletoAvisado') boletoAvisado = v || {};
     else if (k==='extratoBancario') extratoBancario = v.map(t=>({...t,data:t.data?new Date(t.data):null}));
     else if (k==='devolucoes') devolucoes = v.map(d=>({...d,dataTroca:d.dataTroca?new Date(d.dataTroca):null}));
     else if (k==='boletoConfig') {
