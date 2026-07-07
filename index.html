@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v284/07-349';
+const APP_VERSION = 'v285/07-351';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -973,6 +973,8 @@ let manualLinks = {};
 let formaManualMap = {}; // forma digitada manualmente em Contas a Receber
 let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categoria do pedido)
 let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para exportação)
+let _linhasCRExport = []; // linhas SEM o filtro de data (o export filtra por PAGAMENTO, respeitando o tipo Venc/Liquidação)
+let _linhasCRDataPor = 'vencimento'; // tipo do filtro de data ('vencimento' | 'liquidacao') do último render de Contas a Receber
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let condicoesPagamento = []; // prazos p/ Compras: [{id,nome,nParcelas,primeiroDias,intervaloDias}] (À vista=1/0/0; 30/60/90=3/30/30)
@@ -2190,7 +2192,6 @@ function _renderContasImpl(el) {
   let vis = linhas;
   if (fCat) vis = vis.filter(l => l.cat === fCat);
   if (fEmp) vis = vis.filter(l => (l.ped.empresa||'') === fEmp);
-  if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? getLiqDate(l) : l.venc)); // MESMA data de liquidação do relatório (getLiqDate)
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
   if (fSt === 'semforma') vis = vis.filter(l => l.semForma);
@@ -2202,8 +2203,13 @@ function _renderContasImpl(el) {
     const op = cls.naoAplicavel ? '' : (cls.operacao || opMapping[opKey(l.ped.loja, l.ped.situacao)] || '');
     return op.toLowerCase() === fOp.toLowerCase();
   });
+  // Export: guarda as linhas SEM o filtro de data — ele filtra PAGAMENTO a pagamento (respeita Venc/Liquidação),
+  // pra parciais pagos em meses diferentes caírem cada um no seu mês.
+  _linhasCRExport = vis;
+  _linhasCRDataPor = fDataPor;
+  if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? getLiqDate(l) : l.venc)); // filtro de data na TELA/cards (por linha)
 
-  _linhasCR = vis; // o export agora respeita os filtros da tela (status, data por, empresa, categoria, período)
+  _linhasCR = vis; // o export usa _linhasCRExport (filtra por pagamento); _linhasCR = tela
   const emAberto = vis.filter(l => !l.st.recebido); // cards seguem o FILTRO (antes usavam todas as linhas e não mudavam)
   const pagos    = vis.filter(l =>  l.st.recebido);
   const vAberto  = emAberto.reduce((s,l) => s + l.f.valor, 0);
@@ -3254,14 +3260,15 @@ function pagamentosDaLinha(l) {
   return out;
 }
 function exportarModeloCR() {
-  if (!_linhasCR.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
+  if (!_linhasCRExport.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
+  const _dfOn = dfAtivo(); const _porLiq = _linhasCRDataPor === 'liquidacao'; // filtra por PAGAMENTO respeitando o tipo
   const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
   const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   // Datas AO MEIO-DIA local, senão o SheetJS converte pra UTC e "volta 1 dia" no Excel (mostrava 31/05 no lugar de 01/06).
   const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
   const rows = [headers];
   const _asDate = d => d ? (d instanceof Date ? d : new Date(d)) : null;
-  _linhasCR.forEach(l => {
+  _linhasCRExport.forEach(l => {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
     const pedNum = String(l.f.pedido);
     const nome = l.ped.nome || '';
@@ -3270,6 +3277,8 @@ function exportarModeloCR() {
     const cat = l.cat || '';
     const emp = l.ped.empresa || '';
     const vencDt = _asDate(l.venc);
+    // Filtro por VENCIMENTO: a data é da LINHA → se não passa, pula a linha inteira.
+    if (_dfOn && !_porLiq && !passaData(vencDt)) return;
     // Uma linha por PAGAMENTO (data + valor); o saldo que falta vira 1 linha "Em Aberto" sem data.
     const mkRow = (liqIn, valor, receb, sit) => {
       const liqD = _asDate(liqIn);
@@ -3278,9 +3287,15 @@ function exportarModeloCR() {
     };
     const pags = pagamentosDaLinha(l);
     let somaPag = 0;
-    pags.forEach(pg => { somaPag += pg.valor; rows.push(mkRow(pg.data, +pg.valor.toFixed(2), +pg.valor.toFixed(2), 'Pago')); });
+    pags.forEach(pg => {
+      somaPag += pg.valor;
+      // Filtro por LIQUIDAÇÃO: cada pagamento cai no MÊS da sua data (data do banco) → só entra o que passa.
+      if (_dfOn && _porLiq && !passaData(pg.data)) return;
+      rows.push(mkRow(pg.data, +pg.valor.toFixed(2), +pg.valor.toFixed(2), 'Pago'));
+    });
     const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
-    if (pendente > 0.01) rows.push(mkRow(null, pendente, 0, 'Em Aberto'));
+    // O saldo em aberto não tem data de liquidação → não entra quando o filtro é por Liquidação.
+    if (pendente > 0.01 && !(_dfOn && _porLiq)) rows.push(mkRow(null, pendente, 0, 'Em Aberto'));
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
