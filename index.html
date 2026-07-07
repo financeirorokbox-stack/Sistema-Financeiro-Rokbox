@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v273/07-331';
+const APP_VERSION = 'v274/07-333';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4718,6 +4718,12 @@ function atualizarBadgeCobranca() {
   if (r.vencidos.length || r.aVencer.length) { el.textContent = r.vencidos.length ? r.vencidos.length + '⚠' : r.aVencer.length; el.style.display = 'inline-block'; el.style.background = r.vencidos.length ? 'var(--red)' : 'var(--amber)'; el.title = `${r.vencidos.length} vencido(s) · ${r.aVencer.length} a vencer`; }
   else el.style.display = 'none';
 }
+// Atalho: navega direto pra aba Cobrança (Financeiro → Contas a Receber → Cobrança).
+function irParaCobranca() {
+  try { setView('financeiro'); } catch (e) {}
+  try { setSub('contas'); } catch (e) {}
+  try { setSubR('cobranca'); } catch (e) {}
+}
 // Aviso ao abrir o sistema (uma vez por sessão) se houver boletos a cobrar.
 function mostrarAvisoCobranca() {
   try { if (sessionStorage.getItem('avisoCob') === '1') return; } catch (e) {}
@@ -4725,7 +4731,7 @@ function mostrarAvisoCobranca() {
   if (!r.vencidos.length && !r.aVencer.length) return;
   const bar = document.getElementById('cobranca-aviso'); if (!bar) return;
   bar.innerHTML = `⏰ <strong>Cobrança:</strong> ${r.vencidos.length} vencido(s)${r.aVencer.length ? ' · ' + r.aVencer.length + ' vence(m) em breve' : ''}.
-    <button class="btn sm" style="background:#fff;color:#b3261e;margin-left:10px" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';setSubR('cobranca')">Ver cobrança →</button>
+    <button class="btn sm" style="background:#fff;color:#b3261e;margin-left:10px" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';irParaCobranca()">Ver cobrança →</button>
     <a href="#" onclick="try{sessionStorage.setItem('avisoCob','1')}catch(e){};document.getElementById('cobranca-aviso').style.display='none';return false" style="color:#fff;margin-left:8px;text-decoration:none">✕</a>`;
   bar.style.display = 'block';
 }
@@ -8873,7 +8879,7 @@ function renderCompras() {
     </div>` : ''}
     ${vis.length === 0 ? '<div class="empty"><div class="e-icon">🛒</div>Nenhuma compra no filtro. Suba a planilha de requisição ou clique ➕ Nova compra.</div>' : `
     <datalist id="cmp-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('')}</datalist>
-    <datalist id="cmp-forn-list">${fornecedoresCompras.map(f => `<option value="${(f.nome || '').replace(/"/g, '&quot;')}">`).join('')}</datalist>
+    <datalist id="cmp-forn-list">${[...new Set([...fornecedoresCompras.map(f => f.nome).filter(Boolean), ...compras.map(c => c.fornecedor).filter(Boolean), ...contasPagar.map(c => c.fornecedor).filter(Boolean)])].sort().map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
     <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
       <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
