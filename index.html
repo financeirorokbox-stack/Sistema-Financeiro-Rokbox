@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v283/07-347';
+const APP_VERSION = 'v284/07-349';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3226,12 +3226,33 @@ function dadosRecebimentoLinha(l) {
       recebido += (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0)); // LÍQUIDO (o que caiu no banco), não o bruto
       taxa += r.taxa || 0;
     });
+  } else if (l.cat === 'Pix (Extrato/OFX)') {
+    // PIX: soma o que REALMENTE entrou (mostra o valor parcial também, não só quando 100% pago)
+    recebimentosConsolidado.filter(r => r.gateway === 'PIX (Extrato)' && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => { recebido += (r.liq != null ? r.liq : (r.bruto || 0)); });
   } else if (l.st.recebido) {
-    recebido = l.f.valor; // Pix/extrato, devolução, etc.
+    recebido = l.f.valor; // demais (dinheiro, depósito) já pagos
   }
   return { recebido: +recebido.toFixed(2), taxa: +taxa.toFixed(2), juros: +juros.toFixed(2), desconto: +desconto.toFixed(2) };
 }
 
+// Pagamentos REAIS de uma linha (cada recebimento com sua data no BANCO e valor alocado ao pedido).
+// Usado no relatório pra quebrar parciais em linhas por data de liquidação.
+function pagamentosDaLinha(l) {
+  const pedId = String(l.f.pedido);
+  const out = [];
+  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) out.push({ data: a.dataPagamento, valor: a.valorPago != null ? a.valorPago : (a.valorTitulo || 0) }); return out; }
+  if (l.cat === 'Boleto Itaú') {
+    const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
+    if (bPed) getParcelas(bPed).forEach(p => { const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) out.push({ data: cob.dataPagamento, valor: cob.valorPago != null ? cob.valorPago : p.valor }); });
+    return out;
+  }
+  recebimentosConsolidado.filter(r => r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => {
+    const valor = alocRecebGateway(r, pedId);
+    if (Math.abs(valor) < 0.005) return;
+    out.push({ data: dataRepasseBanco(r) || r.data, valor: +valor.toFixed(2) });
+  });
+  return out;
+}
 function exportarModeloCR() {
   if (!_linhasCR.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
   const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
@@ -3239,20 +3260,27 @@ function exportarModeloCR() {
   // Datas AO MEIO-DIA local, senão o SheetJS converte pra UTC e "volta 1 dia" no Excel (mostrava 31/05 no lugar de 01/06).
   const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
   const rows = [headers];
+  const _asDate = d => d ? (d instanceof Date ? d : new Date(d)) : null;
   _linhasCR.forEach(l => {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
-    const liq = l.st.recebido ? getLiqDate(l) : null;
-    const { recebido, taxa, juros, desconto } = dadosRecebimentoLinha(l);
-    const situacao = l.st.recebido ? 'Pago' : (l.st.parcial ? 'Parcial' : 'Em Aberto');
-    const competencia = liq ? `01/${String(liq.getMonth() + 1).padStart(2, '0')}/${liq.getFullYear()}` : '';
-    const aliquota = l.f.valor ? +(taxa / l.f.valor * 100).toFixed(2) : 0;
+    const pedNum = String(l.f.pedido);
+    const nome = l.ped.nome || '';
     const descricao = descricaoReceita(l.f.descricao) || descricaoReceita(l.cat) || l.cat || l.f.descricao || '';
     const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
-    rows.push([
-      _noon(liq), _noon(l.venc), String(l.f.pedido), l.ped.nome || '', situacao,
-      competencia, l.f.valor, 0, juros, desconto, recebido, aliquota, taxa, descricao, obs,
-      l.cat || '', _ma(liq || l.venc), _ma(liq), l.f.valor, _noon(liq || l.venc), l.ped.empresa || ''
-    ]);
+    const cat = l.cat || '';
+    const emp = l.ped.empresa || '';
+    const vencDt = _asDate(l.venc);
+    // Uma linha por PAGAMENTO (data + valor); o saldo que falta vira 1 linha "Em Aberto" sem data.
+    const mkRow = (liqIn, valor, receb, sit) => {
+      const liqD = _asDate(liqIn);
+      const comp = liqD ? `01/${String(liqD.getMonth() + 1).padStart(2, '0')}/${liqD.getFullYear()}` : (vencDt ? `01/${String(vencDt.getMonth() + 1).padStart(2, '0')}/${vencDt.getFullYear()}` : '');
+      return [_noon(liqD), _noon(vencDt), pedNum, nome, sit, comp, valor, 0, 0, 0, receb, 0, 0, descricao, obs, cat, _ma(liqD || vencDt), _ma(liqD), valor, _noon(liqD || vencDt), emp];
+    };
+    const pags = pagamentosDaLinha(l);
+    let somaPag = 0;
+    pags.forEach(pg => { somaPag += pg.valor; rows.push(mkRow(pg.data, +pg.valor.toFixed(2), +pg.valor.toFixed(2), 'Pago')); });
+    const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
+    if (pendente > 0.01) rows.push(mkRow(null, pendente, 0, 'Em Aberto'));
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
