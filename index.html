@@ -387,7 +387,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v269/07-323';
+const APP_VERSION = 'v270/07-324';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3510,18 +3510,31 @@ function _contasPagarFiltradas() {
   if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
   return { vis: vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0)), fSt, fDataPor };
 }
-// Saldo inicial do dia (todos os bancos) informado pela usuária — com CARRY-FORWARD (repete o último informado).
-function getSaldoInicialDia(dateStr) {
-  if (saldoInicialDia[dateStr] != null) return +saldoInicialDia[dateStr] || 0;
-  const ds = Object.keys(saldoInicialDia).filter(d => d <= dateStr).sort();
-  return ds.length ? (+saldoInicialDia[ds[ds.length - 1]] || 0) : 0;
-}
+// Saldo inicial do dia POR BANCO — a usuária digita cada banco; o "todos os bancos" é a SOMA.
+// Modelo: saldoInicialDia = { 'YYYY-MM-DD': { banco: valor } }. Carry-forward por banco (repete o último informado).
 function saldoDiaDataAtual() { return _saldoDiaData || _toDateInput(new Date()); }
-function setSaldoInicialDia(valor) {
+function _bancosSaldo() {
+  const s = new Set((bancosCadastro || []).filter(Boolean));
+  contasPagar.forEach(c => { if (c.banco) s.add(c.banco); });
+  Object.values(saldoInicialDia).forEach(o => { if (o && typeof o === 'object') Object.keys(o).forEach(b => s.add(b)); });
+  const arr = [...s].filter(Boolean).sort();
+  return arr.length ? arr : ['(geral)'];
+}
+function saldoInicialDiaBancoValor(dateStr, banco) { // valor EXPLÍCITO desta data (ou null)
+  const o = saldoInicialDia[dateStr]; return (o && typeof o === 'object' && o[banco] != null) ? +o[banco] || 0 : null;
+}
+function getSaldoInicialDiaBanco(dateStr, banco) { // com carry-forward
+  const datas = Object.keys(saldoInicialDia).filter(d => d <= dateStr).sort();
+  for (let i = datas.length - 1; i >= 0; i--) { const o = saldoInicialDia[datas[i]]; if (o && typeof o === 'object' && o[banco] != null) return +o[banco] || 0; }
+  return 0;
+}
+function getSaldoInicialDia(dateStr) { return _bancosSaldo().reduce((s, b) => s + getSaldoInicialDiaBanco(dateStr, b), 0); }
+function setSaldoInicialDiaBanco(banco, valor) {
   const dateStr = saldoDiaDataAtual();
+  if (!saldoInicialDia[dateStr] || typeof saldoInicialDia[dateStr] !== 'object') saldoInicialDia[dateStr] = {};
   const t = String(valor || '').trim();
-  if (!t) delete saldoInicialDia[dateStr];
-  else { const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, '')); saldoInicialDia[dateStr] = isNaN(n) ? 0 : +n.toFixed(2); }
+  if (!t) delete saldoInicialDia[dateStr][banco];
+  else { const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, '')); saldoInicialDia[dateStr][banco] = isNaN(n) ? 0 : +n.toFixed(2); }
   saveData('saldoInicialDia', saldoInicialDia);
   renderPagar();
 }
@@ -3691,12 +3704,17 @@ function renderPagar() {
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
-      <span style="font-weight:700">💰 Saldo inicial do dia (todos os bancos):</span>
-      <input type="date" class="inline-input" value="${saldoDiaDataAtual()}" onchange="setSaldoDiaData(this.value)" style="width:130px" title="Dia do saldo">
-      <input class="inline-input" style="width:120px;text-align:right" value="${saldoInicialDia[saldoDiaDataAtual()]!=null?(+saldoInicialDia[saldoDiaDataAtual()]).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="${getSaldoInicialDia(saldoDiaDataAtual())?fmtVal(getSaldoInicialDia(saldoDiaDataAtual())).replace('R$ ',''):'0,00'}" onchange="setSaldoInicialDia(this.value)" title="Digite o saldo do dia. Se deixar em branco, repete o último informado (mostrado em cinza).">
-      <span style="color:var(--muted)">Entra no 📋 Relatório por banco: Saldo inicial − contas = Saldo final. Se não digitar, repete o último.</span>
-    </div>
+    ${(()=>{ const _sd=saldoDiaDataAtual(); const _bs=_bancosSaldo(); return `<div style="margin:0 0 12px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <span style="font-weight:700">💰 Saldo inicial do dia — por banco:</span>
+        <input type="date" class="inline-input" value="${_sd}" onchange="setSaldoDiaData(this.value)" style="width:130px" title="Dia do saldo">
+        <span style="color:var(--muted)">digite cada banco; se deixar em branco, repete o último informado (cinza).</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${_bs.map(b=>{ const exp=saldoInicialDiaBancoValor(_sd,b); const carry=getSaldoInicialDiaBanco(_sd,b); const eb=b.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); return `<label style="display:inline-flex;align-items:center;gap:4px">🏦 ${b} <input class="inline-input" style="width:95px;text-align:right" value="${exp!=null?exp.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="${carry?fmtVal(carry).replace('R$ ',''):'0,00'}" onchange="setSaldoInicialDiaBanco('${eb}',this.value)"></label>`; }).join('')}
+        <span style="font-weight:700;color:var(--accent);margin-left:auto">Total (todos): ${fmtVal(getSaldoInicialDia(_sd))}</span>
+      </div>
+    </div>`; })()}
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
     <div class="filtros-drawer ${filtrosAbertos?'open':''}">
       <div class="fd-head"><b>⚙ Filtros</b><button class="fd-x" onclick="toggleFiltros(false)">✕</button></div>
