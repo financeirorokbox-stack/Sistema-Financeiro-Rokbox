@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v292/07-364';
+const APP_VERSION = 'v293/07-366';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9307,7 +9307,7 @@ function gerarPedidoCompra(fornecedor, i) {
   parcelas.forEach((p, k) => {
     contasPagar.push({
       numero: '', fornecedor, descricao: descricaoPedidoCompra(numPed, colecoes, k, parcelas.length),
-      categoria, observacao: obsPedidoCompra(numPed, itens.length, obsPed), empresa, rateio: [],
+      categoria, observacao: obsPedidoCompra(numPed, itens.length, colecoes, obsPed), empresa, rateio: [],
       vencimento: p.venc, dataPag: null, valor: p.valor, situacao: 'Em Aberto', pago: false, _compraPedidoId: pedidoId
     });
   });
@@ -9319,7 +9319,7 @@ function gerarPedidoCompra(fornecedor, i) {
 // Próximo nº de pedido de compra (maior existente + 1; começa em 1)
 function proxNumPedidoCompra() { const nums = compras.map(c => parseInt(c._pedidoNum, 10)).filter(n => !isNaN(n)); return (nums.length ? Math.max(...nums) : 0) + 1; }
 function descricaoPedidoCompra(numPed, colecoes, k, n) { return `Pedido #${numPed}` + (colecoes ? ' — ' + colecoes : '') + (n > 1 ? ` (parc. ${k + 1}/${n})` : ''); }
-function obsPedidoCompra(numPed, nItens, obsPed) { return `🛒 Pedido #${numPed} de compra (${nItens} itens)` + (obsPed ? ' — ' + obsPed : ''); }
+function obsPedidoCompra(numPed, nItens, colecoes, obsPed) { return `🛒 Pedido #${numPed} (${nItens} ${nItens === 1 ? 'item' : 'itens'})` + (colecoes ? ` · Coleção ${colecoes}` : '') + (obsPed ? ' — ' + obsPed : ''); }
 function removerCompra(id) { const c = compras.find(x => x.id === id); if (!c) return; if (!confirm('Remover esta compra?')) return; compras = compras.filter(x => x.id !== id); saveData('compras', compras); renderCompras(); }
 // ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
 // Modelo: {id, nome, dias:[28,56,84]} — os dias contam a partir da Data de Faturamento.
