@@ -97,9 +97,9 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .filtros-toggle{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12.5px;font-weight:700;cursor:pointer}
 .filtros-toggle:hover{border-color:var(--accent)}
 .filtros-toggle .cnt{background:var(--accent);color:#fff;border-radius:10px;font-size:10px;padding:1px 7px;line-height:1.6}
-.filtros-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90;opacity:0;pointer-events:none;transition:opacity .18s}
+.filtros-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:998;opacity:0;pointer-events:none;transition:opacity .18s}
 .filtros-backdrop.open{opacity:1;pointer-events:auto}
-.filtros-drawer{position:fixed;top:0;left:0;height:100%;width:290px;max-width:85vw;background:var(--surface);border-right:1px solid var(--border);box-shadow:2px 0 18px rgba(0,0,0,.18);z-index:91;transform:translateX(-100%);transition:transform .2s ease;display:flex;flex-direction:column;gap:12px;padding:16px;overflow-y:auto}
+.filtros-drawer{position:fixed;top:0;left:0;height:100%;width:290px;max-width:85vw;background:var(--surface);border-right:1px solid var(--border);box-shadow:2px 0 18px rgba(0,0,0,.18);z-index:999;transform:translateX(-100%);transition:transform .2s ease;display:flex;flex-direction:column;gap:12px;padding:16px;overflow-y:auto}
 .filtros-drawer.open{transform:translateX(0)}
 .filtros-drawer .fd-head{display:flex;align-items:center;justify-content:space-between}
 .filtros-drawer .fd-head b{font-size:14px}
@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v286/07-353';
+const APP_VERSION = 'v287/07-354';
 
 function getDeviceId() {
   return EMPRESA_ID;
