@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v287/07-354';
+const APP_VERSION = 'v288/07-356';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -948,6 +948,7 @@ let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — s
 let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). Usado no Relatório por banco (aprovação).
 let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI); vazio = hoje
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
+let _repSoMes = true;          // na conciliação, a lista de recebimentos p/ flegar mostra só o MÊS do depósito (senão enche de valores repetidos)
 let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
 let freteManual = {};          // { pedidoId: valorFrete } — frete digitado na mão (Comissão), vale acima do que veio da planilha
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
@@ -7782,10 +7783,13 @@ function renderBanco() {
                   // Recebimentos pendentes da operadora escolhida (para a lista de flegar).
                   // Inclui TAMBÉM os valores NEGATIVOS (reembolsos/estornos): o depósito do PayPal já vem
                   // líquido deles, então eles compõem o valor de entrada e precisam ser flegáveis aqui.
-                  const pendRep = recebimentosConsolidado
-                    .filter(r => r.gateway === gwSel && Math.abs(valorRepasse(r)) > 0.005 && !usadosRepasse.has(recKeyGlobal(r)))
-                    // Ordena: 1º os que BATEM o valor do depósito (mais fáceis de marcar), depois por data (mais novo no topo).
-                    .sort((a,b) => (Math.abs(valorRepasse(a)-alvoRep)<=0.02?0:1) - (Math.abs(valorRepasse(b)-alvoRep)<=0.02?0:1) || (b.data||0)-(a.data||0));
+                  const _mesKey = d => { const x = d instanceof Date ? d : new Date(d); return isNaN(x) ? '' : x.getFullYear() + '-' + (x.getMonth() + 1); };
+                  let pendRep = recebimentosConsolidado
+                    .filter(r => r.gateway === gwSel && Math.abs(valorRepasse(r)) > 0.005 && !usadosRepasse.has(recKeyGlobal(r)));
+                  const _repTotalMeses = pendRep.length;
+                  if (_repSoMes && t.data) pendRep = pendRep.filter(r => _mesKey(r.data) === _mesKey(t.data)); // só o mês do depósito
+                  // Ordena: 1º os que BATEM o valor do depósito (mais fáceis de marcar), depois por data (mais novo no topo).
+                  pendRep.sort((a,b) => (Math.abs(valorRepasse(a)-alvoRep)<=0.02?0:1) - (Math.abs(valorRepasse(b)-alvoRep)<=0.02?0:1) || (b.data||0)-(a.data||0));
                   // Pré-marca SÓ se houver um único recebimento que bate exato (não adivinha combinações).
                   const exatoUm = pendRep.find(r => Math.abs(valorRepasse(r) - alvoRep) <= 0.02);
                   const somaIni = exatoUm ? valorRepasse(exatoUm) : 0;
@@ -7803,6 +7807,7 @@ function renderBanco() {
                     ${pendRep.length ? `
                     <div id="cb-rep-box-${t.id}" style="display:none;margin-top:6px">
                       <input type="text" id="cb-rep-q-${t.id}" placeholder="🔍 Pesquisar pedido, nome, valor..." oninput="cbFiltrarRepList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
+                      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${_repSoMes ? `📅 Só do mês do depósito${_repTotalMeses > pendRep.length ? ` · <a href="#" onclick="_repSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todos (${_repTotalMeses})</a>` : ''}` : `📅 Todos os meses · <a href="#" onclick="_repSoMes=true;renderBanco();return false" style="color:var(--accent)">só do mês</a>`}</div>
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto">
                         ${pendRep.map(r => {
                           const vRep = valorRepasse(r);
