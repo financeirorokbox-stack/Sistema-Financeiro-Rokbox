@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v288/07-356';
+const APP_VERSION = 'v289/07-358';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -932,6 +932,7 @@ let msgCobrancaTpl = {}; // {lembrete, cobranca} — textos editáveis das mensa
 let boletoAvisado = {}; // { 'pedido' : 'YYYY-MM-DD' } — quando o aviso/cobrança foi enviado (marcado ao clicar 📱 Cobrar). Avulsos usam a.cobradoEm.
 let _msgCobAberto = false; // editor de mensagens do WhatsApp começa RECOLHIDO
 let extratoBancario = [];
+let extDelTipo = 'todos';     // seção "apagar duplicados" do Extrato: todos | credito | debito (só filtro de tela)
 let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
@@ -6031,6 +6032,21 @@ function renderExtrato() {
   });
   if (dfAtivo()) visC = visC.filter(t => passaData(t.data));
 
+  // ── Seção "apagar duplicados": extrato INTEIRO (crédito + débito), com caixinha p/ excluir na mão.
+  // Marca como "duplicado?" quando há 2+ lançamentos com MESMO banco+dia+valor+descrição (o típico re-upload).
+  const _diaKExt = d => (d instanceof Date && !isNaN(d)) ? d.toISOString().slice(0, 10) : '';
+  const _dupKeyExt = t => (t.banco || '') + '|' + _diaKExt(t.data) + '|' + (t.valor || 0).toFixed(2) + '|' + (t.memo || '').trim().toLowerCase();
+  const _dupCountExt = {};
+  baseExt.forEach(t => { const k = _dupKeyExt(t); _dupCountExt[k] = (_dupCountExt[k] || 0) + 1; });
+  let visAll = baseExt.slice();
+  if (extDelTipo === 'credito') visAll = visAll.filter(t => t.valor >= 0);
+  else if (extDelTipo === 'debito') visAll = visAll.filter(t => t.valor < 0);
+  if (fQ) visAll = visAll.filter(t => (t.memo || '').toLowerCase().includes(fQ));
+  if (dfAtivo()) visAll = visAll.filter(t => passaData(t.data));
+  // Duplicados juntos (mesma chave em sequência), depois data mais nova no topo.
+  visAll.sort((a, b) => { const ka = _dupKeyExt(a), kb = _dupKeyExt(b); return (ka < kb ? -1 : ka > kb ? 1 : 0) || ((b.data || 0) - (a.data || 0)); });
+  const nDupExt = visAll.filter(t => _dupCountExt[_dupKeyExt(t)] > 1).length;
+
   el.innerHTML = `
     ${uploadWrap('extrato', `<label class="upload-card" id="card-ext" for="file-ext">
       <div class="u-icon">🏦</div>
@@ -6060,17 +6076,15 @@ function renderExtrato() {
     <div class="section-title">Créditos — vincule ao pedido para entrar em Recebimentos</div>
     ${visC.length===0 ? '<div class="empty"><div class="e-icon">🏦</div>Carregue o arquivo OFX</div>' : `
     <div class="table-wrap"><table><thead><tr>
-      ${delCheckboxHeader('extrato')}<th>Data</th><th>Descrição</th><th>Valor</th><th style="min-width:300px">Vínculo com pedido</th>
+      <th>Data</th><th>Descrição</th><th>Valor</th><th style="min-width:300px">Vínculo com pedido</th>
     </tr></thead><tbody>
     ${visC.sort((a,b)=>(b.data||0)-(a.data||0)).map(t=>{
       const link = extratoLinks[t.id];
-      const realIdx = extratoBancario.indexOf(t);
       const autoMatch = !link ? pedidos.find(p => {
         const valEsp = getValorConciliacaoPedido(p);
         return pedidoTemRecebimento(p) && Math.abs(valEsp - t.valor) <= 0.10;
       }) : null;
       return `<tr>
-        ${delCheckbox('extrato', realIdx)}
         <td>${fmtDate(t.data)}</td><td>${t.memo}</td><td>${fmtVal(t.valor)}</td>
         <td>${link
           ? `<span class="saved-label">✓ ${link.pedido.split(',').map(p=>p.startsWith('AV:')?'boleto Itaú':`#${p}`).join(' + ')}</span>
@@ -6141,6 +6155,34 @@ function renderExtrato() {
               </div>`;
             })()}
         </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>`}
+
+    <div class="section-title" style="margin-top:26px">🧹 Extrato inteiro — marque e apague o que duplicou</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Mostra créditos E débitos. Marque a caixinha das linhas repetidas e clique em Excluir (barra embaixo). Os prováveis duplicados aparecem <span style="color:var(--red);font-weight:600">destacados</span>.</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn ${extDelTipo==='todos'?'primary':'ghost'} sm" onclick="extDelTipo='todos';renderExtrato()">Todos</button>
+      <button class="btn ${extDelTipo==='credito'?'primary':'ghost'} sm" onclick="extDelTipo='credito';renderExtrato()">Só créditos</button>
+      <button class="btn ${extDelTipo==='debito'?'primary':'ghost'} sm" onclick="extDelTipo='debito';renderExtrato()">Só débitos</button>
+      <span style="font-size:12px;margin-left:6px;color:${nDupExt?'var(--amber)':'var(--muted)'};font-weight:600">${nDupExt? '⚠ '+nDupExt+' possível(is) duplicado(s)':'Nenhum duplicado aparente'}</span>
+    </div>
+    ${visAll.length===0 ? '<div class="empty"><div class="e-icon">🏦</div>Nenhum lançamento neste filtro.</div>' : `
+    <div class="table-wrap"><table><thead><tr>
+      ${delCheckboxHeader('extrato')}<th>Data</th><th>Descrição</th><th>Valor</th><th>Banco</th><th>Situação</th>
+    </tr></thead><tbody>
+    ${visAll.map(t=>{
+      const realIdx = extratoBancario.indexOf(t);
+      const dup = _dupCountExt[_dupKeyExt(t)] > 1;
+      const isCred = t.valor >= 0;
+      const vinc = extratoLinks[t.id] ? '✓ pedido' : repasseLinks[t.id] ? '✓ repasse' : debitoLinks[t.id] ? '✓ conta' : receitaLinks[t.id] ? '✓ receita' : '';
+      return `<tr style="${dup?'background:#fff4f4':''}">
+        ${delCheckbox('extrato', realIdx)}
+        <td>${fmtDate(t.data)}</td>
+        <td>${t.memo||''}</td>
+        <td style="color:${isCred?'var(--green)':'var(--red)'};font-weight:600">${fmtVal(t.valor)}</td>
+        <td>${t.banco||'<span style="color:var(--amber)">sem banco</span>'}</td>
+        <td>${dup?'<span class="badge err">duplicado?</span> ':''}${vinc?`<span style="font-size:11px;color:var(--muted)">${vinc}</span>`:''}</td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`}`;
@@ -9727,12 +9769,15 @@ const DELETE_SOURCES = {
     getArr: () => extratoBancario,
     save: () => saveData('extratoBancario', extratoBancario),
     delete: (indices) => {
-      // Remove também os links do extrato removido
+      // Remove também TODOS os vínculos do extrato removido (pedido, repasse, débito, receita)
       const removidos = extratoBancario.filter((_,i) => indices.has(i)).map(t => t.id);
-      removidos.forEach(id => delete extratoLinks[id]);
+      removidos.forEach(id => { delete extratoLinks[id]; delete repasseLinks[id]; delete debitoLinks[id]; delete receitaLinks[id]; });
       extratoBancario = extratoBancario.filter((_,i) => !indices.has(i));
       saveData('extratoBancario', extratoBancario);
       saveData('extratoLinks', extratoLinks);
+      saveData('repasseLinks', repasseLinks);
+      saveData('debitoLinks', debitoLinks);
+      saveData('receitaLinks', receitaLinks);
       syncExtratoToRecebimentos();
       renderExtrato();
     }
