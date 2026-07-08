@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v289/07-358';
+const APP_VERSION = 'v290/07-360';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -950,6 +950,7 @@ let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do d
 let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI); vazio = hoje
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let _repSoMes = true;          // na conciliação, a lista de recebimentos p/ flegar mostra só o MÊS do depósito (senão enche de valores repetidos)
+let _debSoMes = true;          // idem para a lista de CONTAS A PAGAR de um débito: mostra só as do MÊS do débito
 let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
 let freteManual = {};          // { pedidoId: valorFrete } — frete digitado na mão (Comissão), vale acima do que veio da planilha
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
@@ -7897,9 +7898,19 @@ function renderBanco() {
                   let wkIni = null, wkFim = null;
                   if (t.data instanceof Date && !isNaN(t.data)) { [wkIni, wkFim] = semanaDe(t.data); }
                   const naSemana = c => wkIni && c.vencimento && c.vencimento >= wkIni && c.vencimento <= wkFim;
-                  const todas = contasPagar
+                  const todasFull = contasPagar
                     .map(c => ({c, d: Math.abs((c.valor||0)-alvo), paga: !!c.pago, usada: usadasDeb.has(chaveContaPagar(c)), wk: naSemana(c) ? 0 : 1}))
                     .sort((a,b) => (a.usada?1:0)-(b.usada?1:0) || (a.paga?1:0)-(b.paga?1:0) || a.wk - b.wk || (a.c.vencimento||0)-(b.c.vencimento||0));
+                  // "Só do mês do débito": esconde contas cujo vencimento (ou pagamento) é de outro mês —
+                  // é o que enche a lista de valores repetidos. Link "ver todas" mostra tudo.
+                  const _mesKeyD = d => { const x = d instanceof Date ? d : new Date(d); return isNaN(x) ? '' : x.getFullYear() + '-' + (x.getMonth() + 1); };
+                  const _debMes = (t.data instanceof Date && !isNaN(t.data)) ? _mesKeyD(t.data) : '';
+                  let todas = todasFull, nOcultosMes = 0;
+                  if (_debSoMes && _debMes) {
+                    const f = todasFull.filter(x => _mesKeyD(x.c.vencimento) === _debMes || (x.c.dataPag && _mesKeyD(x.c.dataPag) === _debMes));
+                    nOcultosMes = todasFull.length - f.length;
+                    todas = f;
+                  }
                   const livres = todas.filter(x => !x.usada);
                   const nSemana = livres.filter(x => !x.paga && x.wk===0).length;
                   const nPagas = livres.filter(x => x.paga).length;
@@ -7912,6 +7923,7 @@ function renderBanco() {
                   const listaContas = todas.length ? `
                       <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
                       <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
+                      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${_debSoMes && _debMes ? `📅 Só do mês do débito${nOcultosMes ? ` · <a href="#" onclick="_debSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todas (+${nOcultosMes})</a>` : ''}` : `📅 Todos os meses · <a href="#" onclick="_debSoMes=true;renderBanco();return false" style="color:var(--accent)">só do mês</a>`}</div>
                       <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${contasPagar.length} conta(s) a pagar no total · ${livres.length} livre(s)${nUsadas?` · ${nUsadas} já em outro débito`:''}</div>
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
                         ${todas.map(({c,d,paga,usada})=>{
