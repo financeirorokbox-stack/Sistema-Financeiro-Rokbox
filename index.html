@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v299/07-378';
+const APP_VERSION = 'v300/07-380';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1868,8 +1868,7 @@ function renderPedidosTable() {
 
   const cardsEl = document.getElementById('vendas-cards');
   if (cardsEl) cardsEl.innerHTML = `
-    <div class="card blue"><div class="c-label">Total geral</div><div class="c-val">${fmtVal(totalGeral)}</div><div class="c-sub">${pedidos.length} pedidos</div></div>
-    ${hasFilter ? `<div class="card green"><div class="c-label">Subtotal filtrado</div><div class="c-val">${fmtVal(totalFilt)}</div><div class="c-sub">${filtered.length} pedidos</div></div>` : ''}
+    <div class="card blue"><div class="c-label">Total geral${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(hasFilter?totalFilt:totalGeral)}</div><div class="c-sub">${hasFilter?`${filtered.length} pedidos`:`${pedidos.length} pedidos`}</div></div>
     <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub" title="Só pedidos de Venda e Troca, menos devoluções">${baseFat>0?fmtVal(baseFat):'—'} (Venda+Troca) − ${fmtVal(baseDevol)} devol.</div></div>
     <div class="card dark"><div class="c-label">Frete${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseFrete)}</div><div class="c-sub">${pedsFat.length} pedidos</div></div>
     <div class="card red" style="cursor:pointer" onclick="toggleVendasDevol()" title="Ver os pedidos que compõem esse total"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento · <span style="text-decoration:underline">ver detalhe</span></div></div>`;
