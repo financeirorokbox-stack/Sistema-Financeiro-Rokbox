@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v309/07-398';
+const APP_VERSION = 'v310/07-400';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7787,6 +7787,59 @@ function renderDashboard() {
 // ════════════════════════════════════════════════════════════════════
 // Quadro de conferência do período (filtro de Data): Recebido (CR) × Créditos do banco e Pago (CP) × Débitos do banco.
 // Números de TODOS os bancos (CR/CP não são por banco). Recebido/Pago pela DATA que caiu no banco (liquidação/pagamento).
+// Relatório "Detalhar a diferença" — abre numa janela (só leitura) listando os itens SEM PAR no banco,
+// que são o que faz o Recebido/Pago não bater com os créditos/débitos. Ajuda a achar a diferença item a item.
+function relatorioConferencia() {
+  if (!dfAtivo()) { alert('Filtre um período (⚙ Filtros → Data) primeiro.'); return; }
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const fmtD = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : dt.toLocaleDateString('pt-BR'); };
+  // Banco
+  let credBanco = 0, debBanco = 0;
+  extratoBancario.forEach(t => { if (!passaData(t.data)) return; if ((t.valor || 0) > 0) credBanco += t.valor; else debBanco += Math.abs(t.valor || 0); });
+  // Recebido (mesma conta do export)
+  let recebido = 0;
+  (_linhasCRExport || []).forEach(l => { if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; pagamentosDaLinha(l).forEach(pg => { if (pg.valor < 0) return; if (!passaData(pg.data)) return; recebido += (pg.liq != null ? pg.liq : pg.valor); }); });
+  (_receitasCRExport || []).forEach(r => { if (r.data && passaData(r.data)) recebido += (r.valor || 0); });
+  let pago = 0; contasPagar.forEach(c => { if (c.pago && c.dataPag && passaData(c.dataPag)) pago += (c.valor || 0); });
+  recebido = +recebido.toFixed(2); pago = +pago.toFixed(2); credBanco = +credBanco.toFixed(2); debBanco = +debBanco.toFixed(2);
+  // Vínculos
+  const credLink = t => extratoLinks[t.id] || repasseLinks[t.id] || receitaLinks[t.id];
+  const linkedChaves = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => linkedChaves.add(it.chave)));
+  const isEstorno = c => (String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno;
+  // Listas SEM PAR
+  const credNaoConc = [], debNaoConc = [];
+  extratoBancario.forEach(t => { if (!passaData(t.data)) return; if ((t.valor || 0) > 0) { if (!credLink(t)) credNaoConc.push(t); } else if ((t.valor || 0) < 0) { if (!debitoLinks[t.id]) debNaoConc.push(t); } });
+  const cpPagoSemBanco = contasPagar.filter(c => c.pago && c.dataPag && passaData(c.dataPag) && !linkedChaves.has(chaveContaPagar(c)) && !isEstorno(c));
+  const estornos = contasPagar.filter(c => c.pago && c.dataPag && passaData(c.dataPag) && isEstorno(c));
+  const som = (arr, f) => +arr.reduce((s, x) => s + (f(x) || 0), 0).toFixed(2);
+  const tabela = (titulo, arr, cols, nota) => {
+    if (!arr.length) return `<h2>${esc(titulo)} <span class="cnt">nenhum</span></h2>`;
+    return `<h2>${esc(titulo)} <span class="cnt">${arr.length} · ${fmtVal(som(arr, cols.valor))}</span></h2>
+      ${nota ? `<div class="nota">${esc(nota)}</div>` : ''}
+      <table><thead><tr><th>Data</th><th>Descrição/Fornecedor</th><th>Categoria/Histórico</th><th class="r">Valor</th></tr></thead><tbody>
+      ${arr.map(x => `<tr><td>${fmtD(cols.data(x))}</td><td>${esc(cols.nome(x))}</td><td>${esc(cols.extra(x))}</td><td class="r">${fmtVal(Math.abs(cols.valor(x) || 0))}</td></tr>`).join('')}
+      </tbody></table>`;
+  };
+  const per = [dateFilter.dia.join('/'), dateFilter.mes.join('/'), dateFilter.ano.join('/')].filter(Boolean).join(' / ') || 'período filtrado';
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Detalhar diferença — Conferência</title>
+    <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222;margin:24px;font-size:13px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #333;padding-bottom:3px}.cnt{font-size:12px;font-weight:400;color:#666}.nota{font-size:12px;color:#666;margin-bottom:6px}table{border-collapse:collapse;width:100%;margin-bottom:4px}th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}th{background:#f2f2f2;font-size:12px}.r{text-align:right}.box{background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 14px;margin:8px 0}@media print{.noprint{display:none}}</style></head><body>
+    <h1>🔍 Detalhar a diferença — ${esc(per)}</h1>
+    <div class="box">
+      <div><strong>Recebido</strong> ${fmtVal(recebido)} &nbsp;−&nbsp; <strong>Créditos banco</strong> ${fmtVal(credBanco)} &nbsp;=&nbsp; <strong>${fmtVal(+(recebido - credBanco).toFixed(2))}</strong></div>
+      <div><strong>Pago</strong> ${fmtVal(pago)} &nbsp;−&nbsp; <strong>Débitos banco</strong> ${fmtVal(debBanco)} &nbsp;=&nbsp; <strong>${fmtVal(+(pago - debBanco).toFixed(2))}</strong></div>
+      <div style="margin-top:4px;font-size:15px">✅ Movimento líquido: (Rec−Pago) ${fmtVal(+(recebido - pago).toFixed(2))} &nbsp;vs&nbsp; (Créd−Déb) ${fmtVal(+(credBanco - debBanco).toFixed(2))} &nbsp;→&nbsp; <strong>${fmtVal(+((recebido - pago) - (credBanco - debBanco)).toFixed(2))}</strong></div>
+    </div>
+    <p style="font-size:12px;color:#666">Abaixo, os lançamentos <strong>sem par no banco</strong> — é o que puxa a diferença. Some/compare os totais pra achar o valor que falta.</p>
+    ${tabela('🟥 Contas PAGAS no período SEM débito no banco (fora estornos)', cpPagoSemBanco, { data: c => c.dataPag, nome: c => c.fornecedor || c.descricao || 'conta', extra: c => (catContaPagar(c) || c.categoria || '') + (c.observacao ? ' · ' + c.observacao : ''), valor: c => c.valor }, 'Inflam o Pago sem um débito no banco. Se foi paga por um banco não subido, suba o extrato; se não saiu do banco, reveja.')}
+    ${tabela('↩ Estornos no período (Contas a Pagar)', estornos, { data: c => c.dataPag, nome: c => c.fornecedor || c.descricao || 'estorno', extra: c => (c.observacao || '') + (linkedChaves.has(chaveContaPagar(c)) ? ' · [tem débito no banco]' : ' · [PayPal: abate o crédito]'), valor: c => c.valor }, 'PayPal (abate o crédito, sem débito) x direto no banco (tem débito). Os do PayPal cancelam nos dois lados; os do banco têm de estar conciliados a um débito.')}
+    ${tabela('🟩 Créditos do banco NÃO conciliados no período', credNaoConc, { data: t => t.data, nome: t => t.memo || '', extra: t => t.banco || '', valor: t => t.valor }, 'Entraram no banco mas não estão amarrados a nenhum recebimento — não estão no Recebido. Se for venda, vincule; se for rendimento/transferência, lance pela Conciliação.')}
+    ${tabela('🟦 Débitos do banco NÃO conciliados no período', debNaoConc, { data: t => t.data, nome: t => t.memo || '', extra: t => t.banco || '', valor: t => t.valor }, 'Saíram do banco mas não estão amarrados a nenhuma conta — não estão no Pago (ou estão em duplicidade). Vincule ou lance.')}
+    <div class="noprint" style="margin-top:16px"><button onclick="window.print()" style="padding:8px 16px;font-size:14px;cursor:pointer">🖨️ Imprimir / PDF</button></div>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('Permita pop-ups pra abrir o relatório.'); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
 function conferenciaPeriodoHTML() {
   if (!dfAtivo()) return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--muted)">🧮 <strong>Conferência Recebido/Pago × Banco</strong> — filtre um período em <strong>⚙ Filtros → Data</strong> (ex.: mês) que eu mostro aqui se bate.</div>`;
   // Banco (todos os bancos) no período
@@ -7829,7 +7882,10 @@ function conferenciaPeriodoHTML() {
       ${bloco('Pago × Débitos', pago, 'Pago (Contas a Pagar)', debBanco, 'Débitos do banco', difP)}
     </div>
     ${bloco('✅ Movimento líquido (esse é o que TEM que bater no seu modelo)', movSist, 'Recebido − Pago (sistema)', movBanco, 'Créditos − Débitos (banco)', difMov, true)}
-    ${Math.abs(difMov) > 0.02 ? `<div style="margin-top:8px"><button class="btn ghost sm" onclick="corrigirEstornosLiquido()" title="Ajusta os estornos ja lançados no Contas a Pagar do BRUTO para o LIQUIDO (o que o banco abateu). Mostra o total antes de aplicar.">🔧 Corrigir estornos (bruto→líquido)</button> <span style="font-size:11px;color:var(--muted)">se a diferença ${fmtVal(difMov)} for do tamanho das taxas dos estornos, é isso.</span></div>` : ''}
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn ghost sm" onclick="relatorioConferencia()" title="Abre um relatório (só leitura) listando os lançamentos SEM PAR no banco — pra achar a diferença item a item">🔍 Detalhar a diferença</button>
+      ${Math.abs(difMov) > 0.02 ? `<button class="btn ghost sm" onclick="corrigirEstornosLiquido()" title="Ajusta os estornos ja lançados no Contas a Pagar do BRUTO para o LIQUIDO (o que o banco abateu). Mostra o total antes de aplicar.">🔧 Corrigir estornos (bruto→líquido)</button>` : ''}
+    </div>
     <div style="font-size:11px;color:var(--muted);margin-top:6px">Como o estorno vai pro Contas a Pagar, ele incha o Recebido e o Pago na MESMA medida — por isso cada lado sozinho não bate, mas o <strong>movimento líquido</strong> sim. Se o líquido não bater, aí é diferença de verdade (estorno pelo bruto, crédito/débito não lançado, extrato faltando). Recebido = mesma conta do export (filtre o mesmo período na aba Contas a Receber).</div>
   </div>`;
 }
