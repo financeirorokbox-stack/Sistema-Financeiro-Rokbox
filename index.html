@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v314/07-408';
+const APP_VERSION = 'v315/07-410';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -495,7 +495,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -526,7 +526,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -941,6 +941,7 @@ let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
 let repasseLinks = {};       // { extratoId: { gateway, total, data, itens:[recKey] } } — depósito de operadora (PayPal/Braavo) → recebimentos que ele cobre
 let receitasAvulsas = [];    // receitas que NÃO são de pedido (rendimentos da conta, etc.), lançadas pela conciliação bancária
+let recebOrfaoInfo = {};     // { nped: {nome, loja, empresa, valor} } — o que a usuária preenche à mão nas linhas de recebimento SEM pedido cadastrado (ex.: #358 atacado)
 let receitaLinks = {};       // { extratoId: receitaId } — crédito do extrato vinculado a uma receita avulsa
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
 let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
@@ -2184,9 +2185,10 @@ function _renderContasImpl(el) {
   Object.entries(_orfaosPorPed).forEach(([np, recs]) => {
     const bruto = recs.reduce((s, r) => s + (r.bruto || 0), 0);
     const gw = recs[0].gateway || 'Conciliado';
+    const ov = recebOrfaoInfo[np] || {}; // o que a usuária preencheu à mão sobrepõe
     linhas.push({
-      ped: { id: np, nome: recs[0].nome || '', loja: '', situacao: '', empresa: recs[0].empresa || '' },
-      f: { pedido: np, descricao: gw, valor: +bruto.toFixed(2), vencimento: null },
+      ped: { id: np, nome: ov.nome != null ? ov.nome : (recs[0].nome || ''), loja: ov.loja || '', situacao: '', empresa: ov.empresa || recs[0].empresa || '' },
+      f: { pedido: np, descricao: gw, valor: ov.valor != null ? +ov.valor : +bruto.toFixed(2), vencimento: null },
       cat: gw, st: { recebido: true, detalhe: 'conciliado no banco (sem pedido cadastrado)' }, venc: null, realIdx: -1, semForma: true, _orfaoReceb: true
     });
   });
@@ -2376,8 +2378,8 @@ function _renderContasImpl(el) {
           ? delCheckbox('formaPagamento', l.realIdx)
           : delCheckbox('pedidos', pedidos.indexOf(l.ped))}
         <td><strong>#${l.f.pedido}</strong>${pedidosConcBanco.has(String(l.f.pedido))?` <span class="badge ok" style="font-size:9px" title="Conciliado na Conciliação Bancária">🔗 conciliado</span>`:''}</td>
-        <td>${l.ped.nome||'—'}</td>
-        <td>${l.ped.loja||'—'}</td>
+        <td>${l._orfaoReceb ? `<input class="inline-input" style="width:150px;font-size:12px" value="${(l.ped.nome||'').replace(/"/g,'&quot;')}" placeholder="nome (preencha)" title="Recebimento sem pedido cadastrado — preencha à mão" onchange="salvarOrfao('${l.f.pedido}','nome',this.value)">` : (l.ped.nome||'—')}</td>
+        <td>${l._orfaoReceb ? `<input class="inline-input" style="width:110px;font-size:12px" value="${(l.ped.loja||'').replace(/"/g,'&quot;')}" placeholder="loja" onchange="salvarOrfao('${l.f.pedido}','loja',this.value)">` : (l.ped.loja||'—')}</td>
         <td>${opBadge}</td>
         <td>${catBadge} ${l.semForma
           ? (l.cat !== '—'
@@ -2397,7 +2399,7 @@ function _renderContasImpl(el) {
           : `<span style="font-size:11px">${l.f.descricao !== '—' ? l.f.descricao : ''}</span>`}
           ${selectTrocaForma(l.ped.id)}</td>
         <td>${l.venc ? fmtDate(l.venc) : '—'}</td>
-        <td>${fmtVal(l.f.valor)}</td>
+        <td>${l._orfaoReceb ? `<input class="inline-input" style="width:95px;text-align:right;font-size:12px" value="${l.f.valor?l.f.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" title="Valor exato que entrou no banco — pode ajustar" onchange="salvarOrfao('${l.f.pedido}','valor',this.value)">` : fmtVal(l.f.valor)}</td>
         <td>${l.st.recebido ? '<span class="badge ok">PAGO</span>' : (l.st.parcial ? '<span class="badge warn">PARCIAL</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
         <td style="font-size:11px;color:var(--green);font-weight:600">${l.st.recebido ? getDataLiquidacao(l) : '—'}</td>
         <td style="font-size:11px;color:var(--muted)">${l.st.detalhe||''}</td>
@@ -3247,6 +3249,21 @@ function salvarFormaManual(pedidoId, valor) {
   if (!valor) return;
   formaManualMap[pedidoId] = valor;
   saveData('formaManualMap', formaManualMap);
+  renderContas();
+}
+// Salva o que a usuária preenche à mão numa linha de recebimento SEM pedido cadastrado (nome/loja/empresa/valor).
+function salvarOrfao(np, campo, valor) {
+  np = String(np);
+  if (!recebOrfaoInfo[np]) recebOrfaoInfo[np] = {};
+  if (campo === 'valor') {
+    const t = String(valor || '').trim();
+    if (!t) delete recebOrfaoInfo[np].valor;
+    else { const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, '')); if (!isNaN(n)) recebOrfaoInfo[np].valor = +n.toFixed(2); }
+  } else {
+    const v = String(valor || '').trim();
+    if (!v) delete recebOrfaoInfo[np][campo]; else recebOrfaoInfo[np][campo] = v;
+  }
+  saveData('recebOrfaoInfo', recebOrfaoInfo);
   renderContas();
 }
 
@@ -10292,7 +10309,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -10342,6 +10359,7 @@ function delCheckboxHeader(source) {
     else if (k==='repasseLinks') repasseLinks = v;
     else if (k==='receitasAvulsas') receitasAvulsas = (v||[]).map(a=>({...a,data:a.data?new Date(a.data):null}));
     else if (k==='receitaLinks') receitaLinks = v || {};
+    else if (k==='recebOrfaoInfo') recebOrfaoInfo = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
