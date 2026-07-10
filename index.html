@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v317/07-414';
+const APP_VERSION = 'v318/07-416';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3365,9 +3365,9 @@ function exportarModeloCR() {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
     const pedNum = String(l.f.pedido);
     const nome = l.ped.nome || '';
-    const descricao = descricaoReceita(l.f.descricao) || descricaoReceita(l.cat) || l.cat || l.f.descricao || '';
-    const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
     const cat = l.cat || '';
+    const descricao = cat; // Descrição = Categoria (a usuária pediu iguais)
+    const obs = `Ref. ao pedido de venda n° ${l.f.pedido}`;
     // Empresa: do pedido; se vier em branco, puxa da LOJA (Cadastro → Lojas). Assim para de vir "sem empresa".
     const emp = l.ped.empresa || (lojaCadastro[l.ped.loja] && lojaCadastro[l.ped.loja].empresa) || '';
     const vencDt = _asDate(l.venc);
@@ -3401,7 +3401,7 @@ function exportarModeloCR() {
     const v = +(r.valor || 0).toFixed(2);
     const comp = d ? `01/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : '';
     const nome = r.categoria || r.descricao || 'Receita';
-    rows.push([_noon(d), _noon(d), '', nome, 'Pago', comp, v, 0, 0, 0, v, 0, 0, r.descricao || r.categoria || '', 'Receita avulsa (conciliação bancária)', r.categoria || '', _ma(d), _ma(d), v, _noon(d), r.empresa || '']);
+    rows.push([_noon(d), _noon(d), '', nome, 'Pago', comp, v, 0, 0, 0, v, 0, 0, r.categoria || '', 'Receita avulsa (conciliação bancária)', r.categoria || '', _ma(d), _ma(d), v, _noon(d), r.empresa || '']);
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
@@ -3928,7 +3928,7 @@ function exportarContasPagar() {
     c.pago ? (c.valor || 0) : 0,                         // Pago (valor pago)
     c.situacao || (c.pago ? 'Pago' : 'Em Aberto'),       // Situação
     (competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : ''), // Competência (1º dia do mês da COMPETÊNCIA, p/ DRE)
-    c.descricao || '',                                   // Descrição (texto da planilha)
+    catContaPagar(c) || '',                              // Descrição = Categoria (a usuária pediu iguais)
     c.observacao || '',                                  // Observações (histórico)
     fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
     (competenciaConta(c) ? competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : mesAno(c.vencimento)), // Mês_Despesa (competência)
