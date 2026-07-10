@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v295/07-370';
+const APP_VERSION = 'v296/07-372';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -931,6 +931,7 @@ let boletosAvulsos = []; // boletos de pedidos fora do sistema (relatório Itaú
 let msgCobrancaTpl = {}; // {lembrete, cobranca} — textos editáveis das mensagens de WhatsApp (aba Cobrança); vazio = usa o padrão
 let boletoAvisado = {}; // { 'pedido' : 'YYYY-MM-DD' } — quando o aviso/cobrança foi enviado (marcado ao clicar 📱 Cobrar). Avulsos usam a.cobradoEm.
 let _msgCobAberto = false; // editor de mensagens do WhatsApp começa RECOLHIDO
+let _cobAvulsosAberto = false; // bloco "A receber fora do sistema" (boletos avulsos) começa RECOLHIDO
 let extratoBancario = [];
 let extDelTipo = 'todos';     // seção "apagar duplicados" do Extrato: todos | credito | debito (só filtro de tela)
 let extratoLinks = {};
@@ -5275,10 +5276,13 @@ function renderCobranca() {
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     ${boletosAvulsos.length ? (() => {
-      const idxAll = boletosAvulsos.map((a, i) => i);
+      // Busca em TODOS os campos do avulso (pedido, cliente, telefone, obs, valor, datas).
+      const _qav = i => { const a = boletosAvulsos[i]; return !fQ || `${a.pedido || ''} ${a.cliente || ''} ${a.fone || ''} ${a.obsCobranca || ''} ${(a.valorTitulo || 0).toFixed(2)} ${(a.valorPago || 0).toFixed(2)} ${a.vencimento ? fmtDate(a.vencimento) : ''} ${a.dataPagamento ? fmtDate(a.dataPagamento) : ''}`.toLowerCase().includes(fQ); };
+      const idxAll = boletosAvulsos.map((a, i) => i).filter(_qav);
       const _vencMs = a => a && a.vencimento ? new Date(a.vencimento).getTime() : 0;
       const abertos = idxAll.filter(i => !boletosAvulsos[i].dataPagamento).sort((x, y) => _vencMs(boletosAvulsos[y]) - _vencMs(boletosAvulsos[x])); // vencimento decrescente
       const pagos = idxAll.filter(i => boletosAvulsos[i].dataPagamento);
+      const avOpen = _cobAvulsosAberto || !!fQ; // recolhido por padrão; a busca abre sozinha p/ ver o resultado
       const t0 = new Date(); t0.setHours(0, 0, 0, 0);
       const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr>
         <td><strong>#${a.pedido || '—'}</strong></td>
@@ -5287,16 +5291,21 @@ function renderCobranca() {
         <td><input class="inline-input" style="width:140px;font-size:11px" value="${(a.obsCobranca || '').replace(/"/g, '&quot;')}" placeholder="ex.: vai pagar no pix" title="Anotação livre desta cobrança" onchange="setObsAvulso(${i},this.value)"></td>
         <td><div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 ${a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${a.cobradoEm ? `<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(a.cobradoEm)}</span> <a href="#" onclick="desmarcarAvisadoAvulso(${i});return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
       const rowPago = i => { const a = boletosAvulsos[i]; return `<tr><td><strong>#${a.pedido || '—'}</strong></td><td>${a.cliente || '—'}</td><td>${fmtVal(a.valorPago || a.valorTitulo || 0)}</td><td>${a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td><td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></td></tr>`; };
-      return `<div style="margin:10px 0 4px"><button class="btn ghost sm" style="font-size:11px" onclick="deduparBoletosAvulsos()" title="Remove boletos duplicados (mantém um de cada)">🧹 Remover duplicados</button></div>${abertos.length ? `<div class="section-title">📱 A receber fora do sistema — a cobrar (${abertos.length})</div>
-      <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Obs</th><th>Ações</th></tr></thead><tbody>
+      const totalAb = abertos.reduce((s, i) => s + (boletosAvulsos[i].valorTitulo || 0), 0);
+      return `<div style="margin:12px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn ghost sm" style="font-size:12px;font-weight:700" onclick="_cobAvulsosAberto=!_cobAvulsosAberto;renderCobranca()">📱 A receber fora do sistema (${abertos.length}) ${avOpen ? '▾' : '▸'}</button>
+        ${abertos.length ? `<span style="font-size:11px;color:var(--muted)">Total a receber <strong>${fmtVal(totalAb)}</strong></span>` : ''}
+        ${avOpen ? `<button class="btn ghost sm" style="font-size:11px" onclick="deduparBoletosAvulsos()" title="Remove boletos duplicados (mantém um de cada)">🧹 Remover duplicados</button>` : ''}
+      </div>
+      ${avOpen ? `${abertos.length ? `<div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Obs</th><th>Ações</th></tr></thead><tbody>
         ${abertos.map(rowAberto).join('')}
-        <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total a receber</strong></td><td colspan="2"><strong>${fmtVal(abertos.reduce((s, i) => s + (boletosAvulsos[i].valorTitulo || 0), 0))}</strong></td><td></td><td></td></tr>
-      </tbody></table></div>` : ''}
+        <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total a receber</strong></td><td colspan="2"><strong>${fmtVal(totalAb)}</strong></td><td></td><td></td></tr>
+      </tbody></table></div>` : `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Nenhum boleto a receber${fQ ? ' com esse termo' : ''}.</div>`}
       ${pagos.length ? `<div class="section-title">Boletos pagos de pedidos fora do sistema (${pagos.length})</div>
       <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Pagador</th><th>Valor Pago</th><th>Pagamento</th><th></th></tr></thead><tbody>
         ${pagos.map(rowPago).join('')}
         <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total</strong></td><td><strong>${fmtVal(pagos.reduce((s, i) => s + (boletosAvulsos[i].valorPago || 0), 0))}</strong></td><td colspan="2"></td></tr>
-      </tbody></table></div>` : ''}`;
+      </tbody></table></div>` : ''}` : ''}`;
     })() : ''}`;
 
   // Anexa o upload SÓ DEPOIS de todo o innerHTML (o += abaixo recria o input e apagaria o listener).
@@ -5316,7 +5325,7 @@ function renderCobranca() {
   if (fSt==='pago') vis = vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
   if (fSt==='atrasado') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
   if (fSt==='avencer') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
-  if (fQ) vis = vis.filter(b=>String(b.pedido).includes(fQ)||b.cliente.toLowerCase().includes(fQ));
+  if (fQ) vis = vis.filter(b=>`${b.pedido||''} ${b.cliente||''} ${b.parcela||''}/${b.totalParcelas||''} ${(b.valor||0).toFixed(2)} ${b.vencimento?fmtDate(b.vencimento):''} ${boletoCobrancaStatus[b.key]?.dataPagamento?fmtDate(boletoCobrancaStatus[b.key].dataPagamento):''} ${empresaDoPed(b.pedido)||''}`.toLowerCase().includes(fQ));
   if (fEmp) vis = vis.filter(b=>empresaDoPed(b.pedido)===fEmp);
   if (dfAtivo()) vis = vis.filter(b=>passaData(fDataPor==='liquidacao' ? boletoCobrancaStatus[b.key]?.dataPagamento : b.vencimento));
 
