@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v296/07-372';
+const APP_VERSION = 'v297/07-374';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -932,6 +932,7 @@ let msgCobrancaTpl = {}; // {lembrete, cobranca} — textos editáveis das mensa
 let boletoAvisado = {}; // { 'pedido' : 'YYYY-MM-DD' } — quando o aviso/cobrança foi enviado (marcado ao clicar 📱 Cobrar). Avulsos usam a.cobradoEm.
 let _msgCobAberto = false; // editor de mensagens do WhatsApp começa RECOLHIDO
 let _cobAvulsosAberto = false; // bloco "A receber fora do sistema" (boletos avulsos) começa RECOLHIDO
+let _cobAvSel = new Set();     // índices dos boletos avulsos marcados p/ cobrar de uma vez (agrupa por cliente)
 let extratoBancario = [];
 let extDelTipo = 'todos';     // seção "apagar duplicados" do Extrato: todos | credito | debito (só filtro de tela)
 let extratoLinks = {};
@@ -5217,6 +5218,29 @@ function removerBoletoAvulso(i) {
 // Telefone do cliente no boleto avulso (a receber) — usado no botão Cobrar
 function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].fone = val; saveData('boletosAvulsos', boletosAvulsos); }
 function setObsAvulso(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].obsCobranca = val; saveData('boletosAvulsos', boletosAvulsos); } // anotação livre (ex.: "vai pagar no pix")
+function toggleCobAvSel(i, on) { if (on) _cobAvSel.add(i); else _cobAvSel.delete(i); renderCobranca(); }
+// Cobra de uma vez os boletos avulsos marcados — agrupa por cliente (1 mensagem por cliente, com todos os boletos dele).
+function cobrarSelecionadosAvulsos() {
+  const idxs = [..._cobAvSel].filter(i => boletosAvulsos[i] && !boletosAvulsos[i].dataPagamento);
+  if (!idxs.length) { alert('Marque ao menos um boleto (caixinha à esquerda).'); return; }
+  const grupos = {};
+  idxs.forEach(i => { const a = boletosAvulsos[i]; const k = (a.cliente || '(sem nome)').trim().toLowerCase(); (grupos[k] = grupos[k] || []).push(i); });
+  const clientes = Object.keys(grupos);
+  if (clientes.length > 1 && !confirm(`Você marcou boletos de ${clientes.length} clientes diferentes.\n\nVou abrir uma mensagem de WhatsApp para CADA cliente (uma aba por cliente), cada uma com todos os boletos dele. Continuar?`)) return;
+  clientes.forEach(k => {
+    const lista = grupos[k];
+    const a0 = boletosAvulsos[lista[0]];
+    const fone = lista.map(i => boletosAvulsos[i].fone).find(Boolean) || '';
+    const peds = [...new Set(lista.map(i => boletosAvulsos[i].pedido).filter(Boolean))];
+    const refTxt = peds.length ? ('pedido' + (peds.length > 1 ? 's' : '') + ' ' + peds.map(p => '#' + p).join(', ')) : '';
+    const itens = lista.map(i => { const a = boletosAvulsos[i]; return { label: 'Boleto' + (a.pedido ? ' #' + a.pedido : ''), venc: a.vencimento, valor: a.valorTitulo || 0 }; });
+    _abrirWpp(fone, montarMsgCobranca(a0.cliente, refTxt, itens));
+    lista.forEach(i => { boletosAvulsos[i].cobradoEm = _hojeISO(); });
+  });
+  saveData('boletosAvulsos', boletosAvulsos);
+  _cobAvSel.clear();
+  renderCobranca();
+}
 // Cobrança por WhatsApp de um boleto avulso em aberto
 function cobrarAvulsoWpp(i) {
   const a = boletosAvulsos[i]; if (!a) return;
@@ -5284,7 +5308,8 @@ function renderCobranca() {
       const pagos = idxAll.filter(i => boletosAvulsos[i].dataPagamento);
       const avOpen = _cobAvulsosAberto || !!fQ; // recolhido por padrão; a busca abre sozinha p/ ver o resultado
       const t0 = new Date(); t0.setHours(0, 0, 0, 0);
-      const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr>
+      const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr${_cobAvSel.has(i) ? ' style="background:var(--green-bg)"' : ''}>
+        <td style="text-align:center"><input type="checkbox" style="width:15px;height:15px;cursor:pointer" ${_cobAvSel.has(i) ? 'checked' : ''} title="Marcar p/ cobrar junto (mesmo cliente = 1 mensagem)" onchange="toggleCobAvSel(${i},this.checked)"></td>
         <td><strong>#${a.pedido || '—'}</strong></td>
         <td>${a.cliente || '—'}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(a.fone || '').replace(/"/g, '&quot;')}" placeholder="📱 WhatsApp cliente" onchange="setAvulsoFone(${i},this.value)"></td>
         <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
@@ -5295,11 +5320,12 @@ function renderCobranca() {
       return `<div style="margin:12px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn ghost sm" style="font-size:12px;font-weight:700" onclick="_cobAvulsosAberto=!_cobAvulsosAberto;renderCobranca()">📱 A receber fora do sistema (${abertos.length}) ${avOpen ? '▾' : '▸'}</button>
         ${abertos.length ? `<span style="font-size:11px;color:var(--muted)">Total a receber <strong>${fmtVal(totalAb)}</strong></span>` : ''}
+        ${avOpen && _cobAvSel.size ? `<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarSelecionadosAvulsos()" title="Junta os do mesmo cliente numa mensagem só">📱 Cobrar selecionados (${_cobAvSel.size})</button>` : ''}
         ${avOpen ? `<button class="btn ghost sm" style="font-size:11px" onclick="deduparBoletosAvulsos()" title="Remove boletos duplicados (mantém um de cada)">🧹 Remover duplicados</button>` : ''}
       </div>
-      ${avOpen ? `${abertos.length ? `<div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Obs</th><th>Ações</th></tr></thead><tbody>
+      ${avOpen ? `${abertos.length ? `<div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th style="width:28px"></th><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Obs</th><th>Ações</th></tr></thead><tbody>
         ${abertos.map(rowAberto).join('')}
-        <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total a receber</strong></td><td colspan="2"><strong>${fmtVal(totalAb)}</strong></td><td></td><td></td></tr>
+        <tr style="border-top:2px solid var(--border)"><td></td><td colspan="2"><strong>Total a receber</strong></td><td colspan="2"><strong>${fmtVal(totalAb)}</strong></td><td></td><td></td></tr>
       </tbody></table></div>` : `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Nenhum boleto a receber${fQ ? ' com esse termo' : ''}.</div>`}
       ${pagos.length ? `<div class="section-title">Boletos pagos de pedidos fora do sistema (${pagos.length})</div>
       <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Pedido</th><th>Pagador</th><th>Valor Pago</th><th>Pagamento</th><th></th></tr></thead><tbody>
