@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v316/07-412';
+const APP_VERSION = 'v317/07-414';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3407,6 +3407,38 @@ function exportarModeloCR() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Contas_a_Receber_${mes}.xlsx`);
+}
+// Exporta a CONCILIAÇÃO BANCÁRIA (crédito e débito) com as MESMAS colunas do Contas a Receber,
+// em duas abas (Créditos / Débitos). Respeita o banco e o período filtrados na tela.
+function exportarConciliacaoBancaria() {
+  const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
+  const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
+  const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth()+1).padStart(2,'0') + '/' + dt.getFullYear() : ''; };
+  const banco = bancoConcSel;
+  const bankMatch = t => (banco === '__todos' || !banco) ? true : (banco === '__sem' ? !t.banco : (t.banco || '') === banco);
+  const vis = extratoBancario.filter(t => bankMatch(t) && (!dfAtivo() || passaData(t.data)));
+  if (!vis.length) { alert('Nenhum lançamento no filtro atual pra exportar.'); return; }
+  const rowsC = [headers.slice()], rowsD = [headers.slice()];
+  vis.forEach(t => {
+    const d = t.data; const val = +Math.abs(t.valor || 0).toFixed(2); const isCred = (t.valor || 0) >= 0;
+    const comp = (d && !isNaN(new Date(d))) ? `01/${_ma(d)}` : '';
+    let numero = '', nome = t.memo || '', cat = '';
+    if (isCred) {
+      const lk = extratoLinks[t.id];
+      if (lk && lk.pedido) { numero = String(lk.pedido).split(',').map(s=>s.trim()).join(', '); }
+      cat = gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '');
+    } else {
+      const dl = debitoLinks[t.id];
+      if (dl) { const its = debLinkItens(dl); nome = its.map(i => i.fornecedor).filter(Boolean).join(', ') || t.memo || ''; cat = its.length ? (catContaPagar(contasPagar.find(c => chaveContaPagar(c) === its[0].chave) || {}) || '') : ''; }
+    }
+    const row = [_noon(d), _noon(d), numero, nome, 'Pago', comp, val, 0, 0, 0, val, 0, 0, t.memo || '', 'Conciliação Bancária' + (t.banco ? ' — ' + t.banco : ''), cat, _ma(d), _ma(d), val, _noon(d), ''];
+    (isCred ? rowsC : rowsD).push(row);
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsC), 'Créditos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsD), 'Débitos');
+  const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
+  XLSX.writeFile(wb, `Conciliacao_Bancaria_${mes}.xlsx`);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -8067,6 +8099,7 @@ function renderBanco() {
       limpar: 'limparFiltrosBanco()',
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
+        <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
         <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
         <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Mantém 1 e remove as cópias repetidas DENTRO do banco selecionado (ex.: banco triplicado). Mexe só nesse banco.">🧹 Remover duplicados (1 banco)</button>`,
       campos:
