@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v293/07-366';
+const APP_VERSION = 'v294/07-368';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3478,9 +3478,15 @@ function updateContaPagar(idx, field, value) {
   if (!semRerender) renderPagar();
 }
 // Copia o PIX da conta pra área de transferência (e mostra pra conferir).
+// PIX da conta: o próprio (c.pix) ou, se vazio, o do FORNECEDOR cadastrado (aparece sempre nas contas dele).
+function pixDaConta(c) {
+  if (!c) return '';
+  if (c.pix && String(c.pix).trim()) return String(c.pix).trim();
+  const f = fornecedoresCompras.find(x => (x.nome || '') === (c.fornecedor || ''));
+  return (f && f.pix) ? String(f.pix).trim() : '';
+}
 function copiarPix(idx) {
-  const c = contasPagar[idx]; if (!c || !c.pix) return;
-  const t = String(c.pix).trim();
+  const c = contasPagar[idx]; const t = pixDaConta(c); if (!t) return;
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => alert('💠 PIX copiado:\n\n' + t)).catch(() => alert('💠 PIX:\n\n' + t));
   else alert('💠 PIX:\n\n' + t);
 }
@@ -3974,7 +3980,7 @@ function renderPagar() {
             <td class="cpcol-status">${c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>'}</td>
             <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
             <td class="cpcol-banco">${c.banco || mut}</td>
-            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${c.pix ? ` <a href="#" title="💠 PIX: ${String(c.pix).replace(/"/g,'&quot;')}&#10;(clique para copiar)" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''}</td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${(()=>{ const _px=pixDaConta(c); return _px ? ` <a href="#" title="💠 PIX: ${_px.replace(/"/g,'&quot;')}&#10;(clique para copiar)" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''; })()}</td>
             <td class="cpcol-categoria">${catContaPagar(c) || mut}</td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr}</td>
@@ -3989,7 +3995,7 @@ function renderPagar() {
           <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
-          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}<br><input class="inline-input" style="width:170px;margin-top:2px;font-size:10px" value="${(c.pix||'').replace(/"/g,'&quot;')}" placeholder="💠 PIX (só aqui na edição)" title="Chave PIX do fornecedor — fica guardada e aparece como 💠 na linha fechada" onchange="updateContaPagar(${realIdx},'pix',this.value)"></td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}<br><input class="inline-input" style="width:170px;margin-top:2px;font-size:10px" value="${(c.pix||'').replace(/"/g,'&quot;')}" placeholder="💠 PIX (vazio = usa a do fornecedor)" title="Chave PIX. Se deixar vazio, usa a PIX cadastrada no fornecedor (Cadastro → Fornecedores). Aparece como 💠 na linha fechada." onchange="updateContaPagar(${realIdx},'pix',this.value)"></td>
           <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
@@ -9375,7 +9381,7 @@ function addFornecedorCompras() {
   const g = id => document.getElementById(id);
   const nome = (g('forn-nome')?.value || '').trim();
   if (!nome) { alert('Informe o nome do fornecedor.'); return; }
-  fornecedoresCompras.push({ id: 'forn_' + Date.now(), nome, whatsapp: (g('forn-wpp')?.value || '').trim(), condicaoId: g('forn-cond')?.value || '', categoria: (g('forn-cat')?.value || '').trim(), empresa: (g('forn-emp')?.value || '').trim(), obs: '' });
+  fornecedoresCompras.push({ id: 'forn_' + Date.now(), nome, whatsapp: (g('forn-wpp')?.value || '').trim(), pix: (g('forn-pix')?.value || '').trim(), condicaoId: g('forn-cond')?.value || '', categoria: (g('forn-cat')?.value || '').trim(), empresa: (g('forn-emp')?.value || '').trim(), obs: '' });
   saveData('fornecedoresCompras', fornecedoresCompras); renderCadastro();
 }
 function updateFornecedorCompras(id, field, value) {
@@ -9565,19 +9571,21 @@ function renderCadastro() {
     <p style="font-size:12px;color:var(--muted);margin:6px 0 12px">Fornecedores das compras, com <strong>WhatsApp</strong>, <strong>condição de pagamento padrão</strong> (dos prazos acima) e categoria. A compra herda a condição do fornecedor (você ajusta no pedido, se precisar).</p>
     <datalist id="forn-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('')}</datalist>
     <datalist id="forn-emp-list">${getEmpresasList().map(e=>`<option value="${e.replace(/"/g,'&quot;')}">`).join('')}</datalist>
-    <div class="table-wrap" style="margin-bottom:10px"><table style="white-space:nowrap"><thead><tr><th>Fornecedor</th><th>WhatsApp</th><th>Condição padrão</th><th>Categoria</th><th>Empresa</th><th></th></tr></thead><tbody>
+    <div class="table-wrap" style="margin-bottom:10px"><table style="white-space:nowrap"><thead><tr><th>Fornecedor</th><th>WhatsApp</th><th>💠 PIX</th><th>Condição padrão</th><th>Categoria</th><th>Empresa</th><th></th></tr></thead><tbody>
     ${fornecedoresCompras.length ? fornecedoresCompras.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(f=>`<tr>
       <td><input class="inline-input" style="width:160px" value="${(f.nome||'').replace(/"/g,'&quot;')}" onchange="updateFornecedorCompras('${f.id}','nome',this.value)"></td>
       <td><input class="inline-input" style="width:120px" value="${(f.whatsapp||'').replace(/"/g,'&quot;')}" placeholder="ex.: 11 99999-9999" onchange="updateFornecedorCompras('${f.id}','whatsapp',this.value)"></td>
+      <td><input class="inline-input" style="width:180px" value="${(f.pix||'').replace(/"/g,'&quot;')}" placeholder="chave PIX (CNPJ, e-mail...)" title="Aparece automático nas Contas a Pagar deste fornecedor" onchange="updateFornecedorCompras('${f.id}','pix',this.value)"></td>
       <td><select class="inline-input" style="width:190px" onchange="updateFornecedorCompras('${f.id}','condicaoId',this.value)"><option value="">—</option>${condicoesPagamento.map(c=>`<option value="${c.id}" ${c.id===f.condicaoId?'selected':''}>${(c.nome||'').replace(/"/g,'&quot;')}</option>`).join('')}</select></td>
       <td><input class="inline-input" style="width:140px" list="forn-cat-list" value="${(f.categoria||'').replace(/"/g,'&quot;')}" onchange="updateFornecedorCompras('${f.id}','categoria',this.value)"></td>
       <td><input class="inline-input" style="width:100px" list="forn-emp-list" value="${(f.empresa||'').replace(/"/g,'&quot;')}" onchange="updateFornecedorCompras('${f.id}','empresa',this.value)"></td>
       <td><a href="#" onclick="removeFornecedorCompras('${f.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover">✕</a></td>
-    </tr>`).join('') : '<tr><td colspan="6" style="color:var(--muted);font-size:12px">Nenhum fornecedor. Cadastre abaixo.</td></tr>'}
+    </tr>`).join('') : '<tr><td colspan="7" style="color:var(--muted);font-size:12px">Nenhum fornecedor. Cadastre abaixo.</td></tr>'}
     </tbody></table></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:24px">
       <input class="inline-input" id="forn-nome" placeholder="Fornecedor" style="width:160px">
       <input class="inline-input" id="forn-wpp" placeholder="WhatsApp" style="width:120px">
+      <input class="inline-input" id="forn-pix" placeholder="💠 chave PIX" style="width:160px">
       <select class="inline-input" id="forn-cond" style="width:180px"><option value="">Condição padrão…</option>${condicoesPagamento.map(c=>`<option value="${c.id}">${(c.nome||'').replace(/"/g,'&quot;')}</option>`).join('')}</select>
       <input class="inline-input" id="forn-cat" list="forn-cat-list" placeholder="Categoria" style="width:140px">
       <input class="inline-input" id="forn-emp" list="forn-emp-list" placeholder="Empresa" style="width:100px">
