@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v298/07-376';
+const APP_VERSION = 'v299/07-378';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1852,7 +1852,7 @@ function renderPedidosTable() {
   const filtered = getFilteredPedidos();
   const totalGeral = pedidos.reduce((s,p)=>s+p.valor,0);
   const totalFilt = filtered.reduce((s,p)=>s+p.valor,0);
-  const hasFilter = Object.values(vendasFilters).some(a=>Array.isArray(a)?a.length:a) || (document.getElementById('busca-vendas')?.value||'');
+  const hasFilter = dfAtivo() || Object.values(vendasFilters).some(a=>Array.isArray(a)?a.length:a) || (document.getElementById('busca-vendas')?.value||'');
 
   // Faturamento Real = Pedidos com operação VENDA e TROCA − Devoluções abatidas.
   // A devolução abate o PEDIDO QUE RECEBEU O CRÉDITO (credDevolucao), com CAP no valor do pedido.
