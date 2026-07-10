@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v307/07-394';
+const APP_VERSION = 'v308/07-396';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2228,6 +2228,13 @@ function _renderContasImpl(el) {
   const pagos    = vis.filter(l =>  l.st.recebido);
   const vAberto  = emAberto.reduce((s,l) => s + l.f.valor, 0);
   const vPago    = pagos.reduce((s,l) => s + l.f.valor, 0);
+  // Líquido efetivamente recebido (o que caiu no banco) — igual à coluna "Recebido" do export: pagamentos positivos, líquido, no período por liquidação.
+  let vPagoLiq = 0;
+  vis.forEach(l => {
+    if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return;
+    pagamentosDaLinha(l).forEach(pg => { if (pg.valor < 0) return; if (dfAtivo() && fDataPor === 'liquidacao' && !passaData(pg.data)) return; vPagoLiq += (pg.liq != null ? pg.liq : pg.valor); });
+  });
+  vPagoLiq = +vPagoLiq.toFixed(2);
   const totalCR  = vAberto + vPago; // total de Contas a Receber (em aberto + pago) — SÓ pedidos (cross-check VT)
   const flt = !!(dfAtivo() || fCat || fEmp || fOp || fSt || fConc || fQraw); // há filtro ativo?
 
@@ -2290,7 +2297,7 @@ function _renderContasImpl(el) {
     ${ocultadosOp ? `<div style="font-size:11px;color:var(--amber);margin-bottom:12px">ℹ️ ${ocultadosOp} pedido(s) fora desta lista por não serem <strong>Venda/Troca</strong> (operação diferente ou loja sem cadastro). Para incluir, ajuste a operação da loja em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>.</div>` : ''}
     <div class="cards-row">
       <div class="card red"><div class="c-label">Em Aberto${flt?' (filtro)':''}</div><div class="c-val">${emAberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
-      <div class="card dark"><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)}</div></div>
+      <div class="card dark"><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)} bruto · <strong style="color:var(--green)">líquido ${fmtVal(vPagoLiq)}</strong></div></div>
       <div class="card ${flt?'blue':(bateVT?'green':'amber')}"><div class="c-label">Total a Receber${flt?' (filtro)':''}</div><div class="c-val">${fmtVal(totalCR)}</div><div class="c-sub">${vis.length} linha(s)${flt?' · = o que sai no export':''}</div></div>
       ${avulsasVis.length ? `<div class="card green" style="cursor:pointer" title="Clique para ver as Outras receitas" onclick="document.getElementById('sec-outras-receitas')?.scrollIntoView({behavior:'smooth',block:'start'})"><div class="c-label">Outras receitas ›</div><div class="c-val">${avulsasVis.length}</div><div class="c-sub">${fmtVal(vAvulsas)}</div></div>` : ''}
     </div>
