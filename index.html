@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v323/07-426';
+const APP_VERSION = 'v324/07-428';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3427,11 +3427,34 @@ function exportarConciliacaoBancaria() {
     const memo = t.memo || '';
     const obs = memo + (t.banco ? ' — ' + t.banco : '');
     if (isCred) {
-      let numero = '', nome = memo, cat = '';
+      const empDoPed = pid => { const p = pedidos.find(x => String(x.id) === String(pid)); return p ? (p.empresa || (lojaCadastro[p.loja] && lojaCadastro[p.loja].empresa) || '') : ''; };
+      const nomeDoPed = pid => { const p = pedidos.find(x => String(x.id) === String(pid)); return p ? (p.nome || '') : ''; };
+      const gwCat = gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '');
+      const rep = repasseLinks[t.id];
       const lk = extratoLinks[t.id];
-      if (lk && lk.pedido) numero = String(lk.pedido).split(',').map(s => s.trim()).join(', ');
-      cat = gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '');
-      rowsC.push([_noon(d), _noon(d), numero, nome, 'Pago', comp, val, 0, 0, 0, val, 0, 0, cat, obs, _ma(d), _ma(d), val, _noon(d), '']);
+      if (rep && rep.itens && rep.itens.length) {
+        // ABRE o repasse: uma linha por recebimento (pedido) que ele cobre.
+        const k4 = k => String(k).split('|').slice(0, 4).join('|');
+        rep.itens.forEach(k => {
+          const r = recebimentosConsolidado.find(x => { const rk = recKeyGlobal(x); return rk === k || k4(rk) === k4(k); });
+          if (!r) return;
+          const bruto = +(r.bruto || 0).toFixed(2);
+          const liq = +((r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0)) || 0).toFixed(2);
+          const taxa = +(r.taxa || 0).toFixed(2);
+          rowsC.push([_noon(d), _noon(d), String(r.nped || ''), r.nome || nomeDoPed(r.nped), 'Pago', comp, bruto, 0, 0, 0, liq, 0, taxa, gwCat, obs, _ma(d), _ma(d), bruto, _noon(d), empDoPed(r.nped)]);
+        });
+      } else if (lk && lk.pedido) {
+        // Vinculado a pedido(s) direto (PIX): uma linha por pedido.
+        const peds = String(lk.pedido).split(',').map(s => s.trim()).filter(Boolean);
+        peds.forEach(pid => {
+          const p = pedidos.find(x => String(x.id) === String(pid));
+          const v = peds.length === 1 ? val : (p ? +(p.valor || 0).toFixed(2) : val);
+          rowsC.push([_noon(d), _noon(d), String(pid), nomeDoPed(pid), 'Pago', comp, v, 0, 0, 0, v, 0, 0, gwCat, obs, _ma(d), _ma(d), v, _noon(d), empDoPed(pid)]);
+        });
+      } else {
+        // Não conciliado / receita avulsa: uma linha só.
+        rowsC.push([_noon(d), _noon(d), '', memo, 'Pago', comp, val, 0, 0, 0, val, 0, 0, gwCat, obs, _ma(d), _ma(d), val, _noon(d), '']);
+      }
     } else {
       let numero = '', nome = memo, cat = '', emp = '', descr = memo, venc = d;
       const dl = debitoLinks[t.id];
