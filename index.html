@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v301/07-382';
+const APP_VERSION = 'v302/07-384';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8328,7 +8328,9 @@ function removerDuplicatasDoBanco() {
   };
   const linked = id => !!(extratoLinks[id] || repasseLinks[id] || debitoLinks[id] || receitaLinks[id]);
   // Respeita o filtro de DATA da tela: se houver, limpa só o período/dia filtrado (mais seguro).
-  const doBanco = extratoBancario.filter(t => (t.banco || '') === banco && (!dfAtivo() || passaData(t.data)));
+  // NUNCA mexe em dia FECHADO — lançamento de dia fechado nem entra na busca de duplicados (fechado = travado).
+  const nFechadosBanco = extratoBancario.filter(t => (t.banco || '') === banco && diaFechado(t.data, t.banco) && (!dfAtivo() || passaData(t.data))).length;
+  const doBanco = extratoBancario.filter(t => (t.banco || '') === banco && !diaFechado(t.data, t.banco) && (!dfAtivo() || passaData(t.data)));
   const acharDups = (chaveFn) => {
     const grupos = {}; doBanco.forEach(t => { const k = chaveFn(t); (grupos[k] = grupos[k] || []).push(t); });
     const ids = new Set(); let n = 0;
@@ -8344,7 +8346,7 @@ function removerDuplicatasDoBanco() {
   if (!removerIds.size) {
     // 2ª passada: por conteúdo (ignora FITID). Só entra aqui se a estrita não achou nada.
     const c = acharDups(keyConteudo);
-    if (!c.ids.size) { alert(`✓ Nenhum lançamento duplicado em "${banco}"${dfAtivo() ? ' no período filtrado' : ''}. Está limpo.`); return; }
+    if (!c.ids.size) { alert(`✓ Nenhum lançamento duplicado em "${banco}"${dfAtivo() ? ' no período filtrado' : ''}. Está limpo.` + (nFechadosBanco ? `\n\n🔒 ${nFechadosBanco} lançamento(s) estão em dia(s) FECHADO(s) e foram protegidos (nem entram nessa busca).` : '')); return; }
     porConteudo = true; removerIds = c.ids; gruposDup = c.n;
     const escopo = dfAtivo() ? ' (no período filtrado)' : ' (TODO o banco — dica: filtre o dia em cima p/ limitar)';
     if (!confirm(`⚠ ATENÇÃO — limpeza por CONTEÚDO${escopo}\n\n` +
