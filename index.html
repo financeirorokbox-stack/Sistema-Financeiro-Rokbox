@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v305/07-390';
+const APP_VERSION = 'v306/07-392';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7753,6 +7753,45 @@ function renderDashboard() {
 // ════════════════════════════════════════════════════════════════════
 // CONCILIAÇÃO BANCÁRIA
 // ════════════════════════════════════════════════════════════════════
+// Quadro de conferência do período (filtro de Data): Recebido (CR) × Créditos do banco e Pago (CP) × Débitos do banco.
+// Números de TODOS os bancos (CR/CP não são por banco). Recebido/Pago pela DATA que caiu no banco (liquidação/pagamento).
+function conferenciaPeriodoHTML() {
+  if (!dfAtivo()) return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--muted)">🧮 <strong>Conferência Recebido/Pago × Banco</strong> — filtre um período em <strong>⚙ Filtros → Data</strong> (ex.: mês) que eu mostro aqui se bate.</div>`;
+  // Banco (todos os bancos) no período
+  let credBanco = 0, debBanco = 0;
+  extratoBancario.forEach(t => { if (!passaData(t.data)) return; if ((t.valor || 0) > 0) credBanco += t.valor; else debBanco += Math.abs(t.valor || 0); });
+  // Recebido (Contas a Receber) — dinheiro que entrou, LÍQUIDO, pela data do banco; estornos (negativos) não entram (vão p/ Contas a Pagar).
+  let recebido = 0;
+  recebimentosConsolidado.forEach(r => { const v = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0)); if (v <= 0) return; const d = dataRepasseBanco(r) || r.data; if (d && passaData(d)) recebido += v; });
+  try { getBoletosDaForma().forEach(b => { const cob = boletoCobrancaStatus[b.key]; if (cob && cob.pago && cob.dataPagamento && passaData(cob.dataPagamento)) recebido += (cob.valorPago != null ? cob.valorPago : (b.valor || 0)); }); } catch (e) {}
+  boletosAvulsos.forEach(a => { if (a.dataPagamento && passaData(a.dataPagamento)) recebido += (a.valorPago != null ? a.valorPago : (a.valorTitulo || 0)); });
+  receitasAvulsas.forEach(r => { if (r.data && passaData(r.data)) recebido += (r.valor || 0); });
+  // Pago (Contas a Pagar) — contas pagas pela data de pagamento (inclui estornos/reembolsos lançados aqui).
+  let pago = 0;
+  contasPagar.forEach(c => { if (c.pago && c.dataPag && passaData(c.dataPag)) pago += (c.valor || 0); });
+  recebido = +recebido.toFixed(2); pago = +pago.toFixed(2); credBanco = +credBanco.toFixed(2); debBanco = +debBanco.toFixed(2);
+  const difR = +(recebido - credBanco).toFixed(2);
+  const difP = +(pago - debBanco).toFixed(2);
+  const bloco = (titulo, a, aLbl, b, bLbl, dif) => {
+    const ok = Math.abs(dif) <= 0.02;
+    return `<div style="flex:1;min-width:280px;border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--surface)">
+      <div style="font-weight:700;margin-bottom:6px">${titulo}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>${aLbl}</span><strong>${fmtVal(a)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>${bLbl}</span><strong>${fmtVal(b)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;border-top:1px solid var(--border);margin-top:5px;padding-top:5px">
+        <span style="font-weight:700">Diferença</span>
+        <strong style="color:${ok ? 'var(--green)' : 'var(--amber)'}">${ok ? '✓ bate' : fmtVal(dif)}</strong></div>
+    </div>`;
+  };
+  return `<div style="margin-bottom:18px">
+    <div style="font-size:13px;font-weight:800;margin-bottom:6px">🧮 Conferência do período × Banco</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      ${bloco('Recebido × Créditos', recebido, 'Recebido (Contas a Receber)', credBanco, 'Créditos do banco', difR)}
+      ${bloco('Pago × Débitos', pago, 'Pago (Contas a Pagar)', debBanco, 'Débitos do banco', difP)}
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">Todos os bancos, pela data que caiu no banco (liquidação/pagamento). Diferença sobrando geralmente é crédito/débito que não é venda/despesa (rendimento, transferência entre suas contas) — lance pela Conciliação pra fechar.</div>
+  </div>`;
+}
 function renderBanco() {
   setDateFilterRender(renderBanco); // troca para o filtro de data desta aba ANTES de usar passaData
   const el = document.getElementById('v-banco');
@@ -7880,6 +7919,7 @@ function renderBanco() {
       <div class="card ${entradas-saidas>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(entradas-saidas)}</div></div>
       <div class="card ${pendentes?'amber':'dark'}"><div class="c-label">Pendentes</div><div class="c-val">${pendentes}</div></div>
     </div>
+    ${conferenciaPeriodoHTML()}
     ${(bancoSel && bancoSel !== '__todos' && bancoSel !== '__sem')
         ? saldoBancoHTML(bancoSel)
         : (bancoSel === '__sem'
