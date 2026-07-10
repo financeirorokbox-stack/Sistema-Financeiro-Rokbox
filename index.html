@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v321/07-422';
+const APP_VERSION = 'v322/07-424';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3410,28 +3410,39 @@ function exportarModeloCR() {
 // Exporta a CONCILIAÇÃO BANCÁRIA (crédito e débito) com as MESMAS colunas do Contas a Receber,
 // em duas abas (Créditos / Débitos). Respeita o banco e o período filtrados na tela.
 function exportarConciliacaoBancaria() {
-  const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
+  // Créditos = formato Contas a Receber (Descrição = Categoria, sem coluna Categoria).
+  const headersC = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
+  // Débitos = formato Contas a Pagar (Descrição e Categoria separadas).
+  const headersD = ['Data de vencimento','Número','Nome','Valor','Juro','Desconto','Pago','Situação','Competência','Descrição','Observações','Liquidação','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Categoria','Empresa'];
   const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
   const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth()+1).padStart(2,'0') + '/' + dt.getFullYear() : ''; };
   const banco = bancoConcSel;
   const bankMatch = t => (banco === '__todos' || !banco) ? true : (banco === '__sem' ? !t.banco : (t.banco || '') === banco);
   const vis = extratoBancario.filter(t => bankMatch(t) && (!dfAtivo() || passaData(t.data)));
   if (!vis.length) { alert('Nenhum lançamento no filtro atual pra exportar.'); return; }
-  const rowsC = [headers.slice()], rowsD = [headers.slice()];
+  const rowsC = [headersC.slice()], rowsD = [headersD.slice()];
   vis.forEach(t => {
     const d = t.data; const val = +Math.abs(t.valor || 0).toFixed(2); const isCred = (t.valor || 0) >= 0;
     const comp = (d && !isNaN(new Date(d))) ? `01/${_ma(d)}` : '';
-    let numero = '', nome = t.memo || '', cat = '';
+    const memo = t.memo || '';
+    const obs = memo + (t.banco ? ' — ' + t.banco : '');
     if (isCred) {
+      let numero = '', nome = memo, cat = '';
       const lk = extratoLinks[t.id];
-      if (lk && lk.pedido) { numero = String(lk.pedido).split(',').map(s=>s.trim()).join(', '); }
+      if (lk && lk.pedido) numero = String(lk.pedido).split(',').map(s => s.trim()).join(', ');
       cat = gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '');
+      rowsC.push([_noon(d), _noon(d), numero, nome, 'Pago', comp, val, 0, 0, 0, val, 0, 0, cat, obs, _ma(d), _ma(d), val, _noon(d), '']);
     } else {
+      let numero = '', nome = memo, cat = '', emp = '', descr = memo, venc = d;
       const dl = debitoLinks[t.id];
-      if (dl) { const its = debLinkItens(dl); nome = its.map(i => i.fornecedor).filter(Boolean).join(', ') || t.memo || ''; cat = its.length ? (catContaPagar(contasPagar.find(c => chaveContaPagar(c) === its[0].chave) || {}) || '') : ''; }
+      if (dl) {
+        const its = debLinkItens(dl);
+        const conta = its.length ? contasPagar.find(c => chaveContaPagar(c) === its[0].chave) : null;
+        nome = its.map(i => i.fornecedor).filter(Boolean).join(', ') || memo;
+        if (conta) { cat = catContaPagar(conta) || ''; emp = conta.empresa || ''; descr = conta.descricao || memo; venc = conta.vencimento || d; numero = conta.numero || ''; }
+      }
+      rowsD.push([_noon(venc), numero, nome, val, 0, 0, val, 'Pago', comp, descr, obs, _noon(d), _ma(d), _ma(d), val, _noon(d), cat, emp]);
     }
-    const row = [_noon(d), _noon(d), numero, nome, 'Pago', comp, val, 0, 0, 0, val, 0, 0, cat, (t.memo || '') + (t.banco ? ' — ' + t.banco : ''), _ma(d), _ma(d), val, _noon(d), ''];
-    (isCred ? rowsC : rowsD).push(row);
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsC), 'Créditos');
