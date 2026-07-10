@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v315/07-410';
+const APP_VERSION = 'v316/07-412';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3155,29 +3155,19 @@ function statusFormaSemForma(ped, concOk, recs) {
 function dataRepasseBanco(rec) {
   if (!rec) return null;
   let recK; try { recK = recKeyGlobal(rec); } catch (e) { recK = null; }
-  // 1. FLEGADO (explícito): a data do depósito ao qual o recebimento foi amarrado.
-  if (recK) for (const [extId, rep] of Object.entries(repasseLinks)) {
-    if ((rep.itens || []).includes(recK)) {
+  // Só usa o repasse FLEGADO (o depósito ao qual o recebimento foi de fato amarrado na Conciliação).
+  // Casa pela chave completa OU pela chave sem o nº do pedido (gateway|data|bruto|nome) — o nped pode ter
+  // mudado depois de flegar, e sem isso o vínculo "se perdia" e a data caía no dia do gateway.
+  // (Removido o "chute" que adivinhava o depósito pelo gateway/data — ele empilhava recebimentos no dia errado.)
+  const recK4 = recK ? recK.split('|').slice(0, 4).join('|') : null;
+  for (const [extId, rep] of Object.entries(repasseLinks)) {
+    const items = rep.itens || [];
+    const bate = (recK && items.includes(recK)) || (recK4 && items.some(k => k.split('|').slice(0, 4).join('|') === recK4));
+    if (bate) {
       const t = extratoBancario.find(x => x.id === extId);
       if (t && t.data) return t.data;
       if (rep.data) return new Date(rep.data);
     }
-  }
-  // 2. INFERIDO (automático, sem precisar flegar): o depósito do MESMO gateway que caiu no banco
-  //    na data mais próxima >= data do recebimento. Assim "liquidação" = a data em que o dinheiro
-  //    realmente entrou no banco, e o filtro por liquidação bate com os créditos do banco daquele dia.
-  const gw = rec.gateway;
-  const rd = rec.data ? (rec.data instanceof Date ? rec.data : new Date(rec.data)) : null;
-  if (gw && rd && !isNaN(rd)) {
-    let best = null;
-    for (const t of extratoBancario) {
-      if ((t.valor || 0) <= 0 || !t.data) continue;
-      if (gatewayDoCredito(t) !== gw) continue;
-      const td = t.data instanceof Date ? t.data : new Date(t.data);
-      if (isNaN(td) || td < rd) continue;
-      if (!best || td < best) best = td;
-    }
-    if (best) return best;
   }
   return null;
 }
