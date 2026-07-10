@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v324/07-428';
+const APP_VERSION = 'v325/07-430';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3433,16 +3433,22 @@ function exportarConciliacaoBancaria() {
       const rep = repasseLinks[t.id];
       const lk = extratoLinks[t.id];
       if (rep && rep.itens && rep.itens.length) {
-        // ABRE o repasse: uma linha por recebimento (pedido) que ele cobre.
+        // ABRE o repasse: uma linha por recebimento (pedido) que ele cobre. O que BATE com o depósito é a
+        // coluna Recebido (LÍQUIDO = valorRepasse, o que compõe o depósito); a Valor é o bruto (soma mais).
         const k4 = k => String(k).split('|').slice(0, 4).join('|');
+        let somaLiq = 0;
         rep.itens.forEach(k => {
           const r = recebimentosConsolidado.find(x => { const rk = recKeyGlobal(x); return rk === k || k4(rk) === k4(k); });
           if (!r) return;
           const bruto = +(r.bruto || 0).toFixed(2);
-          const liq = +((r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0)) || 0).toFixed(2);
+          const liq = +(valorRepasse(r) || 0).toFixed(2);
           const taxa = +(r.taxa || 0).toFixed(2);
+          somaLiq += liq;
           rowsC.push([_noon(d), _noon(d), String(r.nped || ''), r.nome || nomeDoPed(r.nped), 'Pago', comp, bruto, 0, 0, 0, liq, 0, taxa, gwCat, obs, _ma(d), _ma(d), bruto, _noon(d), empDoPed(r.nped)]);
         });
+        // Fecha exato com o depósito: se sobrou (recebimento não localizado), 1 linha de ajuste.
+        const resto = +(val - somaLiq).toFixed(2);
+        if (Math.abs(resto) > 0.02) rowsC.push([_noon(d), _noon(d), '', '(ajuste do repasse — recebimento não localizado)', 'Pago', comp, resto, 0, 0, 0, resto, 0, 0, gwCat, obs, _ma(d), _ma(d), resto, _noon(d), '']);
       } else if (lk && lk.pedido) {
         // Vinculado a pedido(s) direto (PIX): uma linha por pedido.
         const peds = String(lk.pedido).split(',').map(s => s.trim()).filter(Boolean);
