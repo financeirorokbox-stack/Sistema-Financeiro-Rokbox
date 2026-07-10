@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v311/07-402';
+const APP_VERSION = 'v312/07-404';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2221,7 +2221,11 @@ function _renderContasImpl(el) {
     if (fQ && !((r.categoria || '').toLowerCase().includes(fQ) || (r.descricao || '').toLowerCase().includes(fQ))) return false;
     return true;
   });
-  if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? getLiqDate(l) : l.venc)); // filtro de data na TELA/cards (por linha)
+  // Filtro de data na TELA/cards. Por LIQUIDAÇÃO: entra a linha que tem QUALQUER pagamento no período
+  // (um pedido pode receber em vários dias) — assim o card líquido bate com o export e com o banco.
+  if (dfAtivo()) vis = vis.filter(l => fDataPor === 'liquidacao'
+    ? pagamentosDaLinha(l).some(pg => (pg.valor || 0) >= 0 && passaData(pg.data))
+    : passaData(l.venc));
 
   _linhasCR = vis; // o export usa _linhasCRExport (filtra por pagamento); _linhasCR = tela
   const emAberto = vis.filter(l => !l.st.recebido); // cards seguem o FILTRO (antes usavam todas as linhas e não mudavam)
