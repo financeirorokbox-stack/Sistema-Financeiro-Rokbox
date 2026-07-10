@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v319/07-418';
+const APP_VERSION = 'v320/07-420';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2311,7 +2311,6 @@ function _renderContasImpl(el) {
       <button class="filtros-toggle" onclick="toggleFiltros()">⚙ Filtros${nF?` <span class="cnt">${nF}</span>`:''}</button>
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosContas()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
-      <button class="btn primary sm" onclick="exportarModeloCR()" title="Exporta o que está FILTRADO na tela (respeita status, data por, empresa, categoria e período)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="reprocessarTudo()" title="Recalcula conciliação e contas a receber com os dados atuais; remove pareamentos antigos">🔄 Atualizar tudo</button>
     </div>
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
@@ -4013,7 +4012,6 @@ function renderPagar() {
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosPagar()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
-      <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel">📤 Exportar</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
       <button class="btn ghost sm" onclick="removerContasPagarDuplicadas()" title="Acha contas repetidas (mesma empresa, fornecedor, valor e vencimento) e remove as cópias — mantém a conciliada e nunca mexe em dia fechado">🧹 Remover duplicados</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
