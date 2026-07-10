@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v300/07-380';
+const APP_VERSION = 'v301/07-382';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3674,6 +3674,53 @@ function setSaldoInicialDiaBanco(banco, valor) {
   renderPagar();
 }
 function setSaldoDiaData(v) { _saldoDiaData = v; renderPagar(); }
+// Remove contas a pagar DUPLICADAS (mesma empresa + fornecedor + valor + vencimento).
+// Regras de segurança: mantém SEMPRE a versão conciliada no banco / travada por dia fechado
+// (nunca quebra vínculo nem mexe em dia fechado); só remove as CÓPIAS livres. Pede confirmação com a lista.
+function removerContasPagarDuplicadas() {
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+  const keyOf = c => [norm(c.empresa), norm(c.fornecedor || c.descricao), (c.valor || 0).toFixed(2), c.vencimento ? _toDateInput(c.vencimento) : ''].join('|');
+  const linkedChaves = new Set();
+  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => linkedChaves.add(it.chave)));
+  const isLinked = c => linkedChaves.has(chaveContaPagar(c)) || c._origemEstorno || c._origemExtrato;
+  const grupos = {};
+  contasPagar.forEach((c, i) => { const k = keyOf(c); (grupos[k] = grupos[k] || []).push(i); });
+  const removerIdx = new Set();
+  let nGrupos = 0, mantidasProtegidas = 0;
+  Object.values(grupos).forEach(idxs => {
+    if (idxs.length < 2) return;
+    nGrupos++;
+    // Ordena para MANTER a mais "protegida": travada por fechamento > conciliada/origem-banco > paga > primeira.
+    const score = i => { const c = contasPagar[i]; return (contaTravadaPorFechamento(c) ? 8 : 0) + (isLinked(c) ? 4 : 0) + (c.pago ? 1 : 0); };
+    const ord = idxs.slice().sort((a, b) => score(b) - score(a));
+    const manter = ord[0];
+    ord.slice(1).forEach(i => {
+      const c = contasPagar[i];
+      if (contaTravadaPorFechamento(c) || isLinked(c)) { mantidasProtegidas++; return; } // não mexe em conciliada/fechada
+      removerIdx.add(i);
+    });
+  });
+  if (!removerIdx.size) {
+    alert(`✓ Nenhuma cópia livre para remover.` + (mantidasProtegidas ? `\n\n(${mantidasProtegidas} cópia(s) estão conciliadas no banco ou em dia fechado — essas eu não removo sozinho. Desfaça a conciliação / reabra o dia p/ mexer nelas.)` : '\n\nNão achei contas repetidas (mesma empresa, fornecedor, valor e vencimento).'));
+    return;
+  }
+  const lista = [...removerIdx].map(i => contasPagar[i]);
+  const totalRem = lista.reduce((s, c) => s + (c.valor || 0), 0);
+  const amostra = lista.slice(0, 12).map(c => `• ${c.fornecedor || c.descricao || 'conta'} — ${fmtVal(c.valor || 0)}${c.vencimento ? ' — venc. ' + fmtDate(c.vencimento) : ''}${c.empresa ? ' [' + c.empresa + ']' : ''}`).join('\n');
+  if (!confirm(
+    `Encontrei ${removerIdx.size} conta(s) DUPLICADA(S) (mesma empresa, fornecedor, valor e vencimento).\n\n` +
+    `Vou MANTER 1 de cada e remover as cópias abaixo (${fmtVal(totalRem)} no total):\n\n${amostra}${lista.length > 12 ? `\n… e mais ${lista.length - 12}` : ''}\n\n` +
+    (mantidasProtegidas ? `⚠ ${mantidasProtegidas} cópia(s) conciliadas/em dia fechado NÃO serão tocadas.\n\n` : '') +
+    `⚠ Se alguma for uma conta REAL repetida de verdade (ex.: 2 boletos iguais no mesmo dia), cancele e remova na mão. Faça um 💾 Backup antes se tiver dúvida.\n\nRemover as cópias?`
+  )) return;
+  // Snapshot p/ "Desfazer importação" (reaproveita o mesmo undo).
+  _contasPagarUndo = { snapshot: contasPagar.map(c => ({ ...c })), empresa: '(remover duplicados)', qtdAntes: contasPagar.length, qtdNovas: 0, modo: 'dedup' };
+  try { localStorage.setItem(LS_PREFIX + 'contasPagar_undo', JSON.stringify(_contasPagarUndo.snapshot)); } catch (e) {}
+  contasPagar = contasPagar.filter((_, i) => !removerIdx.has(i));
+  saveData('contasPagar', contasPagar);
+  renderPagar();
+  alert(`✓ Removi ${removerIdx.size} cópia(s) duplicada(s). Se removeu algo sem querer, use ↩ Desfazer importação.`);
+}
 // Relatório por banco (agrupa as contas filtradas por banco de pagamento) — abre pra imprimir/PDF/enviar.
 function relatorioContasPorBanco() {
   const { vis, fSt, fDataPor } = _contasPagarFiltradas();
@@ -3836,6 +3883,7 @@ function renderPagar() {
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel">📤 Exportar</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
+      <button class="btn ghost sm" onclick="removerContasPagarDuplicadas()" title="Acha contas repetidas (mesma empresa, fornecedor, valor e vencimento) e remove as cópias — mantém a conciliada e nunca mexe em dia fechado">🧹 Remover duplicados</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
