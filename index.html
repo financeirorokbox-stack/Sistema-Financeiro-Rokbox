@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v310/07-400';
+const APP_VERSION = 'v311/07-402';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3122,13 +3122,30 @@ function statusFormaSemForma(ped, concOk, recs) {
 // (O gateway processa 1 dia antes; a liquidação que bate com o extrato é a do banco.)
 function dataRepasseBanco(rec) {
   if (!rec) return null;
-  let recK; try { recK = recKeyGlobal(rec); } catch (e) { return null; }
-  for (const [extId, rep] of Object.entries(repasseLinks)) {
+  let recK; try { recK = recKeyGlobal(rec); } catch (e) { recK = null; }
+  // 1. FLEGADO (explícito): a data do depósito ao qual o recebimento foi amarrado.
+  if (recK) for (const [extId, rep] of Object.entries(repasseLinks)) {
     if ((rep.itens || []).includes(recK)) {
       const t = extratoBancario.find(x => x.id === extId);
       if (t && t.data) return t.data;
       if (rep.data) return new Date(rep.data);
     }
+  }
+  // 2. INFERIDO (automático, sem precisar flegar): o depósito do MESMO gateway que caiu no banco
+  //    na data mais próxima >= data do recebimento. Assim "liquidação" = a data em que o dinheiro
+  //    realmente entrou no banco, e o filtro por liquidação bate com os créditos do banco daquele dia.
+  const gw = rec.gateway;
+  const rd = rec.data ? (rec.data instanceof Date ? rec.data : new Date(rec.data)) : null;
+  if (gw && rd && !isNaN(rd)) {
+    let best = null;
+    for (const t of extratoBancario) {
+      if ((t.valor || 0) <= 0 || !t.data) continue;
+      if (gatewayDoCredito(t) !== gw) continue;
+      const td = t.data instanceof Date ? t.data : new Date(t.data);
+      if (isNaN(td) || td < rd) continue;
+      if (!best || td < best) best = td;
+    }
+    if (best) return best;
   }
   return null;
 }
@@ -3231,6 +3248,19 @@ function getLiqDate(l) {
   if (l && l._avulso) { const a = boletosAvulsos[l._avIdx]; return a && a.dataPagamento ? new Date(a.dataPagamento) : null; }
   const m = String(getDataLiquidacao(l)).match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
+}
+// Data de LIQUIDAÇÃO de uma conta a pagar = a data do DÉBITO no banco (quando conciliada); senão a data de pagamento.
+// É a data em que o dinheiro realmente saiu do banco — base pra coluna "Liquidação" e pro filtro/exportação.
+function dataLiquidacaoConta(c) {
+  if (!c) return null;
+  const chave = chaveContaPagar(c);
+  for (const [extId, link] of Object.entries(debitoLinks)) {
+    if (debLinkItens(link).some(it => it.chave === chave)) {
+      const t = extratoBancario.find(x => x.id === extId);
+      if (t && t.data) return t.data;
+    }
+  }
+  return c.dataPag || null;
 }
 // Recebido, taxa, juros e desconto de uma linha de Contas a Receber.
 function dadosRecebimentoLinha(l) {
@@ -3603,7 +3633,7 @@ function gerarRecorrencias() {
   alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
 }
 // Colunas mostráveis/ocultáveis da tabela de Contas a Pagar.
-const CP_COLS = [['vencimento','Vencimento'],['competencia','Competência'],['status','Status'],['empresa','Empresa'],['banco','Banco'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Pagamento'],['historico','Histórico']];
+const CP_COLS = [['vencimento','Vencimento'],['competencia','Competência'],['status','Status'],['empresa','Empresa'],['banco','Banco'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Liquidação'],['historico','Histórico']];
 // Competência da conta (mês da despesa, p/ DRE): usa c.competencia (AAAA-MM) ou, se vazio, o mês do vencimento.
 function competenciaConta(c) { if (c && c.competencia) return c.competencia; const v = c && c.vencimento ? new Date(c.vencimento) : null; return v && !isNaN(v) ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}` : ''; }
 // Filtro de categorias (múltipla seleção por checkbox) no Contas a Pagar
@@ -3655,7 +3685,7 @@ function _contasPagarFiltradas() {
   if (fConc === 'sim') vis = vis.filter(estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
-  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? dataLiquidacaoConta(c) : c.vencimento));
   return { vis: vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0)), fSt, fDataPor };
 }
 // Saldo inicial do dia POR BANCO — a usuária digita cada banco; o "todos os bancos" é a SOMA.
@@ -3812,7 +3842,7 @@ function exportarContasPagar() {
   if (fConc === 'sim') vis = vis.filter(estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
-  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? dataLiquidacaoConta(c) : c.vencimento));
   vis.sort((a, b) => (a.vencimento || 0) - (b.vencimento || 0));
   const _d = x => { if (!x) return null; const dt = x instanceof Date ? x : new Date(x); return isNaN(dt) ? null : dt; };
   const fmtD = x => { const dt = _d(x); return dt ? dt.toLocaleDateString('pt-BR') : ''; };
@@ -3831,11 +3861,11 @@ function exportarContasPagar() {
     (competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : ''), // Competência (1º dia do mês da COMPETÊNCIA, p/ DRE)
     c.descricao || '',                                   // Descrição (texto da planilha)
     c.observacao || '',                                  // Observações (histórico)
-    fmtD(c.dataPag),                                     // Liquidação
+    fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
     (competenciaConta(c) ? competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : mesAno(c.vencimento)), // Mês_Despesa (competência)
-    mesAno(c.dataPag),                                   // Mês_Liquidado
+    mesAno(dataLiquidacaoConta(c)),                      // Mês_Liquidado
     c.valor || 0,                                        // Valor (2ª)
-    fmtD(c.dataPag || c.vencimento),                     // Data FCX (liquidação; se não pago, vencimento)
+    fmtD(dataLiquidacaoConta(c) || c.vencimento),        // Data FCX (liquidação; se não pago, vencimento)
     catContaPagar(c) || '',                              // Categoria
     c.empresa || '',                                     // Empresa
     (c.rateio && c.rateio.length) ? c.rateio.map(r => `${[r.empresa, r.grupo, r.categoria, r.colecao].filter(Boolean).join('/')}: ${(r.valor || 0).toFixed(2)}`).join(' | ') : '' // Rateio (Empresa/Subgrupo/Categoria/Coleção)
@@ -3886,7 +3916,7 @@ function renderPagar() {
   if (fConc === 'sim') vis = vis.filter(_estaConc);
   if (fConc === 'nao') vis = vis.filter(c => !_estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
-  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? c.dataPag : c.vencimento));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? dataLiquidacaoConta(c) : c.vencimento));
   // Conta recém-criada na mão aparece mesmo que o filtro a esconderia (pra você preencher ali mesmo)
   if (_novaContaRef && contasPagar.includes(_novaContaRef) && !vis.includes(_novaContaRef)) vis = vis.concat([_novaContaRef]);
 
@@ -4025,7 +4055,7 @@ function renderPagar() {
       </style>
       <div class="table-wrap"><table class="cp-tbl"><thead><tr>
         ${delCheckboxHeader('contasPagar')}
-        <th class="cpcol-vencimento">Vencimento</th><th class="cpcol-competencia">Competência</th><th class="cpcol-status">Status</th><th class="cpcol-empresa">Empresa</th><th class="cpcol-banco">Banco</th><th class="cpcol-fornecedor">Fornecedor</th><th class="cpcol-categoria">Categoria</th><th class="cpcol-valor" style="text-align:right">Valor</th><th class="cpcol-rateio">Rateio</th><th class="cpcol-pagamento">Pagamento</th><th class="cpcol-historico">Histórico</th>
+        <th class="cpcol-vencimento">Vencimento</th><th class="cpcol-competencia">Competência</th><th class="cpcol-status">Status</th><th class="cpcol-empresa">Empresa</th><th class="cpcol-banco">Banco</th><th class="cpcol-fornecedor">Fornecedor</th><th class="cpcol-categoria">Categoria</th><th class="cpcol-valor" style="text-align:right">Valor</th><th class="cpcol-rateio">Rateio</th><th class="cpcol-pagamento">Liquidação</th><th class="cpcol-historico">Histórico</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
         const realIdx = contasPagar.indexOf(c);
@@ -4047,7 +4077,7 @@ function renderPagar() {
             <td class="cpcol-categoria"><input class="inline-input" style="width:140px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
-            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)">${c.dataPag?fmtDate(c.dataPag):'—'}</td>
+            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)" title="Data do débito no banco (conciliação)">${dataLiquidacaoConta(c)?fmtDate(dataLiquidacaoConta(c)):'—'}</td>
             <td class="cpcol-historico"><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
           </tr>`;
         }
@@ -4067,7 +4097,7 @@ function renderPagar() {
             <td class="cpcol-categoria">${catContaPagar(c) || mut}</td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr}</td>
-            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)">${c.dataPag ? fmtDate(c.dataPag) : mut}</td>
+            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)" title="Data do débito no banco (conciliação)">${dataLiquidacaoConta(c) ? fmtDate(dataLiquidacaoConta(c)) : mut}</td>
             <td class="cpcol-historico" title="${hist.replace(/"/g, '&quot;')}">${hist ? (hist.length > 28 ? hist.slice(0, 28) + '…' : hist) : mut}</td>
           </tr>`;
         }
