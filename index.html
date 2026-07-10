@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v303/07-386';
+const APP_VERSION = 'v304/07-388';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3260,16 +3260,21 @@ function dadosRecebimentoLinha(l) {
 function pagamentosDaLinha(l) {
   const pedId = String(l.f.pedido);
   const out = [];
-  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) out.push({ data: a.dataPagamento, valor: a.valorPago != null ? a.valorPago : (a.valorTitulo || 0) }); return out; }
+  // Cada pagamento traz: valor (BRUTO), liq (LÍQUIDO = o que caiu no banco) e taxa. Boleto/PIX/dinheiro: líquido = valor, taxa 0.
+  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: a.dataPagamento, valor: v, liq: v, taxa: 0 }); } return out; }
   if (l.cat === 'Boleto Itaú') {
     const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
-    if (bPed) getParcelas(bPed).forEach(p => { const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) out.push({ data: cob.dataPagamento, valor: cob.valorPago != null ? cob.valorPago : p.valor }); });
+    if (bPed) getParcelas(bPed).forEach(p => { const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: cob.dataPagamento, valor: v, liq: v, taxa: 0 }); } });
     return out;
   }
   recebimentosConsolidado.filter(r => r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => {
-    const valor = alocRecebGateway(r, pedId);
+    const valor = alocRecebGateway(r, pedId); // BRUTO alocado ao pedido
     if (Math.abs(valor) < 0.005) return;
-    out.push({ data: dataRepasseBanco(r) || r.data, valor: +valor.toFixed(2) });
+    // Líquido e taxa proporcionais à fatia do bruto que coube a este pedido (PayPal/Braavo têm taxa; PIX/dinheiro não).
+    const brutoTot = r.bruto || r.liq || 0;
+    const liqTot = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0));
+    const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
+    out.push({ data: dataRepasseBanco(r) || r.data, valor: +valor.toFixed(2), liq: +(liqTot * ratio).toFixed(2), taxa: +((r.taxa || 0) * ratio).toFixed(2) });
   });
   return out;
 }
@@ -3295,18 +3300,19 @@ function exportarModeloCR() {
     // Filtro por VENCIMENTO: a data é da LINHA → se não passa, pula a linha inteira.
     if (_dfOn && !_porLiq && !passaData(vencDt)) return;
     // Uma linha por PAGAMENTO (data + valor); o saldo que falta vira 1 linha "Em Aberto" sem data.
-    const mkRow = (liqIn, valor, receb, sit) => {
+    const mkRow = (liqIn, valor, receb, sit, taxa) => {
       const liqD = _asDate(liqIn);
       const comp = liqD ? `01/${String(liqD.getMonth() + 1).padStart(2, '0')}/${liqD.getFullYear()}` : (vencDt ? `01/${String(vencDt.getMonth() + 1).padStart(2, '0')}/${vencDt.getFullYear()}` : '');
-      return [_noon(liqD), _noon(vencDt), pedNum, nome, sit, comp, valor, 0, 0, 0, receb, 0, 0, descricao, obs, cat, _ma(liqD || vencDt), _ma(liqD), valor, _noon(liqD || vencDt), emp];
+      return [_noon(liqD), _noon(vencDt), pedNum, nome, sit, comp, valor, 0, 0, 0, receb, 0, +((taxa || 0)).toFixed(2), descricao, obs, cat, _ma(liqD || vencDt), _ma(liqD), valor, _noon(liqD || vencDt), emp];
     };
     const pags = pagamentosDaLinha(l);
     let somaPag = 0;
     pags.forEach(pg => {
-      somaPag += pg.valor;
+      somaPag += pg.valor; // BRUTO (p/ calcular o que falta em aberto contra o valor do pedido)
       // Filtro por LIQUIDAÇÃO: cada pagamento cai no MÊS da sua data (data do banco) → só entra o que passa.
       if (_dfOn && _porLiq && !passaData(pg.data)) return;
-      rows.push(mkRow(pg.data, +pg.valor.toFixed(2), +pg.valor.toFixed(2), 'Pago'));
+      // Valor = BRUTO; Recebido = LÍQUIDO (o que caiu no banco); Taxa = a taxa do gateway.
+      rows.push(mkRow(pg.data, +pg.valor.toFixed(2), +(pg.liq != null ? pg.liq : pg.valor).toFixed(2), 'Pago', pg.taxa || 0));
     });
     const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
     // O saldo em aberto não tem data de liquidação → não entra quando o filtro é por Liquidação.
