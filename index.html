@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v304/07-388';
+const APP_VERSION = 'v305/07-390';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3308,6 +3308,8 @@ function exportarModeloCR() {
     const pags = pagamentosDaLinha(l);
     let somaPag = 0;
     pags.forEach(pg => {
+      // Estorno/reembolso (valor NEGATIVO) NÃO entra no Contas a Receber — ele é tratado como despesa no Contas a Pagar.
+      if (pg.valor < 0) return;
       somaPag += pg.valor; // BRUTO (p/ calcular o que falta em aberto contra o valor do pedido)
       // Filtro por LIQUIDAÇÃO: cada pagamento cai no MÊS da sua data (data do banco) → só entra o que passa.
       if (_dfOn && _porLiq && !passaData(pg.data)) return;
