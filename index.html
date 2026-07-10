@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v313/07-406';
+const APP_VERSION = 'v314/07-408';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2169,6 +2169,26 @@ function _renderContasImpl(el) {
     if ((recebidoPorPed[pid] || 0) >= (l.ped.valor || 0) - 0.5) {
       l.st = { recebido: true, detalhe: '✓ pedido quitado (conciliação)' };
     }
+  });
+
+  // Recebimentos com NÚMERO DE PEDIDO que NÃO tem pedido cadastrado (ex.: atacado #358) → também entram
+  // como linha, pago/conciliado, com o número e o gateway preenchidos. Assim TUDO que caiu no banco aparece aqui.
+  const _npedsComLinha = new Set(linhas.map(l => String(l.f.pedido)));
+  const _orfaosPorPed = {};
+  recebimentosConsolidado.forEach(r => {
+    const np = String(r.nped || '').trim();
+    if (!np || _npedsComLinha.has(np)) return;
+    if ((r.bruto != null ? r.bruto : (r.liq || 0)) <= 0) return; // ignora negativos (estornos)
+    (_orfaosPorPed[np] = _orfaosPorPed[np] || []).push(r);
+  });
+  Object.entries(_orfaosPorPed).forEach(([np, recs]) => {
+    const bruto = recs.reduce((s, r) => s + (r.bruto || 0), 0);
+    const gw = recs[0].gateway || 'Conciliado';
+    linhas.push({
+      ped: { id: np, nome: recs[0].nome || '', loja: '', situacao: '', empresa: recs[0].empresa || '' },
+      f: { pedido: np, descricao: gw, valor: +bruto.toFixed(2), vencimento: null },
+      cat: gw, st: { recebido: true, detalhe: 'conciliado no banco (sem pedido cadastrado)' }, venc: null, realIdx: -1, semForma: true, _orfaoReceb: true
+    });
   });
 
   // Avulsos do Itaú (boletos "a receber fora do sistema") entram como linhas de Contas a Receber também.
