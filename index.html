@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v302/07-384';
+const APP_VERSION = 'v303/07-386';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -980,6 +980,7 @@ let formaManualMap = {}; // forma digitada manualmente em Contas a Receber
 let formaOverrideMap = {}; // forma trocada manualmente (sobrepõe a forma/categoria do pedido)
 let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para exportação)
 let _linhasCRExport = []; // linhas SEM o filtro de data (o export filtra por PAGAMENTO, respeitando o tipo Venc/Liquidação)
+let _receitasCRExport = []; // receitas avulsas (rendimentos etc. lançados na conciliação) filtradas SEM data — p/ entrarem no export
 let _linhasCRDataPor = 'vencimento'; // tipo do filtro de data ('vencimento' | 'liquidacao') do último render de Contas a Receber
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
@@ -2212,6 +2213,14 @@ function _renderContasImpl(el) {
   // pra parciais pagos em meses diferentes caírem cada um no seu mês.
   _linhasCRExport = vis;
   _linhasCRDataPor = fDataPor;
+  // Receitas avulsas (rendimentos etc. lançados na conciliação): mesmos filtros da tela, MENOS a data — o export filtra pela data delas (r.data = data do banco).
+  _receitasCRExport = receitasAvulsas.filter(r => {
+    if (fEmp && (r.empresa || '') !== fEmp) return false;
+    if (fCat && r.categoria !== fCat) return false;
+    if (fSt === 'aberto' || fSt === 'semforma') return false; // avulsa é sempre paga
+    if (fQ && !((r.categoria || '').toLowerCase().includes(fQ) || (r.descricao || '').toLowerCase().includes(fQ))) return false;
+    return true;
+  });
   if (dfAtivo()) vis = vis.filter(l => passaData(fDataPor === 'liquidacao' ? getLiqDate(l) : l.venc)); // filtro de data na TELA/cards (por linha)
 
   _linhasCR = vis; // o export usa _linhasCRExport (filtra por pagamento); _linhasCR = tela
@@ -3302,6 +3311,15 @@ function exportarModeloCR() {
     const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
     // O saldo em aberto não tem data de liquidação → não entra quando o filtro é por Liquidação.
     if (pendente > 0.01 && !(_dfOn && _porLiq)) rows.push(mkRow(null, pendente, 0, 'Em Aberto'));
+  });
+  // Receitas avulsas (rendimentos etc. lançados na conciliação bancária): entram como recebidas na data do banco.
+  _receitasCRExport.forEach(r => {
+    const d = _asDate(r.data);
+    if (_dfOn && !passaData(d)) return; // filtro de data: a receita tem uma data só (é sempre recebida nela)
+    const v = +(r.valor || 0).toFixed(2);
+    const comp = d ? `01/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : '';
+    const nome = r.categoria || r.descricao || 'Receita';
+    rows.push([_noon(d), _noon(d), '', nome, 'Pago', comp, v, 0, 0, 0, v, 0, 0, r.descricao || r.categoria || '', 'Receita avulsa (conciliação bancária)', r.categoria || '', _ma(d), _ma(d), v, _noon(d), r.empresa || '']);
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
