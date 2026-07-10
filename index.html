@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v320/07-420';
+const APP_VERSION = 'v321/07-422';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3410,7 +3410,7 @@ function exportarModeloCR() {
 // Exporta a CONCILIAÇÃO BANCÁRIA (crédito e débito) com as MESMAS colunas do Contas a Receber,
 // em duas abas (Créditos / Débitos). Respeita o banco e o período filtrados na tela.
 function exportarConciliacaoBancaria() {
-  const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
+  const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
   const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
   const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth()+1).padStart(2,'0') + '/' + dt.getFullYear() : ''; };
   const banco = bancoConcSel;
@@ -3430,7 +3430,7 @@ function exportarConciliacaoBancaria() {
       const dl = debitoLinks[t.id];
       if (dl) { const its = debLinkItens(dl); nome = its.map(i => i.fornecedor).filter(Boolean).join(', ') || t.memo || ''; cat = its.length ? (catContaPagar(contasPagar.find(c => chaveContaPagar(c) === its[0].chave) || {}) || '') : ''; }
     }
-    const row = [_noon(d), _noon(d), numero, nome, 'Pago', comp, val, 0, 0, 0, val, 0, 0, cat, (t.memo || '') + (t.banco ? ' — ' + t.banco : ''), cat, _ma(d), _ma(d), val, _noon(d), ''];
+    const row = [_noon(d), _noon(d), numero, nome, 'Pago', comp, val, 0, 0, 0, val, 0, 0, cat, (t.memo || '') + (t.banco ? ' — ' + t.banco : ''), _ma(d), _ma(d), val, _noon(d), ''];
     (isCred ? rowsC : rowsD).push(row);
   });
   const wb = XLSX.utils.book_new();
