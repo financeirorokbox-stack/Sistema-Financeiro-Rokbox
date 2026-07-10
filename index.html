@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v322/07-424';
+const APP_VERSION = 'v323/07-426';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8505,6 +8505,15 @@ function bloqueadoPorFechamento(date, banco) {
   if (diaFechado(date, banco)) { alert('🔒 Este dia (deste banco) está FECHADO. Para alterar, um administrador precisa reabrir na Conciliação Bancária.'); return true; }
   return false;
 }
+// Categoria de um lançamento do extrato (crédito = gateway/receita; débito = categoria da conta vinculada). Vazio = sem categoria.
+function categoriaLancamento(t) {
+  if ((t.valor || 0) >= 0) {
+    return gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '') || '';
+  }
+  const dl = debitoLinks[t.id];
+  if (dl) { const its = debLinkItens(dl); const conta = its.length ? contasPagar.find(c => chaveContaPagar(c) === its[0].chave) : null; return conta ? (catContaPagar(conta) || '') : ''; }
+  return '';
+}
 function fecharDia(dk) {
   if (!currentUser || !currentUser.admin) { alert('Só administrador pode fechar o dia.'); return; }
   if (dk === 'sem-data') return;
@@ -8512,6 +8521,13 @@ function fecharDia(dk) {
   if (!banks.length) { alert('Nenhum banco para fechar neste dia.'); return; }
   const rotulo = bancoConcSel === '__todos' ? 'TODOS os bancos deste dia'
                : (bancoConcSel === '__sem' ? 'os lançamentos SEM banco' : `o banco "${bancoConcSel}"`);
+  // AVISO: lançamentos do dia SEM categoria (concilie/preencha antes de fechar).
+  const doDia = extratoBancario.filter(t => diaKey(t.data) === dk && banks.includes(t.banco || ''));
+  const semCat = doDia.filter(t => !String(categoriaLancamento(t)).trim());
+  if (semCat.length) {
+    const lista = semCat.slice(0, 20).map(t => `• ${(t.valor || 0) >= 0 ? 'Crédito' : 'Débito'} ${fmtVal(Math.abs(t.valor || 0))} — ${(t.memo || '').slice(0, 34)}`).join('\n');
+    if (!confirm(`⚠ ${semCat.length} lançamento(s) deste dia estão SEM categoria (a que vira Descrição). Concilie / preencha a categoria antes de fechar:\n\n${lista}${semCat.length > 20 ? `\n… e mais ${semCat.length - 20}` : ''}\n\nFechar o dia MESMO ASSIM?`)) return;
+  }
   if (!confirm(`Fechar o dia ${fmtDate(new Date(dk+'T00:00:00'))} para ${rotulo}?\n\nDepois de fechado, nada deste dia (deste banco) pode ser alterado nem excluído. Você pode reabrir depois.`)) return;
   banks.forEach(b => { const key = fechKey(b, dk); if (!diasFechados.includes(key)) diasFechados.push(key); });
   saveData('diasFechados', diasFechados);
@@ -9094,6 +9110,9 @@ function cbVincularDebito(extId, alvo) {
   debitoLinks[extId] = { itens, total: totFinal, credito: credito || 0, juros: juros || 0 };
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
+  // Aviso: se alguma conta vinculada está SEM categoria, avisa na hora (a usuária pediu).
+  const _semCatDeb = itens.map(i => contasPagar.find(c => chaveContaPagar(c) === i.chave)).filter(c => c && !String(catContaPagar(c) || '').trim());
+  if (_semCatDeb.length) alert(`⚠ ${_semCatDeb.length} conta(s) deste débito estão SEM categoria:\n\n${_semCatDeb.map(c => '• ' + (c.fornecedor || c.descricao || 'conta') + ' — ' + fmtVal(c.valor || 0)).join('\n')}\n\nPreencha a categoria delas no Contas a Pagar.`);
   renderBanco();
 }
 // Desfaz o vínculo: reverte "pago", o valor alterado e remove contas criadas por este vínculo.
