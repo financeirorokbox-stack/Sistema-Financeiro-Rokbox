@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v308/07-396';
+const APP_VERSION = 'v309/07-398';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4507,7 +4507,8 @@ function desfazerEstornoManual(idx) {
 function estornoParaPagar(idx) {
   const r = recebimentosConsolidado[idx];
   if (!r) return;
-  const valor = Math.abs(r.bruto || r.liq || 0);
+  // Usa o LÍQUIDO (o que o banco realmente abateu — o gateway devolve a taxa junto). Pelo bruto, a taxa inflava a despesa e não batia com o banco.
+  const valor = Math.abs(r.liq != null ? r.liq : (r.bruto || 0));
   if (!valor) { alert('Sem valor para lançar.'); return; }
   if (!confirm(`Lançar o estorno de ${fmtVal(valor)} (${r.nome||'cliente'}) em Contas a Pagar como DESPESA já paga (categoria ESTORNO)?`)) return;
   const conta = {
@@ -4523,6 +4524,30 @@ function estornoParaPagar(idx) {
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRecebimentos();
   alert('✓ Estorno lançado em Contas a Pagar.');
+}
+// Ajusta os estornos JÁ lançados no Contas a Pagar do BRUTO para o LÍQUIDO (o que o banco abateu). Mostra o total antes.
+function corrigirEstornosLiquido() {
+  const ajustes = [];
+  recebimentosConsolidado.forEach(r => {
+    if (!r._estornoChave || r.liq == null) return;
+    const c = contasPagar.find(x => chaveContaPagar(x) === r._estornoChave);
+    if (!c) return;
+    const liq = +Math.abs(r.liq).toFixed(2);
+    if (Math.abs((c.valor || 0) - liq) <= 0.005) return; // já está pelo líquido
+    ajustes.push({ r, c, de: +(c.valor || 0).toFixed(2), para: liq, travada: contaTravadaPorFechamento(c) });
+  });
+  if (!ajustes.length) { alert('✓ Nenhum estorno para ajustar — todos já estão pelo líquido (ou não têm taxa).'); return; }
+  const livres = ajustes.filter(a => !a.travada);
+  const travadas = ajustes.filter(a => a.travada);
+  if (!livres.length) { alert(`Os ${ajustes.length} estorno(s) a ajustar estão em dia(s) FECHADO(s). Reabra o dia (admin) na Conciliação pra corrigir.`); return; }
+  const totalDelta = +livres.reduce((s, a) => s + (a.de - a.para), 0).toFixed(2);
+  if (!confirm(`Vou ajustar ${livres.length} estorno(s) no Contas a Pagar do BRUTO para o LÍQUIDO.\n\nIsso REDUZ as despesas em ${fmtVal(totalDelta)} (a soma das taxas que estavam inflando os estornos).\n\n${travadas.length ? `⚠ ${travadas.length} em dia fechado NÃO serão tocados.\n\n` : ''}Se esse valor bate com a diferença do Movimento líquido, é isso mesmo. Confirmar?`)) return;
+  livres.forEach(a => { a.c.valor = a.para; a.r._estornoChave = chaveContaPagar(a.c); });
+  saveData('contasPagar', contasPagar);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  try { renderRecebimentos(); } catch (e) {}
+  try { renderBanco(); } catch (e) {}
+  alert(`✓ ${livres.length} estorno(s) ajustado(s) para o líquido (−${fmtVal(totalDelta)} em despesas). Confira a Conferência × Banco — o Movimento líquido deve fechar (ou chegar bem perto).`);
 }
 // Desfaz: remove a despesa de estorno criada e o vínculo.
 function desfazerEstornoPagar(idx) {
@@ -7804,7 +7829,8 @@ function conferenciaPeriodoHTML() {
       ${bloco('Pago × Débitos', pago, 'Pago (Contas a Pagar)', debBanco, 'Débitos do banco', difP)}
     </div>
     ${bloco('✅ Movimento líquido (esse é o que TEM que bater no seu modelo)', movSist, 'Recebido − Pago (sistema)', movBanco, 'Créditos − Débitos (banco)', difMov, true)}
-    <div style="font-size:11px;color:var(--muted);margin-top:6px">Como o estorno vai pro Contas a Pagar, ele incha o Recebido e o Pago na MESMA medida — por isso cada lado sozinho não bate, mas o <strong>movimento líquido</strong> sim. Se o líquido não bater, aí é diferença de verdade (crédito/débito não lançado, extrato faltando). Recebido = mesma conta do export (filtre o mesmo período na aba Contas a Receber).</div>
+    ${Math.abs(difMov) > 0.02 ? `<div style="margin-top:8px"><button class="btn ghost sm" onclick="corrigirEstornosLiquido()" title="Ajusta os estornos ja lançados no Contas a Pagar do BRUTO para o LIQUIDO (o que o banco abateu). Mostra o total antes de aplicar.">🔧 Corrigir estornos (bruto→líquido)</button> <span style="font-size:11px;color:var(--muted)">se a diferença ${fmtVal(difMov)} for do tamanho das taxas dos estornos, é isso.</span></div>` : ''}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">Como o estorno vai pro Contas a Pagar, ele incha o Recebido e o Pago na MESMA medida — por isso cada lado sozinho não bate, mas o <strong>movimento líquido</strong> sim. Se o líquido não bater, aí é diferença de verdade (estorno pelo bruto, crédito/débito não lançado, extrato faltando). Recebido = mesma conta do export (filtre o mesmo período na aba Contas a Receber).</div>
   </div>`;
 }
 function renderBanco() {
