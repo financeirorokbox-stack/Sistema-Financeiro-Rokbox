@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v325/07-430';
+const APP_VERSION = 'v326/07-432';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3956,7 +3956,8 @@ function exportarContasPagar() {
   const fmtD = x => { const dt = _d(x); return dt ? dt.toLocaleDateString('pt-BR') : ''; };
   const mesAno = x => { const dt = _d(x); return dt ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   const comp = x => { const dt = _d(x); return dt ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
-  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Descrição', 'Observações', 'Liquidação', 'Mês_Despesa', 'Mês_Liquidado', 'Valor', 'Data FCX', 'Categoria', 'Empresa', 'Rateio']];
+  // Ordem das colunas conforme o modelo FCX (Despesas Realizado).
+  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa']];
   vis.forEach(c => aoa.push([
     fmtD(c.vencimento),                                  // Data de vencimento
     c.numero || '',                                      // Número
@@ -3966,20 +3967,14 @@ function exportarContasPagar() {
     '',                                                  // Desconto (não há campo no sistema)
     c.pago ? (c.valor || 0) : 0,                         // Pago (valor pago)
     c.situacao || (c.pago ? 'Pago' : 'Em Aberto'),       // Situação
-    (competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : ''), // Competência (1º dia do mês da COMPETÊNCIA, p/ DRE)
-    c.descricao || '',                                   // Descrição (texto da planilha)
+    (competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : ''), // Competência (1º dia do mês da COMPETÊNCIA)
+    catContaPagar(c) || '',                              // Categoria
     c.observacao || '',                                  // Observações (histórico)
     fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
-    (competenciaConta(c) ? competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : mesAno(c.vencimento)), // Mês_Despesa (competência)
-    mesAno(dataLiquidacaoConta(c)),                      // Mês_Liquidado
-    c.valor || 0,                                        // Valor (2ª)
-    fmtD(dataLiquidacaoConta(c) || c.vencimento),        // Data FCX (liquidação; se não pago, vencimento)
-    catContaPagar(c) || '',                              // Categoria
-    c.empresa || '',                                     // Empresa
-    (c.rateio && c.rateio.length) ? c.rateio.map(r => `${[r.empresa, r.grupo, r.categoria, r.colecao].filter(Boolean).join('/')}: ${(r.valor || 0).toFixed(2)}`).join(' | ') : '' // Rateio (Empresa/Subgrupo/Categoria/Coleção)
+    c.empresa || ''                                      // Empresa
   ]));
   const totV = +vis.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2);
-  aoa.push([]); aoa.push(['', '', 'TOTAL', totV, '', '', +vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0).toFixed(2), '', '', '', '', '', '', '', totV]);
+  aoa.push([]); aoa.push(['', '', 'TOTAL', totV, '', '', +vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0).toFixed(2)]);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Contas a Pagar');
@@ -4052,6 +4047,7 @@ function renderPagar() {
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosPagar()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
+      <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel (modelo FCX Despesas)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
       <button class="btn ghost sm" onclick="removerContasPagarDuplicadas()" title="Acha contas repetidas (mesma empresa, fornecedor, valor e vencimento) e remove as cópias — mantém a conciliada e nunca mexe em dia fechado">🧹 Remover duplicados</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
