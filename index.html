@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v328/07-436';
+const APP_VERSION = 'v329/07-438';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3296,8 +3296,11 @@ function dataLiquidacaoConta(c) {
       if (t && t.data) return t.data;
     }
   }
-  // NÃO conciliada a um débito do banco → SEM data de liquidação (não entra no filtro por liquidação).
-  // Assim o Contas a Pagar filtrado por Liquidação bate exatamente com os débitos da Conciliação Bancária.
+  // Estorno/reembolso: NÃO sai como débito próprio no banco (foi descontado do repasse), então nunca teria
+  // uma conciliação. Mesmo assim tem que APARECER — usa a data do pagamento como liquidação.
+  if ((String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno) return c.dataPag || null;
+  // Demais contas NÃO conciliadas a um débito do banco → SEM data de liquidação (não entram no filtro por liquidação).
+  // Assim o Contas a Pagar filtrado por Liquidação bate com os débitos da Conciliação Bancária.
   return null;
 }
 // Recebido, taxa, juros e desconto de uma linha de Contas a Receber.
@@ -3475,6 +3478,22 @@ function exportarConciliacaoBancaria() {
       rowsD.push([_noon(venc), numero, nome, val, 0, 0, val, 'Pago', comp, descr, obs, _noon(d), _ma(d), _ma(d), val, _noon(d), cat, emp]);
     }
   });
+  // ESTORNOS/REEMBOLSOS: não saem como débito próprio no banco (descontados do repasse), mas entram na aba
+  // Débitos pela DATA DE PAGAMENTO — pra aparecerem e o total bater com o Contas a Pagar.
+  if (banco === '__todos' || !banco) {
+    const _linkChaves = new Set();
+    Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => _linkChaves.add(it.chave)));
+    contasPagar.forEach(c => {
+      const ehEst = (String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno;
+      if (!ehEst || !c.pago) return;
+      if (_linkChaves.has(chaveContaPagar(c))) return; // já entrou como débito conciliado no banco
+      const dp = c.dataPag;
+      if (!dp || (dfAtivo() && !passaData(dp))) return;
+      const v = +(c.valor || 0).toFixed(2);
+      const cmp = competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : '';
+      rowsD.push([_noon(c.vencimento || dp), c.numero || '', c.fornecedor || c.descricao || 'estorno', v, 0, 0, v, 'Pago', cmp, c.descricao || '', c.observacao || '', _noon(dp), _ma(dp), _ma(dp), v, _noon(dp), catContaPagar(c) || 'ESTORNO', c.empresa || '']);
+    });
+  }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsC), 'Créditos');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsD), 'Débitos');
