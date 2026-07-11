@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v327/07-434';
+const APP_VERSION = 'v328/07-436';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8355,6 +8355,7 @@ function renderBanco() {
                   const listaContas = todas.length ? `
                       <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
                       <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
+                      <button class="btn ghost sm" style="font-size:11px;margin-bottom:6px" onclick="cbMarcarCartao('${t.id}',${alvo})" title="Marca todas as contas que têm 'cartão' na observação — pra conciliar a fatura do cartão de uma vez">🔖 Marcar cartão</button>
                       <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${_debSoMes && _debMes ? `📅 Só do mês do débito${nOcultosMes ? ` · <a href="#" onclick="_debSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todas (+${nOcultosMes})</a>` : ''}` : `📅 Todos os meses · <a href="#" onclick="_debSoMes=true;renderBanco();return false" style="color:var(--accent)">só do mês</a>`}</div>
                       <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${contasPagar.length} conta(s) a pagar no total · ${livres.length} livre(s)${nUsadas?` · ${nUsadas} já em outro débito`:''}</div>
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
@@ -8371,7 +8372,7 @@ function renderBanco() {
                                      : paga ? ` <span style="background:var(--amber);color:#222;font-size:9px;padding:0 4px;border-radius:6px">paga</span>` : '';
                           const bg = usada ? 'opacity:.7' : (preCheck?'background:var(--green-bg)':(paga?'opacity:.85':''));
                           return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;${bg}">
-                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveC)}" data-v="${c.valor||0}" ${preCheck?'checked':''} ${usada?'disabled':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
+                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveC)}" data-v="${c.valor||0}" data-cartao="${/cart[aã]o/i.test((c.observacao||'')+' '+(c.descricao||'')+' '+(catContaPagar(c)||''))?'1':'0'}" ${preCheck?'checked':''} ${usada?'disabled':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
                             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato&&!usada?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${selo}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
                             ${usada && outroId && outroId!==t.id ? `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;flex-shrink:0" onclick="event.preventDefault();cbMoverContaDebito('${encodeURIComponent(chaveC)}','${t.id}')" title="Desfaz o vínculo no outro débito e vincula a este">Mover para cá</button>` : ''}
                             <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
@@ -8478,6 +8479,16 @@ function cbFiltrarDebList(extId) {
   });
 }
 // Atualiza o rótulo "Flegado: X / Y" conforme as contas marcadas.
+// Marca de uma vez todas as contas com "cartão" na observação (pra conciliar a fatura do cartão).
+function cbMarcarCartao(extId, alvo) {
+  let n = 0;
+  document.querySelectorAll('.cb-deb-pick-' + extId).forEach(cb => {
+    if (cb.disabled) return;
+    if (cb.getAttribute('data-cartao') === '1') { cb.checked = true; n++; }
+  });
+  cbSomaDebito(extId, alvo);
+  if (!n) alert('Nenhuma conta com "cartão" na observação nesta lista.\n\nSe as compras do cartão são de outro mês, clique em "ver todas" (o filtro do débito mostra só o mês por padrão).');
+}
 function cbSomaDebito(extId, alvo) {
   const checks = [...document.querySelectorAll('.cb-deb-pick-' + extId + ':checked')];
   const soma = checks.reduce((s, c) => s + parseFloat(c.dataset.v || '0'), 0);
