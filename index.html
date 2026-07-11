@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v326/07-432';
+const APP_VERSION = 'v327/07-434';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3296,7 +3296,9 @@ function dataLiquidacaoConta(c) {
       if (t && t.data) return t.data;
     }
   }
-  return c.dataPag || null;
+  // NÃO conciliada a um débito do banco → SEM data de liquidação (não entra no filtro por liquidação).
+  // Assim o Contas a Pagar filtrado por Liquidação bate exatamente com os débitos da Conciliação Bancária.
+  return null;
 }
 // Recebido, taxa, juros e desconto de uma linha de Contas a Receber.
 function dadosRecebimentoLinha(l) {
