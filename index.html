@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v341/07-460';
+const APP_VERSION = 'v342/07-461';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1489,6 +1489,7 @@ function renderVendas() {
     ${filtrosBar({
       nAtivos: ['empresa','situacao','loja','vendedor','operacao'].filter(f => (vendasFilters[f]||[]).length).length + ((buscaPersist.vendas||'')?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosVendas()',
+      acoes: `<button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
       campos:
         fdRow('Pesquisar', `<input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">`) +
         ['empresa','situacao','loja','vendedor','operacao'].map(f =>
@@ -3412,6 +3413,25 @@ function exportarModeloCR() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Contas_a_Receber_${mes}.xlsx`);
+}
+// Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
+// (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
+function exportarVendas() {
+  const vis = getFilteredPedidos();
+  if (!vis.length) { alert('Nenhum pedido no filtro atual pra exportar.\n\nDica: ajuste ⚙ Filtros (ou tire a data) e tente de novo.'); return; }
+  const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
+  const headers = ['Número do pedido', 'Nome', 'Nome da Loja', 'Nome - Vendedor', 'Situação', 'Operação', 'Empresa', 'Data', 'Valor total', 'Frete', 'Outras Despesas'];
+  const rows = [headers];
+  vis.forEach(p => {
+    const cls = getClassificacao(p);
+    const op = cls.naoAplicavel ? '' : (cls.operacao || opMapping[opKey(p.loja, p.situacao)] || '');
+    rows.push([String(p.id), p.nome || '', p.loja || '', p.vendedor || '', p.situacao || '', op, p.empresa || '',
+      _noon(p.data), +(p.valor || 0).toFixed(2), +(p.frete || 0).toFixed(2), +(p.outrasDespesas || 0).toFixed(2)]);
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Vendas');
+  const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
+  XLSX.writeFile(wb, `Vendas_${mes}.xlsx`);
 }
 // Exporta a CONCILIAÇÃO BANCÁRIA (crédito e débito) com as MESMAS colunas do Contas a Receber,
 // em duas abas (Créditos / Débitos). Respeita o banco e o período filtrados na tela.
