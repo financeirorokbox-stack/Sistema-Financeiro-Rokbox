@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v342/07-461';
+const APP_VERSION = 'v343/07-462';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3420,16 +3420,29 @@ function exportarVendas() {
   const vis = getFilteredPedidos();
   if (!vis.length) { alert('Nenhum pedido no filtro atual pra exportar.\n\nDica: ajuste ⚙ Filtros (ou tire a data) e tente de novo.'); return; }
   const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
-  const headers = ['Número do pedido', 'Nome', 'Nome da Loja', 'Nome - Vendedor', 'Situação', 'Operação', 'Empresa', 'Data', 'Valor total', 'Frete', 'Outras Despesas'];
+  // MESMA ordem de colunas da planilha original (relatório de Pedidos) — pra copiar e colar direto.
+  // O sistema junta os itens por pedido, então preenche as colunas de pedido (com as correções de
+  // loja/vendedor) e deixa em branco as de item/produto/endereço (que ele não guarda).
+  const headers = ['Número do pedido', 'Data', 'Nome', 'Data de saída', 'Desconto proporcional', 'Frete proporcional',
+    'Outras Despesas', 'Valor total', 'Situação', 'Data fechamento', 'Nome da Loja', 'Observações internas',
+    'Nome - Vendedor', 'Existe Nota Fiscal gerada', 'Número', 'Observações', 'Bairro', 'CEP', 'Cidade', 'UF',
+    'Cliente desde', 'Código (SKU)', 'Descrição', 'Quantidade', 'Total dos Produtos', 'Preço unitário', 'Preço de custo'];
   const rows = [headers];
   vis.forEach(p => {
-    const cls = getClassificacao(p);
-    const op = cls.naoAplicavel ? '' : (cls.operacao || opMapping[opKey(p.loja, p.situacao)] || '');
-    rows.push([String(p.id), p.nome || '', p.loja || '', p.vendedor || '', p.situacao || '', op, p.empresa || '',
-      _noon(p.data), +(p.valor || 0).toFixed(2), +(p.frete || 0).toFixed(2), +(p.outrasDespesas || 0).toFixed(2)]);
+    const r = new Array(headers.length).fill('');
+    r[0] = String(p.id);                          // Número do pedido
+    r[1] = _noon(p.data);                          // Data
+    r[2] = p.nome || '';                           // Nome
+    r[5] = +(p.frete || 0).toFixed(2);             // Frete proporcional (soma do pedido)
+    r[6] = +(p.outrasDespesas || 0).toFixed(2);    // Outras Despesas
+    r[7] = +(p.valor || 0).toFixed(2);             // Valor total
+    r[8] = p.situacao || '';                       // Situação
+    r[10] = p.loja || '';                          // Nome da Loja (corrigida)
+    r[12] = p.vendedor || '';                      // Nome - Vendedor (corrigido)
+    rows.push(r);
   });
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Vendas');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Worksheet');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Vendas_${mes}.xlsx`);
 }
