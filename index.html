@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v330/07-440';
+const APP_VERSION = 'v331/07-450';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8157,6 +8157,7 @@ function renderBanco() {
       limpar: 'limparFiltrosBanco()',
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
+        <button class="btn primary sm" onclick="cbLancarTarifas()" title="Cria as despesas das TARIFAS do banco que ainda não viraram conta (categoria TARIFAS, já paga e conciliada). Respeita o banco e o mês filtrados.">⚡ Lançar tarifas soltas</button>
         <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
         <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
         <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Mantém 1 e remove as cópias repetidas DENTRO do banco selecionado (ex.: banco triplicado). Mexe só nesse banco.">🧹 Remover duplicados (1 banco)</button>`,
@@ -9386,6 +9387,38 @@ function cbAutoDebitos() {
   const n = _autoDebitosCore(matchBanco);
   renderBanco();
   alert(n ? `${n} débito(s) conciliado(s) automaticamente.` : 'Nenhum débito com correspondência única (mesmo valor) encontrado.');
+}
+
+// Cria automaticamente uma despesa (Contas a Pagar) para cada TARIFA do banco que ainda
+// não virou conta — categoria TARIFAS, já paga, conciliada ao débito. Respeita banco + filtro de data.
+// (mesma coisa que clicar "➕ Despesa nova" em cada tarifa, só que de uma vez).
+function ehTarifaBanco(m) { return /\btar[\s\/]|tarifa|\biof\b|custas|cesta|pacote de serv|anuidad|manuten|renov.*cadastr|\bcobranca\b/i.test(m || ''); }
+function cbLancarTarifas() {
+  const bancoSel = bancoConcSel;
+  const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
+  const alvos = extratoBancario.filter(t => (t.valor||0) < 0 && !debitoLinks[t.id] && matchBanco(t)
+    && (!dfAtivo() || passaData(t.data)) && !diaFechado(t.data, t.banco) && ehTarifaBanco(t.memo));
+  if (!alvos.length) { alert('Nenhuma tarifa solta (débito sem conta) no filtro atual — tudo já lançado. 👍\n\nDica: filtre o mês em ⚙ Filtros → Data antes de rodar.'); return; }
+  const tot = alvos.reduce((s, t) => s + Math.abs(t.valor||0), 0);
+  const lista = alvos.slice(0, 20).map(t => '• ' + fmtVal(Math.abs(t.valor||0)) + ' — ' + (t.memo||'').slice(0, 34)).join('\n');
+  if (!confirm(`Criar ${alvos.length} conta(s) de TARIFAS no Contas a Pagar (total ${fmtVal(tot)})?\n\n` +
+      `Elas entram já PAGAS e conciliadas a esses débitos do banco (liquidação = data do banco):\n\n` +
+      lista + (alvos.length > 20 ? `\n… e mais ${alvos.length - 20}` : ''))) return;
+  alvos.forEach(t => {
+    const conta = {
+      numero: '', fornecedor: (t.memo || 'Tarifa').slice(0, 40), descricao: (t.memo || 'Tarifa').slice(0, 60),
+      categoria: 'TARIFAS', observacao: 'Tarifa bancária · lançada pela conciliação', empresa: '', rateio: [],
+      vencimento: t.data || null, dataPag: t.data || null,
+      valor: +Math.abs(t.valor || 0).toFixed(2), situacao: 'Pago', pago: true, _origemExtrato: true
+    };
+    contasPagar.push(conta);
+    const chave = chaveContaPagar(conta);
+    debitoLinks[t.id] = { itens: [{ chave, fornecedor: conta.fornecedor, valor: conta.valor, setPago: false, criada: true }], total: conta.valor };
+  });
+  saveData('contasPagar', contasPagar);
+  saveData('debitoLinks', debitoLinks);
+  renderBanco();
+  alert(`✓ ${alvos.length} tarifa(s) lançada(s) no Contas a Pagar e conciliada(s) (${fmtVal(tot)}).`);
 }
 
 // ════════════════════════════════════════════════════════════════════
