@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v334/07-453';
+const APP_VERSION = 'v335/07-454';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9300,11 +9300,31 @@ function cbLancarDespesa(extId, alvo) {
   const obs = (document.getElementById('cb-obs-' + extId)?.value || '').trim();
   const t = extratoBancario.find(x => x.id === extId);
   if (t && bloqueadoPorFechamento(t.data, t.banco)) return;
+  const alvoVal = +(alvo || (t ? Math.abs(t.valor) : 0)).toFixed(2);
+  // Antes de CRIAR, vê se já existe uma conta IGUAL (mesmo valor e categoria) SEM vínculo no banco.
+  // Se existir, oferece CONCILIAR a ela em vez de criar outra (evita duplicar no Contas a Pagar).
+  const _linkedCh = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => _linkedCh.add(it.chave)));
+  const existente = contasPagar.find(c => !_linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
+    && Math.abs((c.valor || 0) - alvoVal) <= 0.02
+    && (catContaPagar(c) || '').toUpperCase() === (categoria || '').toUpperCase());
+  if (existente) {
+    if (confirm(`Já existe uma conta SEM vínculo igual a essa no Contas a Pagar:\n\n` +
+        `• ${existente.fornecedor || existente.descricao || 'conta'} — ${fmtVal(existente.valor || 0)}  [${catContaPagar(existente) || '-'}]\n\n` +
+        `Quer CONCILIAR o débito a ELA? (não cria conta nova, não duplica)\n\nOK = usar a existente  ·  Cancelar = criar uma nova`)) {
+      if (!existente.pago) { existente.pago = true; existente.dataPag = t ? t.data : existente.dataPag; }
+      const chave = chaveContaPagar(existente);
+      debitoLinks[extId] = { itens: [{ chave, fornecedor: existente.fornecedor || existente.descricao || '', valor: existente.valor || 0, setPago: false }], total: existente.valor || 0 };
+      saveData('contasPagar', contasPagar);
+      saveData('debitoLinks', debitoLinks);
+      renderBanco();
+      return;
+    }
+  }
   const conta = {
     numero: '', fornecedor: obs || (t && t.memo) || 'Tarifa', descricao: obs || (t && t.memo) || categoria,
     categoria, observacao: obs ? (obs + ' · lançado pela conciliação bancária') : 'Lançado pela conciliação bancária', empresa, rateio: [],
     vencimento: t ? t.data : null, dataPag: t ? t.data : null,
-    valor: alvo || (t ? Math.abs(t.valor) : 0), situacao: 'Pago', pago: true, _origemExtrato: true
+    valor: alvoVal, situacao: 'Pago', pago: true, _origemExtrato: true
   };
   contasPagar.push(conta);
   const chave = chaveContaPagar(conta);
@@ -9435,24 +9455,44 @@ function cbLancarTarifas() {
   }
   const tot = alvos.reduce((s, t) => s + Math.abs(t.valor||0), 0);
   const lista = alvos.slice(0, 20).map(t => '• ' + fmtVal(Math.abs(t.valor||0)) + ' — ' + (t.memo||'').slice(0, 34)).join('\n');
-  if (!confirm(`Criar ${alvos.length} conta(s) de TARIFAS no Contas a Pagar (total ${fmtVal(tot)})?\n\n` +
-      `Elas entram já PAGAS e conciliadas a esses débitos do banco (liquidação = data do banco):\n\n` +
+  if (!confirm(`Conciliar ${alvos.length} tarifa(s) do banco (total ${fmtVal(tot)})?\n\n` +
+      `Onde já existir uma conta igual SEM vínculo, eu REAPROVEITO ela (não duplico). Onde não existir, crio a conta (categoria TARIFAS, já paga). Tudo com liquidação = data do banco:\n\n` +
       lista + (alvos.length > 20 ? `\n… e mais ${alvos.length - 20}` : ''))) return;
+  // Conjunto de chaves já vinculadas a algum débito — pra saber quais contas estão "livres" p/ reaproveitar.
+  const linkedCh = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => linkedCh.add(it.chave)));
+  let adotadas = 0, criadas = 0;
   alvos.forEach(t => {
+    const vAlvo = +Math.abs(t.valor || 0).toFixed(2);
+    // 1) Tenta REAPROVEITAR uma conta de tarifa já existente e SEM vínculo (adota a cópia solta).
+    const existente = contasPagar.find(c => !linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
+      && Math.abs((c.valor || 0) - vAlvo) <= 0.02
+      && (ehTarifaBanco((c.fornecedor || '') + ' ' + (c.descricao || '')) || (catContaPagar(c) || '').toUpperCase() === 'TARIFAS'));
+    if (existente) {
+      if (!existente.pago) { existente.pago = true; existente.dataPag = t.data; }
+      const chave = chaveContaPagar(existente); linkedCh.add(chave);
+      debitoLinks[t.id] = { itens: [{ chave, fornecedor: existente.fornecedor || existente.descricao || '', valor: existente.valor || 0, setPago: false }], total: existente.valor || 0 };
+      adotadas++;
+      return;
+    }
+    // 2) Não achou conta livre → cria a conta nova.
     const conta = {
       numero: '', fornecedor: (t.memo || 'Tarifa').slice(0, 40), descricao: (t.memo || 'Tarifa').slice(0, 60),
       categoria: 'TARIFAS', observacao: 'Tarifa bancária · lançada pela conciliação', empresa: '', rateio: [],
       vencimento: t.data || null, dataPag: t.data || null,
-      valor: +Math.abs(t.valor || 0).toFixed(2), situacao: 'Pago', pago: true, _origemExtrato: true
+      valor: vAlvo, situacao: 'Pago', pago: true, _origemExtrato: true
     };
     contasPagar.push(conta);
-    const chave = chaveContaPagar(conta);
+    const chave = chaveContaPagar(conta); linkedCh.add(chave);
     debitoLinks[t.id] = { itens: [{ chave, fornecedor: conta.fornecedor, valor: conta.valor, setPago: false, criada: true }], total: conta.valor };
+    criadas++;
   });
   saveData('contasPagar', contasPagar);
   saveData('debitoLinks', debitoLinks);
   renderBanco();
-  alert(`✓ ${alvos.length} tarifa(s) lançada(s) no Contas a Pagar e conciliada(s) (${fmtVal(tot)}).`);
+  alert(`✓ ${alvos.length} tarifa(s) conciliada(s).` +
+    `\n\n• ${adotadas} reaproveitada(s) de conta que já existia (não dupliquei)` +
+    `\n• ${criadas} criada(s) nova(s)` +
+    (adotadas ? `\n\n💡 Onde reaproveitei e ainda sobrou uma cópia solta, apague-a na mão (o vínculo fica na conta certa).` : ''));
 }
 
 // ════════════════════════════════════════════════════════════════════
