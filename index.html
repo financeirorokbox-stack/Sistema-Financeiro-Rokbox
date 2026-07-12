@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v339/07-458';
+const APP_VERSION = 'v340/07-459';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3995,7 +3995,7 @@ function exportarContasPagar() {
   const mesAno = x => { const dt = _d(x); return dt ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   const comp = x => { const dt = _d(x); return dt ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   // Ordem das colunas conforme o modelo FCX (Despesas Realizado).
-  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa', 'Coleção/PL']];
+  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa']];
   vis.forEach(c => aoa.push([
     fmtD(c.vencimento),                                  // Data de vencimento
     c.numero || '',                                      // Número
@@ -4009,8 +4009,7 @@ function exportarContasPagar() {
     catContaPagar(c) || '',                              // Categoria
     c.observacao || '',                                  // Observações (histórico)
     fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
-    c.empresa || '',                                     // Empresa
-    colecaoConta(c)                                      // Coleção/PL
+    c.empresa || ''                                      // Empresa
   ]));
   // ── Crédito de cartão (abatimento da fatura) ──────────────────────────────
   // Quando uma fatura foi conciliada abatendo um crédito que a empresa tinha no cartão
@@ -4033,7 +4032,7 @@ function exportarContasPagar() {
   creditoRows.forEach(r => aoa.push([
     fmtD(r.data), '', 'Crédito de cartão' + (r.memo ? ' — ' + r.memo.slice(0, 30) : ''), r.valor,
     '', '', r.valor, 'Pago', comp(r.data), 'CRÉDITO CARTÃO', 'Crédito abatido na fatura do cartão',
-    fmtD(r.data), '', ''
+    fmtD(r.data), ''
   ]));
   const totV = +(vis.reduce((s, c) => s + (c.valor || 0), 0) + creditoRows.reduce((s, r) => s + r.valor, 0)).toFixed(2);
   const totPago = +(vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0) + creditoRows.reduce((s, r) => s + r.valor, 0)).toFixed(2);
