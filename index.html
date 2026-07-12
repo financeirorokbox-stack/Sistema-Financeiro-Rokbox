@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v335/07-454';
+const APP_VERSION = 'v336/07-455';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10361,14 +10361,15 @@ const DELETE_SOURCES = {
     getArr: () => contasPagar,
     save: () => saveData('contasPagar', contasPagar),
     delete: (indices) => {
-      // Limpa também o VÍNCULO do banco das contas apagadas (senão o débito fica "fantasma"
-      // conciliado a uma conta que não existe mais, e ao reabrir a Conciliação parece que desfez).
-      const apagadasChaves = new Set(contasPagar.filter((_,i) => indices.has(i)).map(c => chaveContaPagar(c)));
       contasPagar = contasPagar.filter((_,i) => !indices.has(i));
+      // Limpa só o vínculo que ficou REALMENTE órfão: cuja chave não existe mais em NENHUMA conta.
+      // (Se sobrou outra conta idêntica — ex.: várias tarifas de R$ 1,00 —, o vínculo continua válido
+      //  apontando pra ela, então apagar UMA cópia NÃO desfaz a conciliação das outras.)
+      const chavesVivas = new Set(contasPagar.map(c => chaveContaPagar(c)));
       let mexeuLink = false;
       Object.keys(debitoLinks).forEach(id => {
         const its = debLinkItens(debitoLinks[id]);
-        const restam = its.filter(it => !apagadasChaves.has(it.chave));
+        const restam = its.filter(it => chavesVivas.has(it.chave));
         if (restam.length !== its.length) {
           mexeuLink = true;
           if (restam.length) { debitoLinks[id].itens = restam; debitoLinks[id].total = restam.reduce((s,it)=>s+(it.valor||0),0); }
