@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v336/07-455';
+const APP_VERSION = 'v337/07-456';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8199,7 +8199,6 @@ function renderBanco() {
       <div class="card ${entradas-saidas>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(entradas-saidas)}</div></div>
       <div class="card ${pendentes?'amber':'dark'}"><div class="c-label">Pendentes</div><div class="c-val">${pendentes}</div></div>
     </div>
-    ${conferenciaPeriodoHTML()}
     ${(bancoSel && bancoSel !== '__todos' && bancoSel !== '__sem')
         ? saldoBancoHTML(bancoSel)
         : (bancoSel === '__sem'
