@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v329/07-438';
+const APP_VERSION = 'v330/07-440';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3447,13 +3447,16 @@ function exportarConciliacaoBancaria() {
           if (!r) return;
           const bruto = +(r.bruto || 0).toFixed(2);
           const liq = +(valorRepasse(r) || 0).toFixed(2);
+          // Estorno/reembolso (negativo) NÃO entra nos Créditos — ele já está na aba Débitos (senão contava 2×).
+          if (bruto < 0 || liq < 0) return;
           const taxa = +(r.taxa || 0).toFixed(2);
           somaLiq += liq;
           rowsC.push([_noon(d), _noon(d), String(r.nped || ''), r.nome || nomeDoPed(r.nped), 'Pago', comp, bruto, 0, 0, 0, liq, 0, taxa, gwCat, obs, _ma(d), _ma(d), bruto, _noon(d), empDoPed(r.nped)]);
         });
-        // Fecha exato com o depósito: se sobrou (recebimento não localizado), 1 linha de ajuste.
+        // Só adiciona linha de ajuste se FALTOU recebimento (resto positivo). O "a menos" (resto negativo) é o
+        // estorno que tiramos daqui de propósito — não re-adiciona.
         const resto = +(val - somaLiq).toFixed(2);
-        if (Math.abs(resto) > 0.02) rowsC.push([_noon(d), _noon(d), '', '(ajuste do repasse — recebimento não localizado)', 'Pago', comp, resto, 0, 0, 0, resto, 0, 0, gwCat, obs, _ma(d), _ma(d), resto, _noon(d), '']);
+        if (resto > 0.02) rowsC.push([_noon(d), _noon(d), '', '(ajuste do repasse — recebimento não localizado)', 'Pago', comp, resto, 0, 0, 0, resto, 0, 0, gwCat, obs, _ma(d), _ma(d), resto, _noon(d), '']);
       } else if (lk && lk.pedido) {
         // Vinculado a pedido(s) direto (PIX): uma linha por pedido.
         const peds = String(lk.pedido).split(',').map(s => s.trim()).filter(Boolean);
