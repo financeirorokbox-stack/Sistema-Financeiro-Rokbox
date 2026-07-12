@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v337/07-456';
+const APP_VERSION = 'v338/07-457';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4097,7 +4097,6 @@ function renderPagar() {
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel (modelo FCX Despesas)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
-      <button class="btn ghost sm" onclick="removerContasPagarDuplicadas()" title="Acha contas repetidas (mesma empresa, fornecedor, valor e vencimento) e remove as cópias — mantém a conciliada e nunca mexe em dia fechado">🧹 Remover duplicados</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
@@ -8183,8 +8182,7 @@ function renderBanco() {
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
         <button class="btn primary sm" onclick="cbLancarTarifas()" title="Cria as despesas das TARIFAS do banco que ainda não viraram conta (categoria TARIFAS, já paga e conciliada). Respeita o banco e o mês filtrados.">⚡ Lançar tarifas soltas</button>
         <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
-        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
-        <button class="btn ghost sm" onclick="removerDuplicatasDoBanco()" title="Mantém 1 e remove as cópias repetidas DENTRO do banco selecionado (ex.: banco triplicado). Mexe só nesse banco.">🧹 Remover duplicados (1 banco)</button>`,
+        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Pesquisar histórico', `<input type="text" id="cb-q" value="${(buscaPersist.banco||'').replace(/"/g,'&quot;')}" placeholder="Ex.: cartão, fornecedor, valor..." oninput="buscaPersist.banco=this.value;debounceRender('renderBanco')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
