@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v331/07-450';
+const APP_VERSION = 'v332/07-451';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9396,9 +9396,19 @@ function ehTarifaBanco(m) { return /\btar[\s\/]|tarifa|\biof\b|custas|cesta|paco
 function cbLancarTarifas() {
   const bancoSel = bancoConcSel;
   const matchBanco = t => bancoSel === '__todos' ? true : (bancoSel === '__sem' ? !t.banco : (t.banco||'') === bancoSel);
-  const alvos = extratoBancario.filter(t => (t.valor||0) < 0 && !debitoLinks[t.id] && matchBanco(t)
-    && (!dfAtivo() || passaData(t.data)) && !diaFechado(t.data, t.banco) && ehTarifaBanco(t.memo));
-  if (!alvos.length) { alert('Nenhuma tarifa solta (débito sem conta) no filtro atual — tudo já lançado. 👍\n\nDica: filtre o mês em ⚙ Filtros → Data antes de rodar.'); return; }
+  // Uma tarifa é "solta" se: não tem vínculo de débito, OU o vínculo aponta só pra conta(s) que não existem mais (link órfão).
+  const chavesExist = new Set(contasPagar.map(c => chaveContaPagar(c)));
+  const semContaValida = t => { const l = debitoLinks[t.id]; if (!l) return true; return !debLinkItens(l).some(it => chavesExist.has(it.chave)); };
+  const ehSolta = t => (t.valor||0) < 0 && matchBanco(t) && !diaFechado(t.data, t.banco) && ehTarifaBanco(t.memo) && semContaValida(t);
+  const alvos = extratoBancario.filter(t => ehSolta(t) && (!dfAtivo() || passaData(t.data)));
+  if (!alvos.length) {
+    // Sem nada no filtro atual: vê se há tarifas soltas em OUTROS períodos, pra orientar a trocar o filtro.
+    const fora = extratoBancario.filter(t => ehSolta(t)).length;
+    alert('Nenhuma tarifa solta no filtro atual. 👍' +
+      (fora ? `\n\n⚠ Mas há ${fora} tarifa(s) solta(s) em OUTRAS datas/banco. Ajuste ⚙ Filtros → Data (ou o banco) e rode de novo.` :
+              '\n\nTudo já lançado — nenhuma tarifa sem conta em nenhum mês.'));
+    return;
+  }
   const tot = alvos.reduce((s, t) => s + Math.abs(t.valor||0), 0);
   const lista = alvos.slice(0, 20).map(t => '• ' + fmtVal(Math.abs(t.valor||0)) + ' — ' + (t.memo||'').slice(0, 34)).join('\n');
   if (!confirm(`Criar ${alvos.length} conta(s) de TARIFAS no Contas a Pagar (total ${fmtVal(tot)})?\n\n` +
