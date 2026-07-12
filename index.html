@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v333/07-452';
+const APP_VERSION = 'v334/07-453';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10320,7 +10320,25 @@ const DELETE_SOURCES = {
   contasPagar: {
     getArr: () => contasPagar,
     save: () => saveData('contasPagar', contasPagar),
-    delete: (indices) => { contasPagar = contasPagar.filter((_,i) => !indices.has(i)); saveData('contasPagar', contasPagar); renderPagar(); }
+    delete: (indices) => {
+      // Limpa também o VÍNCULO do banco das contas apagadas (senão o débito fica "fantasma"
+      // conciliado a uma conta que não existe mais, e ao reabrir a Conciliação parece que desfez).
+      const apagadasChaves = new Set(contasPagar.filter((_,i) => indices.has(i)).map(c => chaveContaPagar(c)));
+      contasPagar = contasPagar.filter((_,i) => !indices.has(i));
+      let mexeuLink = false;
+      Object.keys(debitoLinks).forEach(id => {
+        const its = debLinkItens(debitoLinks[id]);
+        const restam = its.filter(it => !apagadasChaves.has(it.chave));
+        if (restam.length !== its.length) {
+          mexeuLink = true;
+          if (restam.length) { debitoLinks[id].itens = restam; debitoLinks[id].total = restam.reduce((s,it)=>s+(it.valor||0),0); }
+          else delete debitoLinks[id];
+        }
+      });
+      saveData('contasPagar', contasPagar);
+      if (mexeuLink) saveData('debitoLinks', debitoLinks);
+      renderPagar();
+    }
   },
   formaPagamento: {
     getArr: () => formaPagamento,
