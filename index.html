@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v332/07-451';
+const APP_VERSION = 'v333/07-452';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3997,8 +3997,32 @@ function exportarContasPagar() {
     fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
     c.empresa || ''                                      // Empresa
   ]));
-  const totV = +vis.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2);
-  aoa.push([]); aoa.push(['', '', 'TOTAL', totV, '', '', +vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0).toFixed(2)]);
+  // ── Crédito de cartão (abatimento da fatura) ──────────────────────────────
+  // Quando uma fatura foi conciliada abatendo um crédito que a empresa tinha no cartão
+  // (debitoLinks[id].credito), esse crédito entra como LINHA NEGATIVA na mesma data da
+  // fatura. Assim as despesas reais continuam cheias e a planilha bate com o banco
+  // (fatura no banco = despesas − crédito). Respeita os mesmos filtros do export.
+  const creditoRows = [];
+  if (fSt !== 'aberto' && fConc !== 'nao' && !fEmp && !(cpCatSel.size && !cpCatSel.has('CRÉDITO CARTÃO'))) {
+    Object.entries(debitoLinks).forEach(([extId, l]) => {
+      const cr = +((l && l.credito) || 0);
+      if (cr <= 0.005) return;
+      const t = extratoBancario.find(x => x.id === extId);
+      const dataDeb = t ? t.data : null;
+      if (dfAtivo() && !passaData(dataDeb)) return; // filtro de data (por liquidação = data do banco)
+      const memo = t ? (t.memo || '') : '';
+      if (fQ && !('crédito de cartão'.includes(fQ) || memo.toLowerCase().includes(fQ))) return;
+      creditoRows.push({ data: dataDeb, memo, valor: -cr });
+    });
+  }
+  creditoRows.forEach(r => aoa.push([
+    fmtD(r.data), '', 'Crédito de cartão' + (r.memo ? ' — ' + r.memo.slice(0, 30) : ''), r.valor,
+    '', '', r.valor, 'Pago', comp(r.data), 'CRÉDITO CARTÃO', 'Crédito abatido na fatura do cartão',
+    fmtD(r.data), ''
+  ]));
+  const totV = +(vis.reduce((s, c) => s + (c.valor || 0), 0) + creditoRows.reduce((s, r) => s + r.valor, 0)).toFixed(2);
+  const totPago = +(vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0) + creditoRows.reduce((s, r) => s + r.valor, 0)).toFixed(2);
+  aoa.push([]); aoa.push(['', '', 'TOTAL', totV, '', '', totPago]);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Contas a Pagar');
