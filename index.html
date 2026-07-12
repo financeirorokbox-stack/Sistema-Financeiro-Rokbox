@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v338/07-457';
+const APP_VERSION = 'v339/07-458';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3956,6 +3956,20 @@ function relatorioContasPorBanco() {
   if (!w) { alert('Permita pop-ups (janelas) para abrir o relatório.'); return; }
   w.document.write(html); w.document.close(); w.focus();
 }
+// Coleção/PL de uma conta: 1) do rateio (4 níveis); 2) nome de coleção cadastrada citado na descrição/obs;
+// 3) segmento PL/WL pela categoria/descrição. Vazio se não achar.
+function colecaoConta(c) {
+  if (Array.isArray(c.rateio) && c.rateio.length) {
+    const cols = [...new Set(c.rateio.map(r => (r.colecao || '').trim()).filter(Boolean))];
+    if (cols.length) return cols.join(', ');
+  }
+  const txt = ((c.descricao || '') + ' ' + (c.observacao || '') + ' ' + (catContaPagar(c) || '')).toLowerCase();
+  const nome = (colecoes || []).map(x => x && x.nome).filter(Boolean).find(n => txt.includes(String(n).toLowerCase()));
+  if (nome) return nome;
+  if (/\bwl\b/i.test(txt)) return 'WL';
+  if (/\bpl\b/i.test(txt)) return 'PL';
+  return '';
+}
 function exportarContasPagar() {
   const el = document.getElementById('v-pagar');
   const fSt = el?.querySelector('#cp-st')?.value || '';
@@ -3981,7 +3995,7 @@ function exportarContasPagar() {
   const mesAno = x => { const dt = _d(x); return dt ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   const comp = x => { const dt = _d(x); return dt ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   // Ordem das colunas conforme o modelo FCX (Despesas Realizado).
-  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa']];
+  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa', 'Coleção/PL']];
   vis.forEach(c => aoa.push([
     fmtD(c.vencimento),                                  // Data de vencimento
     c.numero || '',                                      // Número
@@ -3995,7 +4009,8 @@ function exportarContasPagar() {
     catContaPagar(c) || '',                              // Categoria
     c.observacao || '',                                  // Observações (histórico)
     fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
-    c.empresa || ''                                      // Empresa
+    c.empresa || '',                                     // Empresa
+    colecaoConta(c)                                      // Coleção/PL
   ]));
   // ── Crédito de cartão (abatimento da fatura) ──────────────────────────────
   // Quando uma fatura foi conciliada abatendo um crédito que a empresa tinha no cartão
@@ -4018,7 +4033,7 @@ function exportarContasPagar() {
   creditoRows.forEach(r => aoa.push([
     fmtD(r.data), '', 'Crédito de cartão' + (r.memo ? ' — ' + r.memo.slice(0, 30) : ''), r.valor,
     '', '', r.valor, 'Pago', comp(r.data), 'CRÉDITO CARTÃO', 'Crédito abatido na fatura do cartão',
-    fmtD(r.data), ''
+    fmtD(r.data), '', ''
   ]));
   const totV = +(vis.reduce((s, c) => s + (c.valor || 0), 0) + creditoRows.reduce((s, r) => s + r.valor, 0)).toFixed(2);
   const totPago = +(vis.reduce((s, c) => s + (c.pago ? (c.valor || 0) : 0), 0) + creditoRows.reduce((s, r) => s + r.valor, 0)).toFixed(2);
