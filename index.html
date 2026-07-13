@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v347/07-466';
+const APP_VERSION = 'v348/07-467';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3513,6 +3513,35 @@ function exportarVendas() {
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Vendas_${mes}.xlsx`);
 }
+// Exporta a lista de DEVOLUÇÕES (filtro atual) no formato enxuto:
+// Nome · Pedido · Devolução · Operação · Mês · Empresa · Segmento (1 linha por pedido+cliente).
+function exportarDevolucoes() {
+  const el = document.getElementById('v-devolucao');
+  const fQ = (el?.querySelector('#dev-q')?.value || '').toLowerCase();
+  const fSeg = el?.querySelector('#dev-seg')?.value || '';
+  const fEmp = el?.querySelector('#dev-emp')?.value || '';
+  const empresaDoPed = id => pedidos.find(p => String(p.id) === String(id))?.empresa || '';
+  let vis = devolucoes.slice();
+  if (fSeg) vis = vis.filter(d => d.segmento === fSeg);
+  if (fEmp) vis = vis.filter(d => empresaDoPed(d.pedido) === fEmp || empresaDoPed((String(d.pedidoCredito || '').match(/\d{4,6}/g) || [])[0]) === fEmp);
+  if (fQ) vis = vis.filter(d => String(d.pedido).includes(fQ) || (d.cliente || '').toLowerCase().includes(fQ));
+  if (dfAtivo()) vis = vis.filter(d => passaData(d.dataTroca));
+  if (!vis.length) { alert('Nenhuma devolução no filtro atual pra exportar.\n\nDica: ajuste ⚙ Filtros (ou tire a data) e tente de novo.'); return; }
+  // Agrupa por pedido+cliente (igual à tela).
+  const grupos = {};
+  vis.forEach(d => { const k = d.pedido + '|' + d.cliente; if (!grupos[k]) grupos[k] = { ...d, _valor: 0 }; grupos[k]._valor += (d.valorPago || 0); });
+  const _mes = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
+  const opDoPed = id => { const p = pedidos.find(x => String(x.id) === String(id)); if (!p) return 'Venda'; const cls = getClassificacao(p); return cls.naoAplicavel ? '' : (cls.operacao || opMapping[opKey(p.loja, p.situacao)] || 'Venda'); };
+  const headers = ['Nome', 'Pedido', 'Devolução', 'Operação', 'Mês', 'Empresa', 'Segmento'];
+  const rows = [headers];
+  Object.values(grupos).sort((a, b) => b._valor - a._valor).forEach(d => {
+    rows.push([d.cliente || '', String(d.pedido), +(d._valor || 0).toFixed(2), opDoPed(d.pedido), _mes(d.dataTroca), empresaDoPed(d.pedido), d.segmento || '']);
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Devoluções');
+  const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
+  XLSX.writeFile(wb, `Devolucoes_${mes}.xlsx`);
+}
 // Exporta a CONCILIAÇÃO BANCÁRIA (crédito e débito) com as MESMAS colunas do Contas a Receber,
 // em duas abas (Créditos / Débitos). Respeita o banco e o período filtrados na tela.
 function exportarConciliacaoBancaria() {
@@ -6161,7 +6190,8 @@ function renderDevolucao() {
     ${filtrosBar({
       nAtivos: [fSeg,fEmp,fQ].filter(Boolean).length + (dfAtivo()?1:0),
       limpar: 'limparFiltrosDevolucao()',
-      acoes: `<button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>`,
+      acoes: `<button class="btn ghost sm" onclick="exportarDevolucoes()" title="Exporta a lista de devoluções do filtro atual: Nome, Pedido, Devolução, Operação, Mês, Empresa, Segmento">📤 Exportar</button>
+        <button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>`,
       campos:
         fdRow('Segmento', `<select id="dev-seg" onchange="renderDevolucao()"><option value="">Todos</option>${segs.map(s=>`<option value="${s}" ${s===fSeg?'selected':''}>${s}</option>`).join('')}</select>`) +
         fdRow('Empresa', `<select id="dev-emp" onchange="renderDevolucao()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
