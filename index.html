@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v343/07-462';
+const APP_VERSION = 'v344/07-463';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1532,14 +1532,38 @@ function renderVendas() {
         data, valor: 0,
         frete: 0,
         outrasDespesas: 0,
-        _freteLinhas: []
+        desconto: 0,
+        _freteLinhas: [],
+        // ── Dados do pedido guardados na íntegra (p/ relatórios/abas futuras) ──
+        dataSaida: parseDate(r['Data de saída']||r['Data de saida'])||null,
+        dataFechamento: parseDate(r['Data fechamento'])||null,
+        obsInternas: r['Observações internas']||r['Observacoes internas']||'',
+        obs: r['Observações']||r['Observacoes']||'',
+        temNF: r['Existe Nota Fiscal gerada']||'',
+        numeroDoc: r['Número']||r['Numero']||'',
+        bairro: r['Bairro']||'', cep: r['CEP']||'', cidade: r['Cidade']||'', uf: r['UF']||'',
+        clienteDesde: r['Cliente desde']||'',
+        linhas: []
       };
       map[id].valor += val;
       // Frete/Outras Despesas: SOMA de TODAS as linhas (Frete proporcional é por linha de produto).
       const _fr = colNum(r, 'frete');
       map[id].frete += _fr;
       if (_fr) map[id]._freteLinhas.push(+_fr.toFixed(2));
-      map[id].outrasDespesas += colNum(r, 'outras desp', 'outras despesa');
+      const _outr = colNum(r, 'outras desp', 'outras despesa');
+      map[id].outrasDespesas += _outr;
+      const _desc = colNum(r, 'desconto proporcional', 'desconto');
+      map[id].desconto += _desc;
+      // Linha de produto (item) guardada na íntegra — p/ relatórios futuros (SKU, qtd, custo, margem…).
+      map[id].linhas.push({
+        sku: r['Código (SKU)']||r['Codigo (SKU)']||'',
+        descricao: r['Descrição']||r['Descricao']||'',
+        qtd: num(r['Quantidade']||0),
+        totalProdutos: num(r['Total dos Produtos']||0),
+        precoUnit: num(r['Preço unitário']||r['Preco unitario']||0),
+        precoCusto: num(r['Preço de custo']||r['Preco de custo']||0),
+        frete: +((_fr||0)).toFixed(2), outras: +((_outr||0)).toFixed(2), desconto: +((_desc||0)).toFixed(2)
+      });
     });
     const newPeds = Object.values(map);
     newPeds.forEach(np => {
