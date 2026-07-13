@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v348/07-467';
+const APP_VERSION = 'v349/07-468';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1921,7 +1921,8 @@ function renderPedidosTable() {
   const devEl = document.getElementById('vendas-devol-detalhe');
   if (devEl) devEl.innerHTML = !devolList.length ? '' : `
     <div id="vendas-devol-box" style="display:${devAberto ? 'block' : 'none'};margin:2px 0 18px">
-      <div class="section-title" style="margin-top:2px">🔄 Devoluções abatidas${hasFilter ? ' (filtro)' : ''} <span style="font-size:11px;font-weight:400;color:var(--muted)">— ${devolList.length} pedido(s), somando ${fmtVal(baseDevol)}</span></div>
+      <div class="section-title" style="margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">🔄 Devoluções abatidas${hasFilter ? ' (filtro)' : ''} <span style="font-size:11px;font-weight:400;color:var(--muted)">— ${devolList.length} pedido(s), somando ${fmtVal(baseDevol)}</span>
+        <button class="btn ghost sm" style="font-size:11px" onclick="exportarDevolucoes()" title="Exporta estas devoluções abatidas (as usadas no filtro/mês atual): Nome, Pedido, Devolução, Operação, Mês, Empresa, Segmento">📤 Exportar</button></div>
       ${(() => {
         const pv = {};
         devolList.forEach(x => { const v = x.p.vendedor || 'Sem vendedor'; pv[v] = (pv[v] || 0) + x.valor; });
@@ -3513,29 +3514,25 @@ function exportarVendas() {
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Vendas_${mes}.xlsx`);
 }
-// Exporta a lista de DEVOLUÇÕES (filtro atual) no formato enxuto:
-// Nome · Pedido · Devolução · Operação · Mês · Empresa · Segmento (1 linha por pedido+cliente).
+// Exporta as DEVOLUÇÕES ABATIDAS que aparecem no VENDAS (o que foi usado no mês/filtro atual):
+// Nome · Pedido · Devolução · Operação · Mês · Empresa · Segmento (1 linha por pedido abatido).
 function exportarDevolucoes() {
-  const el = document.getElementById('v-devolucao');
-  const fQ = (el?.querySelector('#dev-q')?.value || '').toLowerCase();
-  const fSeg = el?.querySelector('#dev-seg')?.value || '';
-  const fEmp = el?.querySelector('#dev-emp')?.value || '';
-  const empresaDoPed = id => pedidos.find(p => String(p.id) === String(id))?.empresa || '';
-  let vis = devolucoes.slice();
-  if (fSeg) vis = vis.filter(d => d.segmento === fSeg);
-  if (fEmp) vis = vis.filter(d => empresaDoPed(d.pedido) === fEmp || empresaDoPed((String(d.pedidoCredito || '').match(/\d{4,6}/g) || [])[0]) === fEmp);
-  if (fQ) vis = vis.filter(d => String(d.pedido).includes(fQ) || (d.cliente || '').toLowerCase().includes(fQ));
-  if (dfAtivo()) vis = vis.filter(d => passaData(d.dataTroca));
-  if (!vis.length) { alert('Nenhuma devolução no filtro atual pra exportar.\n\nDica: ajuste ⚙ Filtros (ou tire a data) e tente de novo.'); return; }
-  // Agrupa por pedido+cliente (igual à tela).
-  const grupos = {};
-  vis.forEach(d => { const k = d.pedido + '|' + d.cliente; if (!grupos[k]) grupos[k] = { ...d, _valor: 0 }; grupos[k]._valor += (d.valorPago || 0); });
+  const devolPorPed = devolPorPedidoMap().porPed;
+  const ehVendaTroca = p => { const op = (getClassificacao(p).operacao || '').toLowerCase(); return op === 'venda' || op === 'troca'; };
   const _mes = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
-  const opDoPed = id => { const p = pedidos.find(x => String(x.id) === String(id)); if (!p) return 'Venda'; const cls = getClassificacao(p); return cls.naoAplicavel ? '' : (cls.operacao || opMapping[opKey(p.loja, p.situacao)] || 'Venda'); };
+  // Mesma base do quadro "🔄 Devoluções abatidas": pedidos do filtro (Venda/Troca) que têm devolução abatida.
+  const lista = getFilteredPedidos()
+    .filter(ehVendaTroca)
+    .filter(p => (devolPorPed[String(p.id)] || 0) > 0.005)
+    .map(p => ({ p, valor: +(devolPorPed[String(p.id)]).toFixed(2) }))
+    .sort((a, b) => b.valor - a.valor);
+  if (!lista.length) { alert('Nenhuma devolução abatida no filtro atual pra exportar.\n\nDica: filtre o mês (⚙ Filtros → Data) em Vendas e tente de novo.'); return; }
   const headers = ['Nome', 'Pedido', 'Devolução', 'Operação', 'Mês', 'Empresa', 'Segmento'];
   const rows = [headers];
-  Object.values(grupos).sort((a, b) => b._valor - a._valor).forEach(d => {
-    rows.push([d.cliente || '', String(d.pedido), +(d._valor || 0).toFixed(2), opDoPed(d.pedido), _mes(d.dataTroca), empresaDoPed(d.pedido), d.segmento || '']);
+  lista.forEach(({ p, valor }) => {
+    const cls = getClassificacao(p);
+    const op = cls.naoAplicavel ? '' : (cls.operacao || opMapping[opKey(p.loja, p.situacao)] || 'Venda');
+    rows.push([p.nome || '', String(p.id), valor, op, _mes(p.data), p.empresa || '', cls.segmento || '']);
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Devoluções');
@@ -6190,8 +6187,7 @@ function renderDevolucao() {
     ${filtrosBar({
       nAtivos: [fSeg,fEmp,fQ].filter(Boolean).length + (dfAtivo()?1:0),
       limpar: 'limparFiltrosDevolucao()',
-      acoes: `<button class="btn ghost sm" onclick="exportarDevolucoes()" title="Exporta a lista de devoluções do filtro atual: Nome, Pedido, Devolução, Operação, Mês, Empresa, Segmento">📤 Exportar</button>
-        <button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>`,
+      acoes: `<button class="btn danger sm" onclick="if(confirm('Limpar devoluções?')){devolucoes=[];devolucaoCredito={};saveData('devolucoes',devolucoes);saveData('devolucaoCredito',devolucaoCredito);renderDevolucao()}">🗑 Limpar</button>`,
       campos:
         fdRow('Segmento', `<select id="dev-seg" onchange="renderDevolucao()"><option value="">Todos</option>${segs.map(s=>`<option value="${s}" ${s===fSeg?'selected':''}>${s}</option>`).join('')}</select>`) +
         fdRow('Empresa', `<select id="dev-emp" onchange="renderDevolucao()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
