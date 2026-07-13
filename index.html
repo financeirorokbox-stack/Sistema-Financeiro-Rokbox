@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v345/07-464';
+const APP_VERSION = 'v346/07-465';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3444,7 +3444,7 @@ function exportarModeloCR() {
 function exportarVendas() {
   const vis = getFilteredPedidos();
   if (!vis.length) { alert('Nenhum pedido no filtro atual pra exportar.\n\nDica: ajuste ⚙ Filtros (ou tire a data) e tente de novo.'); return; }
-  const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); };
+  const _noon = d => { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); return isNaN(dt) ? '' : dt.toLocaleDateString('pt-BR'); };
   // MESMA ordem de colunas da planilha original (relatório de Pedidos) — pra copiar e colar direto.
   // O sistema junta os itens por pedido, então preenche as colunas de pedido (com as correções de
   // loja/vendedor) e deixa em branco as de item/produto/endereço (que ele não guarda).
@@ -3490,6 +3490,7 @@ function exportarVendas() {
     } else {
       // Pedido antigo (importado antes de guardar o detalhe): 1 linha, só o resumo.
       const r = base.slice();
+      r[4] = +(p.desconto || 0).toFixed(2);          // Desconto (soma do pedido, se houver)
       r[5] = +(p.frete || 0).toFixed(2);             // Frete (soma do pedido)
       r[6] = +(p.outrasDespesas || 0).toFixed(2);    // Outras Despesas (soma)
       r[7] = +(p.valor || 0).toFixed(2);             // Valor total (do pedido)
