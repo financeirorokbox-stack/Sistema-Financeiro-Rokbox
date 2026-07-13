@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v346/07-465';
+const APP_VERSION = 'v347/07-466';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1154,14 +1154,25 @@ function setupUpload(inputId, cardId, statusId, onLoad) {
   const el = document.getElementById(inputId);
   if (!el) return;
   el.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    readSpreadsheetFile(file, ({ csvRows, wb }) => {
-      const card = document.getElementById(cardId);
-      document.getElementById(statusId).textContent = '✓ ' + file.name;
-      if (card) card.classList.add('loaded');
-      onLoad({ csvRows, wb, file });
-    });
+    // Processa TODOS os arquivos selecionados (não só o 1º) — um por vez, na ordem.
+    // Assim dá pra subir os 4 arquivos da semana / de várias empresas de uma vez.
+    const files = [...e.target.files];
+    if (!files.length) return;
+    e.target.value = ''; // libera re-selecionar os mesmos arquivos depois
+    let i = 0;
+    const proximo = () => {
+      if (i >= files.length) return;
+      const file = files[i++];
+      readSpreadsheetFile(file, ({ csvRows, wb }) => {
+        const card = document.getElementById(cardId);
+        const st = document.getElementById(statusId);
+        if (st) st.textContent = files.length > 1 ? `✓ ${i}/${files.length} — ${file.name}` : '✓ ' + file.name;
+        if (card) card.classList.add('loaded');
+        onLoad({ csvRows, wb, file });
+        proximo(); // segue pro próximo só depois que este terminou (evita corrida nos dados)
+      });
+    };
+    proximo();
   });
 }
 
