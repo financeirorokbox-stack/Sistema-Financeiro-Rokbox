@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v344/07-463';
+const APP_VERSION = 'v345/07-464';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1559,7 +1559,8 @@ function renderVendas() {
         sku: r['Código (SKU)']||r['Codigo (SKU)']||'',
         descricao: r['Descrição']||r['Descricao']||'',
         qtd: num(r['Quantidade']||0),
-        totalProdutos: num(r['Total dos Produtos']||0),
+        valorLinha: +(val||0).toFixed(2),                       // "Valor total" DESTA linha
+        totalProdutos: num(r['Total dos Produtos']||0),         // total de produtos do pedido (repetido)
         precoUnit: num(r['Preço unitário']||r['Preco unitario']||0),
         precoCusto: num(r['Preço de custo']||r['Preco de custo']||0),
         frete: +((_fr||0)).toFixed(2), outras: +((_outr||0)).toFixed(2), desconto: +((_desc||0)).toFixed(2)
@@ -3453,17 +3454,47 @@ function exportarVendas() {
     'Cliente desde', 'Código (SKU)', 'Descrição', 'Quantidade', 'Total dos Produtos', 'Preço unitário', 'Preço de custo'];
   const rows = [headers];
   vis.forEach(p => {
-    const r = new Array(headers.length).fill('');
-    r[0] = String(p.id);                          // Número do pedido
-    r[1] = _noon(p.data);                          // Data
-    r[2] = p.nome || '';                           // Nome
-    r[5] = +(p.frete || 0).toFixed(2);             // Frete proporcional (soma do pedido)
-    r[6] = +(p.outrasDespesas || 0).toFixed(2);    // Outras Despesas
-    r[7] = +(p.valor || 0).toFixed(2);             // Valor total
-    r[8] = p.situacao || '';                       // Situação
-    r[10] = p.loja || '';                          // Nome da Loja (corrigida)
-    r[12] = p.vendedor || '';                      // Nome - Vendedor (corrigido)
-    rows.push(r);
+    // Campos do PEDIDO (constantes em toda linha) — com as correções de loja/vendedor.
+    const base = new Array(headers.length).fill('');
+    base[0] = String(p.id);                        // Número do pedido
+    base[1] = _noon(p.data);                        // Data
+    base[2] = p.nome || '';                         // Nome
+    base[3] = _noon(p.dataSaida);                   // Data de saída
+    base[8] = p.situacao || '';                     // Situação
+    base[9] = _noon(p.dataFechamento);              // Data fechamento
+    base[10] = p.loja || '';                        // Nome da Loja (corrigida)
+    base[11] = p.obsInternas || '';                 // Observações internas
+    base[12] = p.vendedor || '';                    // Nome - Vendedor (corrigido)
+    base[13] = p.temNF || '';                       // Existe Nota Fiscal gerada
+    base[14] = p.numeroDoc || '';                   // Número
+    base[15] = p.obs || '';                         // Observações
+    base[16] = p.bairro || ''; base[17] = p.cep || ''; base[18] = p.cidade || ''; base[19] = p.uf || '';
+    base[20] = p.clienteDesde || '';                // Cliente desde
+    const linhas = Array.isArray(p.linhas) && p.linhas.length ? p.linhas : null;
+    if (linhas) {
+      // Uma linha por PRODUTO, com o detalhe guardado.
+      linhas.forEach(it => {
+        const r = base.slice();
+        r[4] = +(it.desconto || 0).toFixed(2);       // Desconto proporcional (da linha)
+        r[5] = +(it.frete || 0).toFixed(2);          // Frete proporcional (da linha)
+        r[6] = +(it.outras || 0).toFixed(2);         // Outras Despesas (da linha)
+        r[7] = +(it.valorLinha != null ? it.valorLinha : 0).toFixed(2); // Valor total (da linha)
+        r[21] = it.sku || '';                        // Código (SKU)
+        r[22] = it.descricao || '';                  // Descrição
+        r[23] = it.qtd || 0;                         // Quantidade
+        r[24] = +(it.totalProdutos || 0).toFixed(2); // Total dos Produtos (do pedido)
+        r[25] = +(it.precoUnit || 0).toFixed(2);     // Preço unitário
+        r[26] = +(it.precoCusto || 0).toFixed(2);    // Preço de custo
+        rows.push(r);
+      });
+    } else {
+      // Pedido antigo (importado antes de guardar o detalhe): 1 linha, só o resumo.
+      const r = base.slice();
+      r[5] = +(p.frete || 0).toFixed(2);             // Frete (soma do pedido)
+      r[6] = +(p.outrasDespesas || 0).toFixed(2);    // Outras Despesas (soma)
+      r[7] = +(p.valor || 0).toFixed(2);             // Valor total (do pedido)
+      rows.push(r);
+    }
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Worksheet');
