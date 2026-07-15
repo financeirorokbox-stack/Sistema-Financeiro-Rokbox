@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v349/07-468';
+const APP_VERSION = 'v350/07-469';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4209,8 +4209,10 @@ function renderPagar() {
   if (fConc === 'nao') vis = vis.filter(c => !_estaConc(c));
   if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
   if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? dataLiquidacaoConta(c) : c.vencimento));
-  // Conta recém-criada na mão aparece mesmo que o filtro a esconderia (pra você preencher ali mesmo)
-  if (_novaContaRef && contasPagar.includes(_novaContaRef) && !vis.includes(_novaContaRef)) vis = vis.concat([_novaContaRef]);
+  // Conta recém-criada na mão aparece mesmo que o filtro a esconderia — MAS só enquanto está
+  // ABERTA em edição (_cpEdit aponta pra ela). Depois de concluir (✓), respeita os filtros normalmente.
+  if (_novaContaRef && contasPagar.includes(_novaContaRef) && contasPagar.indexOf(_novaContaRef) === _cpEdit
+      && !vis.includes(_novaContaRef)) vis = vis.concat([_novaContaRef]);
 
   const aberto = vis.filter(c => !c.pago);
   const pagos = vis.filter(c => c.pago);
