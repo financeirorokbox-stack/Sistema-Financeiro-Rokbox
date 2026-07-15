@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v350/07-469';
+const APP_VERSION = 'v351/07-470';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10659,8 +10659,11 @@ async function executarExclusao() {
 
 // Helper: retorna a célula de checkbox para adicionar nas tabelas
 function delCheckbox(source, idx) {
+  // Mantém o que já estava flegado ao redesenhar a tela (ex.: você marca com um filtro,
+  // troca/limpa o filtro e a seleção continua marcada).
+  const marcado = deleteSelection.has(source + ':' + idx) ? ' checked' : '';
   return `<td style="width:32px;text-align:center;padding:6px 4px">
-    <input type="checkbox" class="del-check" data-source="${source}" data-idx="${idx}"
+    <input type="checkbox" class="del-check" data-source="${source}" data-idx="${idx}"${marcado}
       style="width:14px;height:14px;cursor:pointer"
       onchange="toggleDeleteRow('${source}',${idx},this.checked)">
   </td>`;
