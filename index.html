@@ -392,7 +392,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v364/07-483';
+const APP_VERSION = 'v365/07-484';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8866,7 +8866,11 @@ function bloqueadoPorFechamento(date, banco) {
 // Categoria de um lançamento do extrato (crédito = gateway/receita; débito = categoria da conta vinculada). Vazio = sem categoria.
 function categoriaLancamento(t) {
   if ((t.valor || 0) >= 0) {
-    return gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '') || '';
+    const gw = gatewayDoCredito(t) || (repasseLinks[t.id] ? repasseLinks[t.id].gateway : '') || (receitaLinks[t.id] ? 'Receita' : '');
+    if (gw) return gw;
+    // PIX recebido: vinculado a um pedido (extratoLinks) OU com "PIX" no texto → categoria PIX (Extrato).
+    if (extratoLinks[t.id] || (t.memo || '').toLowerCase().includes('pix')) return 'PIX (Extrato)';
+    return '';
   }
   const dl = debitoLinks[t.id];
   if (dl) { const its = debLinkItens(dl); const conta = its.length ? contasPagar.find(c => chaveContaPagar(c) === its[0].chave) : null; return conta ? (catContaPagar(conta) || '') : ''; }
