@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v354/07-473';
+const APP_VERSION = 'v355/07-474';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1500,7 +1500,8 @@ function renderVendas() {
     ${filtrosBar({
       nAtivos: ['empresa','situacao','loja','vendedor','operacao'].filter(f => (vendasFilters[f]||[]).length).length + ((buscaPersist.vendas||'')?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosVendas()',
-      acoes: `<button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
+      acoes: `<button class="btn primary sm" onclick="abrirSincronizarDrive()" title="Puxa os arquivos da pasta do mês no Google Drive e distribui sozinho (Fase 1: Vendas e Forma de Pagto). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
+        <button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
       campos:
         fdRow('Pesquisar', `<input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">`) +
         ['empresa','situacao','loja','vendedor','operacao'].map(f =>
@@ -6156,6 +6157,86 @@ async function sincronizarDoDrive() {
     alert('Erro ao sincronizar com o Drive:\n' + err.message);
     console.error(err);
     if (btn) { btn.disabled = false; btn.textContent = '☁ Sincronizar do Drive'; }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SINCRONIZAR PASTA DO DRIVE (robozinho Apps Script) → distribui os arquivos
+// Fase 1: Vendas + Forma de Pagto. Reaproveita os leitores de upload que já existem
+// (entrega o arquivo pro <input> certo), sem parser novo.
+// ════════════════════════════════════════════════════════════════════
+const DRIVE_PASTA_URL = 'https://script.google.com/macros/s/AKfycbxsZSnf4naEV_umW-qHozbce2bywbGBdL058ECvJXIm0QQSG63PyoPuFfDoxvCmzUkV/exec';
+const DRIVE_PASTA_TOKEN = 'RK-financeiro-2026';
+// Subpasta do Drive → id do <input> que já sabe ler aquele tipo (+ aba onde ele vive).
+const DRIVE_ROTA = {
+  'Vendas':         { input: 'file-pedidos', view: 'vendas' },
+  'Forma de Pagto': { input: 'file-forma',   view: 'vendas' }
+};
+async function _drivePasta(action, extra) {
+  const qs = new URLSearchParams(Object.assign({ action, token: DRIVE_PASTA_TOKEN }, extra || {}));
+  const resp = await fetch(DRIVE_PASTA_URL + '?' + qs.toString());
+  const j = await resp.json();
+  if (j && j.erro) throw new Error(j.erro);
+  return j;
+}
+function _b64ToBytes(b64) {
+  const bin = atob(b64); const n = bin.length; const bytes = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+// Entrega os arquivos ao <input> existente (dispara o mesmo fluxo de quando você sobe na mão).
+function _entregarAoInput(inputId, arquivos) {
+  const input = document.getElementById(inputId);
+  if (!input) return false;
+  const dt = new DataTransfer();
+  arquivos.forEach(a => dt.items.add(new File([_b64ToBytes(a.base64)], a.nome, { type: 'application/octet-stream' })));
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change'));
+  return true;
+}
+// Abre o seletor de mês (busca as pastas no Drive) e deixa a usuária escolher.
+async function abrirSincronizarDrive() {
+  let meses;
+  try { meses = (await _drivePasta('meses')).meses || []; }
+  catch (e) { alert('Não consegui falar com o Drive:\n' + e.message + '\n\nConfira se o robozinho (Apps Script) está publicado como "Qualquer pessoa".'); return; }
+  // Só as pastas de mês (começam com número; ignora Compras, BKP…).
+  const mm = meses.filter(m => /^\s*\d/.test(m.nome));
+  if (!mm.length) { alert('Nenhuma pasta de mês encontrada no Drive.'); return; }
+  const old = document.getElementById('drive-modal'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'drive-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:22px;max-width:360px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="font-size:16px;font-weight:800;margin-bottom:4px">☁ Sincronizar do Drive</div>
+      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">Escolha o mês. Vou puxar <strong>Vendas</strong> e <strong>Forma de Pagto</strong> (as outras entram em breve). Só adiciona, nunca apaga.</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${mm.map(m => `<button class="btn primary" style="width:100%" onclick="puxarMesDrive('${m.id}', ${JSON.stringify(m.nome).replace(/"/g, '&quot;')})">${m.nome}</button>`).join('')}
+      </div>
+      <button class="btn ghost sm" style="margin-top:14px;width:100%" onclick="document.getElementById('drive-modal').remove()">Cancelar</button>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+}
+async function puxarMesDrive(mesId, mesNome) {
+  const modal = document.getElementById('drive-modal');
+  if (modal) modal.querySelector('div').innerHTML = `<div style="font-size:15px;font-weight:700">⏳ Puxando ${mesNome}…</div><div style="font-size:12px;color:var(--muted,#777);margin-top:6px">Lendo os arquivos do Drive.</div>`;
+  try {
+    // Garante que a aba Vendas está renderizada (os <input> precisam existir no DOM).
+    setView('vendas');
+    await new Promise(r => setTimeout(r, 150));
+    const tipos = Object.keys(DRIVE_ROTA);
+    const resumo = [];
+    for (const tipo of tipos) {
+      const { arquivos } = await _drivePasta('arquivos', { mes: mesId, tipo });
+      if (!arquivos || !arquivos.length) continue;
+      const ok = _entregarAoInput(DRIVE_ROTA[tipo].input, arquivos);
+      if (ok) { resumo.push(`${arquivos.length} de ${tipo}`); await new Promise(r => setTimeout(r, 400)); }
+    }
+    if (modal) modal.remove();
+    alert(resumo.length ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}\n\nConfira em Vendas. Recebimentos, Extrato e Contas a Pagar entram na próxima fase.` : `Nenhum arquivo de Vendas/Forma em ${mesNome}.`);
+  } catch (e) {
+    if (modal) modal.remove();
+    alert('Erro ao puxar do Drive:\n' + e.message);
   }
 }
 
