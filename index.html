@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v353/07-472';
+const APP_VERSION = 'v354/07-473';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8509,7 +8509,7 @@ function renderBanco() {
                         <span id="cb-rep-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvoRep)}</span>
                         <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularRepasse('${t.id}',${alvoRep})">Vincular flegados</button>
                       </div>
-                    </div>` : `<div style="font-size:11px;color:var(--muted);margin-top:4px">Sem recebimentos pendentes de ${gwLabel(gwSel)}.</div>`}
+                    </div>` : `<div style="font-size:11px;color:var(--muted);margin-top:4px">Sem recebimentos pendentes de ${gwLabel(gwSel)}${_repSoMes && _repTotalMeses > 0 ? ` <strong>neste mês</strong>. <a href="#" onclick="_repSoMes=false;renderBanco();return false" style="color:var(--accent);font-weight:700">ver todos os meses (${_repTotalMeses})</a>` : '.'}</div>`}
                   </div>`;
                 } else {
                   conc = `<div style="min-width:200px">
