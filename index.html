@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v351/07-470';
+const APP_VERSION = 'v352/07-471';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8935,7 +8935,16 @@ function saldoBancoHTML(banco) {
 // ── Saldo bancário CONSOLIDADO (todos os bancos): soma dos saldos iniciais + movimento total ──
 function saldoTodosBancosHTML() {
   const bancos = [...new Set([...Object.keys(saldosIniciais), ...extratoBancario.map(t => t.banco || '').filter(Boolean)])];
-  let inicialTot = 0, movTot = 0; const datasIni = []; let maxCutoff = null; const semSaldo = [];
+  const filt = dfAtivo();
+  // Início e fim do período filtrado (menor e maior data que passa no filtro), somando todos os bancos.
+  let minStart = null, maxCutoff = null;
+  if (filt) extratoBancario.forEach(t => {
+    if (t.data instanceof Date && !isNaN(t.data) && passaData(t.data)) {
+      if (!minStart || t.data < minStart) minStart = t.data;
+      if (!maxCutoff || t.data > maxCutoff) maxCutoff = t.data;
+    }
+  });
+  let baseTot = 0, movAntesTot = 0, movPeriodoTot = 0; const datasIni = []; const semSaldo = [];
   bancos.forEach(banco => {
     if (!banco) return;
     const cfg = saldosIniciais[banco];
@@ -8943,29 +8952,38 @@ function saldoTodosBancosHTML() {
     if (cfg) datasIni.push(cfg.data || '2025-05-31'); else semSaldo.push(banco);
     const dRef = new Date((cfg ? (cfg.data || '2025-05-31') : '2025-05-31') + 'T23:59:59');
     const lancs = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data));
-    let cutoff = null;
-    if (dfAtivo()) { const nf = lancs.filter(t => passaData(t.data)); if (nf.length) cutoff = new Date(Math.max(...nf.map(t => t.data.getTime()))); }
-    if (cutoff && (!maxCutoff || cutoff > maxCutoff)) maxCutoff = cutoff;
-    movTot += lancs.filter(t => t.data > dRef && (!cutoff || t.data <= cutoff)).reduce((s, t) => s + (t.valor || 0), 0);
-    inicialTot += inicial;
+    baseTot += inicial;
+    if (filt) {
+      // Movimento ANTES do período entra no saldo inicial do período (o "fechamento" anterior).
+      if (minStart) movAntesTot += lancs.filter(t => t.data > dRef && t.data < minStart).reduce((s, t) => s + (t.valor || 0), 0);
+      movPeriodoTot += lancs.filter(t => passaData(t.data)).reduce((s, t) => s + (t.valor || 0), 0);
+    } else {
+      movPeriodoTot += lancs.filter(t => t.data > dRef).reduce((s, t) => s + (t.valor || 0), 0);
+    }
   });
+  // Saldo inicial exibido: sem filtro = o base do cadastro; com filtro = saldo no começo do período.
+  const inicialTot = baseTot + movAntesTot;
+  const movTot = movPeriodoTot;
   const saldoFinal = inicialTot + movTot;
-  const dIniLabel = datasIni.length ? fmtDate(new Date(datasIni.sort()[0] + 'T23:59:59')) : '—';
-  const qualData = dfAtivo() ? (maxCutoff ? fmtDate(maxCutoff) : 'período sem lançamentos') : 'hoje';
+  const dIniBase = datasIni.length ? fmtDate(new Date(datasIni.sort()[0] + 'T23:59:59')) : '—';
+  const iniLabel = filt
+    ? (minStart ? `no início do período (${fmtDate(minStart)})` : '(sem lançamentos no período)')
+    : (datasIni.length ? `(a partir de ${dIniBase})` : '');
+  const qualData = filt ? (maxCutoff ? fmtDate(maxCutoff) : 'período sem lançamentos') : 'hoje';
   return `
     <div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
       <div>
-        <div class="f-label">🏦 Saldo inicial — todos os bancos ${datasIni.length?`(a partir de ${dIniLabel})`:''}</div>
+        <div class="f-label">🏦 Saldo inicial — todos os bancos ${iniLabel}</div>
         <div style="font-weight:800;font-size:20px">${fmtVal(inicialTot)}</div>
-        <a href="#" onclick="setView('cadastro');return false" style="font-size:11px;color:var(--accent)">editar no Cadastro</a>
+        ${filt ? `<div style="font-size:10px;color:var(--muted)">= fechamento anterior (base ${fmtVal(baseTot)} ${movAntesTot>=0?'+':'−'} ${fmtVal(Math.abs(movAntesTot))} antes do período)</div>` : `<a href="#" onclick="setView('cadastro');return false" style="font-size:11px;color:var(--accent)">editar no Cadastro</a>`}
         ${semSaldo.length?`<div style="font-size:10px;color:var(--amber)">⚠ sem saldo inicial: ${semSaldo.join(', ')}</div>`:''}
       </div>
       <div style="font-size:13px;color:var(--muted)">${movTot>=0?'+':'−'} movimento ${fmtVal(Math.abs(movTot))} &nbsp;➜</div>
       <div style="border-left:3px solid var(--accent);padding-left:16px">
-        <div class="f-label">= Saldo final ${dfAtivo()?`em ${qualData}`:'(hoje)'} · todos</div>
+        <div class="f-label">= Saldo final ${filt?`em ${qualData}`:'(hoje)'} · todos</div>
         <div style="font-weight:800;font-size:24px;color:var(--accent)">${fmtVal(saldoFinal)}</div>
       </div>
-      <div style="font-size:11px;color:var(--muted);max-width:250px">Soma de <strong>todos os bancos</strong>. Compare com a soma dos saldos reais dos extratos ${dfAtivo()?'nessa data':'hoje'} — se bater, está conciliado certo.</div>
+      <div style="font-size:11px;color:var(--muted);max-width:250px">Soma de <strong>todos os bancos</strong>. Compare com a soma dos saldos reais dos extratos ${filt?'nessa data':'hoje'} — se bater, está conciliado certo.</div>
     </div>`;
 }
 // Saldo final ACUMULADO de um banco até o fim de um dia (para o cabeçalho de cada dia).
