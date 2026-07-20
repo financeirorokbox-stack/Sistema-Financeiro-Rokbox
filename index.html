@@ -295,6 +295,7 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-compras" onclick="setView('compras')">🛒 Compras</div>
   <div class="topnav-item" id="nav-financeiro" onclick="setView('financeiro')">Financeiro</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
+  <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
 </div>
 <div class="subnav" id="sub-fin" style="display:none">
   <div class="subnav-item active" id="sub-contas" onclick="setSub('contas')">Contas a Receber</div>
@@ -389,7 +390,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v357/07-476';
+const APP_VERSION = 'v358/07-477';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1500,8 +1501,7 @@ function renderVendas() {
     ${filtrosBar({
       nAtivos: ['empresa','situacao','loja','vendedor','operacao'].filter(f => (vendasFilters[f]||[]).length).length + ((buscaPersist.vendas||'')?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosVendas()',
-      acoes: `<button class="btn primary sm" onclick="abrirSincronizarDrive()" title="Puxa os arquivos da pasta do mês no Google Drive e distribui sozinho (Fase 1: Vendas e Forma de Pagto). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
-        <button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
+      acoes: `<button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
       campos:
         fdRow('Pesquisar', `<input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">`) +
         ['empresa','situacao','loja','vendedor','operacao'].map(f =>
