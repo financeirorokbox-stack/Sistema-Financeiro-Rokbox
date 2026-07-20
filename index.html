@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v356/07-475';
+const APP_VERSION = 'v357/07-476';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6173,7 +6173,9 @@ const DRIVE_GRUPOS = [
   { input: 'file-pedidos',  nav: ['vendas'],                     tipos: ['Vendas'] },
   { input: 'file-forma',    nav: ['vendas'],                     tipos: ['Forma de Pagto'] },
   { input: 'file-cr2',      nav: ['financeiro', 'contas', 'receb'],    tipos: ['Paypal', 'BraavoPay', 'Rede'] },
-  { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] }
+  { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] },
+  { input: 'file-ext',      nav: ['financeiro', 'extrato'],            tipos: ['Extratos'] }
+  // Contas a Pagar e Contas a Receber são SAÍDA (exportadas do sistema) — não entram na sincronização.
 ];
 function _navGrupo(nav) { try { if (nav[0]) setView(nav[0]); if (nav[1]) setSub(nav[1]); if (nav[2]) setSubR(nav[2]); } catch (e) {} }
 async function _drivePasta(action, extra) {
@@ -6212,7 +6214,7 @@ async function abrirSincronizarDrive() {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
   ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:22px;max-width:360px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
       <div style="font-size:16px;font-weight:800;margin-bottom:4px">☁ Sincronizar do Drive</div>
-      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">Escolha o mês. Vou puxar <strong>Vendas</strong>, <strong>Forma de Pagto</strong>, <strong>Recebimentos</strong> (PayPal/Braavo/Rede) e <strong>Boletos Pagos</strong>. Só adiciona, nunca apaga.</div>
+      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">Escolha o mês. Vou puxar <strong>Vendas</strong>, <strong>Forma de Pagto</strong>, <strong>Recebimentos</strong> (PayPal/Braavo/Rede), <strong>Boletos Pagos</strong> e <strong>Extratos</strong>. No extrato ele pergunta o banco de cada arquivo (é só confirmar). Só adiciona, nunca apaga.</div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${mm.map(m => `<button class="btn primary" style="width:100%" onclick="puxarMesDrive('${m.id}', ${JSON.stringify(m.nome).replace(/"/g, '&quot;')})">${m.nome}</button>`).join('')}
       </div>
@@ -6246,7 +6248,7 @@ async function puxarMesDrive(mesId, mesNome) {
     setView('vendas');
     if (modal) modal.remove();
     alert(resumo.length
-      ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}\n\nSó adiciona, não duplica. (Extrato e Contas a Pagar entram na próxima fase.)`
+      ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}\n\nSó adiciona, não duplica. (Contas a Pagar/Receber são saída, você exporta do sistema.)`
       : `Nenhum arquivo encontrado em ${mesNome}.`);
   } catch (e) {
     if (modal) modal.remove();
