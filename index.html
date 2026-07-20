@@ -392,7 +392,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v365/07-484';
+const APP_VERSION = 'v366/07-485';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8600,20 +8600,23 @@ function renderBanco() {
                     </div>
                     ${boxReceita}
                     ${pendRep.length ? `
-                    <div id="cb-rep-box-${t.id}" style="display:none;margin-top:6px">
+                    <div id="cb-rep-box-${t.id}" style="display:none;margin-top:6px;max-width:560px">
                       <input type="text" id="cb-rep-q-${t.id}" placeholder="🔍 Pesquisar pedido, nome, valor..." oninput="cbFiltrarRepList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
                       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${_repSoMes ? `📅 Só do mês do depósito${_repTotalMeses > pendRep.length ? ` · <a href="#" onclick="_repSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todos (${_repTotalMeses})</a>` : ''}` : `📅 Todos os meses · <a href="#" onclick="_repSoMes=true;renderBanco();return false" style="color:var(--accent)">só do mês</a>`}</div>
-                      <div style="border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto">
+                      <div style="display:grid;grid-template-columns:20px 58px minmax(0,1fr) 74px 92px;gap:8px;padding:4px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em"><span></span><span>Pedido</span><span>Nome</span><span>Data</span><span style="text-align:right">Valor</span></div>
+                      <div style="border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto">
                         ${pendRep.map(r => {
                           const vRep = valorRepasse(r);
                           const exato = Math.abs(vRep-alvoRep)<=0.02;
                           const pre = exatoUm && r===exatoUm;
                           const negativo = vRep < 0; // reembolso/estorno: ABATE o depósito
                           const busca = `${r.nped||''} ${r.nome||''} ${vRep.toFixed(2)} ${r.data?fmtDate(r.data):''} ${negativo?'reembolso estorno':''}`.toLowerCase().replace(/"/g,'&quot;');
-                          return `<label class="cb-rep-row-${t.id}" data-busca="${busca}" style="display:flex;width:100%;box-sizing:border-box;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':(negativo?'background:#fff4f4':'')}">
-                            <input type="checkbox" class="cb-rep-pick-${t.id}" value="${encodeURIComponent(recKeyGlobal(r))}" data-v="${vRep}" ${pre?'checked':''} onchange="cbSomaRepasse('${t.id}',${alvoRep})" style="width:16px;height:16px;flex-shrink:0">
-                            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${negativo?'<span class="badge" style="font-size:9px;background:var(--red);color:#fff">↩ reembolso</span> ':''}${r.nped?`<strong>#${r.nped}</strong> `:''}${(r.nome||'—')}${r.data?` <span style="color:var(--muted);font-size:10px">· ${fmtDate(r.data)}</span>`:''}</span>
-                            <span style="flex-shrink:0;font-weight:700;color:${negativo?'var(--red)':'var(--text)'};white-space:nowrap">${fmtVal(vRep)}</span>
+                          return `<label class="cb-rep-row-${t.id}" data-busca="${busca}" style="display:grid;grid-template-columns:20px 58px minmax(0,1fr) 74px 92px;width:100%;box-sizing:border-box;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;${exato?'background:var(--green-bg)':(negativo?'background:#fff4f4':'')}">
+                            <input type="checkbox" class="cb-rep-pick-${t.id}" value="${encodeURIComponent(recKeyGlobal(r))}" data-v="${vRep}" ${pre?'checked':''} onchange="cbSomaRepasse('${t.id}',${alvoRep})" style="width:16px;height:16px">
+                            <span style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.nped?`<strong>#${r.nped}</strong>`:'—'}</span>
+                            <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato?'⚡ ':''}${negativo?'<span class="badge" style="font-size:9px;background:var(--red);color:#fff">↩</span> ':''}${(r.nome||'—')}</span>
+                            <span style="color:var(--muted);font-size:10px;white-space:nowrap">${r.data?fmtDate(r.data):''}</span>
+                            <span style="text-align:right;font-weight:700;color:${negativo?'var(--red)':'var(--text)'};white-space:nowrap">${fmtVal(vRep)}</span>
                           </label>`;
                         }).join('')}
                       </div>
