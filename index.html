@@ -313,11 +313,10 @@ tr:hover td{background:#fafaf8}
   <!-- Sub-navegação interna de Contas a Receber -->
   <div class="subnav" id="receber-nav" style="display:none;border-top:1px solid var(--border)">
     <div class="subnav-item active" id="subr-contas" onclick="setSubR('contas')">📋 Contas a Receber</div>
-    <div class="subnav-item" id="subr-receb" onclick="setSubR('receb')">💳 Recebimentos</div>
+    <div class="subnav-item" id="subr-receb" onclick="setSubR('receb')">💳 Recebimentos e Conciliação</div>
     <div class="subnav-item" id="subr-boletos" onclick="setSubR('boletos')">🧾 Boletos a Emitir</div>
     <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança <span id="badge-cobranca" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:2px"></span></div>
     <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
-    <div class="subnav-item" id="subr-conc" onclick="setSubR('conc')">✅ Conciliação de Recebíveis</div>
   </div>
   <div id="v-contas" class="main"></div>
   <div id="v-pagar" class="main" style="display:none"></div>
@@ -390,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v358/07-477';
+const APP_VERSION = 'v359/07-478';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1122,6 +1121,7 @@ function setSub(s) {
 }
 // Sub-abas internas de Contas a Receber
 function setSubR(r) {
+  if (r === 'conc') r = 'receb'; // aba unificada: Recebimentos + Conciliação de Recebíveis
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de sub-aba
   subReceber = r;
   RECEBER_GROUP.forEach(x => {
@@ -1130,6 +1130,11 @@ function setSubR(r) {
   });
   const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, conc: renderConc };
   if (renders[r]) renders[r]();
+  // Aba unificada "Recebimentos e Conciliação": mostra a lista de recebimentos E, embaixo, a Conciliação de Recebíveis.
+  if (r === 'receb') {
+    const vc = document.getElementById('v-conc');
+    if (vc) { vc.style.display = 'block'; try { renderConc(); } catch (e) {} }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -7007,7 +7012,7 @@ async function renderConc() {
   const el = document.getElementById('v-conc');
   await loadResults(); // restaura resultados salvos (usados na aba "Receb. s/ pedido")
   activeTab = 'porpedido'; // abre sempre na visão principal: Por Pedido
-  el.innerHTML = `<div id="conc-result"></div>`;
+  el.innerHTML = `<div class="section-title" style="margin-top:26px;border-top:2px solid var(--border);padding-top:18px">✅ Conciliação de Recebíveis <span style="font-size:11px;font-weight:400;color:var(--muted)">— casar recebimento com pedido</span></div><div id="conc-result"></div>`;
   renderConcResult();
 }
 
