@@ -391,7 +391,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v361/07-480';
+const APP_VERSION = 'v362/07-481';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1153,9 +1153,10 @@ function setSubR(r) {
 // Envolve um card de upload com um botão Expandir/Recolher (lembra o estado por aba, no localStorage).
 function uploadWrap(key, cardHTML) {
   let coll = true; try { const s = localStorage.getItem(LS_PREFIX + 'uplColl_' + key); coll = (s === null) ? true : (s === '1'); } catch (e) {} // padrão: FECHADO
-  return `<div style="margin-bottom:12px">
-    <button class="btn ghost sm" id="uplbtn-${key}" onclick="toggleUploadColl('${key}')" style="font-size:11px;margin-bottom:6px">${coll ? '▸ Mostrar upload' : '▾ Ocultar upload'}</button>
-    <div id="upl-${key}" style="display:${coll ? 'none' : 'block'}">${cardHTML}</div>
+  // Upload manual vira um link discreto (o normal é entrar pela ☁ Sincronizar do Drive).
+  return `<div style="margin-bottom:8px">
+    <a href="#" id="uplbtn-${key}" onclick="toggleUploadColl('${key}');return false" style="font-size:10.5px;color:var(--muted);text-decoration:none;opacity:.7">⚙ ${coll ? 'subir arquivo manual (avançado)' : 'ocultar upload manual'}</a>
+    <div id="upl-${key}" style="display:${coll ? 'none' : 'block'};margin-top:6px">${cardHTML}</div>
   </div>`;
 }
 function toggleUploadColl(key) {
@@ -1163,7 +1164,7 @@ function toggleUploadColl(key) {
   if (!d) return;
   const hide = d.style.display !== 'none';
   d.style.display = hide ? 'none' : 'block';
-  if (btn) btn.textContent = hide ? '▸ Mostrar upload' : '▾ Ocultar upload';
+  if (btn) btn.textContent = hide ? '⚙ subir arquivo manual (avançado)' : '⚙ ocultar upload manual';
   try { localStorage.setItem(LS_PREFIX + 'uplColl_' + key, hide ? '1' : '0'); } catch (e) {}
 }
 function setupUpload(inputId, cardId, statusId, onLoad) {
@@ -1478,15 +1479,15 @@ function toggleVendasUploads() {
   if (!g) return;
   const esconder = g.style.display !== 'none';
   g.style.display = esconder ? 'none' : 'grid';
-  if (b) b.textContent = esconder ? '▸ Mostrar uploads' : '▾ Recolher uploads';
+  if (b) b.textContent = esconder ? '⚙ subir arquivo manual (avançado)' : '⚙ ocultar upload manual';
   try { localStorage.setItem('vendasUploadsRecolhido', esconder ? '1' : '0'); } catch (e) {}
 }
 function renderVendas() {
   const el = document.getElementById('v-vendas');
-  const upRec = (() => { try { return localStorage.getItem('vendasUploadsRecolhido') === '1'; } catch (e) { return false; } })();
+  const upRec = (() => { try { const s = localStorage.getItem('vendasUploadsRecolhido'); return s === null ? true : s === '1'; } catch (e) { return true; } })(); // padrão: FECHADO (o normal é o ☁ Sincronizar do Drive)
   el.innerHTML = `
     <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-      <button class="btn ghost sm" id="btn-vendas-uploads" onclick="toggleVendasUploads()">${upRec ? '▸ Mostrar uploads' : '▾ Recolher uploads'}</button>
+      <a href="#" id="btn-vendas-uploads" onclick="toggleVendasUploads();return false" style="font-size:10.5px;color:var(--muted);text-decoration:none;opacity:.7">⚙ ${upRec ? 'subir arquivo manual (avançado)' : 'ocultar upload manual'}</a>
     </div>
     <div id="vendas-uploads" style="display:${upRec ? 'none' : 'grid'};grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
       <label class="upload-card" id="card-pedidos" for="file-pedidos">
