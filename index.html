@@ -391,7 +391,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v362/07-481';
+const APP_VERSION = 'v363/07-482';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2381,25 +2381,12 @@ function _renderContasImpl(el) {
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="fc-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.contas=this.value;debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
       <div class="fd-row"><span class="f-label">Data</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div></div>
     </div>`; })()}
-    ${ocultadosOp ? `<div style="font-size:11px;color:var(--muted);margin-bottom:12px">ℹ️ ${ocultadosOp} pedido(s) fora desta lista por não serem <strong>Venda/Troca</strong> E não terem recebimento no banco. Quem recebeu (caiu no banco) já entra aqui como pago, mesmo não sendo venda.</div>` : ''}
     <div class="cards-row">
       <div class="card red"><div class="c-label">Em Aberto${flt?' (filtro)':''}</div><div class="c-val">${emAberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
       <div class="card dark"><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)} bruto · <strong style="color:var(--green)">líquido ${fmtVal(vPagoLiq)}</strong></div></div>
       <div class="card ${flt?'blue':(bateVT?'green':'amber')}"><div class="c-label">Total a Receber${flt?' (filtro)':''}</div><div class="c-val">${fmtVal(totalCR)}</div><div class="c-sub">${vis.length} linha(s)${flt?' · = o que sai no export':''}</div></div>
       ${avulsasVis.length ? `<div class="card green" style="cursor:pointer" title="Clique para ver as Outras receitas" onclick="document.getElementById('sec-outras-receitas')?.scrollIntoView({behavior:'smooth',block:'start'})"><div class="c-label">Outras receitas ›</div><div class="c-val">${avulsasVis.length}</div><div class="c-sub">${fmtVal(vAvulsas)}</div></div>` : ''}
     </div>
-    ${(() => {
-      const exato = Math.abs(difVT) < 0.005;
-      const listaHTML = pedidosNaoFecham.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-weight:700">Ver ${pedidosNaoFecham.length} pedido(s) que não fecham (soma das diferenças: ${fmtVal(pedidosNaoFecham.reduce((s,d)=>s+d.dif,0))})</summary>
-             <div class="table-wrap" style="margin-top:6px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Soma Formas</th><th>Diferença</th></tr></thead><tbody>
-             ${pedidosNaoFecham.map(d=>`<tr><td><strong>#${d.id}</strong></td><td>${d.nome||'—'}</td><td>${fmtVal(d.valor)}</td><td>${fmtVal(d.soma)}</td><td style="color:${d.dif<0?'var(--red)':'var(--amber)'};font-weight:600">${fmtVal(d.dif)}</td></tr>`).join('')}
-             </tbody></table></div></details>` : '';
-      const cor = bateVT ? 'var(--green)' : 'var(--amber)';
-      const msg = bateVT
-        ? `✓ Total a Receber bate com a soma de Venda/Troca (${fmtVal(totalVT)}).${exato ? '' : ` <span style="color:var(--muted)">Diferença de ${fmtVal(difVT)} só de arredondamento de centavos.</span>`}`
-        : `⚠ ${pedidosNaoFecham.length} pedido(s) com forma de pagamento que não fecha o valor (diferença total ${fmtVal(difVT)}).`;
-      return `<div style="font-size:12px;margin-bottom:12px;color:${cor}">${msg}${listaHTML}</div>`;
-    })()}
     ${vis.length === 0 ? `<div class="empty"><div class="e-icon">${linhas.length === 0 ? '💰' : '🔍'}</div>
       ${linhas.length === 0
         ? 'Nenhum pedido Venda/Troca encontrado. Verifique se as operações estão configuradas em <a href="#" onclick="setView(\'cadastro\');return false" style="color:var(--accent)">Cadastro → Lojas</a>.'
