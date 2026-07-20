@@ -389,7 +389,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v352/07-471';
+const APP_VERSION = 'v353/07-472';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5693,10 +5693,28 @@ function cobrarAvulsoWpp(i) {
   marcarAvisadoAvulso(i);
 }
 // Marca um boleto avulso em aberto como RECEBIDO
+// Lê um valor digitado em pt-BR (aceita "254,91", "254.91", "1.371,65") → número. Se vazio/inválido, usa o padrão.
+function _parseValorBR(str, padrao) {
+  const raw = String(str == null ? '' : str).trim();
+  if (!raw) return +(+padrao || 0).toFixed(2);
+  const clean = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
+  const n = parseFloat(clean.replace(/[^\d.-]/g, ''));
+  return +((isNaN(n) ? (+padrao || 0) : n)).toFixed(2);
+}
+// Edita, num boleto avulso já recebido, o valor que caiu (com multa) e a data do pagamento.
+function setAvulsoRecebido(i, campo, valor) {
+  const a = boletosAvulsos[i]; if (!a) return;
+  if (campo === 'valorPago') a.valorPago = _parseValorBR(valor, a.valorTitulo || 0);
+  else if (campo === 'dataPagamento') a.dataPagamento = valor ? new Date(valor + 'T12:00:00') : null;
+  saveData('boletosAvulsos', boletosAvulsos);
+  syncBoletosToRecebimentos();
+  renderCobranca();
+}
 function baixarAvulso(i) {
   const a = boletosAvulsos[i]; if (!a) return;
-  if (!confirm(`Marcar o boleto de ${a.cliente || 'cliente'} (${fmtVal(a.valorTitulo || 0)}) como RECEBIDO?`)) return;
-  a.dataPagamento = new Date(); a.valorPago = a.valorTitulo || 0;
+  const vStr = prompt(`Boleto de ${a.cliente || 'cliente'} — quanto CAIU no banco?\n\n(Título ${fmtVal(a.valorTitulo || 0)}. Se venceu, ponha o valor com a multa/juros que você recebeu no PIX.)`, (a.valorTitulo || 0).toFixed(2));
+  if (vStr === null) return;
+  a.valorPago = _parseValorBR(vStr, a.valorTitulo || 0); a.dataPagamento = new Date();
   saveData('boletosAvulsos', boletosAvulsos);
   syncBoletosToRecebimentos();
   renderCobranca();
@@ -5760,7 +5778,10 @@ function renderCobranca() {
         <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
         <td><input class="inline-input" style="width:140px;font-size:11px" value="${(a.obsCobranca || '').replace(/"/g, '&quot;')}" placeholder="ex.: vai pagar no pix" title="Anotação livre desta cobrança" onchange="setObsAvulso(${i},this.value)"></td>
         <td><div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 ${a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${a.cobradoEm ? `<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(a.cobradoEm)}</span> <a href="#" onclick="desmarcarAvisadoAvulso(${i});return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
-      const rowPago = i => { const a = boletosAvulsos[i]; return `<tr><td><strong>#${a.pedido || '—'}</strong></td><td>${a.cliente || '—'}</td><td>${fmtVal(a.valorPago || a.valorTitulo || 0)}</td><td>${a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td><td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></td></tr>`; };
+      const rowPago = i => { const a = boletosAvulsos[i]; const dISO = a.dataPagamento ? _toDateInput(a.dataPagamento) : ''; const comMulta = (a.valorPago != null && a.valorTitulo && a.valorPago > a.valorTitulo + 0.005); return `<tr><td><strong>#${a.pedido || '—'}</strong></td><td>${a.cliente || '—'}</td>
+        <td><input class="inline-input" type="number" step="0.01" style="width:96px;text-align:right" value="${(a.valorPago != null ? a.valorPago : (a.valorTitulo || 0)).toFixed(2)}" onchange="setAvulsoRecebido(${i},'valorPago',this.value)" title="Valor que caiu no banco (com multa/juros se o boleto venceu). Título: ${fmtVal(a.valorTitulo || 0)}">${comMulta ? ` <span style="font-size:9px;color:var(--amber)" title="Título ${fmtVal(a.valorTitulo)} + multa/juros">+multa</span>` : ''}</td>
+        <td><input class="inline-input" type="date" style="width:132px" value="${dISO}" onchange="setAvulsoRecebido(${i},'dataPagamento',this.value)" title="Data que o PIX caiu no banco"></td>
+        <td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></td></tr>`; };
       const totalAb = abertos.reduce((s, i) => s + (boletosAvulsos[i].valorTitulo || 0), 0);
       return `<div style="margin:12px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn ghost sm" style="font-size:12px;font-weight:700" onclick="_cobAvulsosAberto=!_cobAvulsosAberto;renderCobranca()">📱 A receber fora do sistema (${abertos.length}) ${avOpen ? '▾' : '▸'}</button>
