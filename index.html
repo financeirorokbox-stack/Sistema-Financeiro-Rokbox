@@ -392,7 +392,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v368/07-487';
+const APP_VERSION = 'v369/07-488';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3804,6 +3804,17 @@ function updateContaPagar(idx, field, value) {
     if (c.pago && !c.dataPag) c.dataPag = c.vencimento || new Date();
     if (!c.pago) c.dataPag = null;
     c.situacao = c.pago ? 'Pago' : 'Em Aberto';
+  } else if (field === 'pix') {
+    c.pix = value; semRerender = true;
+    // Digitou a PIX numa conta → salva no FORNECEDOR daquele nome. Assim vale pra TODAS as contas
+    // desse fornecedor (as que não têm PIX própria puxam essa automaticamente).
+    const nome = (c.fornecedor || '').trim();
+    if (nome && String(value || '').trim()) {
+      let f = fornecedoresCompras.find(x => (x.nome || '').trim().toLowerCase() === nome.toLowerCase());
+      if (f) f.pix = String(value).trim();
+      else fornecedoresCompras.push({ id: 'forn_' + Date.now(), nome, whatsapp: '', pix: String(value).trim(), condicaoId: '', categoria: '', empresa: c.empresa || '', obs: '' });
+      saveData('fornecedoresCompras', fornecedoresCompras);
+    }
   } else {
     c[field] = value; semRerender = true; // texto (fornecedor/categoria/obs): salva sem recarregar, não perde o cursor
   }
@@ -3817,7 +3828,8 @@ function updateContaPagar(idx, field, value) {
 function pixDaConta(c) {
   if (!c) return '';
   if (c.pix && String(c.pix).trim()) return String(c.pix).trim();
-  const f = fornecedoresCompras.find(x => (x.nome || '') === (c.fornecedor || ''));
+  const nome = (c.fornecedor || '').trim().toLowerCase();
+  const f = fornecedoresCompras.find(x => (x.nome || '').trim().toLowerCase() === nome);
   return (f && f.pix) ? String(f.pix).trim() : '';
 }
 function copiarPix(idx) {
