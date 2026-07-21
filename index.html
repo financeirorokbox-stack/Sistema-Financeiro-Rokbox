@@ -392,7 +392,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v366/07-485';
+const APP_VERSION = 'v367/07-486';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3054,14 +3054,22 @@ function renderFluxo() {
   const refDatas = Object.values(saldosIniciais).map(c=>c.data).filter(Boolean).sort();
   const refDate = refDatas.length ? new Date(refDatas[0] + 'T23:59:59') : null;
   const aposRef = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); return !isNaN(dt) && (!refDate || dt > refDate); };
-  // Início do período filtrado = menor data que passa no filtro (entre os movimentos).
+  // Início do período filtrado. 1º pela DEFINIÇÃO do filtro (1º dia do mês/ano/dia filtrado) — assim o
+  // saldo anterior segue o filtro mesmo que o período tenha poucos/nenhum lançamento. Se o filtro não
+  // tiver ano, cai pra menor data dos movimentos que passam.
   let periodStart = null;
   if (dfAtivo()) {
-    const ds = [];
-    recebimentosConsolidado.forEach(r => { if (!r._estornoChave && noPeriodo(r.data) && r.data) ds.push(+new Date(r.data)); });
-    receitasAvulsas.forEach(r => { if (noPeriodo(r.data) && r.data) ds.push(+new Date(r.data)); });
-    contasPagar.forEach(c => { const d = c.dataPag||c.vencimento; if (c.pago && noPeriodo(d) && d) ds.push(+new Date(d)); });
-    if (ds.length) periodStart = new Date(Math.min(...ds));
+    const anoF = (dateFilter.ano && dateFilter.ano.length) ? Math.min(...dateFilter.ano.map(Number)) : null;
+    const mesF = (dateFilter.mes && dateFilter.mes.length) ? Math.min(...dateFilter.mes.map(Number)) : 1;
+    const diaF = (dateFilter.dia && dateFilter.dia.length) ? Math.min(...dateFilter.dia.map(Number)) : 1;
+    if (anoF) periodStart = new Date(anoF, mesF - 1, diaF, 0, 0, 0);
+    else {
+      const ds = [];
+      recebimentosConsolidado.forEach(r => { if (!r._estornoChave && noPeriodo(r.data) && r.data) ds.push(+new Date(r.data)); });
+      receitasAvulsas.forEach(r => { if (noPeriodo(r.data) && r.data) ds.push(+new Date(r.data)); });
+      contasPagar.forEach(c => { const d = c.dataPag || c.vencimento; if (c.pago && noPeriodo(d) && d) ds.push(+new Date(d)); });
+      if (ds.length) periodStart = new Date(Math.min(...ds));
+    }
   }
   // Net (entradas − saídas) de movimentos ANTES do período (e depois da data de referência).
   let netAntes = 0;
