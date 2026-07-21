@@ -392,7 +392,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v367/07-486';
+const APP_VERSION = 'v368/07-487';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3071,13 +3071,14 @@ function renderFluxo() {
       if (ds.length) periodStart = new Date(Math.min(...ds));
     }
   }
-  // Net (entradas − saídas) de movimentos ANTES do período (e depois da data de referência).
+  // Movimento do BANCO (extrato) ANTES do período (e depois da data de referência) — é o dinheiro de
+  // verdade. Assim o "Saldo anterior" = base + movimento do banco até o início do período = fechamento
+  // do mês anterior, BATENDO com o saldo inicial da Conciliação Bancária.
   let netAntes = 0;
   if (periodStart) {
-    const antes = d => aposRef(d) && (d instanceof Date ? d : new Date(d)) < periodStart;
-    recebimentosConsolidado.forEach(r => { if (!r._estornoChave && antes(r.data)) netAntes += (r.liq||0); });
-    receitasAvulsas.forEach(r => { if (antes(r.data)) netAntes += (r.valor||0); });
-    contasPagar.forEach(c => { const d = c.dataPag||c.vencimento; if (c.pago && antes(d)) netAntes -= (c.valor||0); });
+    extratoBancario.forEach(t => {
+      if (t.data instanceof Date && !isNaN(t.data) && aposRef(t.data) && t.data < periodStart) netAntes += (t.valor || 0);
+    });
   }
   const saldoAnterior = baseInicial + netAntes;
   const saldoFinal = saldoAnterior + (totEnt - totSai);
