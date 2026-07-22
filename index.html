@@ -392,7 +392,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v369/07-488';
+const APP_VERSION = 'v370/07-489';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3010,7 +3010,7 @@ function renderFluxo() {
   // SAÍDAS — contas a pagar PAGAS, por grupo de despesa (usa dataPag; se faltar, vencimento)
   const sai = {};
   contasPagar.forEach(c => {
-    if (!c.pago) return;
+    if (!c.pago || c.cancelado) return;
     if (!noPeriodo(c.dataPag || c.vencimento)) return;
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
@@ -3019,7 +3019,7 @@ function renderFluxo() {
   // SAÍDAS PREVISTAS — contas a pagar EM ABERTO (por vencimento), por grupo. É a projeção.
   const saiPrev = {};
   contasPagar.forEach(c => {
-    if (c.pago) return;
+    if (c.pago || c.cancelado) return;
     if (!noPeriodo(c.vencimento)) return;
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
@@ -3045,7 +3045,7 @@ function renderFluxo() {
   };
   recebimentosConsolidado.forEach(r => { if (r._estornoChave || !noPeriodo(r.data)) return; addNo(treeR, grupoReceitaGateway(r.gateway), SUB_REC[r.gateway] || r.gateway || 'Outros', _empRec(r), r.liq||0); });
   receitasAvulsas.forEach(r => { if (!noPeriodo(r.data)) return; addNo(treeR, 'Outras receitas', r.categoria || 'Outras', r.empresa || '(sem empresa)', r.valor||0); });
-  contasPagar.forEach(c => { if (!c.pago || !noPeriodo(c.dataPag||c.vencimento)) return; const cat = catContaPagar(c); const g = grupoDespesa(cat) || cat || 'Outras despesas'; if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
+  contasPagar.forEach(c => { if (c.cancelado || !c.pago || !noPeriodo(c.dataPag||c.vencimento)) return; const cat = catContaPagar(c); const g = grupoDespesa(cat) || cat || 'Outras despesas'; if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
   const empCols = [...empSet].sort((a,b)=> a==='(sem empresa)' ? 1 : b==='(sem empresa)' ? -1 : (a<b?-1:1));
 
   // ── SALDO ANTERIOR (antes do período) e SALDO FINAL ──
@@ -3089,7 +3089,7 @@ function renderFluxo() {
   const addMes = (d, tipo, val) => { if (!anoOk(d)) return; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return; const k = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'); (meses[k] = meses[k] || {ent:0,sai:0,prev:0})[tipo] += (val||0); };
   recebimentosConsolidado.forEach(r => { if (!r._estornoChave) addMes(r.data, 'ent', r.liq||0); });
   receitasAvulsas.forEach(r => addMes(r.data, 'ent', r.valor||0));
-  contasPagar.forEach(c => { if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); else addMes(c.vencimento, 'prev', c.valor||0); });
+  contasPagar.forEach(c => { if (c.cancelado) return; if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); else addMes(c.vencimento, 'prev', c.valor||0); });
   const mesesOrd = Object.keys(meses).sort();
   const maxMes = Math.max(1, ...mesesOrd.map(k => Math.max(meses[k].ent, meses[k].sai, meses[k].prev)));
   const MESNOMES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -3626,7 +3626,7 @@ function exportarConciliacaoBancaria() {
     Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => _linkChaves.add(it.chave)));
     contasPagar.forEach(c => {
       const ehEst = (String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno;
-      if (!ehEst || !c.pago) return;
+      if (c.cancelado || !ehEst || !c.pago) return;
       if (_linkChaves.has(chaveContaPagar(c))) return; // já entrou como débito conciliado no banco
       const dp = c.dataPag;
       if (!dp || (dfAtivo() && !passaData(dp))) return;
@@ -3934,6 +3934,12 @@ function toggleCpCol(key) {
 // (sem re-renderizar) pra a linha não SUMIR do filtro no meio da edição.
 function setPagoConta(idx, sel) {
   const c = contasPagar[idx]; if (!c) return;
+  if (sel.value === 'cancelado') {
+    // CANCELADO: fica na lista pra histórico, mas não soma em nada (nem pago, nem em aberto).
+    c.cancelado = true; c.pago = false; c.dataPag = null; c.situacao = 'Cancelado';
+    saveData('contasPagar', contasPagar); renderPagar(); return;
+  }
+  c.cancelado = false;
   c.pago = (sel.value === 'pago');
   if (c.pago && !c.dataPag) c.dataPag = c.vencimento || new Date();
   if (!c.pago) c.dataPag = null;
@@ -3959,7 +3965,7 @@ function _contasPagarFiltradas() {
   const fQ = (el?.querySelector('#cp-q')?.value || buscaPersist.pagar || '').toLowerCase();
   const chavesConcBanco = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
   const estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno || c._origemExtrato;
-  let vis = contasPagar.slice();
+  let vis = contasPagar.filter(c => !c.cancelado); // CANCELADA fica só na tela (histórico) — não entra em export/relatório nem soma
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
   if (cpCatSel.size) vis = vis.filter(c => cpCatSel.has(catContaPagar(c)));
@@ -4130,7 +4136,7 @@ function exportarContasPagar() {
   const fQ = (el?.querySelector('#cp-q')?.value || buscaPersist.pagar || '').toLowerCase();
   const chavesConcBanco = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
   const estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno || c._origemExtrato;
-  let vis = contasPagar.slice();
+  let vis = contasPagar.filter(c => !c.cancelado); // CANCELADA fica só na tela (histórico) — não entra em export/relatório nem soma
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
   if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
   if (cpCatSel.size) vis = vis.filter(c => cpCatSel.has(catContaPagar(c)));
@@ -4237,8 +4243,9 @@ function renderPagar() {
   if (_novaContaRef && contasPagar.includes(_novaContaRef) && contasPagar.indexOf(_novaContaRef) === _cpEdit
       && !vis.includes(_novaContaRef)) vis = vis.concat([_novaContaRef]);
 
-  const aberto = vis.filter(c => !c.pago);
-  const pagos = vis.filter(c => c.pago);
+  // Contas CANCELADAS ficam na lista (histórico) mas NÃO somam em nada.
+  const aberto = vis.filter(c => !c.pago && !c.cancelado);
+  const pagos = vis.filter(c => c.pago && !c.cancelado);
   const vAberto = aberto.reduce((s, c) => s + c.valor, 0);
   const vPago = pagos.reduce((s, c) => s + c.valor, 0);
   const totalCP = +(vAberto + vPago).toFixed(2);
@@ -4402,11 +4409,11 @@ function renderPagar() {
           const compRaw = competenciaConta(c); const compTxt = compRaw ? compRaw.split('-')[1] + '/' + compRaw.split('-')[0] : '<span style="color:var(--muted)">—</span>';
           const hist = c.observacao || '';
           const mut = '<span style="color:var(--muted)">—</span>';
-          return `<tr${c._manual ? ' style="background:#fffbe6"' : (c.pago ? ' style="background:#f0faf3"' : '')}>
+          return `<tr${c.cancelado ? ' style="opacity:.5;text-decoration:line-through"' : (c._manual ? ' style="background:#fffbe6"' : (c.pago ? ' style="background:#f0faf3"' : ''))}>
             ${delCheckbox('contasPagar', realIdx)}
             <td class="cpcol-vencimento" style="white-space:nowrap">${c.vencimento ? fmtDate(c.vencimento) : mut} <a href="#" title="Editar esta conta" onclick="_cpEdit=${realIdx};renderPagar();return false" style="text-decoration:none;opacity:.55">✏️</a></td>
             <td class="cpcol-competencia">${compTxt}</td>
-            <td class="cpcol-status">${c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>'}</td>
+            <td class="cpcol-status">${c.cancelado ? '<span class="badge" style="background:var(--muted);color:#fff">🚫 CANCELADO</span>' : (c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
             <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
             <td class="cpcol-banco">${c.banco || mut}</td>
             <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${(()=>{ const _px=pixDaConta(c); return _px ? ` <a href="#" title="💠 PIX: ${_px.replace(/"/g,'&quot;')}&#10;(clique para copiar)" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''; })()}</td>
@@ -4421,7 +4428,7 @@ function renderPagar() {
           ${delCheckbox('contasPagar', realIdx)}
           <td class="cpcol-vencimento" style="white-space:nowrap"><input type="date" class="inline-input" style="width:118px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)" onblur="reavaliarFiltroConta(${realIdx})"> <a href="#" title="Concluir edição" onclick="_cpEdit=null;renderPagar();return false" style="text-decoration:none">✓</a></td>
           <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
-          <td class="cpcol-status"><select class="inline-input" style="width:105px;font-weight:700;color:${c.pago?'var(--green)':'var(--red)'}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago?'selected':''}>Em Aberto</option><option value="pago" ${c.pago?'selected':''}>Pago</option></select></td>
+          <td class="cpcol-status"><select class="inline-input" style="width:110px;font-weight:700;color:${c.cancelado?'var(--muted)':(c.pago?'var(--green)':'var(--red)')}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago&&!c.cancelado?'selected':''}>Em Aberto</option><option value="pago" ${c.pago&&!c.cancelado?'selected':''}>Pago</option><option value="cancelado" ${c.cancelado?'selected':''}>🚫 Cancelado</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
           <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}<br><input class="inline-input" style="width:170px;margin-top:2px;font-size:10px" value="${(c.pix||'').replace(/"/g,'&quot;')}" placeholder="💠 PIX (vazio = usa a do fornecedor)" title="Chave PIX. Se deixar vazio, usa a PIX cadastrada no fornecedor (Cadastro → Fornecedores). Aparece como 💠 na linha fechada." onchange="updateContaPagar(${realIdx},'pix',this.value)"></td>
@@ -8675,6 +8682,7 @@ function renderBanco() {
                   if (t.data instanceof Date && !isNaN(t.data)) { [wkIni, wkFim] = semanaDe(t.data); }
                   const naSemana = c => wkIni && c.vencimento && c.vencimento >= wkIni && c.vencimento <= wkFim;
                   const todasFull = contasPagar
+                    .filter(c => !c.cancelado) // cancelada não aparece pra conciliar
                     .map(c => ({c, d: Math.abs((c.valor||0)-alvo), paga: !!c.pago, usada: usadasDeb.has(chaveContaPagar(c)), wk: naSemana(c) ? 0 : 1}))
                     .sort((a,b) => (a.usada?1:0)-(b.usada?1:0) || (a.paga?1:0)-(b.paga?1:0) || a.wk - b.wk || (a.c.vencimento||0)-(b.c.vencimento||0));
                   // "Só do mês do débito": esconde contas cujo vencimento (ou pagamento) é de outro mês —
@@ -9623,7 +9631,7 @@ function cbLancarDespesa(extId, alvo) {
   // Antes de CRIAR, vê se já existe uma conta IGUAL (mesmo valor e categoria) SEM vínculo no banco.
   // Se existir, oferece CONCILIAR a ela em vez de criar outra (evita duplicar no Contas a Pagar).
   const _linkedCh = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => _linkedCh.add(it.chave)));
-  const existente = contasPagar.find(c => !_linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
+  const existente = contasPagar.find(c => !c.cancelado && !_linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
     && Math.abs((c.valor || 0) - alvoVal) <= 0.02
     && (catContaPagar(c) || '').toUpperCase() === (categoria || '').toUpperCase());
   if (existente) {
@@ -9729,7 +9737,7 @@ function _autoDebitosCore(matchBanco) {
   let n = 0;
   extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t) && !diaFechado(t.data, t.banco)).forEach(t => {
     const alvo = Math.abs(t.valor);
-    const cand = contasPagar.filter(c => !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02);
+    const cand = contasPagar.filter(c => !c.cancelado && !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02);
     if (cand.length === 1) {
       const c = cand[0];
       const setPago = !c.pago;
@@ -9783,7 +9791,7 @@ function cbLancarTarifas() {
   alvos.forEach(t => {
     const vAlvo = +Math.abs(t.valor || 0).toFixed(2);
     // 1) Tenta REAPROVEITAR uma conta de tarifa já existente e SEM vínculo (adota a cópia solta).
-    const existente = contasPagar.find(c => !linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
+    const existente = contasPagar.find(c => !c.cancelado && !linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
       && Math.abs((c.valor || 0) - vAlvo) <= 0.02
       && (ehTarifaBanco((c.fornecedor || '') + ' ' + (c.descricao || '')) || (catContaPagar(c) || '').toUpperCase() === 'TARIFAS'));
     if (existente) {
