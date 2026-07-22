@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v375/07-494';
+const APP_VERSION = 'v376/07-495';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10339,8 +10339,12 @@ function renderRH() {
   // Pedidos de funcionários descontados na folha (abatem do salário e fecham o pedido no Contas a Receber).
   const pedDesc = _folhaDo(mesAtual)._pedidosDesc || [];
   const descPedDe = fid => pedDesc.filter(d => d.funcId === fid).reduce((s, d) => s + (+d.valor || 0), 0);
+  // Período do VT (ela passa o período; padrão = o mês inteiro).
+  const _mF = _folhaDo(mesAtual);
+  const vtDe = _mF._vtDe || (mesAtual + '-01');
+  const vtAte = _mF._vtAte || (mesAtual + '-' + String(new Date(+mesAtual.slice(0, 4), +mesAtual.slice(5, 7), 0).getDate()).padStart(2, '0'));
   const confHTML = ativos.length ? `
-    <div class="section-title" style="margin-top:22px">📋 Folha de ${mesAtual.split('-').reverse().join('/')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— preencha como na sua planilha. Adiantamento vence dia 20/${mesAtual.slice(5)}; o resto, dia 05/${mesSeg.slice(5)}. Feriados no mês: <input type="number" min="0" max="10" value="${_rhFeriados}" style="width:46px" onchange="_rhFeriados=+this.value||0;renderRH()" title="Usado só no DSR estimado"></span></div>
+    <div class="section-title" style="margin-top:22px">📋 Folha de ${mesAtual.split('-').reverse().join('/')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— Adiantamento vence 20/${mesAtual.slice(5)}; o resto, 05/${mesSeg.slice(5)} · Feriados: <input type="number" min="0" max="10" value="${_rhFeriados}" style="width:44px" onchange="_rhFeriados=+this.value||0;renderRH()" title="Usado no DSR estimado e nos dias úteis do VT"> · Período do VT: <input type="date" value="${vtDe}" style="width:126px" onchange="setVtPeriodoRH('${mesAtual}','de',this.value)"> a <input type="date" value="${vtAte}" style="width:126px" onchange="setVtPeriodoRH('${mesAtual}','ate',this.value)"> <button class="btn primary sm" style="font-size:11px" onclick="preencherFolhaAuto()" title="Preenche sozinho: Adiantamento = % Adto × salário do cadastro; VT = VT/dia × dias úteis presenciais do período (úteis − feriados − home office semanal). Sobrescreve só esses 2 campos.">⚡ Preencher automático</button></span></div>
     <div class="table-wrap"><table><thead><tr>
       <th>Nome</th><th style="text-align:right">Adiant. (dia 20)</th><th style="text-align:right">Sal. líquido</th><th style="text-align:right">Descontos −</th><th style="text-align:right">Comissão</th><th style="text-align:right">DSR</th><th style="text-align:right">Férias</th><th style="text-align:right">VT</th><th style="text-align:right">Extras</th><th>Categ. extras</th><th style="text-align:right">TOTAL (dia 05)</th>
     </tr></thead><tbody>
@@ -10354,7 +10358,7 @@ function renderRH() {
         <td style="text-align:right"><input class="inline-input" style="width:84px;text-align:right" value="${r.comissao != null ? (+r.comissao).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="${comAuto ? comAuto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}" title="Vazio = usa a comissão da aba 💸 Comissão (${fmtVal(comAuto)})" onchange="updateFolhaRH('${mesAtual}','${f.id}','comissao',this.value)"></td>
         <td style="text-align:right">${inp('dsr', r.dsr)}<div style="font-size:9px;color:var(--muted)" title="DSR estimado = comissão ÷ dias úteis × (domingos + feriados)">est. ${fmtVal(dsrEst)}</div></td>
         <td style="text-align:right">${inp('ferias', r.ferias)}</td>
-        <td style="text-align:right">${inp('vt', r.vt)}</td>
+        <td style="text-align:right">${inp('vt', r.vt)}${r.vtDias ? `<div style="font-size:9px;color:var(--muted)" title="Dias presenciais × VT/dia do cadastro">${r.vtDias} dia(s) × ${fmtVal(+f.vtDia || 0)}</div>` : ''}</td>
         <td style="text-align:right">${inp('extras', r.extras)}</td>
         <td><input class="inline-input" style="width:104px" list="cp-cat-list" value="${esc(r.extrasCat)}" placeholder="categoria" onchange="updateFolhaRH('${mesAtual}','${f.id}','extrasCat',this.value)"></td>
         <td style="text-align:right;font-weight:700">${fmtVal(tot)}${dpF ? `<div style="font-size:9px;color:var(--amber)" title="Pedidos de funcionário descontados na folha (lista abaixo)">🛍 −${fmtVal(dpF)}</div>` : ''}</td>
@@ -10387,7 +10391,7 @@ function renderRH() {
     </div>
     <datalist id="rh-emp-list">${empresas.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
     <div class="table-wrap"><table><thead><tr>
-      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>Dia pgto</th><th>Categoria</th><th>💠 PIX</th><th></th>
+      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>% Adto</th><th>VT/dia</th><th>Home/sem</th><th>Categoria</th><th>💠 PIX</th><th></th>
     </tr></thead><tbody>
     ${funcionariosRH.map((f, i) => `<tr style="${f.ativo === false ? 'opacity:.5' : ''}">
       <td style="text-align:center"><input type="checkbox" ${f.ativo !== false ? 'checked' : ''} onchange="updateFuncionarioRH(${i},'ativo',this.checked)" title="Desmarcado = não entra na folha"></td>
@@ -10395,11 +10399,13 @@ function renderRH() {
       <td><input class="inline-input" style="width:120px" value="${esc(f.funcao)}" placeholder="função" onchange="updateFuncionarioRH(${i},'funcao',this.value)"></td>
       <td><input class="inline-input" style="width:110px" list="rh-emp-list" value="${esc(f.empresa)}" placeholder="empresa" onchange="updateFuncionarioRH(${i},'empresa',this.value)"></td>
       <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${f.salario ? (+f.salario).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFuncionarioRH(${i},'salario',this.value)"></td>
-      <td style="text-align:center"><input class="inline-input" type="number" min="1" max="31" style="width:58px;text-align:center" value="${f.diaPag || 5}" title="Dia do mês em que essa pessoa recebe" onchange="updateFuncionarioRH(${i},'diaPag',this.value)"></td>
+      <td style="text-align:center"><input class="inline-input" type="number" min="0" max="100" style="width:52px;text-align:center" value="${f.adiantPct != null ? f.adiantPct : 40}" title="% do salário pago como ADIANTAMENTO (dia 20). Padrão 40%." onchange="updateFuncionarioRH(${i},'adiantPct',this.value)"></td>
+      <td style="text-align:right"><input class="inline-input" style="width:64px;text-align:right" value="${f.vtDia ? (+f.vtDia).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" title="Vale transporte por DIA presencial (ex.: 18,76)" onchange="updateFuncionarioRH(${i},'vtDia',this.value)"></td>
+      <td style="text-align:center"><input class="inline-input" type="number" min="0" max="6" style="width:48px;text-align:center" value="${f.homeSem != null ? f.homeSem : 0}" title="Dias de HOME OFFICE por semana (não contam no VT)" onchange="updateFuncionarioRH(${i},'homeSem',this.value)"></td>
       <td><input class="inline-input" style="width:120px" list="cp-cat-list" value="${esc(f.categoria || 'SALÁRIO')}" onchange="updateFuncionarioRH(${i},'categoria',this.value)"></td>
       <td><input class="inline-input" style="width:160px" value="${esc(f.pix)}" placeholder="chave PIX" onchange="updateFuncionarioRH(${i},'pix',this.value)"></td>
       <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerFuncionarioRH(${i})" title="Remover do RH (não apaga contas já geradas)">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="9" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
+    </tr>`).join('') || '<tr><td colspan="11" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
     </tbody></table></div>
     ${confHTML}
     <div style="font-size:11px;color:var(--muted);margin-top:10px">💡 Preencha a <strong>folha do mês</strong> na grade acima (igual à sua planilha) e clique <strong>📤 Gerar</strong>: cada campo vira uma linha no Contas a Pagar com a categoria dele, já com a 💠 PIX. Re-gerar <strong>atualiza</strong> os valores (não duplica). Esta aba só aparece pra <strong>admin</strong> (ou usuário com a permissão "rh") — os salários ficam reservados.</div>
@@ -10432,9 +10438,49 @@ function updateFolhaRH(mes, id, campo, valor) {
   const r = _fRow(mes, id);
   if (campo === 'extrasCat') r.extrasCat = valor;
   else if (campo === 'comissao') r.comissao = String(valor).trim() === '' ? null : _parseValorBR(valor, 0);
-  else r[campo] = _parseValorBR(valor, 0);
+  else { r[campo] = _parseValorBR(valor, 0); if (campo === 'vt') delete r.vtDias; } // VT digitado na mão: tira o lembrete de dias
   saveData('folhaRH', folhaRH);
   renderRH();
+}
+// ── Preenchimento automático: Adiantamento (% do salário) e VT (VT/dia × dias presenciais do período) ──
+function setVtPeriodoRH(mes, campo, valor) {
+  const m = _folhaDo(mes);
+  if (campo === 'de') m._vtDe = valor; else m._vtAte = valor;
+  saveData('folhaRH', folhaRH);
+  renderRH();
+}
+// Dias úteis (seg a sex) entre duas datas, menos os feriados informados.
+function _diasUteisPeriodoRH(deISO, ateISO, feriados) {
+  const de = new Date(deISO + 'T12:00:00'), ate = new Date(ateISO + 'T12:00:00');
+  if (isNaN(de) || isNaN(ate) || ate < de) return 0;
+  let uteis = 0;
+  for (let d = new Date(de); d <= ate; d.setDate(d.getDate() + 1)) { const wd = d.getDay(); if (wd >= 1 && wd <= 5) uteis++; }
+  return Math.max(0, uteis - (+feriados || 0));
+}
+function preencherFolhaAuto() {
+  const mes = _rhMes || new Date().toISOString().slice(0, 7);
+  const m = _folhaDo(mes);
+  const [a, mo] = mes.split('-').map(Number);
+  const de = m._vtDe || (mes + '-01');
+  const ate = m._vtAte || (mes + '-' + String(new Date(a, mo, 0).getDate()).padStart(2, '0'));
+  const uteisBase = _diasUteisPeriodoRH(de, ate, _rhFeriados);
+  const semanas = Math.max(1, Math.round((new Date(ate + 'T12:00:00') - new Date(de + 'T12:00:00')) / 86400000 / 7));
+  const ativos = funcionariosRH.filter(f => f.ativo !== false && (f.nome || '').trim());
+  if (!ativos.length) { alert('Nenhum funcionário ativo.'); return; }
+  if (!confirm(`⚡ Preencher automático da folha de ${mes.split('-').reverse().join('/')}?\n\n• Adiantamento = % Adto × salário do cadastro\n• VT = VT/dia × dias presenciais (${de.split('-').reverse().join('/')} a ${ate.split('-').reverse().join('/')}: ${uteisBase} úteis, menos o home office semanal de cada um)\n\n⚠ Sobrescreve SÓ os campos Adiantamento e VT deste mês (o resto fica como está).`)) return;
+  let nA = 0, nV = 0;
+  ativos.forEach(f => {
+    const r = _fRow(mes, f.id);
+    const pct = f.adiantPct != null ? +f.adiantPct : 40;
+    if ((+f.salario || 0) > 0 && pct > 0) { r.adiant = +(((+f.salario) * pct) / 100).toFixed(2); nA++; }
+    if ((+f.vtDia || 0) > 0) {
+      const dias = Math.max(0, uteisBase - Math.round((+f.homeSem || 0) * semanas));
+      r.vt = +((+f.vtDia) * dias).toFixed(2); r.vtDias = dias; nV++;
+    }
+  });
+  saveData('folhaRH', folhaRH);
+  renderRH();
+  alert(`✓ Preenchi: ${nA} adiantamento(s) e ${nV} VT(s). Confira na grade e ajuste quem for exceção (o VT mostra os dias embaixo do valor).`);
 }
 // ── Pedidos de funcionários descontados na folha (abatem do salário e fecham o pedido no CR) ──
 function addDescPedRH() {
@@ -10462,6 +10508,9 @@ function updateFuncionarioRH(i, campo, valor) {
   const f = funcionariosRH[i]; if (!f) return;
   if (campo === 'salario') f.salario = _parseValorBR(valor, 0);
   else if (campo === 'diaPag') f.diaPag = Math.max(1, Math.min(31, parseInt(valor, 10) || 5));
+  else if (campo === 'adiantPct') f.adiantPct = Math.max(0, Math.min(100, parseInt(valor, 10) || 0));
+  else if (campo === 'vtDia') f.vtDia = _parseValorBR(valor, 0);
+  else if (campo === 'homeSem') f.homeSem = Math.max(0, Math.min(6, parseInt(valor, 10) || 0));
   else if (campo === 'ativo') f.ativo = !!valor;
   else f[campo] = valor;
   saveData('funcionariosRH', funcionariosRH);
