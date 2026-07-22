@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v374/07-493';
+const APP_VERSION = 'v375/07-494';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3320,14 +3320,26 @@ function selectTrocaForma(pedId) {
   const temOverride = !!formaOverrideMap[pedId];
   const opts = CATEGORIAS_FORMA.map(c => `<option value="${c}">${c}</option>`).join('');
   const voltar = temOverride ? `<option value="__orig__">↻ Voltar ao original</option>` : '';
+  const semForma = formaPagamento.some(f => String(f.pedido) === String(pedId)) ? `<option value="__semforma__">✕ Deixar sem forma (limpa as linhas)</option>` : '';
   return `<select class="inline-input" title="Trocar forma de pagamento"
     style="width:32px;font-size:10px;padding:2px;margin-left:4px;${temOverride ? 'border-color:var(--accent)' : ''}"
     onchange="trocarForma('${pedId}', this.value)">
-    <option value="">✏${temOverride ? '✓' : ''}</option>${opts}${voltar}</select>`;
+    <option value="">✏${temOverride ? '✓' : ''}</option>${opts}${voltar}${semForma}</select>`;
 }
 
 function trocarForma(pedId, val) {
   if (!val) return;
+  if (val === '__semforma__') {
+    // Remove as linhas de forma do pedido (deixa SEM FORMA — modelo cash-first).
+    const n = formaPagamento.filter(f => String(f.pedido) === String(pedId)).length;
+    if (n && !confirm(`Remover as ${n} linha(s) de forma de pagamento do pedido #${pedId}?\n\nEle vira "sem forma": 1 linha em aberto pelo valor da venda. Aí você pode marcar "Boleto Itaú" (vai pro Emitir pelo valor da venda) ou deixar a categoria vir da conciliação.`)) return;
+    formaPagamento = formaPagamento.filter(f => String(f.pedido) !== String(pedId));
+    delete formaOverrideMap[pedId];
+    saveData('formaPagamento', formaPagamento);
+    saveData('formaOverrideMap', formaOverrideMap);
+    renderContas();
+    return;
+  }
   if (val === '__orig__') delete formaOverrideMap[pedId];
   else formaOverrideMap[pedId] = val;
   saveData('formaOverrideMap', formaOverrideMap);
