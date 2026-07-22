@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v373/07-492';
+const APP_VERSION = 'v374/07-493';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10324,12 +10324,15 @@ function renderRH() {
   const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
   // ── Folha do mês (igual à planilha dela): cada campo vira uma linha com a categoria certa ──
   const mesSeg = _mesSeguinte(mesAtual);
+  // Pedidos de funcionários descontados na folha (abatem do salário e fecham o pedido no Contas a Receber).
+  const pedDesc = _folhaDo(mesAtual)._pedidosDesc || [];
+  const descPedDe = fid => pedDesc.filter(d => d.funcId === fid).reduce((s, d) => s + (+d.valor || 0), 0);
   const confHTML = ativos.length ? `
     <div class="section-title" style="margin-top:22px">📋 Folha de ${mesAtual.split('-').reverse().join('/')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— preencha como na sua planilha. Adiantamento vence dia 20/${mesAtual.slice(5)}; o resto, dia 05/${mesSeg.slice(5)}. Feriados no mês: <input type="number" min="0" max="10" value="${_rhFeriados}" style="width:46px" onchange="_rhFeriados=+this.value||0;renderRH()" title="Usado só no DSR estimado"></span></div>
     <div class="table-wrap"><table><thead><tr>
       <th>Nome</th><th style="text-align:right">Adiant. (dia 20)</th><th style="text-align:right">Sal. líquido</th><th style="text-align:right">Descontos −</th><th style="text-align:right">Comissão</th><th style="text-align:right">DSR</th><th style="text-align:right">Férias</th><th style="text-align:right">VT</th><th style="text-align:right">Extras</th><th>Categ. extras</th><th style="text-align:right">TOTAL (dia 05)</th>
     </tr></thead><tbody>
-    ${ativos.map(f => { const r = _fRow(mesAtual, f.id); const comAuto = comissaoMesRH(f.nome, mesAtual); const com = r.comissao != null ? r.comissao : comAuto; const dsrEst = dsrEstimadoRH(com, mesAtual, _rhFeriados); const tot = +(((+r.salLiq || 0) - (+r.descontos || 0)) + com + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0)).toFixed(2);
+    ${ativos.map(f => { const r = _fRow(mesAtual, f.id); const comAuto = comissaoMesRH(f.nome, mesAtual); const com = r.comissao != null ? r.comissao : comAuto; const dsrEst = dsrEstimadoRH(com, mesAtual, _rhFeriados); const dpF = descPedDe(f.id); const tot = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF) + com + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0)).toFixed(2);
       const inp = (campo, val) => `<input class="inline-input" style="width:80px;text-align:right" value="${val ? (+val).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFolhaRH('${mesAtual}','${f.id}','${campo}',this.value)">`;
       return `<tr>
         <td><strong>${esc(f.nome)}</strong></td>
@@ -10342,9 +10345,19 @@ function renderRH() {
         <td style="text-align:right">${inp('vt', r.vt)}</td>
         <td style="text-align:right">${inp('extras', r.extras)}</td>
         <td><input class="inline-input" style="width:104px" list="cp-cat-list" value="${esc(r.extrasCat)}" placeholder="categoria" onchange="updateFolhaRH('${mesAtual}','${f.id}','extrasCat',this.value)"></td>
-        <td style="text-align:right;font-weight:700">${fmtVal(tot)}</td>
+        <td style="text-align:right;font-weight:700">${fmtVal(tot)}${dpF ? `<div style="font-size:9px;color:var(--amber)" title="Pedidos de funcionário descontados na folha (lista abaixo)">🛍 −${fmtVal(dpF)}</div>` : ''}</td>
       </tr>`; }).join('')}
     </tbody></table></div>
+    <div class="section-title" style="margin-top:16px;font-size:13px">🛍 Pedidos de funcionários descontados na folha <button class="btn ghost sm" style="font-size:11px" onclick="addDescPedRH()">➕ adicionar</button></div>
+    ${pedDesc.length ? `<div class="table-wrap" style="max-width:720px"><table><thead><tr><th>Funcionário</th><th>Pedido nº</th><th style="text-align:right">Valor</th><th>Obs</th><th></th></tr></thead><tbody>
+    ${pedDesc.map((d, di) => `<tr>
+      <td><select class="inline-input" style="width:180px" onchange="updateDescPedRH('${mesAtual}',${di},'funcId',this.value)">${ativos.map(f2 => `<option value="${f2.id}" ${f2.id === d.funcId ? 'selected' : ''}>${esc(f2.nome)}</option>`).join('')}</select></td>
+      <td><input class="inline-input" style="width:92px" value="${esc(d.pedido)}" placeholder="nº pedido" title="Com nº: ao Gerar, o pedido é marcado RECEBIDO (Desconto em Folha) no Contas a Receber. Sem nº (ex.: Bolo): só abate do salário." onchange="updateDescPedRH('${mesAtual}',${di},'pedido',this.value)"></td>
+      <td style="text-align:right"><input class="inline-input" style="width:86px;text-align:right" value="${d.valor ? (+d.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateDescPedRH('${mesAtual}',${di},'valor',this.value)"></td>
+      <td><input class="inline-input" style="width:130px" value="${esc(d.obs)}" placeholder="ex.: Bolo" onchange="updateDescPedRH('${mesAtual}',${di},'obs',this.value)"></td>
+      <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerDescPedRH('${mesAtual}',${di})">✕</button></td>
+    </tr>`).join('')}
+    </tbody></table></div>` : `<div style="font-size:11px;color:var(--muted)">Nenhum. Clique ➕ pra lançar (ex.: Pedido 39624 — 170,80). Cada item <strong>abate do salário</strong> e, com o nº do pedido, ao Gerar ele é marcado <strong>RECEBIDO (Desconto em Folha)</strong> no Contas a Receber. Sem nº (ex.: Bolo), só abate.</div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:6px">💡 <strong>Comissão</strong>: vazio = puxa da aba 💸 Comissão (a linha de comissão NÃO é gerada aqui, pra não duplicar). <strong>DSR</strong> vem da contabilidade — o "est." é só pra confrontar. <strong>Descontos</strong> abatem do salário. Depois clique <strong>📤 Gerar</strong>: cria/atualiza as linhas no Contas a Pagar, cada campo com a categoria dele (Adiantamento dia 20; Salário, DSR, Férias, VT e Extras dia 05 do mês seguinte). O pagamento do dia 05 é UM por pessoa — concilie as linhas juntas no mesmo débito.</div>` : '';
   el.innerHTML = `
     <div class="section-title" style="margin-top:0">👥 RH — Folha de pagamento</div>
@@ -10411,6 +10424,23 @@ function updateFolhaRH(mes, id, campo, valor) {
   saveData('folhaRH', folhaRH);
   renderRH();
 }
+// ── Pedidos de funcionários descontados na folha (abatem do salário e fecham o pedido no CR) ──
+function addDescPedRH() {
+  const mes = _rhMes || new Date().toISOString().slice(0, 7);
+  const m = _folhaDo(mes); if (!m._pedidosDesc) m._pedidosDesc = [];
+  const primeiro = (funcionariosRH.find(f => f.ativo !== false) || {}).id || '';
+  m._pedidosDesc.push({ id: 'dp_' + Date.now(), funcId: primeiro, pedido: '', valor: 0, obs: '' });
+  saveData('folhaRH', folhaRH); renderRH();
+}
+function updateDescPedRH(mes, i, campo, valor) {
+  const l = (_folhaDo(mes)._pedidosDesc || [])[i]; if (!l) return;
+  l[campo] = campo === 'valor' ? _parseValorBR(valor, 0) : valor;
+  saveData('folhaRH', folhaRH); renderRH();
+}
+function removerDescPedRH(mes, i) {
+  (_folhaDo(mes)._pedidosDesc || []).splice(i, 1);
+  saveData('folhaRH', folhaRH); renderRH();
+}
 function addFuncionarioRH() {
   funcionariosRH.push({ id: 'func_' + Date.now(), nome: '', funcao: '', empresa: '', salario: 0, diaPag: 5, categoria: 'SALÁRIO', pix: '', ativo: true });
   saveData('funcionariosRH', funcionariosRH);
@@ -10456,20 +10486,39 @@ function gerarFolhaMes() {
       criadas++;
     }
   };
+  const pedDescG = _folhaDo(mes)._pedidosDesc || [];
+  const descPedDeG = fid => pedDescG.filter(d => d.funcId === fid).reduce((s, d) => s + (+d.valor || 0), 0);
   ativos.forEach(f => {
     const r = _fRow(mes, f.id);
     const base = { fornecedor: f.nome.trim(), empresa: f.empresa || '', pix: f.pix || '' };
     upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Adiantamento ' + mm, categoria: 'ADIANTAMENTO', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
-    const sal = +(((+r.salLiq || 0) - (+r.descontos || 0))).toFixed(2);
-    upsert('folhaS|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Salário ' + mm + (f.funcao ? ' — ' + f.funcao : ''), categoria: (f.categoria || 'SALÁRIO').trim() || 'SALÁRIO', observacao: 'Folha ' + mm + ' — salário líquido' + ((+r.descontos || 0) > 0 ? ' (descontos abatidos: ' + fmtVal(+r.descontos) + ')' : ''), vencimento: venc05, valor: sal }));
+    const dpF = descPedDeG(f.id);
+    const sal = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF)).toFixed(2);
+    upsert('folhaS|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Salário ' + mm + (f.funcao ? ' — ' + f.funcao : ''), categoria: (f.categoria || 'SALÁRIO').trim() || 'SALÁRIO', observacao: 'Folha ' + mm + ' — salário líquido' + ((+r.descontos || 0) > 0 ? ' · descontos ' + fmtVal(+r.descontos) : '') + (dpF > 0 ? ' · pedidos descontados ' + fmtVal(dpF) : ''), vencimento: venc05, valor: sal }));
     upsert('folhaD|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'DSR ' + mm, categoria: 'COMISSÃO', observacao: 'Folha ' + mm + ' — DSR sobre comissão', vencimento: venc05, valor: +(+r.dsr || 0).toFixed(2) }));
     upsert('folhaF|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Férias ' + mm, categoria: 'FÉRIAS', observacao: 'Folha ' + mm + ' — férias', vencimento: venc05, valor: +(+r.ferias || 0).toFixed(2) }));
     upsert('folhaV|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Vale transporte ' + mm, categoria: 'VALE TRANSPORTE', observacao: 'Folha ' + mm + ' — VT', vencimento: venc05, valor: +(+r.vt || 0).toFixed(2) }));
     upsert('folhaX|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Extras ' + mm, categoria: (r.extrasCat || 'EXTRAS').trim() || 'EXTRAS', observacao: 'Folha ' + mm + ' — extras', vencimento: venc05, valor: +(+r.extras || 0).toFixed(2) }));
   });
   saveData('contasPagar', contasPagar);
+  // Pedidos descontados COM nº: viram RECEBIMENTO "Desconto em Folha" → o pedido fecha no Contas a Receber.
+  let recPed = 0;
+  const chavesVivasDP = new Set();
+  pedDescG.forEach(dp => {
+    if (!((+dp.valor || 0) > 0) || !String(dp.pedido || '').trim()) return;
+    const key = 'folhaDP|' + dp.id + '|' + mes;
+    chavesVivasDP.add(key);
+    const f = funcionariosRH.find(x => x.id === dp.funcId);
+    const dados = { gateway: 'Desconto em Folha', bruto: +(+dp.valor).toFixed(2), taxa: 0, liq: +(+dp.valor).toFixed(2), data: venc05, nped: String(dp.pedido).trim(), nome: (f && f.nome) || '', tipo: 'Desconto em Folha', status: 'pago', _folhaDesc: key };
+    const ex = recebimentosConsolidado.find(x => x._folhaDesc === key);
+    if (ex) Object.assign(ex, dados); else recebimentosConsolidado.push(dados);
+    recPed++;
+  });
+  // Item removido da lista → tira o recebimento correspondente (só os deste mês, gerados pela folha).
+  recebimentosConsolidado = recebimentosConsolidado.filter(x => !x._folhaDesc || !String(x._folhaDesc).endsWith('|' + mes) || chavesVivasDP.has(x._folhaDesc));
+  if (recPed || pedDescG.length) saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRH();
-  alert(`✓ Folha ${mm}: ${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.\n\n• Adiantamento: venc. 20/${String(m).padStart(2, '0')}\n• Salário, DSR, Férias, VT e Extras: venc. 05/${String(m2).padStart(2, '0')}\n• Comissão: vem da aba 💸 Comissão (não gero aqui, pra não duplicar)\n\nRe-gerar ATUALIZA os valores das linhas em aberto (não duplica).`);
+  alert(`✓ Folha ${mm}: ${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.\n\n• Adiantamento: venc. 20/${String(m).padStart(2, '0')}\n• Salário, DSR, Férias, VT e Extras: venc. 05/${String(m2).padStart(2, '0')}\n• Comissão: vem da aba 💸 Comissão (não gero aqui, pra não duplicar)${recPed ? `\n• ${recPed} pedido(s) de funcionário marcado(s) RECEBIDO(S) (Desconto em Folha) no Contas a Receber` : ''}\n\nRe-gerar ATUALIZA os valores das linhas em aberto (não duplica).`);
 }
 function desfazerFolhaMes() {
   const mes = document.getElementById('rh-mes')?.value; if (!mes) return;
@@ -10479,7 +10528,14 @@ function desfazerFolhaMes() {
   const keys = new Set(alvo.map(c => c._folhaKey));
   contasPagar = contasPagar.filter(c => !(c._folhaKey && keys.has(c._folhaKey) && !c.pago && !c.cancelado));
   saveData('contasPagar', contasPagar);
-  alert(`✓ ${alvo.length} conta(s) da folha removida(s).`);
+  // Remove também os recebimentos "Desconto em Folha" gerados pela folha desse mês.
+  const nRec = recebimentosConsolidado.filter(x => x._folhaDesc && String(x._folhaDesc).endsWith('|' + mes)).length;
+  if (nRec) {
+    recebimentosConsolidado = recebimentosConsolidado.filter(x => !(x._folhaDesc && String(x._folhaDesc).endsWith('|' + mes)));
+    saveData('recebimentosConsolidado', recebimentosConsolidado);
+  }
+  try { renderRH(); } catch (e) {}
+  alert(`✓ ${alvo.length} conta(s) da folha removida(s)${nRec ? ` + ${nRec} recebimento(s) de Desconto em Folha` : ''}.`);
 }
 function renderCadastro() {
   initLojaCadastro();
