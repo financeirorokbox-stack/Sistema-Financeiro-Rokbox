@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v372/07-491';
+const APP_VERSION = 'v373/07-492';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -500,7 +500,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -531,7 +531,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -973,6 +973,7 @@ let devolucoes = [];
 let devolucaoCredito = {};
 let creditosCliente = [];      // sobra de pagamento que virou crédito a favor da cliente: [{id,cliente,pedidoOrigem,valor,empresa,data,usadoEm}]
 let funcionariosRH = [];       // RH/folha: [{id,nome,funcao,empresa,salario,diaPag,categoria,pix,ativo}] — "Gerar folha" cria as contas a pagar do mês
+let folhaRH = {};              // folha mensal digitada (igual à planilha dela): { 'YYYY-MM': { funcId: {adiant,salLiq,comissao,dsr,ferias,vt,extras,extrasCat,descontos} } }
 let lojaFixes = {};
 let vendedorFixes = {}; // { pedidoId: vendedor } — vendedor preenchido na mão para pedidos sem vendedor
 let opMapping = {};
@@ -10321,28 +10322,30 @@ function renderRH() {
   const empresas = (typeof getEmpresasList === 'function' ? getEmpresasList() : []) || [];
   const mesAtual = _rhMes || new Date().toISOString().slice(0, 7);
   const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
-  // ── Conferência da folha do mês: salário (conta gerada) + comissão (da aba Comissão) = previsto ──
-  const _mesDe = d => { const x = d instanceof Date ? d : (d ? new Date(d) : null); return x && !isNaN(x) ? x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') : ''; };
-  const comissaoDe = nome => contasPagar.filter(x => !x.cancelado && (catContaPagar(x) || '').toUpperCase().includes('COMISS')
-    && (x.fornecedor || '').trim().toLowerCase() === String(nome || '').trim().toLowerCase()
-    && _mesDe(x.vencimento) === mesAtual).reduce((s, x) => s + (x.valor || 0), 0);
-  const folhaMes = contasPagar.map((c, i) => ({ c, i })).filter(x => x.c._folhaKey && String(x.c._folhaKey).endsWith('|' + mesAtual) && !x.c.cancelado);
-  const confHTML = folhaMes.length ? `
-    <div class="section-title" style="margin-top:22px">📋 Conferir folha de ${mesAtual.split('-').reverse().join('/')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— quando o PDF do contador chegar, digite o LÍQUIDO de cada um; eu ajusto a linha do salário (líquido − comissão)</span></div>
-    <div class="table-wrap" style="max-width:860px"><table><thead><tr>
-      <th>Nome</th><th style="text-align:right">Salário (linha)</th><th style="text-align:right">Comissão (mês)</th><th style="text-align:right">= Previsto</th><th style="text-align:right">Líquido real (PDF)</th><th>Status</th>
+  // ── Folha do mês (igual à planilha dela): cada campo vira uma linha com a categoria certa ──
+  const mesSeg = _mesSeguinte(mesAtual);
+  const confHTML = ativos.length ? `
+    <div class="section-title" style="margin-top:22px">📋 Folha de ${mesAtual.split('-').reverse().join('/')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— preencha como na sua planilha. Adiantamento vence dia 20/${mesAtual.slice(5)}; o resto, dia 05/${mesSeg.slice(5)}. Feriados no mês: <input type="number" min="0" max="10" value="${_rhFeriados}" style="width:46px" onchange="_rhFeriados=+this.value||0;renderRH()" title="Usado só no DSR estimado"></span></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>Nome</th><th style="text-align:right">Adiant. (dia 20)</th><th style="text-align:right">Sal. líquido</th><th style="text-align:right">Descontos −</th><th style="text-align:right">Comissão</th><th style="text-align:right">DSR</th><th style="text-align:right">Férias</th><th style="text-align:right">VT</th><th style="text-align:right">Extras</th><th>Categ. extras</th><th style="text-align:right">TOTAL (dia 05)</th>
     </tr></thead><tbody>
-    ${folhaMes.map(x => { const com = comissaoDe(x.c.fornecedor); const prev = +((x.c.valor || 0) + com).toFixed(2); return `<tr>
-      <td><strong>${esc(x.c.fornecedor)}</strong></td>
-      <td style="text-align:right">${fmtVal(x.c.valor || 0)}</td>
-      <td style="text-align:right;color:var(--muted)">${com ? fmtVal(com) : '—'}</td>
-      <td style="text-align:right;font-weight:700">${fmtVal(prev)}</td>
-      <td style="text-align:right"><input class="inline-input" style="width:110px;text-align:right" placeholder="líquido" value="${x.c._folhaConferida ? prev.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" onchange="conferirFolhaLiquido(${x.i}, this.value)"></td>
-      <td>${x.c._folhaConferida ? '<span class="badge ok">✓ conferido</span>' : '<span class="badge warn">pendente</span>'}</td>
-    </tr>`; }).join('')}
-    <tr style="border-top:2px solid var(--border);font-weight:700"><td>Total</td><td style="text-align:right">${fmtVal(folhaMes.reduce((s, x) => s + (x.c.valor || 0), 0))}</td><td style="text-align:right">${fmtVal(folhaMes.reduce((s, x) => s + comissaoDe(x.c.fornecedor), 0))}</td><td style="text-align:right">${fmtVal(folhaMes.reduce((s, x) => s + (x.c.valor || 0) + comissaoDe(x.c.fornecedor), 0))}</td><td></td><td>${folhaMes.every(x => x.c._folhaConferida) ? '<span class="badge ok">folha OK</span>' : ''}</td></tr>
+    ${ativos.map(f => { const r = _fRow(mesAtual, f.id); const comAuto = comissaoMesRH(f.nome, mesAtual); const com = r.comissao != null ? r.comissao : comAuto; const dsrEst = dsrEstimadoRH(com, mesAtual, _rhFeriados); const tot = +(((+r.salLiq || 0) - (+r.descontos || 0)) + com + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0)).toFixed(2);
+      const inp = (campo, val) => `<input class="inline-input" style="width:80px;text-align:right" value="${val ? (+val).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFolhaRH('${mesAtual}','${f.id}','${campo}',this.value)">`;
+      return `<tr>
+        <td><strong>${esc(f.nome)}</strong></td>
+        <td style="text-align:right">${inp('adiant', r.adiant)}</td>
+        <td style="text-align:right">${inp('salLiq', r.salLiq)}</td>
+        <td style="text-align:right">${inp('descontos', r.descontos)}</td>
+        <td style="text-align:right"><input class="inline-input" style="width:84px;text-align:right" value="${r.comissao != null ? (+r.comissao).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="${comAuto ? comAuto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}" title="Vazio = usa a comissão da aba 💸 Comissão (${fmtVal(comAuto)})" onchange="updateFolhaRH('${mesAtual}','${f.id}','comissao',this.value)"></td>
+        <td style="text-align:right">${inp('dsr', r.dsr)}<div style="font-size:9px;color:var(--muted)" title="DSR estimado = comissão ÷ dias úteis × (domingos + feriados)">est. ${fmtVal(dsrEst)}</div></td>
+        <td style="text-align:right">${inp('ferias', r.ferias)}</td>
+        <td style="text-align:right">${inp('vt', r.vt)}</td>
+        <td style="text-align:right">${inp('extras', r.extras)}</td>
+        <td><input class="inline-input" style="width:104px" list="cp-cat-list" value="${esc(r.extrasCat)}" placeholder="categoria" onchange="updateFolhaRH('${mesAtual}','${f.id}','extrasCat',this.value)"></td>
+        <td style="text-align:right;font-weight:700">${fmtVal(tot)}</td>
+      </tr>`; }).join('')}
     </tbody></table></div>
-    <div style="font-size:11px;color:var(--muted);margin-top:6px">💡 A comissão entra aqui sozinha quando você fecha a aba 💸 Comissão (linhas COMISSÃO do mês, pelo nome). Na hora de pagar, o pagamento é UM só — na Conciliação, marque as 2 linhas (salário + comissão) no mesmo débito.</div>` : '';
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">💡 <strong>Comissão</strong>: vazio = puxa da aba 💸 Comissão (a linha de comissão NÃO é gerada aqui, pra não duplicar). <strong>DSR</strong> vem da contabilidade — o "est." é só pra confrontar. <strong>Descontos</strong> abatem do salário. Depois clique <strong>📤 Gerar</strong>: cria/atualiza as linhas no Contas a Pagar, cada campo com a categoria dele (Adiantamento dia 20; Salário, DSR, Férias, VT e Extras dia 05 do mês seguinte). O pagamento do dia 05 é UM por pessoa — concilie as linhas juntas no mesmo débito.</div>` : '';
   el.innerHTML = `
     <div class="section-title" style="margin-top:0">👥 RH — Folha de pagamento</div>
     <div class="cards-row">
@@ -10353,7 +10356,7 @@ function renderRH() {
       <button class="btn primary sm" onclick="addFuncionarioRH()">➕ Funcionário</button>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="month" id="rh-mes" class="inline-input" value="${mesAtual}" style="width:150px" onchange="_rhMes=this.value;renderRH()">
-        <button class="btn primary sm" onclick="gerarFolhaMes()" title="Cria 1 conta a pagar por funcionário ativo, com vencimento no dia de pagamento de cada um. Clicar de novo no mesmo mês NÃO duplica.">📤 Gerar folha → Contas a Pagar</button>
+        <button class="btn primary sm" onclick="gerarFolhaMes()" title="Gera as linhas da folha no Contas a Pagar: Adiantamento (dia 20) e Salário/DSR/Férias/VT/Extras (dia 05 do mês seguinte), cada uma com a categoria dela. Re-gerar ATUALIZA os valores, não duplica.">📤 Gerar folha → Contas a Pagar</button>
         <button class="btn ghost sm" onclick="desfazerFolhaMes()" title="Remove as contas da folha desse mês que ainda estão EM ABERTO (pagas/canceladas não são tocadas)">↩ desfazer</button>
       </span>
     </div>
@@ -10374,24 +10377,38 @@ function renderRH() {
     </tr>`).join('') || '<tr><td colspan="9" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
     </tbody></table></div>
     ${confHTML}
-    <div style="font-size:11px;color:var(--muted);margin-top:10px">💡 <strong>Gerar folha</strong> cria 1 conta por funcionário ativo no Contas a Pagar (categoria de cada um, vencimento no dia de pagamento, já com a 💠 PIX). Rodar de novo no mesmo mês <strong>não duplica</strong>. Esta aba só aparece pra <strong>admin</strong> (ou usuário com a permissão "rh") — os salários ficam reservados.</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px">💡 Preencha a <strong>folha do mês</strong> na grade acima (igual à sua planilha) e clique <strong>📤 Gerar</strong>: cada campo vira uma linha no Contas a Pagar com a categoria dele, já com a 💠 PIX. Re-gerar <strong>atualiza</strong> os valores (não duplica). Esta aba só aparece pra <strong>admin</strong> (ou usuário com a permissão "rh") — os salários ficam reservados.</div>
   `;
 }
-// Conferência da folha: digita o LÍQUIDO do PDF → ajusta a linha do SALÁRIO (líquido − comissão do mês).
-function conferirFolhaLiquido(idx, valor) {
-  const c = contasPagar[idx]; if (!c || !c._folhaKey) return;
-  const mes = String(c._folhaKey).split('|').pop();
+// ── Helpers da folha mensal (a grade que espelha a planilha dela) ──
+let _rhFeriados = 0; // feriados no mês (só pro DSR estimado)
+function _folhaDo(mes) { if (!folhaRH[mes]) folhaRH[mes] = {}; return folhaRH[mes]; }
+function _fRow(mes, id) { const m = _folhaDo(mes); if (!m[id]) m[id] = { adiant: 0, salLiq: 0, comissao: null, dsr: 0, ferias: 0, vt: 0, extras: 0, extrasCat: '', descontos: 0 }; return m[id]; }
+function _mesSeguinte(mes) { const [a, m] = String(mes).split('-').map(Number); return m === 12 ? (a + 1) + '-01' : a + '-' + String(m + 1).padStart(2, '0'); }
+// Comissão da pessoa no mês: soma das linhas COMISSÃO (aba Comissão) com vencimento no mês da folha ou no seguinte.
+function comissaoMesRH(nome, mes) {
+  const mesSeg = _mesSeguinte(mes);
   const _mesDe = d => { const x = d instanceof Date ? d : (d ? new Date(d) : null); return x && !isNaN(x) ? x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') : ''; };
-  const com = contasPagar.filter(x => !x.cancelado && (catContaPagar(x) || '').toUpperCase().includes('COMISS')
-    && (x.fornecedor || '').trim().toLowerCase() === String(c.fornecedor || '').trim().toLowerCase()
-    && _mesDe(x.vencimento) === mes).reduce((s, x) => s + (x.valor || 0), 0);
-  const liq = _parseValorBR(valor, 0);
-  if (liq <= 0) { delete c._folhaConferida; saveData('contasPagar', contasPagar); renderRH(); return; }
-  const salario = +(liq - com).toFixed(2);
-  if (salario < 0) { alert(`O líquido (${fmtVal(liq)}) é MENOR que a comissão do mês (${fmtVal(com)}) — confere os números.`); return; }
-  c.valor = salario;
-  c._folhaConferida = true;
-  saveData('contasPagar', contasPagar);
+  return contasPagar.filter(x => !x.cancelado && !x._folhaKey && (catContaPagar(x) || '').toUpperCase().includes('COMISS')
+    && (x.fornecedor || '').trim().toLowerCase() === String(nome || '').trim().toLowerCase()
+    && [mes, mesSeg].includes(_mesDe(x.vencimento))).reduce((s, x) => s + (x.valor || 0), 0);
+}
+// DSR estimado (pra confrontar com a contabilidade): comissão ÷ dias úteis × (domingos + feriados).
+function dsrEstimadoRH(comissao, mes, feriados) {
+  if (!(comissao > 0)) return 0;
+  const [a, m] = String(mes).split('-').map(Number);
+  const dias = new Date(a, m, 0).getDate();
+  let domingos = 0; for (let d = 1; d <= dias; d++) if (new Date(a, m - 1, d).getDay() === 0) domingos++;
+  const fer = Math.max(0, +feriados || 0);
+  const uteis = dias - domingos - fer;
+  return uteis > 0 ? +(comissao / uteis * (domingos + fer)).toFixed(2) : 0;
+}
+function updateFolhaRH(mes, id, campo, valor) {
+  const r = _fRow(mes, id);
+  if (campo === 'extrasCat') r.extrasCat = valor;
+  else if (campo === 'comissao') r.comissao = String(valor).trim() === '' ? null : _parseValorBR(valor, 0);
+  else r[campo] = _parseValorBR(valor, 0);
+  saveData('folhaRH', folhaRH);
   renderRH();
 }
 function addFuncionarioRH() {
@@ -10416,29 +10433,43 @@ function removerFuncionarioRH(i) {
   renderRH();
 }
 function gerarFolhaMes() {
-  const mes = document.getElementById('rh-mes')?.value; // YYYY-MM
+  const mes = document.getElementById('rh-mes')?.value || _rhMes || new Date().toISOString().slice(0, 7); // YYYY-MM
   if (!mes) { alert('Escolha o mês da folha.'); return; }
   const [ano, m] = mes.split('-').map(Number);
-  const ativos = funcionariosRH.filter(f => f.ativo !== false && (+f.salario || 0) > 0 && (f.nome || '').trim());
-  if (!ativos.length) { alert('Nenhum funcionário ativo com nome e salário preenchidos.'); return; }
-  const ultDia = new Date(ano, m, 0).getDate();
-  let criadas = 0, jaExistiam = 0, total = 0;
+  const mesSeg = _mesSeguinte(mes);
+  const [a2, m2] = mesSeg.split('-').map(Number);
+  const ativos = funcionariosRH.filter(f => f.ativo !== false && (f.nome || '').trim());
+  if (!ativos.length) { alert('Nenhum funcionário ativo com nome preenchido.'); return; }
+  const mm = String(m).padStart(2, '0') + '/' + ano;
+  const venc20 = new Date(ano, m - 1, Math.min(20, new Date(ano, m, 0).getDate()), 12, 0, 0);
+  const venc05 = new Date(a2, m2 - 1, 5, 12, 0, 0);
+  let criadas = 0, atualizadas = 0;
+  // Cria OU atualiza a linha (não duplica; re-gerar sincroniza os valores da grade). Zerou → remove (se em aberto).
+  const upsert = (key, dados) => {
+    const ex = contasPagar.find(c => c._folhaKey === key);
+    if (ex) {
+      if (ex.pago || ex.cancelado) return; // paga/cancelada: não mexe
+      if (!(dados.valor > 0)) { contasPagar.splice(contasPagar.indexOf(ex), 1); return; }
+      Object.assign(ex, dados); atualizadas++;
+    } else if (dados.valor > 0) {
+      contasPagar.push(Object.assign({ numero: '', rateio: [], dataPag: null, situacao: 'Em Aberto', pago: false, _folhaKey: key }, dados));
+      criadas++;
+    }
+  };
   ativos.forEach(f => {
-    const key = 'folha|' + f.id + '|' + mes;
-    if (contasPagar.some(c => c._folhaKey === key)) { jaExistiam++; return; } // não duplica
-    const venc = new Date(ano, m - 1, Math.min(f.diaPag || 5, ultDia), 12, 0, 0);
-    contasPagar.push({
-      numero: '', fornecedor: f.nome.trim(),
-      descricao: `Folha ${String(m).padStart(2, '0')}/${ano}${f.funcao ? ' — ' + f.funcao : ''}`,
-      categoria: (f.categoria || 'SALÁRIO').trim() || 'SALÁRIO',
-      observacao: `Folha de pagamento ${String(m).padStart(2, '0')}/${ano} (gerada pela aba RH)`,
-      empresa: f.empresa || '', rateio: [], vencimento: venc, dataPag: null,
-      valor: +(+f.salario).toFixed(2), situacao: 'Em Aberto', pago: false, pix: f.pix || '', _folhaKey: key
-    });
-    criadas++; total += +f.salario || 0;
+    const r = _fRow(mes, f.id);
+    const base = { fornecedor: f.nome.trim(), empresa: f.empresa || '', pix: f.pix || '' };
+    upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Adiantamento ' + mm, categoria: 'ADIANTAMENTO', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
+    const sal = +(((+r.salLiq || 0) - (+r.descontos || 0))).toFixed(2);
+    upsert('folhaS|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Salário ' + mm + (f.funcao ? ' — ' + f.funcao : ''), categoria: (f.categoria || 'SALÁRIO').trim() || 'SALÁRIO', observacao: 'Folha ' + mm + ' — salário líquido' + ((+r.descontos || 0) > 0 ? ' (descontos abatidos: ' + fmtVal(+r.descontos) + ')' : ''), vencimento: venc05, valor: sal }));
+    upsert('folhaD|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'DSR ' + mm, categoria: 'COMISSÃO', observacao: 'Folha ' + mm + ' — DSR sobre comissão', vencimento: venc05, valor: +(+r.dsr || 0).toFixed(2) }));
+    upsert('folhaF|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Férias ' + mm, categoria: 'FÉRIAS', observacao: 'Folha ' + mm + ' — férias', vencimento: venc05, valor: +(+r.ferias || 0).toFixed(2) }));
+    upsert('folhaV|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Vale transporte ' + mm, categoria: 'VALE TRANSPORTE', observacao: 'Folha ' + mm + ' — VT', vencimento: venc05, valor: +(+r.vt || 0).toFixed(2) }));
+    upsert('folhaX|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Extras ' + mm, categoria: (r.extrasCat || 'EXTRAS').trim() || 'EXTRAS', observacao: 'Folha ' + mm + ' — extras', vencimento: venc05, valor: +(+r.extras || 0).toFixed(2) }));
   });
   saveData('contasPagar', contasPagar);
-  alert(`✓ Folha ${String(m).padStart(2, '0')}/${ano}: ${criadas} conta(s) criada(s) no Contas a Pagar (${fmtVal(total)})${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}.`);
+  renderRH();
+  alert(`✓ Folha ${mm}: ${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.\n\n• Adiantamento: venc. 20/${String(m).padStart(2, '0')}\n• Salário, DSR, Férias, VT e Extras: venc. 05/${String(m2).padStart(2, '0')}\n• Comissão: vem da aba 💸 Comissão (não gero aqui, pra não duplicar)\n\nRe-gerar ATUALIZA os valores das linhas em aberto (não duplica).`);
 }
 function desfazerFolhaMes() {
   const mes = document.getElementById('rh-mes')?.value; if (!mes) return;
@@ -11021,7 +11052,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -11089,6 +11120,7 @@ function delCheckboxHeader(source) {
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='funcionariosRH') funcionariosRH = v || [];
+    else if (k==='folhaRH') folhaRH = v || {};
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
   }
 
