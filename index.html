@@ -294,6 +294,7 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-dashboard" onclick="setView('dashboard')" style="font-weight:800;color:var(--accent)">Dashboard</div>
   <div class="topnav-item active" id="nav-vendas" onclick="setView('vendas')">Vendas</div>
   <div class="topnav-item" id="nav-compras" onclick="setView('compras')">🛒 Compras</div>
+  <div class="topnav-item" id="nav-rh" onclick="setView('rh')">👥 RH</div>
   <div class="topnav-item" id="nav-financeiro" onclick="setView('financeiro')">Financeiro</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
   <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
@@ -334,6 +335,7 @@ tr:hover td{background:#fafaf8}
   <div id="v-comissao" class="main" style="display:none"></div>
 </div>
 <div id="v-compras" class="main" style="display:none"></div>
+<div id="v-rh" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
 </div><!-- /app -->
@@ -392,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v370/07-489';
+const APP_VERSION = 'v371/07-490';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -498,7 +500,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -529,7 +531,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -749,7 +751,7 @@ function viewAllowed(v) {
   return v === 'financeiro' ? canFinanceiro() : can(v);
 }
 function firstAllowedView() {
-  return ['dashboard', 'vendas', 'compras', 'financeiro', 'cadastro'].find(viewAllowed) || null;
+  return ['dashboard', 'vendas', 'compras', 'rh', 'financeiro', 'cadastro'].find(viewAllowed) || null;
 }
 function firstAllowedSub() {
   return ['contas', 'pagar', 'extrato', 'banco'].find(subAllowed) || null;
@@ -970,6 +972,7 @@ let comissaoFaixas = { cortes: [100, 120, 150], seg: { 'Varejo': [5, 5.5, 6], 'A
 let devolucoes = [];
 let devolucaoCredito = {};
 let creditosCliente = [];      // sobra de pagamento que virou crédito a favor da cliente: [{id,cliente,pedidoOrigem,valor,empresa,data,usadoEm}]
+let funcionariosRH = [];       // RH/folha: [{id,nome,funcao,empresa,salario,diaPag,categoria,pix,ativo}] — "Gerar folha" cria as contas a pagar do mês
 let lojaFixes = {};
 let vendedorFixes = {}; // { pedidoId: vendedor } — vendedor preenchido na mão para pedidos sem vendedor
 let opMapping = {};
@@ -1077,12 +1080,13 @@ function setView(v) {
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','compras','financeiro','cadastro'].forEach(x => {
+  ['dashboard','vendas','compras','rh','financeiro','cadastro'].forEach(x => {
     document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
   document.getElementById('v-vendas').style.display = v === 'vendas' ? 'block' : 'none';
   document.getElementById('v-compras').style.display = v === 'compras' ? 'block' : 'none';
+  const _vrh = document.getElementById('v-rh'); if (_vrh) _vrh.style.display = v === 'rh' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
   document.getElementById('sub-fin').style.display = v === 'financeiro' ? 'flex' : 'none';
@@ -1090,6 +1094,7 @@ function setView(v) {
   if (v === 'dashboard') renderDashboard();
   if (v === 'vendas') renderVendas();
   if (v === 'compras') renderCompras();
+  if (v === 'rh') renderRH();
   if (v === 'financeiro') {
     // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
     let s = currentSub === 'conc' ? 'contas' : currentSub;
@@ -10305,6 +10310,105 @@ function removeColecao(id) {
   colecoes = colecoes.filter(x => x.id !== id);
   saveData('colecoes', colecoes); renderCadastro();
 }
+// ════════════════════════════════════════════════════════════════════
+// RH — FOLHA DE PAGAMENTO (gera as contas do mês no Contas a Pagar)
+// ════════════════════════════════════════════════════════════════════
+function renderRH() {
+  const el = document.getElementById('v-rh'); if (!el) return;
+  const ativos = funcionariosRH.filter(f => f.ativo !== false);
+  const totFolha = ativos.reduce((s, f) => s + (+f.salario || 0), 0);
+  const empresas = (typeof getEmpresasList === 'function' ? getEmpresasList() : []) || [];
+  const mesAtual = new Date().toISOString().slice(0, 7);
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  el.innerHTML = `
+    <div class="section-title" style="margin-top:0">👥 RH — Folha de pagamento</div>
+    <div class="cards-row">
+      <div class="card dark"><div class="c-label">Funcionários ativos</div><div class="c-val">${ativos.length}</div></div>
+      <div class="card blue"><div class="c-label">Folha mensal (soma)</div><div class="c-val">${fmtVal(totFolha)}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 14px">
+      <button class="btn primary sm" onclick="addFuncionarioRH()">➕ Funcionário</button>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="month" id="rh-mes" class="inline-input" value="${mesAtual}" style="width:150px">
+        <button class="btn primary sm" onclick="gerarFolhaMes()" title="Cria 1 conta a pagar por funcionário ativo, com vencimento no dia de pagamento de cada um. Clicar de novo no mesmo mês NÃO duplica.">📤 Gerar folha → Contas a Pagar</button>
+        <button class="btn ghost sm" onclick="desfazerFolhaMes()" title="Remove as contas da folha desse mês que ainda estão EM ABERTO (pagas/canceladas não são tocadas)">↩ desfazer</button>
+      </span>
+    </div>
+    <datalist id="rh-emp-list">${empresas.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
+    <div class="table-wrap"><table><thead><tr>
+      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>Dia pgto</th><th>Categoria</th><th>💠 PIX</th><th></th>
+    </tr></thead><tbody>
+    ${funcionariosRH.map((f, i) => `<tr style="${f.ativo === false ? 'opacity:.5' : ''}">
+      <td style="text-align:center"><input type="checkbox" ${f.ativo !== false ? 'checked' : ''} onchange="updateFuncionarioRH(${i},'ativo',this.checked)" title="Desmarcado = não entra na folha"></td>
+      <td><input class="inline-input" style="width:170px" value="${esc(f.nome)}" placeholder="nome" onchange="updateFuncionarioRH(${i},'nome',this.value)"></td>
+      <td><input class="inline-input" style="width:120px" value="${esc(f.funcao)}" placeholder="função" onchange="updateFuncionarioRH(${i},'funcao',this.value)"></td>
+      <td><input class="inline-input" style="width:110px" list="rh-emp-list" value="${esc(f.empresa)}" placeholder="empresa" onchange="updateFuncionarioRH(${i},'empresa',this.value)"></td>
+      <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${f.salario ? (+f.salario).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFuncionarioRH(${i},'salario',this.value)"></td>
+      <td style="text-align:center"><input class="inline-input" type="number" min="1" max="31" style="width:58px;text-align:center" value="${f.diaPag || 5}" title="Dia do mês em que essa pessoa recebe" onchange="updateFuncionarioRH(${i},'diaPag',this.value)"></td>
+      <td><input class="inline-input" style="width:120px" list="cp-cat-list" value="${esc(f.categoria || 'SALÁRIO')}" onchange="updateFuncionarioRH(${i},'categoria',this.value)"></td>
+      <td><input class="inline-input" style="width:160px" value="${esc(f.pix)}" placeholder="chave PIX" onchange="updateFuncionarioRH(${i},'pix',this.value)"></td>
+      <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerFuncionarioRH(${i})" title="Remover do RH (não apaga contas já geradas)">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="9" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
+    </tbody></table></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px">💡 <strong>Gerar folha</strong> cria 1 conta por funcionário ativo no Contas a Pagar (categoria de cada um, vencimento no dia de pagamento, já com a 💠 PIX). Rodar de novo no mesmo mês <strong>não duplica</strong>. Esta aba só aparece pra <strong>admin</strong> (ou usuário com a permissão "rh") — os salários ficam reservados.</div>
+  `;
+}
+function addFuncionarioRH() {
+  funcionariosRH.push({ id: 'func_' + Date.now(), nome: '', funcao: '', empresa: '', salario: 0, diaPag: 5, categoria: 'SALÁRIO', pix: '', ativo: true });
+  saveData('funcionariosRH', funcionariosRH);
+  renderRH();
+}
+function updateFuncionarioRH(i, campo, valor) {
+  const f = funcionariosRH[i]; if (!f) return;
+  if (campo === 'salario') f.salario = _parseValorBR(valor, 0);
+  else if (campo === 'diaPag') f.diaPag = Math.max(1, Math.min(31, parseInt(valor, 10) || 5));
+  else if (campo === 'ativo') f.ativo = !!valor;
+  else f[campo] = valor;
+  saveData('funcionariosRH', funcionariosRH);
+  if (campo === 'ativo' || campo === 'salario') renderRH(); // atualiza os cards
+}
+function removerFuncionarioRH(i) {
+  const f = funcionariosRH[i]; if (!f) return;
+  if (!confirm(`Remover ${f.nome || 'este funcionário'} do RH?\n\n(As contas já geradas no Contas a Pagar NÃO são apagadas.)`)) return;
+  funcionariosRH.splice(i, 1);
+  saveData('funcionariosRH', funcionariosRH);
+  renderRH();
+}
+function gerarFolhaMes() {
+  const mes = document.getElementById('rh-mes')?.value; // YYYY-MM
+  if (!mes) { alert('Escolha o mês da folha.'); return; }
+  const [ano, m] = mes.split('-').map(Number);
+  const ativos = funcionariosRH.filter(f => f.ativo !== false && (+f.salario || 0) > 0 && (f.nome || '').trim());
+  if (!ativos.length) { alert('Nenhum funcionário ativo com nome e salário preenchidos.'); return; }
+  const ultDia = new Date(ano, m, 0).getDate();
+  let criadas = 0, jaExistiam = 0, total = 0;
+  ativos.forEach(f => {
+    const key = 'folha|' + f.id + '|' + mes;
+    if (contasPagar.some(c => c._folhaKey === key)) { jaExistiam++; return; } // não duplica
+    const venc = new Date(ano, m - 1, Math.min(f.diaPag || 5, ultDia), 12, 0, 0);
+    contasPagar.push({
+      numero: '', fornecedor: f.nome.trim(),
+      descricao: `Folha ${String(m).padStart(2, '0')}/${ano}${f.funcao ? ' — ' + f.funcao : ''}`,
+      categoria: (f.categoria || 'SALÁRIO').trim() || 'SALÁRIO',
+      observacao: `Folha de pagamento ${String(m).padStart(2, '0')}/${ano} (gerada pela aba RH)`,
+      empresa: f.empresa || '', rateio: [], vencimento: venc, dataPag: null,
+      valor: +(+f.salario).toFixed(2), situacao: 'Em Aberto', pago: false, pix: f.pix || '', _folhaKey: key
+    });
+    criadas++; total += +f.salario || 0;
+  });
+  saveData('contasPagar', contasPagar);
+  alert(`✓ Folha ${String(m).padStart(2, '0')}/${ano}: ${criadas} conta(s) criada(s) no Contas a Pagar (${fmtVal(total)})${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}.`);
+}
+function desfazerFolhaMes() {
+  const mes = document.getElementById('rh-mes')?.value; if (!mes) return;
+  const alvo = contasPagar.filter(c => c._folhaKey && String(c._folhaKey).endsWith('|' + mes) && !c.pago && !c.cancelado);
+  if (!alvo.length) { alert('Nenhuma conta de folha EM ABERTO desse mês pra remover.\n\n(Pagas e canceladas não são tocadas.)'); return; }
+  if (!confirm(`Remover ${alvo.length} conta(s) da folha de ${mes.split('-').reverse().join('/')} que estão EM ABERTO?`)) return;
+  const keys = new Set(alvo.map(c => c._folhaKey));
+  contasPagar = contasPagar.filter(c => !(c._folhaKey && keys.has(c._folhaKey) && !c.pago && !c.cancelado));
+  saveData('contasPagar', contasPagar);
+  alert(`✓ ${alvo.length} conta(s) da folha removida(s).`);
+}
 function renderCadastro() {
   initLojaCadastro();
   seedEmpresas();
@@ -10876,7 +10980,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -10943,6 +11047,7 @@ function delCheckboxHeader(source) {
     else if (k==='baseOverride') baseOverride = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
+    else if (k==='funcionariosRH') funcionariosRH = v || [];
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
   }
 
