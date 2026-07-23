@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v376/07-495';
+const APP_VERSION = 'v377/07-496';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -500,7 +500,7 @@ async function exportarBackup() {
   const dados = {};
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos'];
   for (const k of keys) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
@@ -531,7 +531,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -997,6 +997,7 @@ let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa
 let colecoes = []; // [{id,nome,subgrupo}] — coleções por subgrupo (CMV/CMV PL/CMV WL), base do rateio 4 níveis e do Budget
 let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,insumo,unidade,qtd,custoUnit,custoTotal,colecao,dataLimite,categoria,solicitante,empresa,status,condicaoId,nf,dataReceb,obs,_pedidoContas}]
 let comprasSel = new Set(); // seleção (transitória) p/ aprovar vários pedidos de uma vez
+let comprasDriveLidos = {}; // arquivos de pedido de fornecedor (PDF) já lidos da pasta "Pedidos de Compras" do Drive: {nomeArquivo: dataISO}
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -6303,6 +6304,194 @@ async function puxarMesDrive(mesId, mesNome) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════
+// COMPRAS ← pedidos do FORNECEDOR (PDF) na pasta "Pedidos de Compras" do Drive.
+// Sincronização própria (pode rodar quantas vezes quiser): lembra os arquivos já
+// lidos (comprasDriveLidos) e SÓ ADICIONA — nunca apaga nem duplica.
+// ════════════════════════════════════════════════════════════════════
+const DRIVE_MAE_ID = '1U8aGxauPaY0RyJSVhx60_dOkibCloeIy'; // pasta "Sistema Financeiro" (mãe)
+const DRIVE_COMPRAS_SUBPASTA = 'Pedidos de Compras';
+const RK_CNPJ_DIGITOS = '49930635000187'; // CNPJ da RK (pra não confundir com o do fornecedor no PDF)
+// Carrega o pdf.js (leitor de PDF) sob demanda — só quando for ler um pedido.
+let _pdfjsPromise = null;
+function _pdfjsReady() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = () => {
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      } catch (e) { reject(e); }
+    };
+    s.onerror = () => reject(new Error('Não consegui baixar o leitor de PDF (sem internet?).'));
+    document.head.appendChild(s);
+  });
+  return _pdfjsPromise;
+}
+// Extrai o texto do PDF como LINHAS (agrupa os pedacinhos pela posição vertical).
+async function _pdfLinhas(bytes) {
+  const pdfjs = await _pdfjsReady();
+  const doc = await pdfjs.getDocument({ data: bytes }).promise;
+  const linhas = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const tc = await page.getTextContent();
+    const its = tc.items
+      .filter(it => (it.str || '').trim() !== '')
+      .map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }));
+    its.sort((a, b) => (Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x));
+    let atual = null, yAtual = null;
+    its.forEach(it => {
+      if (yAtual === null || Math.abs(it.y - yAtual) > 3) { if (atual) linhas.push(atual.join(' ')); atual = []; yAtual = it.y; }
+      atual.push(it.s.trim());
+    });
+    if (atual && atual.length) linhas.push(atual.join(' '));
+  }
+  try { doc.destroy(); } catch (e) {}
+  return linhas.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
+const _numBling = s => { const n = parseFloat(String(s || '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
+const _normTxt = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+// Lê uma Proposta Comercial do Bling (modelo do PC-124): fornecedor, nº, data, itens e parcelas.
+function _parsePropostaBling(linhas) {
+  const texto = linhas.join('\n');
+  if (!/proposta/i.test(texto)) return null;
+  // Nº e data da proposta
+  const numero = (texto.match(/Proposta\s+N.{0,2}?\s*(\d+)/i) || texto.match(/da Proposta\s+(\d+)/i) || [])[1] || '';
+  const data = (texto.match(/\bData\s+(\d{2}\/\d{2}\/\d{4})/) || [])[1] || '';
+  // Fornecedor: primeiro CNPJ que NÃO é o da RK; nome = cadastro (se bater) ou heurística do topo
+  let cnpjForn = '';
+  (texto.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g) || []).some(c => {
+    const dig = c.replace(/\D/g, '');
+    if (dig !== RK_CNPJ_DIGITOS) { cnpjForn = c; return true; }
+    return false;
+  });
+  let fornecedor = '';
+  const fc = fornecedoresCompras.find(f => f.nome && _normTxt(texto).includes(_normTxt(f.nome)));
+  if (fc) fornecedor = fc.nome;
+  else {
+    for (const l of linhas.slice(0, 12)) {
+      if (/bling|proposta|rua |av\.|avenida|telefone|cnpj|cep|para\b/i.test(l)) continue;
+      if (/\d{4}/.test(l)) continue;
+      if (l.length > 6 && l === l.toUpperCase()) { fornecedor = l.trim(); break; }
+    }
+    if (!fornecedor) for (const l of linhas.slice(0, 12)) { if (l.length > 8 && !/bling|proposta|rua |telefone|cnpj|\d{3}/i.test(l)) { fornecedor = l.trim(); break; } }
+  }
+  // Itens: linhas com [código?] [un] qtd precoLista desconto% precoUn (decimais longos) + total (,2)
+  const itens = [];
+  const reItem = /(?:([A-Za-z0-9][A-Za-z0-9\/.\-]{2,})\s+)?([A-Za-zçÇ]{1,5})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{2})\b/g;
+  let emCondicoes = false;
+  linhas.forEach(l => {
+    if (/condi.{1,2}es comerciais/i.test(l)) emCondicoes = true;
+    if (emCondicoes || /soma das|total d|n[ºo°]? de itens/i.test(l)) return;
+    let m; reItem.lastIndex = 0;
+    while ((m = reItem.exec(l)) !== null) {
+      const [, codigo, un, qtd, precoLista, descPct, precoUn, total] = m;
+      // Descrição = o texto que sobra antes do trecho numérico (tira o nº de ordem do item)
+      let desc = l.slice(0, m.index).replace(/^\d{1,2}\s+/, '').trim();
+      itens.push({ codigo: codigo || '', un: un || 'un', qtd: _numBling(qtd), precoUn: _numBling(precoUn), descPct: _numBling(descPct), total: _numBling(total), desc });
+    }
+  });
+  // Completa descrição vazia com as linhas de texto "1 Nome do produto…" (melhor esforço)
+  const descLinhas = [];
+  let dentroItens = false;
+  linhas.forEach(l => {
+    if (/itens da proposta/i.test(l)) { dentroItens = true; return; }
+    if (/condi.{1,2}es comerciais|n.{0,2} de itens|soma das/i.test(l)) dentroItens = false;
+    if (!dentroItens) return;
+    const m = l.match(/^(\d{1,2})\s+([A-Za-zÀ-ú].{3,})/);
+    if (m && !/,\d{4,}/.test(l)) descLinhas.push(m[2].replace(/\s{2,}.*/, '').trim());
+  });
+  itens.forEach((it, i) => { if (!it.desc || it.desc.length < 4) it.desc = descLinhas[i] || it.codigo || ('Item ' + (i + 1)); });
+  // Parcelas: depois de "Condições comerciais", pares data + valor
+  const parcelas = [];
+  let aposCond = false;
+  linhas.forEach(l => {
+    if (/condi.{1,2}es comerciais/i.test(l)) { aposCond = true; return; }
+    if (!aposCond) return;
+    const re = /(\d{2}\/\d{2}\/\d{4})\s+(\d[\d.]*,\d{2})/g;
+    let m; while ((m = re.exec(l)) !== null) {
+      const [d, mo, y] = m[1].split('/');
+      parcelas.push({ venc: `${y}-${mo}-${d}`, valor: _numBling(m[2]) });
+    }
+  });
+  const somaItens = +itens.reduce((s, it) => s + it.total, 0).toFixed(2);
+  const totalParc = +parcelas.reduce((s, p) => s + p.valor, 0).toFixed(2);
+  const total = totalParc || somaItens;
+  let frete = +(total - somaItens).toFixed(2);
+  if (frete < 0.01 || frete > total * 0.5) frete = 0;
+  if (!itens.length && !parcelas.length) return null;
+  return { formato: 'Bling', fornecedor, cnpj: cnpjForn, numero, data, itens, parcelas, somaItens, frete, total };
+}
+// Tenta todos os leitores conhecidos (por enquanto: Bling; novos fornecedores entram aqui).
+function _parsePedidoFornecedor(linhas) {
+  return _parsePropostaBling(linhas);
+}
+// Botão ☁ na aba Compras: puxa os PDFs da pasta e importa os novos.
+async function sincronizarPedidosCompras() {
+  const btn = document.getElementById('cmp-sync-drive');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Puxando…'; }
+  try {
+    const r = await _drivePasta('arquivos', { mes: DRIVE_MAE_ID, tipo: DRIVE_COMPRAS_SUBPASTA });
+    const arquivos = (r.arquivos || []).filter(a => /\.pdf$/i.test(a.nome));
+    if (!arquivos.length) { alert(`Nenhum PDF na pasta "${DRIVE_COMPRAS_SUBPASTA}" do Drive.\n\nCria a pasta dentro da pasta mãe (do lado das pastas de mês) e joga os pedidos dos fornecedores lá.`); return; }
+    const novos = arquivos.filter(a => !comprasDriveLidos[a.nome]);
+    if (!novos.length) { alert(`✓ Tudo em dia! Os ${arquivos.length} PDF(s) da pasta já foram importados antes.\n\n(Se subiu um arquivo novo, confere se o nome é diferente dos anteriores.)`); return; }
+    let ok = 0, pulados = 0, falhas = [];
+    for (const a of novos) {
+      let prop = null;
+      try { prop = _parsePedidoFornecedor(await _pdfLinhas(_b64ToBytes(a.base64))); }
+      catch (e) { falhas.push(`${a.nome}: ${e.message}`); continue; }
+      if (!prop) { falhas.push(`${a.nome}: não reconheci o modelo (me mande esse PDF que eu ensino o leitor)`); continue; }
+      const res = importarPropostaCompra(prop, a.nome);
+      if (res === 'ok') { ok++; comprasDriveLidos[a.nome] = new Date().toISOString(); }
+      else if (res === 'dup') { pulados++; comprasDriveLidos[a.nome] = new Date().toISOString(); }
+      // res === 'cancelado': não marca como lido (pode tentar de novo depois)
+    }
+    saveData('comprasDriveLidos', comprasDriveLidos);
+    saveData('compras', compras);
+    renderCompras();
+    let msg = ok ? `✓ ${ok} pedido(s) de fornecedor importado(s) como PENDENTES.\n\nConfere os itens, aprova e clica 📦 Gerar pedido — as parcelas do PDF já vêm prontas.` : 'Nenhum pedido novo importado.';
+    if (pulados) msg += `\n\n${pulados} já existia(m) (não dupliquei).`;
+    if (falhas.length) msg += `\n\n⚠ Não consegui ler:\n• ${falhas.join('\n• ')}`;
+    alert(msg);
+  } catch (e) {
+    alert('Erro ao sincronizar pedidos do Drive:\n' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '☁ Sincronizar pedidos'; }
+  }
+}
+// Cria os itens (status PENDENTE) a partir da proposta lida. Guarda as parcelas do PDF
+// pra usar no 📦 Gerar pedido. Não duplica (mesmo fornecedor + nº de proposta).
+function importarPropostaCompra(prop, nomeArq) {
+  const forn = (prop.fornecedor || '').trim() || 'Fornecedor (PDF ' + nomeArq + ')';
+  if (prop.numero && compras.some(c => String(c._propNum) === String(prop.numero) && _normTxt(c.fornecedor) === _normTxt(forn))) return 'dup';
+  const fc = fornecedoresCompras.find(f => _normTxt(f.nome) === _normTxt(forn)) || {};
+  const resumoItens = prop.itens.slice(0, 6).map(it => `• ${it.desc}${it.codigo ? ' (' + it.codigo + ')' : ''}: ${it.qtd} ${it.un} × ${fmtVal(it.precoUn)} = ${fmtVal(it.total)}`).join('\n');
+  const resumoParc = prop.parcelas.map(p => `• ${p.venc.split('-').reverse().join('/')}: ${fmtVal(p.valor)}`).join('\n');
+  if (!confirm(`📄 ${nomeArq}\n\nProposta ${prop.numero ? '#' + prop.numero : ''} de ${forn}${prop.data ? ' (' + prop.data + ')' : ''}\n\n${prop.itens.length} item(ns) · Total ${fmtVal(prop.total)}${prop.frete ? ' (frete ' + fmtVal(prop.frete) + ')' : ''}\n${resumoItens}${prop.itens.length > 6 ? '\n…' : ''}\n\n${prop.parcelas.length ? 'Parcelas do PDF:\n' + resumoParc : 'Sem parcelas no PDF.'}\n\nImportar para Compras (entra como PENDENTE pra você conferir)?`)) return 'cancelado';
+  const dataISO = prop.data ? prop.data.split('/').reverse().join('-') : '';
+  prop.itens.forEach((it, i) => {
+    compras.push({
+      id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6),
+      dataSolic: prop.data || new Date().toLocaleDateString('pt-BR'),
+      fornecedor: forn,
+      insumo: it.desc + (it.codigo ? ' [' + it.codigo + ']' : ''),
+      unidade: it.un, qtd: it.qtd, custoUnit: it.precoUn,
+      custoTotal: it.total, frete: i === 0 ? prop.frete : 0,
+      colecao: '', dataLimite: '', dataFatur: dataISO,
+      categoria: fc.categoria || '', solicitante: '', empresa: fc.empresa || '',
+      status: 'pendente',
+      _propNum: prop.numero, _propArq: nomeArq,
+      _propParcelas: i === 0 ? prop.parcelas : undefined
+    });
+  });
+  return 'ok';
+}
+
 function renderDevolucao() {
   setDateFilterRender(renderDevolucao);
   const el = document.getElementById('v-devolucao');
@@ -9997,6 +10186,7 @@ function renderCompras() {
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar selecionados${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
       <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px;margin-left:2px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) : ''}</span>
+      <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
     <div class="cards-row" style="margin-bottom:14px">
@@ -10202,23 +10392,33 @@ function aprovarComprasSel() {
 function gerarPedidoCompra(fornecedor, i) {
   const itens = compras.filter(c => c.fornecedor === fornecedor && (c.status || '') === 'aprovado');
   if (!itens.length) { alert('Nenhum item aprovado de "' + fornecedor + '".'); return; }
-  const condId = document.getElementById('ped-cond-' + i)?.value || '';
-  const cond = condicoesPagamento.find(c => c.id === condId);
-  if (!cond) { alert('Escolha a Condição de Pagamento (prazo) do pedido.\nCadastre em Cadastro → ⏳ Condições de Pagamento se ainda não tiver.'); return; }
-  const dataFat = document.getElementById('ped-datafat-' + i)?.value || '';
-  if (!dataFat) { alert('Informe a Data de Faturamento — o prazo das parcelas conta a partir dela.'); return; }
   const total = +itens.reduce((s, c) => s + totalCompra(c), 0).toFixed(2);
-  const parcelas = gerarParcelasCondicao(cond, total, new Date(dataFat + 'T12:00:00'));
+  // Se os itens vieram de um PDF de proposta do fornecedor, as parcelas (data + valor) já vêm prontas.
+  const prop = itens.find(c => c._propParcelas && c._propParcelas.length);
+  let parcelas = null, condId = '', dataFat = '', condNomeTxt = '';
+  if (prop && confirm(`Este pedido veio da proposta ${prop._propNum ? '#' + prop._propNum + ' ' : ''}do fornecedor, com as parcelas prontas no PDF:\n\n${prop._propParcelas.map(p => `• ${p.venc.split('-').reverse().join('/')}: ${fmtVal(p.valor)}`).join('\n')}\n\nUsar essas parcelas?\n(Cancelar = usar a Condição de Pagamento escolhida na tela)`)) {
+    parcelas = prop._propParcelas.map(p => ({ venc: new Date(p.venc + 'T12:00:00'), valor: p.valor }));
+    dataFat = itens.find(c => c.dataFatur)?.dataFatur || _toDateInput(new Date());
+    condNomeTxt = 'parcelas da proposta' + (prop._propNum ? ' #' + prop._propNum : '');
+  } else {
+    condId = document.getElementById('ped-cond-' + i)?.value || '';
+    const cond = condicoesPagamento.find(c => c.id === condId);
+    if (!cond) { alert('Escolha a Condição de Pagamento (prazo) do pedido.\nCadastre em Cadastro → ⏳ Condições de Pagamento se ainda não tiver.'); return; }
+    dataFat = document.getElementById('ped-datafat-' + i)?.value || '';
+    if (!dataFat) { alert('Informe a Data de Faturamento — o prazo das parcelas conta a partir dela.'); return; }
+    parcelas = gerarParcelasCondicao(cond, total, new Date(dataFat + 'T12:00:00'));
+    condNomeTxt = cond.nome;
+  }
   const fc = fornecedoresCompras.find(x => x.nome === fornecedor) || {};
   const catCount = {}; itens.forEach(c => { const k = c.categoria || fc.categoria || ''; if (k) catCount[k] = (catCount[k] || 0) + 1; });
   const categoria = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])[0] || fc.categoria || 'PEDIDOS';
   const empresa = fc.empresa || (itens.find(c => c.empresa) || {}).empresa || '';
   const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
   // Número do pedido (sequencial automático, editável) + observação livre
-  const numPed = String(prompt('Número do pedido (deixe o sugerido ou digite o seu):', String(proxNumPedidoCompra())) || '').trim();
+  const numPed = String(prompt('Número do pedido (deixe o sugerido ou digite o seu):', String((prop && prop._propNum) || proxNumPedidoCompra())) || '').trim();
   if (numPed === '') { alert('Pedido cancelado (sem número).'); return; }
   const obsPed = String(prompt('Observação do pedido (opcional — ex.: prazo negociado, aguardando amostra):', '') || '').trim();
-  if (!confirm(`Fazer o pedido #${numPed} de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${cond.nome} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}${obsPed ? '\n• Obs.: ' + obsPed : ''}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
+  if (!confirm(`Fazer o pedido #${numPed} de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${condNomeTxt} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}${obsPed ? '\n• Obs.: ' + obsPed : ''}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
   const pedidoId = 'pedcompra_' + Date.now();
   parcelas.forEach((p, k) => {
     contasPagar.push({
@@ -11169,7 +11369,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -11220,6 +11420,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitasAvulsas') receitasAvulsas = (v||[]).map(a=>({...a,data:a.data?new Date(a.data):null}));
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='recebOrfaoInfo') recebOrfaoInfo = v || {};
+    else if (k==='comprasDriveLidos') comprasDriveLidos = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
