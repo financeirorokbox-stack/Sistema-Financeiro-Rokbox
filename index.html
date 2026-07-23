@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v380/07-499';
+const APP_VERSION = 'v381/07-500';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6419,9 +6419,52 @@ function _parsePropostaBling(linhas) {
   if (!itens.length && !parcelas.length) return null;
   return { formato: 'Bling', fornecedor, cnpj: cnpjForn, numero, data, itens, parcelas, somaItens, frete, total };
 }
-// Tenta todos os leitores conhecidos (por enquanto: Bling; novos fornecedores entram aqui).
+// Lê um ROMANEIO DE ENTREGA (facções/oficinas — modelo da Ilma): item com grade de
+// tamanhos (PP/P/M/G…), valor unitário e total, e "Vencimento: dd mês aaaa R$ …" vira parcela.
+function _parseRomaneio(linhas) {
+  if (!linhas.some(l => /^ROMANEIO/i.test(l))) return null;
+  const MES = { jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12 };
+  // Parcelas: "Vencimento: 27 junho 2026 R$ 3.000,00" (uma por linha; aceita "27 de junho")
+  const parcelas = [];
+  linhas.forEach(l => {
+    const m = l.match(/vencimento:?\s+(\d{1,2})\s+(?:de\s+)?([a-zçã]+)\.?\s+(\d{4}).*?R\$\s*([\d.,]+)/i);
+    if (m) { const mm = MES[m[2].slice(0, 3).toLowerCase()]; if (mm) parcelas.push({ venc: `${m[3]}-${String(mm).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`, valor: _numBling(m[4]) }); }
+  });
+  const anoRef = parcelas.length ? +parcelas[0].venc.slice(0, 4) : new Date().getFullYear();
+  // Itens: "20 jul. Corta Vento Resilient Rooh PLRK.RH.26.62 10 20 20 10 60 R$ 50,00 R$ 3.000,00"
+  // (a última quantidade da sequência é o TOTAL de peças; as anteriores são a grade por tamanho)
+  const itens = [];
+  const reIt = /^(\d{1,2})\s+([a-zçã]{3})[a-zçã]*\.?\s+(.+?)\s+((?:\d+\s+)*\d+)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)$/i;
+  linhas.forEach(l => {
+    if (/^data\b|vencimento|pagamento|^romaneio/i.test(l)) return;
+    const m = l.match(reIt);
+    if (!m) return;
+    const nums = m[4].trim().split(/\s+/).map(Number);
+    const qtd = nums[nums.length - 1];
+    const grade = nums.length > 1 ? nums.slice(0, -1) : [];
+    // Separa o CÓDIGO (último "palavrão" com ponto/traço e número) da descrição
+    let desc = m[3].trim(), codigo = '';
+    const tk = desc.split(/\s+/);
+    if (tk.length > 1 && /[.\-\/]/.test(tk[tk.length - 1]) && /\d/.test(tk[tk.length - 1])) { codigo = tk.pop(); desc = tk.join(' '); }
+    const mm = MES[m[2].slice(0, 3).toLowerCase()] || 0;
+    itens.push({
+      codigo, un: 'pç', qtd, precoUn: _numBling(m[5]), descPct: 0, total: _numBling(m[6]),
+      desc: desc + (grade.length ? ' (grade ' + grade.join('/') + ')' : ''),
+      _data: mm ? `${String(m[1]).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${anoRef}` : ''
+    });
+  });
+  if (!itens.length) return null;
+  // Fornecedor: cadastro que aparecer no texto; senão o nome depois do "-" do título
+  const texto = linhas.join('\n');
+  let fornecedor = (fornecedoresCompras.find(f => f.nome && _normTxt(texto).includes(_normTxt(f.nome))) || {}).nome || '';
+  if (!fornecedor) { const t = (linhas[0].match(/-\s*([A-ZÀ-Ú][A-ZÀ-Ú ]{2,})$/) || [])[1]; fornecedor = t ? t.trim() : ''; }
+  const somaItens = +itens.reduce((s, it) => s + it.total, 0).toFixed(2);
+  const total = parcelas.length ? +parcelas.reduce((s, p) => s + p.valor, 0).toFixed(2) : somaItens;
+  return { formato: 'Romaneio', fornecedor, cnpj: '', numero: '', data: itens[0]._data || '', itens, parcelas, somaItens, frete: 0, total };
+}
+// Tenta todos os leitores conhecidos (Bling, Romaneio; novos fornecedores entram aqui).
 function _parsePedidoFornecedor(linhas) {
-  return _parsePropostaBling(linhas);
+  return _parsePropostaBling(linhas) || _parseRomaneio(linhas);
 }
 // Botão ☁ na aba Compras: puxa os PDFs da pasta e importa os novos.
 async function sincronizarPedidosCompras() {
