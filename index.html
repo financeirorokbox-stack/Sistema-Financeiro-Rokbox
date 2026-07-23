@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v388/07-507';
+const APP_VERSION = 'v389/07-508';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2480,7 +2480,7 @@ function _renderContasImpl(el) {
         <td>${l._orfaoReceb ? `<input class="inline-input" style="width:95px;text-align:right;font-size:12px" value="${l.f.valor?l.f.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" title="Valor exato que entrou no banco — pode ajustar" onchange="salvarOrfao('${l.f.pedido}','valor',this.value)">` : fmtVal(l.f.valor)}</td>
         <td>${l.st.recebido ? '<span class="badge ok">PAGO</span>' : (l.st.parcial ? '<span class="badge warn">PARCIAL</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
         <td style="font-size:11px;color:var(--green);font-weight:600">${l.st.recebido ? getDataLiquidacao(l) : '—'}</td>
-        <td style="font-size:11px;color:var(--muted)">${l.st.detalhe||''}</td>
+        <td style="font-size:11px;color:var(--muted)">${l.st.detalhe||''}${l._orfaoReceb ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removerOrfaoReceb('${String(l.f.pedido).replace(/'/g,"\\'")}')" title="Remover esta linha 'sem pedido cadastrado'. Não apaga pedidos nem o dinheiro conciliado nos pedidos certos — só tira esta linha fantasma.">✕ remover</button>` : ''}</td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`}
@@ -3329,6 +3329,26 @@ function salvarFormaManual(pedidoId, valor) {
   renderContas();
 }
 // Salva o que a usuária preenche à mão numa linha de recebimento SEM pedido cadastrado (nome/loja/empresa/valor).
+// Remove uma linha "sem pedido cadastrado" (recebimento órfão com nº de pedido inválido, ex.: 375.357).
+// Tira o(s) recebimento(s) desse nped E o vínculo do extrato que aponta pra esse nped (senão ele voltaria
+// na próxima sincronização). NÃO mexe nos pedidos reais nem no dinheiro já conciliado neles.
+function removerOrfaoReceb(np) {
+  np = String(np).trim();
+  const alvos = recebimentosConsolidado.filter(r => String(r.nped || '').trim() === np);
+  const total = alvos.reduce((s, r) => s + (r.bruto || 0), 0);
+  if (!confirm(`Remover a linha "sem pedido cadastrado" #${np} (${fmtVal(total)})?\n\n• NÃO apaga nenhum pedido nem o dinheiro já conciliado nos pedidos certos.\n• Se estava presa a um crédito do banco, esse crédito volta a ficar disponível pra conciliar no pedido certo.\n\nÉ só pra tirar essa linha fantasma que apareceu sem pedido válido.`)) return;
+  // Desfaz vínculos de extrato que apontam pra esse nped inválido (evita recriar a linha)
+  let unlink = 0;
+  Object.keys(extratoLinks).forEach(id => { if (String(extratoLinks[id].pedido).trim() === np) { delete extratoLinks[id]; unlink++; } });
+  recebimentosConsolidado = recebimentosConsolidado.filter(r => String(r.nped || '').trim() !== np);
+  delete recebOrfaoInfo[np];
+  if (unlink) saveData('extratoLinks', extratoLinks);
+  saveData('recebOrfaoInfo', recebOrfaoInfo);
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  try { syncExtratoToRecebimentos(); } catch (e) {}
+  renderContas();
+  alert(`✓ Linha removida.${unlink ? `\n\n${unlink} crédito(s) do banco voltaram a ficar disponíveis pra conciliar no pedido certo (Conciliação Bancária).` : ''}`);
+}
 function salvarOrfao(np, campo, valor) {
   np = String(np);
   if (!recebOrfaoInfo[np]) recebOrfaoInfo[np] = {};
