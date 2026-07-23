@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v392/07-511';
+const APP_VERSION = 'v393/07-512';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3055,6 +3055,10 @@ function renderFluxo() {
   contasPagar.forEach(c => {
     if (!c.pago || c.cancelado) return;
     if (!noPeriodo(c.dataPag || c.vencimento)) return;
+    // ESTORNO não é saída de caixa: ele NÃO sai como débito próprio no banco — já veio descontado
+    // do repasse do gateway (a entrada chega líquida). Contar aqui seria contar duas vezes e o
+    // Fluxo nunca bateria com o banco. (Junho: sem estornos, saídas = 388.438,92 x banco 388.438,87.)
+    if (String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO' || c._origemEstorno) return;
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     sai[g] = (sai[g] || 0) + (c.valor || 0);
@@ -3075,6 +3079,7 @@ function renderFluxo() {
   contasPagar.forEach(c => {
     if (c.pago || c.cancelado) return;
     if (!noPeriodo(c.vencimento)) return;
+    if (String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO' || c._origemEstorno) return; // mesmo critério das pagas
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     saiPrev[g] = (saiPrev[g] || 0) + (c.valor || 0);
