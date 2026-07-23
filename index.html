@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v394/07-513';
+const APP_VERSION = 'v395/07-514';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3036,19 +3036,24 @@ function renderFluxo() {
   const el = document.getElementById('v-fluxo');
   if (!el) return;
   const noPeriodo = d => !dfAtivo() || passaData(d);
-  // ENTRADAS — recebimentos efetivos por GRUPO de receita (exclui estornos movidos p/ Pagar)
+  // ENTRADAS — REGIME DE CAIXA de verdade: o dinheiro conta no dia em que CAI NO BANCO.
+  // Por isso as entradas saem dos CRÉDITOS DO EXTRATO (não da data da venda): o repasse do
+  // PayPal/Braavo cai dias depois da venda, e é a data do repasse que vale no fluxo.
+  // Assim o Fluxo fecha BATENDO com o banco (vira o balancete realizado do mês).
+  // A visão por competência (data da venda) continua no DRE.
   const ent = {};
-  recebimentosConsolidado.forEach(r => {
-    if (r._estornoChave) return;
-    if (!noPeriodo(r.data)) return;
-    const g = grupoReceitaGateway(r.gateway);
-    ent[g] = (ent[g] || 0) + (r.liq || 0);
-  });
-  // ENTRADAS — receitas avulsas (rendimentos etc.) por categoria
-  receitasAvulsas.forEach(r => {
-    if (!noPeriodo(r.data)) return;
-    const g = r.categoria || 'Outras receitas';
-    ent[g] = (ent[g] || 0) + (r.valor || 0);
+  extratoBancario.forEach(t => {
+    if (!((t.valor || 0) > 0)) return;
+    if (!noPeriodo(t.data)) return;
+    let g;
+    if (receitaLinks[t.id]) {
+      const ra = receitasAvulsas.find(r => r._extratoId === t.id);
+      g = (ra && ra.categoria) || 'Outras receitas';
+    } else {
+      const gw = categoriaLancamento(t);
+      g = gw ? grupoReceitaGateway(gw) : 'Sem categoria';
+    }
+    ent[g] = (ent[g] || 0) + t.valor;
   });
   // SAÍDAS — contas a pagar PAGAS, por grupo de despesa (usa dataPag; se faltar, vencimento)
   const sai = {};
@@ -3146,9 +3151,13 @@ function renderFluxo() {
   const anoOk = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return false; return !dateFilter.ano.length || dateFilter.ano.includes(String(dt.getFullYear())); };
   const meses = {};
   const addMes = (d, tipo, val) => { if (!anoOk(d)) return; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return; const k = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'); (meses[k] = meses[k] || {ent:0,sai:0,prev:0})[tipo] += (val||0); };
-  recebimentosConsolidado.forEach(r => { if (!r._estornoChave) addMes(r.data, 'ent', r.liq||0); });
-  receitasAvulsas.forEach(r => addMes(r.data, 'ent', r.valor||0));
-  contasPagar.forEach(c => { if (c.cancelado) return; if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); else addMes(c.vencimento, 'prev', c.valor||0); });
+  // Mesmo critério do quadro acima: entradas = créditos do BANCO (dia em que caiu), estorno não é saída.
+  extratoBancario.forEach(t => { if ((t.valor || 0) > 0) addMes(t.data, 'ent', t.valor); });
+  contasPagar.forEach(c => {
+    if (c.cancelado) return;
+    if (String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO' || c._origemEstorno) return;
+    if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); else addMes(c.vencimento, 'prev', c.valor||0);
+  });
   const mesesOrd = Object.keys(meses).sort();
   const maxMes = Math.max(1, ...mesesOrd.map(k => Math.max(meses[k].ent, meses[k].sai, meses[k].prev)));
   const MESNOMES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
