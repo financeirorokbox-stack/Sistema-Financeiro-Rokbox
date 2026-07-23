@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v385/07-504';
+const APP_VERSION = 'v386/07-505';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11485,13 +11485,15 @@ async function executarExclusao() {
     bySource[src].add(+idx);
   });
 
+  // LIMPA a seleção ANTES de apagar. O delete() de cada fonte redesenha a tabela, e as marcações
+  // são por POSIÇÃO — se a seleção ainda existisse, a marcação "pularia" pra linha que subiu de posição.
+  deleteSelection.clear();
+  updateDeleteBar();
+
   // Executa exclusão por fonte
   for (const [src, indices] of Object.entries(bySource)) {
     if (DELETE_SOURCES[src]) DELETE_SOURCES[src].delete(indices);
   }
-
-  deleteSelection.clear();
-  updateDeleteBar();
 }
 
 // Helper: retorna a célula de checkbox para adicionar nas tabelas
