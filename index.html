@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v379/07-498';
+const APP_VERSION = 'v380/07-499';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10446,7 +10446,7 @@ function gerarPedidoCompra(fornecedor, i) {
   const empresa = fc.empresa || (itens.find(c => c.empresa) || {}).empresa || '';
   const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
   // Número do pedido (sequencial automático, editável) + observação livre
-  const numPed = String(prompt('Número do pedido (deixe o sugerido ou digite o seu):', String((prop && prop._propNum) || proxNumPedidoCompra())) || '').trim();
+  const numPed = String(prompt('Número do pedido (deixe o sugerido ou digite o seu):' + (prop && prop._propNum ? '\n(Proposta do fornecedor: #' + prop._propNum + ' — fica guardada como referência)' : ''), String(proxNumPedidoCompra())) || '').trim();
   if (numPed === '') { alert('Pedido cancelado (sem número).'); return; }
   const obsPed = String(prompt('Observação do pedido (opcional — ex.: prazo negociado, aguardando amostra):', '') || '').trim();
   if (!confirm(`Fazer o pedido #${numPed} de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${condNomeTxt} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}${obsPed ? '\n• Obs.: ' + obsPed : ''}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
