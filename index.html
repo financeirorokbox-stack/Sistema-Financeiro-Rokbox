@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v390/07-509';
+const APP_VERSION = 'v391/07-510';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2270,6 +2270,11 @@ function _renderContasImpl(el) {
   recebimentosConsolidado.forEach(r => {
     const np = String(r.nped || '').trim();
     if (!np || _npedsComLinha.has(np)) return;
+    // Crédito ligado a VÁRIOS pedidos (nped "375,357"): se TODOS os pedidos já têm linha,
+    // NÃO é órfão — o valor já foi distribuído entre eles. (Sem isto, o nº composto virava
+    // uma linha "sem pedido cadastrado" fantasma que voltava a cada sincronização.)
+    const partes = np.split(',').map(s => s.trim()).filter(Boolean);
+    if (partes.length > 1 && partes.every(p => _npedsComLinha.has(p))) return;
     if ((r.bruto != null ? r.bruto : (r.liq || 0)) <= 0) return; // ignora negativos (estornos)
     (_orfaosPorPed[np] = _orfaosPorPed[np] || []).push(r);
   });
