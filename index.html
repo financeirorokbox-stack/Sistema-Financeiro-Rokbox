@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v383/07-502';
+const APP_VERSION = 'v384/07-503';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1450,14 +1450,23 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
     if (!taxa && bruto && liq) taxa = +(bruto - liq).toFixed(2);
     const data  = parseDate(r['Data da venda'] || r['DATA DE PAGAMENTO'] || r['DATA DE PAGAMENTO '] || r['Data Prevista de Pagamento']);
     const status = String(r['Status'] || r['CONCLUIDO'] || r['Situação'] || r['Situacao'] || '').toLowerCase();
-    const nped  = r['Nº PEDIDO'] || r['Nº PED'] || r['N_PEDIDO'] || null;
+    let nped  = r['Nº PEDIDO'] || r['Nº PED'] || r['N_PEDIDO'] || null;
+    // Braavo (checkout do site): o "ID de referência" começa com o nº do pedido DO SITE
+    // (ex.: 27134-1784758…). O Bling guarda esse nº nas Observações da venda ("Pedido: 27134").
+    // Resolve na hora; se a venda ainda não subiu, guarda o nº do site pra casar depois.
+    let nsite = null;
+    if (!nped) {
+      const refB = String(r['ID de referência'] || r['ID de referencia'] || '');
+      const ms = refB.match(/^(\d{4,7})-/);
+      if (ms) { nsite = ms[1]; const pSite = _pedidoPorNumeroSite(nsite); if (pSite) nped = pSite.id; }
+    }
     const nome  = r['Nome do cliente'] || r['NOME DO CARTÃO'] || r['NOME DO CARTAO'] || '';
     const tipo  = r['Tipo de venda'] || r['Bandeira'] || '';
 
     if (!bruto && !liq) return;
     if (status.includes('cancel') || status.includes('reprovad')) return;
 
-    target.push({ gateway: gatewayName, bruto, taxa, liq, data, nped, nome, tipo, status });
+    target.push({ gateway: gatewayName, bruto, taxa, liq, data, nped, nome, tipo, status, _nsite: nsite });
   });
   // Liga cada reembolso PayPal ao pedido do PAGAMENTO original (pela ID de referência ou nome+valor) para ABATER.
   const _pool = target.concat(recebimentosConsolidado);
@@ -1469,6 +1478,26 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
   });
 }
 
+// Acha o pedido do Bling pelo nº do pedido DO SITE — o Bling guarda ele nas
+// Observações da venda ("Pedido: 27134"). É assim que o recebimento da Braavo
+// (que só traz o nº do site) encontra o pedido certo.
+function _pedidoPorNumeroSite(n) {
+  n = String(n || '').trim(); if (!n) return null;
+  const re = new RegExp('pedido:?\\s*' + n + '(?!\\d)', 'i');
+  return pedidos.find(p => re.test(String(p.obs || '') + ' ' + String(p.obsInternas || ''))) || null;
+}
+// Recebimentos que ficaram "sem pedido" mas têm o nº do site guardado: tenta casar de novo.
+// Roda depois de subir vendas novas (a venda pode ter chegado depois do recebimento).
+function resolverRecebPorSite() {
+  let n = 0;
+  recebimentosConsolidado.forEach(r => {
+    if (r.nped || !r._nsite) return;
+    const p = _pedidoPorNumeroSite(r._nsite);
+    if (p) { r.nped = p.id; n++; }
+  });
+  if (n) saveData('recebimentosConsolidado', recebimentosConsolidado);
+  return n;
+}
 function opKey(loja, situacao) {
   return (loja||'(sem loja)') + '|||' + (situacao||'(sem situação)');
 }
@@ -1608,6 +1637,8 @@ function renderVendas() {
       else Object.assign(existing, np);
     });
     saveData('pedidos', pedidos);
+    // Recebimentos da Braavo que estavam "sem pedido" podem casar agora que a venda chegou
+    try { const nSite = resolverRecebPorSite(); if (nSite) console.log('Braavo: ' + nSite + ' recebimento(s) casados pelo nº do site'); } catch (e) {}
     renderPedidosTable();
     document.getElementById('status-pedidos').textContent = '✓ ' + pedidos.length + ' pedidos' + (empresa ? ' (' + empresa + ')' : '');
   });
@@ -4649,14 +4680,23 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
     if (!taxa && bruto && liq) taxa = +(bruto - liq).toFixed(2);
     const data  = parseDate(r['Data da venda'] || r['DATA DE PAGAMENTO'] || r['DATA DE PAGAMENTO '] || r['Data Prevista de Pagamento']);
     const status = String(r['Status'] || r['CONCLUIDO'] || r['Situação'] || r['Situacao'] || '').toLowerCase();
-    const nped  = r['Nº PEDIDO'] || r['Nº PED'] || r['N_PEDIDO'] || null;
+    let nped  = r['Nº PEDIDO'] || r['Nº PED'] || r['N_PEDIDO'] || null;
+    // Braavo (checkout do site): o "ID de referência" começa com o nº do pedido DO SITE
+    // (ex.: 27134-1784758…). O Bling guarda esse nº nas Observações da venda ("Pedido: 27134").
+    // Resolve na hora; se a venda ainda não subiu, guarda o nº do site pra casar depois.
+    let nsite = null;
+    if (!nped) {
+      const refB = String(r['ID de referência'] || r['ID de referencia'] || '');
+      const ms = refB.match(/^(\d{4,7})-/);
+      if (ms) { nsite = ms[1]; const pSite = _pedidoPorNumeroSite(nsite); if (pSite) nped = pSite.id; }
+    }
     const nome  = r['Nome do cliente'] || r['NOME DO CARTÃO'] || r['NOME DO CARTAO'] || '';
     const tipo  = r['Tipo de venda'] || r['Bandeira'] || '';
 
     if (!bruto && !liq) return;
     if (status.includes('cancel') || status.includes('reprovad')) return;
 
-    target.push({ gateway: gatewayName, bruto, taxa, liq, data, nped, nome, tipo, status });
+    target.push({ gateway: gatewayName, bruto, taxa, liq, data, nped, nome, tipo, status, _nsite: nsite });
   });
   // Liga cada reembolso PayPal ao pedido do PAGAMENTO original (pela ID de referência ou nome+valor) para ABATER.
   const _pool = target.concat(recebimentosConsolidado);
@@ -5123,14 +5163,23 @@ function renderRecebimentos() {
     function finishUpload() {
       pending--;
       if (pending !== 0) return;
-      let added = 0;
+      let added = 0, enriquecidos = 0;
+      const _byKey = new Map();
+      recebimentosConsolidado.forEach(x => { try { _byKey.set(recKey(x), x); } catch (e) {} });
       newEntries.forEach(r => {
         const k = recKey(r);
         if (!existKeys.has(k)) { existKeys.add(k); recebimentosConsolidado.push(r); added++; }
+        else {
+          // Linha já importada antes SEM pedido: re-subir o arquivo agora COMPLETA o nº
+          // do pedido / nº do site (não duplica, só preenche o que faltava).
+          const ex = _byKey.get(k);
+          if (ex && !ex.nped && (r.nped || r._nsite)) { if (r.nped) ex.nped = r.nped; if (r._nsite) ex._nsite = r._nsite; enriquecidos++; }
+        }
       });
+      try { enriquecidos += resolverRecebPorSite(); } catch (e) {}
       saveData('recebimentosConsolidado', recebimentosConsolidado);
       const nv = autoVincularPorValor(); // grava nº do pedido (nome batendo) nos novos
-      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''})`;
+      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''})`;
       syncBoletosToRecebimentos();
       syncExtratoToRecebimentos();
       renderRecebimentos();
