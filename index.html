@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v393/07-512';
+const APP_VERSION = 'v394/07-513';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8892,7 +8892,6 @@ function renderBanco() {
       limpar: 'limparFiltrosBanco()',
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
-        <button class="btn primary sm" onclick="cbLancarTarifas()" title="Cria as despesas das TARIFAS do banco que ainda não viraram conta (categoria TARIFAS, já paga e conciliada). Respeita o banco e o mês filtrados.">⚡ Lançar tarifas soltas</button>
         <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
         <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>`,
       campos:
