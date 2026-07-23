@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v378/07-497';
+const APP_VERSION = 'v379/07-498';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10134,6 +10134,9 @@ const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'],
 // Colunas da tabela de Compras (chips 👁 mostram/ocultam; escolha fica salva no aparelho)
 const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
 let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcultas'); return v ? JSON.parse(v) : ['un','desc','solic']; } catch (e) { return ['un','desc','solic']; } })();
+// Aba (etapa do fluxo) selecionada em Compras — lembrada no aparelho
+let cmpTab = (() => { try { return localStorage.getItem('cmpTab') || ''; } catch (e) { return ''; } })();
+function setCmpTab(s) { cmpTab = s; try { localStorage.setItem('cmpTab', s); } catch (e) {} renderCompras(); }
 function toggleCmpCol(key) {
   if (cmpColsOcultas.includes(key)) cmpColsOcultas = cmpColsOcultas.filter(k => k !== key);
   else cmpColsOcultas.push(key);
@@ -10158,7 +10161,9 @@ function _fmtDataCell(v) {
 }
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
-  const fSt = el.querySelector('#cmp-st')?.value || '';
+  // Guarda a posição da rolagem (vertical e da tabela) pra tela NÃO pular quando re-renderiza
+  const _sy = window.scrollY, _sl = el.querySelector('.table-wrap')?.scrollLeft || 0;
+  const fSt = cmpTab;
   const fForn = el.querySelector('#cmp-forn')?.value || '';
   const fQ = (el.querySelector('#cmp-q')?.value || '').toLowerCase();
   const forns = [...new Set(compras.map(c => c.fornecedor).filter(Boolean))].sort();
@@ -10173,7 +10178,7 @@ function renderCompras() {
   compras.filter(c => (c.status || '') === 'aprovado').forEach(c => { const f = c.fornecedor || '(sem fornecedor)'; (aprovForn[f] = aprovForn[f] || []).push(c); });
   const fornsAprov = Object.keys(aprovForn).sort();
   el.innerHTML = `
-    <div style="max-width:520px;margin-bottom:16px">
+    <div style="max-width:520px">
       ${uploadWrap('compras', `<label class="upload-card" id="card-compras" for="file-compras">
         <div class="u-icon">🛒</div>
         <div class="u-label">Planilha de Requisição de Compras</div>
@@ -10182,23 +10187,23 @@ function renderCompras() {
         <input type="file" id="file-compras" accept=".xlsx,.xls" multiple>
       </label>`)}
     </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <select class="inline-input" id="cmp-st" onchange="renderCompras()"><option value="">Todos status</option>${Object.keys(COMPRA_ST).map(s => `<option value="${s}" ${s === fSt ? 'selected' : ''}>${COMPRA_ST[s][0]}</option>`).join('')}</select>
-      <select class="inline-input" id="cmp-forn" onchange="renderCompras()"><option value="">Todos fornecedores</option>${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}" ${f === fForn ? 'selected' : ''}>${f}</option>`).join('')}</select>
-      <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="Buscar insumo/fornecedor/coleção" oninput="debounceRender('renderCompras')" style="width:220px">
+    <!-- Abas por ETAPA do fluxo: cada compra caminha Pendente → Aprovado → Pedido → Conferido -->
+    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px;border-bottom:2px solid var(--border);padding-bottom:8px">
+      ${[['', 'Todos'], ['pendente', '🕐 Pendentes'], ['aprovado', '✅ Aprovados'], ['pedido', '📦 Pedidos'], ['recebido', '📄 Conferidos'], ['rejeitado', '❌ Rejeitados']].map(([s, lbl]) =>
+        `<button class="btn ${fSt === s ? 'primary' : 'ghost'} sm" onclick="setCmpTab('${s}')">${lbl}${s ? ` (${cnt(s)})` : ''}</button>`).join('')}
       <span style="flex:1"></span>
-      <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar selecionados${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
-      <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px;margin-left:2px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) : ''}</span>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
-    <div class="cards-row" style="margin-bottom:14px">
-      <div class="card red"><div class="c-label">Pendentes</div><div class="c-val">${cnt('pendente')}</div></div>
-      <div class="card green"><div class="c-label">Aprovados</div><div class="c-val">${cnt('aprovado')}</div></div>
-      <div class="card blue"><div class="c-label">Pedidos</div><div class="c-val">${cnt('pedido')}</div></div>
-      <div class="card dark"><div class="c-label">Recebidos</div><div class="c-val">${cnt('recebido')}</div></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <select class="inline-input" id="cmp-forn" onchange="renderCompras()"><option value="">Todos fornecedores</option>${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}" ${f === fForn ? 'selected' : ''}>${f}</option>`).join('')}</select>
+      <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="🔍 Buscar" oninput="debounceRender('renderCompras')" style="width:170px">
+      <span style="flex:1"></span>
+      <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
+      <button class="btn ghost sm" style="color:var(--red)" onclick="excluirComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Exclui de uma vez todos os itens marcados nos quadradinhos (uma confirmação só)">🗑 Excluir${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
+      <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) : ''}</span>
     </div>
-    ${fornsAprov.length ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;background:var(--surface)">
+    ${fornsAprov.length && (fSt === '' || fSt === 'aprovado') ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;background:var(--surface)">
       <div style="font-weight:700;margin-bottom:8px">📦 Fazer pedido — itens aprovados por fornecedor</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Escolha a <strong>condição de pagamento</strong> e a <strong>Data de Faturamento</strong> (o prazo conta a partir dela) → gera as parcelas <strong>em aberto</strong> no Contas a Pagar (previstas no Fluxo).</div>
       <div class="table-wrap"><table style="white-space:nowrap;font-size:12px"><thead><tr><th>Fornecedor</th><th style="text-align:right">Itens</th><th style="text-align:right">Total (c/ frete)</th><th>Condição (prazo)</th><th>Data Faturamento</th><th></th></tr></thead><tbody>
@@ -10254,7 +10259,17 @@ function renderCompras() {
     </tr>`; }).join('')}
     </tbody></table></div>`}
   `;
+  // Devolve a rolagem pra onde estava (não pula pro topo ao editar/apagar)
+  window.scrollTo(window.scrollX, _sy);
+  const _tw = el.querySelector('.table-wrap'); if (_tw) _tw.scrollLeft = _sl;
   setupUpload('file-compras', 'card-compras', 'status-compras', ({ wb }) => importarCompras(wb));
+}
+// Exclui de uma vez todos os itens marcados nos quadradinhos (uma confirmação só)
+function excluirComprasSel() {
+  const ids = [...comprasSel]; if (!ids.length) { alert('Marque os quadradinhos das linhas que quer excluir.'); return; }
+  if (!confirm(`Excluir ${ids.length} item(ns) marcado(s)?\n\n(Some da lista de Compras. Não mexe em nada já gerado no Contas a Pagar.)`)) return;
+  compras = compras.filter(c => !comprasSel.has(c.id));
+  comprasSel.clear(); saveData('compras', compras); renderCompras();
 }
 function acoesCompra(c) {
   const st = c.status || 'pendente';
