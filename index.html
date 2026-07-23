@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v382/07-501';
+const APP_VERSION = 'v383/07-502';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6262,22 +6262,38 @@ async function abrirSincronizarDrive() {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
   ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:22px;max-width:360px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
       <div style="font-size:16px;font-weight:800;margin-bottom:4px">☁ Sincronizar do Drive</div>
-      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">Escolha o mês. Vou puxar <strong>Vendas</strong>, <strong>Forma de Pagto</strong>, <strong>Recebimentos</strong> (PayPal/Braavo/Rede), <strong>Boletos Pagos</strong> e <strong>Extratos</strong>. No extrato ele pergunta o banco de cada arquivo (é só confirmar). Só adiciona, nunca apaga.</div>
+      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">Escolha o mês; depois você escolhe <strong>o que puxar</strong> (só o que subiu de novo, ou tudo). Só adiciona, nunca apaga.</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        ${mm.map(m => `<button class="btn primary" style="width:100%" onclick="puxarMesDrive('${m.id}', ${JSON.stringify(m.nome).replace(/"/g, '&quot;')})">${m.nome}</button>`).join('')}
+        ${mm.map(m => `<button class="btn primary" style="width:100%" onclick="escolherGruposDrive('${m.id}', ${JSON.stringify(m.nome).replace(/"/g, '&quot;')})">${m.nome}</button>`).join('')}
       </div>
       <button class="btn ghost sm" style="margin-top:14px;width:100%" onclick="document.getElementById('drive-modal').remove()">Cancelar</button>
     </div>`;
   document.body.appendChild(ov);
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
 }
-async function puxarMesDrive(mesId, mesNome) {
+// Passo 2: escolher O QUE puxar do mês (evita baixar tudo quando ela só subiu um tipo)
+function escolherGruposDrive(mesId, mesNome) {
+  const modal = document.getElementById('drive-modal');
+  if (!modal) return;
+  const d = modal.querySelector('div');
+  const rotulos = ['🛍 Vendas', '💳 Forma de Pagto', '💰 Recebimentos (PayPal/Braavo/Rede)', '📄 Boletos Pagos', '🏦 Extratos'];
+  d.innerHTML = `
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px">☁ ${mesNome}</div>
+    <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">O que você quer puxar? (clica só no que subiu de novo — fica bem mais rápido)</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${DRIVE_GRUPOS.map((g, i) => `<button class="btn ghost" style="width:100%;text-align:left" onclick="puxarMesDrive('${mesId}', ${JSON.stringify(mesNome).replace(/"/g, '&quot;')}, ${i})">${rotulos[i] || g.tipos.join(' / ')}</button>`).join('')}
+      <button class="btn primary" style="width:100%" onclick="puxarMesDrive('${mesId}', ${JSON.stringify(mesNome).replace(/"/g, '&quot;')})">📦 Tudo de uma vez</button>
+    </div>
+    <button class="btn ghost sm" style="margin-top:14px;width:100%" onclick="document.getElementById('drive-modal').remove()">Cancelar</button>`;
+}
+async function puxarMesDrive(mesId, mesNome, grupoIdx) {
   const modal = document.getElementById('drive-modal');
   const setMsg = (t) => { if (modal) { const d = modal.querySelector('div'); if (d) d.innerHTML = `<div style="font-size:15px;font-weight:700">⏳ ${t}</div><div style="font-size:12px;color:var(--muted,#777);margin-top:6px">${mesNome} · não feche a janela.</div>`; } };
   setMsg('Puxando do Drive…');
   try {
     const resumo = [];
-    for (const g of DRIVE_GRUPOS) {
+    const grupos = (grupoIdx == null) ? DRIVE_GRUPOS : [DRIVE_GRUPOS[grupoIdx]];
+    for (const g of grupos) {
       // Busca os arquivos de todas as subpastas deste grupo.
       let arquivos = [];
       for (const tipo of g.tipos) {
@@ -6293,11 +6309,12 @@ async function puxarMesDrive(mesId, mesNome) {
         await new Promise(r => setTimeout(r, 900)); // deixa o leitor (às vezes assíncrono) terminar
       }
     }
-    setView('vendas');
+    // Termina na tela do que foi puxado (se foi um tipo só); senão volta pra Vendas
+    if (grupoIdx != null) _navGrupo(grupos[0].nav); else setView('vendas');
     if (modal) modal.remove();
     alert(resumo.length
       ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}\n\nSó adiciona, não duplica. (Contas a Pagar/Receber são saída, você exporta do sistema.)`
-      : `Nenhum arquivo encontrado em ${mesNome}.`);
+      : `Nenhum arquivo encontrado em ${mesNome}${grupoIdx != null ? ' nessa pasta' : ''}.`);
   } catch (e) {
     if (modal) modal.remove();
     alert('Erro ao puxar do Drive:\n' + e.message);
