@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v389/07-508';
+const APP_VERSION = 'v390/07-509';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3336,6 +3336,10 @@ function removerOrfaoReceb(np) {
   np = String(np).trim();
   const alvos = recebimentosConsolidado.filter(r => String(r.nped || '').trim() === np);
   const total = alvos.reduce((s, r) => s + (r.bruto || 0), 0);
+  // BLINDAGEM: não mexe em item de DIA FECHADO (crédito do extrato vinculado a essa linha em dia fechado).
+  const idsVinc = Object.keys(extratoLinks).filter(id => String(extratoLinks[id].pedido).trim() === np);
+  const travado = idsVinc.some(id => { const t = extratoBancario.find(x => x.id === id); return t && diaFechado(t.data, t.banco); });
+  if (travado) { alert('🔒 Essa linha está conciliada a um crédito de DIA FECHADO e não pode ser removida.\n\nReabra o dia (admin) na Conciliação Bancária se precisar mexer.'); return; }
   if (!confirm(`Remover a linha "sem pedido cadastrado" #${np} (${fmtVal(total)})?\n\n• NÃO apaga nenhum pedido nem o dinheiro já conciliado nos pedidos certos.\n• Se estava presa a um crédito do banco, esse crédito volta a ficar disponível pra conciliar no pedido certo.\n\nÉ só pra tirar essa linha fantasma que apareceu sem pedido válido.`)) return;
   // Desfaz vínculos de extrato que apontam pra esse nped inválido (evita recriar a linha)
   let unlink = 0;
