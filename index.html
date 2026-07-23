@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v377/07-496';
+const APP_VERSION = 'v378/07-497';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6380,32 +6380,25 @@ function _parsePropostaBling(linhas) {
     }
     if (!fornecedor) for (const l of linhas.slice(0, 12)) { if (l.length > 8 && !/bling|proposta|rua |telefone|cnpj|\d{3}/i.test(l)) { fornecedor = l.trim(); break; } }
   }
-  // Itens: linhas com [código?] [un] qtd precoLista desconto% precoUn (decimais longos) + total (,2)
+  // Itens: a linha dos NÚMEROS tem [código?] [un] qtd precoLista desconto% precoUn (decimais longos) + total (,2).
+  // A descrição do produto vem quebrada: um pedaço na linha DE CIMA, um pedaço na própria linha
+  // e a variação (Tamanho/Cor) na linha DE BAIXO — junta as três.
   const itens = [];
-  const reItem = /(?:([A-Za-z0-9][A-Za-z0-9\/.\-]{2,})\s+)?([A-Za-zçÇ]{1,5})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{2})\b/g;
-  let emCondicoes = false;
-  linhas.forEach(l => {
-    if (/condi.{1,2}es comerciais/i.test(l)) emCondicoes = true;
-    if (emCondicoes || /soma das|total d|n[ºo°]? de itens/i.test(l)) return;
-    let m; reItem.lastIndex = 0;
-    while ((m = reItem.exec(l)) !== null) {
-      const [, codigo, un, qtd, precoLista, descPct, precoUn, total] = m;
-      // Descrição = o texto que sobra antes do trecho numérico (tira o nº de ordem do item)
-      let desc = l.slice(0, m.index).replace(/^\d{1,2}\s+/, '').trim();
-      itens.push({ codigo: codigo || '', un: un || 'un', qtd: _numBling(qtd), precoUn: _numBling(precoUn), descPct: _numBling(descPct), total: _numBling(total), desc });
-    }
-  });
-  // Completa descrição vazia com as linhas de texto "1 Nome do produto…" (melhor esforço)
-  const descLinhas = [];
-  let dentroItens = false;
-  linhas.forEach(l => {
-    if (/itens da proposta/i.test(l)) { dentroItens = true; return; }
-    if (/condi.{1,2}es comerciais|n.{0,2} de itens|soma das/i.test(l)) dentroItens = false;
-    if (!dentroItens) return;
-    const m = l.match(/^(\d{1,2})\s+([A-Za-zÀ-ú].{3,})/);
-    if (m && !/,\d{4,}/.test(l)) descLinhas.push(m[2].replace(/\s{2,}.*/, '').trim());
-  });
-  itens.forEach((it, i) => { if (!it.desc || it.desc.length < 4) it.desc = descLinhas[i] || it.codigo || ('Item ' + (i + 1)); });
+  const reItem = /(?:([A-Za-z0-9][A-Za-z0-9\/.\-]{2,})\s+)?([A-Za-zçÇ]{1,5})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{4,})\s+(\d[\d.]*,\d{2})\b/;
+  const _ehTextoDesc = l => l && !/,\d{4,}/.test(l) && !/\d{2}\/\d{2}\/\d{4}/.test(l) &&
+    !/^(descri|c[óo]digo|itens da proposta|produto\/|soma das|n.{0,2} de itens|qtdes|total|frete|condi|dias\b|data\b|valor|obs\.|para$|atenciosamente|https?:)/i.test(l.trim());
+  let fimItens = linhas.findIndex(l => /condi.{1,2}es comerciais|soma das|n.{0,2} de itens/i.test(l));
+  if (fimItens < 0) fimItens = linhas.length;
+  for (let i = 0; i < fimItens; i++) {
+    const m = linhas[i].match(reItem);
+    if (!m) continue;
+    const [, codigo, un, qtd, precoLista, descPct, precoUn, total] = m;
+    let desc = linhas[i].slice(0, m.index).replace(/^\d{1,2}\s+/, '').trim();
+    const prev = (i > 0 && !reItem.test(linhas[i - 1]) && _ehTextoDesc(linhas[i - 1])) ? linhas[i - 1] : '';
+    const next = (i + 1 < fimItens && !reItem.test(linhas[i + 1]) && _ehTextoDesc(linhas[i + 1])) ? linhas[i + 1] : '';
+    desc = [prev, desc, next].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    itens.push({ codigo: codigo || '', un: un || 'un', qtd: _numBling(qtd), precoUn: _numBling(precoUn), descPct: _numBling(descPct), total: _numBling(total), desc: desc || codigo || ('Item ' + (itens.length + 1)) });
+  }
   // Parcelas: depois de "Condições comerciais", pares data + valor
   const parcelas = [];
   let aposCond = false;
@@ -6438,7 +6431,8 @@ async function sincronizarPedidosCompras() {
     const r = await _drivePasta('arquivos', { mes: DRIVE_MAE_ID, tipo: DRIVE_COMPRAS_SUBPASTA });
     const arquivos = (r.arquivos || []).filter(a => /\.pdf$/i.test(a.nome));
     if (!arquivos.length) { alert(`Nenhum PDF na pasta "${DRIVE_COMPRAS_SUBPASTA}" do Drive.\n\nCria a pasta dentro da pasta mãe (do lado das pastas de mês) e joga os pedidos dos fornecedores lá.`); return; }
-    const novos = arquivos.filter(a => !comprasDriveLidos[a.nome]);
+    // Novo = nunca lido OU já lido mas sem nenhum item no sistema (ela apagou pra reimportar)
+    const novos = arquivos.filter(a => !comprasDriveLidos[a.nome] || !compras.some(c => c._propArq === a.nome));
     if (!novos.length) { alert(`✓ Tudo em dia! Os ${arquivos.length} PDF(s) da pasta já foram importados antes.\n\n(Se subiu um arquivo novo, confere se o nome é diferente dos anteriores.)`); return; }
     let ok = 0, pulados = 0, falhas = [];
     for (const a of novos) {
@@ -10137,6 +10131,15 @@ function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro'
 // COMPRAS (requisição → aprovação → pedido → recebimento → Contas a Pagar)
 // ════════════════════════════════════════════════════════════════════
 const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
+// Colunas da tabela de Compras (chips 👁 mostram/ocultam; escolha fica salva no aparelho)
+const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
+let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcultas'); return v ? JSON.parse(v) : ['un','desc','solic']; } catch (e) { return ['un','desc','solic']; } })();
+function toggleCmpCol(key) {
+  if (cmpColsOcultas.includes(key)) cmpColsOcultas = cmpColsOcultas.filter(k => k !== key);
+  else cmpColsOcultas.push(key);
+  try { localStorage.setItem('cmpColsOcultas', JSON.stringify(cmpColsOcultas)); } catch (e) {}
+  renderCompras();
+}
 function totalCompra(c) { return +(((+c.custoTotal || 0) + (+c.frete || 0) - (+c.desconto || 0))).toFixed(2); } // total da compra = produtos + frete − desconto
 // Converte célula de data da planilha p/ 'AAAA-MM-DD' (p/ o <input type=date> da Data de Faturamento).
 function _toISOCell(v) {
@@ -10213,27 +10216,40 @@ function renderCompras() {
     <datalist id="cmp-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <datalist id="cmp-forn-list">${[...new Set([...fornecedoresCompras.map(f => f.nome).filter(Boolean), ...compras.map(c => c.fornecedor).filter(Boolean), ...contasPagar.map(c => c.fornecedor).filter(Boolean)])].sort().map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <datalist id="cmp-col-list">${colecoes.map(cc => `<option value="${(cc.nome || '').replace(/"/g, '&quot;')}">${(cc.subgrupo || '').replace(/"/g, '&quot;')}</option>`).join('')}${[...new Set(compras.map(c => c.colecao).filter(Boolean))].filter(n => !colecoes.some(cc => cc.nome === n)).map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${vis.length} item(ns) · total ${fmtVal(somaVis)}. Edite clicando nas células (só pendente/aprovado). Pedido → parcelas: no próximo passo.</div>
-    <div class="table-wrap"><table style="white-space:nowrap;font-size:11px"><thead><tr>
-      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th>Data</th><th>Fornecedor</th><th>Insumo</th><th>Un</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th><th style="text-align:right">Frete</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total geral</th><th>Data Fatur.</th><th>Coleção/PL/WL</th><th>Categoria</th><th>Solicitante</th><th>Status</th><th>Ações</th>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:11px">
+      <span style="color:var(--muted)">👁 Colunas:</span>
+      ${CMP_COLS.map(([k,lbl])=>{ const oc=cmpColsOcultas.includes(k); return `<span onclick="toggleCmpCol('${k}')" title="${oc?'Mostrar':'Ocultar'} ${lbl}" style="cursor:pointer;padding:2px 9px;border-radius:11px;user-select:none;${oc?'opacity:.5;text-decoration:line-through;background:var(--bg);border:1px solid var(--border)':'background:var(--accent);color:#fff;border:1px solid var(--accent)'}">${lbl}</span>`; }).join('')}
+      <span style="flex:1"></span>
+      <span style="color:var(--muted)">${vis.length} item(ns) · total <strong>${fmtVal(somaVis)}</strong></span>
+    </div>
+    <style>
+      .cmp-tbl{font-size:11px;white-space:nowrap;border-collapse:collapse}
+      .cmp-tbl th,.cmp-tbl td{padding:3px 6px}
+      .cmp-tbl th{font-size:10px}
+      .cmp-tbl .inline-input{font-size:11px;padding:2px 4px}
+      .cmp-ell{max-width:200px;overflow:hidden;text-overflow:ellipsis}
+      ${cmpColsOcultas.map(k=>`.cmp-tbl .cmpcol-${k}{display:none}`).join('')}
+    </style>
+    <div class="table-wrap"><table class="cmp-tbl"><thead><tr>
+      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th class="cmpcol-data">Data</th><th class="cmpcol-forn">Fornecedor</th><th class="cmpcol-insumo">Insumo</th><th class="cmpcol-un">Un</th><th class="cmpcol-qtd" style="text-align:right">Qtd</th><th class="cmpcol-custou" style="text-align:right">Custo un.</th><th class="cmpcol-total" style="text-align:right">Total</th><th class="cmpcol-frete" style="text-align:right">Frete</th><th class="cmpcol-desc" style="text-align:right">Desc.</th><th class="cmpcol-totalg" style="text-align:right">Total geral</th><th class="cmpcol-datafat">Data Fatur.</th><th class="cmpcol-colecao">Coleção/PL/WL</th><th class="cmpcol-cat">Categoria</th><th class="cmpcol-solic">Solicitante</th><th class="cmpcol-status">Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
       <td style="text-align:center">${st === 'pendente' ? `<input type="checkbox" class="cmp-selbox" data-id="${c.id}" ${comprasSel.has(c.id) ? 'checked' : ''} onchange="toggleCompraSel('${c.id}',this.checked)">` : ''}</td>
-      <td>${_fmtDataCell(c.dataSolic)}</td>
-      <td>${ro ? `<strong>${c.fornecedor || '—'}</strong>` : `<input class="inline-input" style="width:120px" list="cmp-forn-list" value="${(c.fornecedor || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','fornecedor',this.value)">`}</td>
-      <td>${ro ? (c.insumo || '—') : `<input class="inline-input" style="width:200px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
-      <td>${ro ? (c.unidade || '') : `<input class="inline-input" style="width:40px" value="${(c.unidade || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','unidade',this.value)">`}</td>
-      <td style="text-align:right">${ro ? (c.qtd || '') : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
-      <td style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
-      <td style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
-      <td style="text-align:right">${ro ? fmtVal(c.frete || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.frete || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','frete',this.value)">`}</td>
-      <td style="text-align:right">${ro ? fmtVal(c.desconto || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.desconto || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','desconto',this.value)" title="Desconto do item — subtrai do total">`}</td>
-      <td style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
-      <td>${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:120px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
-      <td>${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:130px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
-      <td>${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:110px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
-      <td>${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:100px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
-      <td><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
+      <td class="cmpcol-data">${_fmtDataCell(c.dataSolic)}</td>
+      <td class="cmpcol-forn">${ro ? `<div class="cmp-ell" style="max-width:140px;font-weight:700" title="${(c.fornecedor || '').replace(/"/g, '&quot;')}">${c.fornecedor || '—'}</div>` : `<input class="inline-input" style="width:120px" list="cmp-forn-list" value="${(c.fornecedor || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','fornecedor',this.value)">`}</td>
+      <td class="cmpcol-insumo">${ro ? `<div class="cmp-ell" title="${(c.insumo || '').replace(/"/g, '&quot;')}">${c.insumo || '—'}</div>` : `<input class="inline-input" style="width:180px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" title="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
+      <td class="cmpcol-un">${ro ? (c.unidade || '') : `<input class="inline-input" style="width:40px" value="${(c.unidade || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','unidade',this.value)">`}</td>
+      <td class="cmpcol-qtd" style="text-align:right">${ro ? (c.qtd || '') : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
+      <td class="cmpcol-custou" style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
+      <td class="cmpcol-total" style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
+      <td class="cmpcol-frete" style="text-align:right">${ro ? fmtVal(c.frete || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.frete || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','frete',this.value)">`}</td>
+      <td class="cmpcol-desc" style="text-align:right">${ro ? fmtVal(c.desconto || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.desconto || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','desconto',this.value)" title="Desconto do item — subtrai do total">`}</td>
+      <td class="cmpcol-totalg" style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
+      <td class="cmpcol-datafat">${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:118px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
+      <td class="cmpcol-colecao">${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:110px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
+      <td class="cmpcol-cat">${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:105px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
+      <td class="cmpcol-solic">${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:90px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
+      <td class="cmpcol-status"><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
       <td>${acoesCompra(c)}</td>
     </tr>`; }).join('')}
     </tbody></table></div>`}
