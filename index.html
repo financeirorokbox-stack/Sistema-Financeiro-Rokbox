@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v391/07-510';
+const APP_VERSION = 'v392/07-511';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3058,6 +3058,17 @@ function renderFluxo() {
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     sai[g] = (sai[g] || 0) + (c.valor || 0);
+  });
+  // CRÉDITO DE CARTÃO — quando a fatura foi conciliada abatendo um crédito da empresa
+  // (debitoLinks[id].credito), esse crédito ENTRA COMO SAÍDA NEGATIVA na data do débito,
+  // igual ao export do Contas a Pagar. Sem isto o Fluxo mostrava a despesa cheia e não
+  // batia com o Contas a Pagar / banco (fatura no banco = despesas − crédito).
+  Object.entries(debitoLinks).forEach(([extId, l]) => {
+    const cr = +((l && l.credito) || 0);
+    if (cr <= 0.005) return;
+    const t = extratoBancario.find(x => x.id === extId);
+    if (!t || !noPeriodo(t.data)) return;
+    sai['CRÉDITO CARTÃO'] = (sai['CRÉDITO CARTÃO'] || 0) - cr;
   });
   // SAÍDAS PREVISTAS — contas a pagar EM ABERTO (por vencimento), por grupo. É a projeção.
   const saiPrev = {};
