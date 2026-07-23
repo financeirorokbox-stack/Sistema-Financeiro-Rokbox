@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v387/07-506';
+const APP_VERSION = 'v388/07-507';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5461,8 +5461,9 @@ function toggleBoletoEmitido(key, checked) {
   renderBoletos();
 }
 function syncBoletosToRecebimentos() {
-  // Remove entradas antigas de boletos emitidos
-  recebimentosConsolidado = recebimentosConsolidado.filter(r => r.gateway !== 'Boleto Itaú');
+  // Remove entradas antigas de boletos emitidos (mas PRESERVA os boletos pagos "diretos" —
+  // pedidos do sistema fechados pelo relatório do Itaú no modelo cash-first, que não vêm da forma).
+  recebimentosConsolidado = recebimentosConsolidado.filter(r => r.gateway !== 'Boleto Itaú' || r._boletoPagoDireto);
 
   const boletos = getBoletosDaForma();
   boletos.forEach(b => {
@@ -5733,9 +5734,47 @@ function processCobrancaWorkbook(wb) {
   let nAdd = 0;
   novos.forEach(n => { const add = n._pago ? addP : addA; delete n._pago; if (add) { n.empresa = empAvulso; boletosAvulsos.push(n); nAdd++; } });
   if (nAtualizados || nAdd) saveData('boletosAvulsos', boletosAvulsos);
-  alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\n• Baixados no sistema: ${nBaixados}\n• Atualizados (já existiam, sem duplicar): ${nAtualizados}\n• Adicionados (novos, fora do sistema): ${nAdd}` + ((nBaixados === 0 && nAdd === 0 && nAtualizados === 0) ? `\n\nNenhum casou. Confirme que o "Seu Número" do relatório é o nº do pedido, ou marque os boletos como "Emitido" em Boletos a Emitir.` : ''));
+
+  // ── Boletos PAGOS de pedidos QUE ESTÃO no sistema, mas sem "forma"/emissão (modelo cash-first) ──
+  //    Fecham o pedido direto no Contas a Receber como recebido (Boleto Itaú). Sem isto sumiam:
+  //    não casavam com forma (aposentada) nem entravam como avulsos (o pedido existe).
+  const pedForma = new Set(boletos.map(b => String(b.pedido))); // pedidos já cobertos pela forma/emissão
+  const jaDireto = new Set(recebimentosConsolidado.filter(r => r._boletoPagoDireto).map(r => String(r.nped)));
+  const inSistPagos = [];
+  const vistosSist = new Set();
+  cobrancaRows.forEach(c => {
+    const pago = !!c.dataPagamento || (c.status || '').includes('pag');
+    if (!pago) return;
+    const pid = String(c.pedido || '').trim();
+    if (!pid) return;
+    const ped = pedidos.find(p => String(p.id) === pid);
+    if (!ped) return;                 // fora do sistema já foi tratado como avulso acima
+    if (pedForma.has(pid)) return;    // já cai no fluxo de forma/emissão (baixado)
+    if (jaDireto.has(pid)) return;    // já fechado antes por este mesmo caminho (não duplica)
+    if (vistosSist.has(pid)) return;  // mesmo pedido repetido no arquivo
+    vistosSist.add(pid);
+    inSistPagos.push({ pedido: pid, nome: c.pagador || ped.nome || '', valorTitulo: c.valorTitulo, valorPago: c.valorPago, dataPagamento: c.dataPagamento, vencimento: c.vencimento });
+  });
+  let nDireto = 0;
+  if (inSistPagos.length && confirm(`${inSistPagos.length} boleto(s) PAGO(s) de pedidos DO sistema (total ${fmtVal(inSistPagos.reduce((s, n) => s + (n.valorPago || n.valorTitulo || 0), 0))}).\n\nFechar esses pedidos no Contas a Receber como recebidos (Boleto Itaú)?`)) {
+    inSistPagos.forEach(n => {
+      recebimentosConsolidado.push({
+        gateway: 'Boleto Itaú', bruto: (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0, taxa: 0,
+        liq: n.valorTitulo || 0, juros: +(((n.valorPago || 0) - (n.valorTitulo || 0)) || 0).toFixed(2),
+        data: n.dataPagamento || n.vencimento, nped: n.pedido, nome: n.nome, tipo: 'Boleto', status: 'pago',
+        _boletoPagoDireto: true
+      });
+      formaOverrideMap[n.pedido] = 'Boleto Itaú'; // marca o pedido como Boleto (consistência com a tela)
+      nDireto++;
+    });
+    saveData('recebimentosConsolidado', recebimentosConsolidado);
+    saveData('formaOverrideMap', formaOverrideMap);
+  }
+
+  alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\n• Baixados no sistema: ${nBaixados}\n• Pedidos do sistema fechados (Boleto pago): ${nDireto}\n• Atualizados (já existiam, sem duplicar): ${nAtualizados}\n• Adicionados (novos, fora do sistema): ${nAdd}` + ((nBaixados === 0 && nAdd === 0 && nAtualizados === 0 && nDireto === 0) ? `\n\nNenhum casou. Confirme que o "Seu Número" do relatório é o nº do pedido.` : ''));
 
   syncBoletosToRecebimentos();
+  try { renderContas(); } catch (e) {}
 }
 function removerBoletoAvulso(i) {
   const a = boletosAvulsos[i];
