@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v384/07-503';
+const APP_VERSION = 'v385/07-504';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7194,11 +7194,21 @@ function renderExtrato() {
       const chaveDedup = t => fitidBase(t) + '§' + conteudo(t);
       const porChave = {};
       extratoBancario.forEach(t => { porChave[(t.banco || '') + '||' + chaveDedup(t)] = t; });
+      // Multiset por CONTEÚDO (banco+data+valor+texto): quantos JÁ existem de cada. Isto protege
+      // contra re-upload quando o FITID do Itaú é POSICIONAL (muda a cada download): mesmo o FITID
+      // sendo diferente, se o conteúdo idêntico já existe na mesma quantidade, NÃO adiciona de novo.
+      // E preserva duplicatas legítimas: um arquivo com 2 PIX iguais no mesmo dia entra os 2 na 1ª vez
+      // (existiam 0); no re-upload (existem 2) não entra nenhum. Nunca perde nem duplica.
+      const contConta = {};
+      extratoBancario.forEach(t => { const k = (t.banco || '') + '||' + conteudo(t); contConta[k] = (contConta[k] || 0) + 1; });
       const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
       let add = 0;
       novas.forEach(t => {
+        const kc = banco + '||' + conteudo(t);
         const existe = porChave[banco + '||' + chaveDedup(t)];
-        if (existe) { if (banco && !existe.banco) existe.banco = banco; return; } // mesmo FITID E mesmo conteúdo → já existe
+        if (existe) { if (banco && !existe.banco) existe.banco = banco; if (contConta[kc] > 0) contConta[kc]--; return; } // mesmo FITID E conteúdo → já existe
+        // Sem match de FITID, mas o conteúdo idêntico já existe (FITID mudou no novo download) → é o mesmo lançamento, pula
+        if (contConta[kc] > 0) { contConta[kc]--; return; }
         // Garante id único (evita colisão de FITID posicional / 'ofx-N', que quebraria os vínculos)
         let id = String(t.id);
         let n = 1;
