@@ -394,7 +394,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v381/07-500';
+const APP_VERSION = 'v382/07-501';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10175,7 +10175,7 @@ function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro'
 // ════════════════════════════════════════════════════════════════════
 const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
 // Colunas da tabela de Compras (chips 👁 mostram/ocultam; escolha fica salva no aparelho)
-const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
+const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['emp','Empresa'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
 let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcultas'); return v ? JSON.parse(v) : ['un','desc','solic']; } catch (e) { return ['un','desc','solic']; } })();
 // Aba (etapa do fluxo) selecionada em Compras — lembrada no aparelho
 let cmpTab = (() => { try { return localStorage.getItem('cmpTab') || ''; } catch (e) { return ''; } })();
@@ -10279,12 +10279,13 @@ function renderCompras() {
       ${cmpColsOcultas.map(k=>`.cmp-tbl .cmpcol-${k}{display:none}`).join('')}
     </style>
     <div class="table-wrap"><table class="cmp-tbl"><thead><tr>
-      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th class="cmpcol-data">Data</th><th class="cmpcol-forn">Fornecedor</th><th class="cmpcol-insumo">Insumo</th><th class="cmpcol-un">Un</th><th class="cmpcol-qtd" style="text-align:right">Qtd</th><th class="cmpcol-custou" style="text-align:right">Custo un.</th><th class="cmpcol-total" style="text-align:right">Total</th><th class="cmpcol-frete" style="text-align:right">Frete</th><th class="cmpcol-desc" style="text-align:right">Desc.</th><th class="cmpcol-totalg" style="text-align:right">Total geral</th><th class="cmpcol-datafat">Data Fatur.</th><th class="cmpcol-colecao">Coleção/PL/WL</th><th class="cmpcol-cat">Categoria</th><th class="cmpcol-solic">Solicitante</th><th class="cmpcol-status">Status</th><th>Ações</th>
+      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th class="cmpcol-data">Data</th><th class="cmpcol-forn">Fornecedor</th><th class="cmpcol-emp">Empresa</th><th class="cmpcol-insumo">Insumo</th><th class="cmpcol-un">Un</th><th class="cmpcol-qtd" style="text-align:right">Qtd</th><th class="cmpcol-custou" style="text-align:right">Custo un.</th><th class="cmpcol-total" style="text-align:right">Total</th><th class="cmpcol-frete" style="text-align:right">Frete</th><th class="cmpcol-desc" style="text-align:right">Desc.</th><th class="cmpcol-totalg" style="text-align:right">Total geral</th><th class="cmpcol-datafat">Data Fatur.</th><th class="cmpcol-colecao">Coleção/PL/WL</th><th class="cmpcol-cat">Categoria</th><th class="cmpcol-solic">Solicitante</th><th class="cmpcol-status">Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
       <td style="text-align:center">${st === 'pendente' ? `<input type="checkbox" class="cmp-selbox" data-id="${c.id}" ${comprasSel.has(c.id) ? 'checked' : ''} onchange="toggleCompraSel('${c.id}',this.checked)">` : ''}</td>
       <td class="cmpcol-data">${_fmtDataCell(c.dataSolic)}</td>
       <td class="cmpcol-forn">${ro ? `<div class="cmp-ell" style="max-width:140px;font-weight:700" title="${(c.fornecedor || '').replace(/"/g, '&quot;')}">${c.fornecedor || '—'}</div>` : `<input class="inline-input" style="width:120px" list="cmp-forn-list" value="${(c.fornecedor || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','fornecedor',this.value)">`}</td>
+      <td class="cmpcol-emp">${ro ? (c.empresa ? `<span class="badge info">${c.empresa}</span>` : '—') : `<select class="inline-input" style="width:90px" onchange="updateCompra('${c.id}','empresa',this.value);renderCompras()"><option value="">—</option>${empresasCadastro.map(e => `<option value="${e.replace(/"/g, '&quot;')}" ${e === c.empresa ? 'selected' : ''}>${e}</option>`).join('')}</select>`}</td>
       <td class="cmpcol-insumo">${ro ? `<div class="cmp-ell" title="${(c.insumo || '').replace(/"/g, '&quot;')}">${c.insumo || '—'}</div>` : `<input class="inline-input" style="width:180px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" title="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
       <td class="cmpcol-un">${ro ? (c.unidade || '') : `<input class="inline-input" style="width:40px" value="${(c.unidade || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','unidade',this.value)">`}</td>
       <td class="cmpcol-qtd" style="text-align:right">${ro ? (c.qtd || '') : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
@@ -10486,7 +10487,13 @@ function gerarPedidoCompra(fornecedor, i) {
   const fc = fornecedoresCompras.find(x => x.nome === fornecedor) || {};
   const catCount = {}; itens.forEach(c => { const k = c.categoria || fc.categoria || ''; if (k) catCount[k] = (catCount[k] || 0) + 1; });
   const categoria = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])[0] || fc.categoria || 'PEDIDOS';
-  const empresa = fc.empresa || (itens.find(c => c.empresa) || {}).empresa || '';
+  let empresa = (itens.find(c => c.empresa) || {}).empresa || fc.empresa || '';
+  // Sem empresa definida? Pergunta antes de gerar (as parcelas precisam dela no Contas a Pagar).
+  if (!empresa) {
+    empresa = String(prompt(`Qual EMPRESA é esse pedido de "${fornecedor}"?` + (empresasCadastro.length ? `\n\nOpções: ${empresasCadastro.join(' / ')}` : ''), empresasCadastro[0] || '') || '').trim();
+    if (!empresa) { alert('Pedido cancelado — informe a empresa (dá pra preencher também na coluna Empresa da tabela).'); return; }
+  }
+  itens.forEach(c => { if (!c.empresa) c.empresa = empresa; });
   const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
   // Número do pedido (sequencial automático, editável) + observação livre
   const numPed = String(prompt('Número do pedido (deixe o sugerido ou digite o seu):' + (prop && prop._propNum ? '\n(Proposta do fornecedor: #' + prop._propNum + ' — fica guardada como referência)' : ''), String(proxNumPedidoCompra())) || '').trim();
