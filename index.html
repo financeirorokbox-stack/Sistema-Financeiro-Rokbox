@@ -395,7 +395,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v396/07-515';
+const APP_VERSION = 'v397/07-516';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3149,15 +3149,19 @@ function renderFluxo() {
     }
     ent[g] = (ent[g] || 0) + t.valor;
   });
+  // ESTORNO só NÃO é saída de caixa quando NÃO saiu do banco: o estorno descontado do repasse do
+  // gateway (a entrada já chega líquida) não vira débito próprio, então contá-lo seria contar duas
+  // vezes. MAS o estorno que você pagou de verdade (PIX na mão, conciliado a um débito do banco) É
+  // dinheiro que saiu e TEM que contar. Regra: pula o estorno só se ele NÃO está conciliado no banco.
+  const _chavesDeb = new Set();
+  Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(i => { if (i.chave) _chavesDeb.add(i.chave); }));
+  const _estornoForaDoCaixa = c => (c._origemEstorno || String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO') && !_chavesDeb.has(chaveContaPagar(c));
   // SAÍDAS — contas a pagar PAGAS, por grupo de despesa (usa dataPag; se faltar, vencimento)
   const sai = {};
   contasPagar.forEach(c => {
     if (!c.pago || c.cancelado) return;
     if (!noPeriodo(c.dataPag || c.vencimento)) return;
-    // ESTORNO não é saída de caixa: ele NÃO sai como débito próprio no banco — já veio descontado
-    // do repasse do gateway (a entrada chega líquida). Contar aqui seria contar duas vezes e o
-    // Fluxo nunca bateria com o banco. (Junho: sem estornos, saídas = 388.438,92 x banco 388.438,87.)
-    if (String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO' || c._origemEstorno) return;
+    if (_estornoForaDoCaixa(c)) return;
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     sai[g] = (sai[g] || 0) + (c.valor || 0);
@@ -3178,7 +3182,7 @@ function renderFluxo() {
   contasPagar.forEach(c => {
     if (c.pago || c.cancelado) return;
     if (!noPeriodo(c.vencimento)) return;
-    if (String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO' || c._origemEstorno) return; // mesmo critério das pagas
+    if (_estornoForaDoCaixa(c)) return; // mesmo critério das pagas
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     saiPrev[g] = (saiPrev[g] || 0) + (c.valor || 0);
@@ -3249,7 +3253,7 @@ function renderFluxo() {
   extratoBancario.forEach(t => { if ((t.valor || 0) > 0) addMes(t.data, 'ent', t.valor); });
   contasPagar.forEach(c => {
     if (c.cancelado) return;
-    if (String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO' || c._origemEstorno) return;
+    if (_estornoForaDoCaixa(c)) return;
     if (c.pago) addMes(c.dataPag || c.vencimento, 'sai', c.valor||0); else addMes(c.vencimento, 'prev', c.valor||0);
   });
   const mesesOrd = Object.keys(meses).sort();
