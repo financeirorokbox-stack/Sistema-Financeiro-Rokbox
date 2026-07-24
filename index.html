@@ -259,6 +259,7 @@ tr:hover td{background:#fafaf8}
       📂 <input type="file" accept=".json" style="display:none" onchange="importarBackup(this.files[0])">
     </label>
     <button class="btn ghost sm" onclick="exportarBackup()" title="Exportar backup">💾 Backup</button>
+    <button class="btn ghost sm" onclick="abrirAutoBackups()" title="Backups automáticos (o sistema salva 1 por dia sozinho — restaure qualquer dia)">🕘</button>
     <button class="btn ghost sm" id="btn-zerar" style="display:none;color:var(--red)" onclick="zerarSistema()" title="Apagar TODOS os dados e começar do zero (admin)">🧨 Zerar</button>
     <button class="btn ghost sm" onclick="doLogout()">Sair</button>
   </div>
@@ -394,7 +395,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v395/07-514';
+const APP_VERSION = 'v396/07-515';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -496,14 +497,20 @@ async function deleteData(key) {
 }
 
 // Exportar/Importar todos os dados (backup)
-async function exportarBackup() {
+// Lista única das chaves que entram no backup (manual e automático usam a mesma).
+const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
+  'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos'];
+// Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
+function _montarBackup() {
   const dados = {};
-  const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos'];
-  for (const k of keys) {
+  for (const k of BACKUP_KEYS) {
     try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
   }
+  return dados;
+}
+async function exportarBackup() {
+  const dados = _montarBackup();
   const blob = new Blob([JSON.stringify(dados, null, 2)], {type: 'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -518,6 +525,93 @@ async function importarBackup(file) {
     await saveData(k, v);
   }
   alert('Backup importado! Recarregando...');
+  location.reload();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BACKUP AUTOMÁTICO — guarda uma cópia por dia sozinho, no navegador (IndexedDB).
+// Mantém os últimos 14 dias. A usuária não precisa lembrar de nada; e pode
+// restaurar/baixar qualquer dia pela telinha 🕘. É rede de segurança entre os
+// backups manuais de sexta. NUNCA quebra o app (tudo em try/catch).
+// ════════════════════════════════════════════════════════════════════
+const AUTOBKP_DB = 'rk_autobackup', AUTOBKP_STORE = 'snaps', AUTOBKP_MANTER = 14;
+function _abpDB() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(AUTOBKP_DB, 1);
+      req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(AUTOBKP_STORE)) db.createObjectStore(AUTOBKP_STORE, { keyPath: 'dia' }); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+function _abpTx(db, modo) { return db.transaction(AUTOBKP_STORE, modo).objectStore(AUTOBKP_STORE); }
+async function _abpListaDias() {
+  try { const db = await _abpDB(); return await new Promise(res => { const r = _abpTx(db, 'readonly').getAllKeys(); r.onsuccess = () => res((r.result || []).map(String).sort().reverse()); r.onerror = () => res([]); }); }
+  catch (e) { return []; }
+}
+async function _abpGet(dia) {
+  try { const db = await _abpDB(); return await new Promise(res => { const r = _abpTx(db, 'readonly').get(dia); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); }
+  catch (e) { return null; }
+}
+// Salva o snapshot do dia (só 1 por dia) e apaga os mais antigos que o limite.
+async function autoBackupDiario() {
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const dias = await _abpListaDias();
+    if (dias.includes(hoje)) return; // já tem o de hoje
+    const dados = _montarBackup();
+    if (!dados || !Object.keys(dados).length) return; // nada carregado ainda
+    const db = await _abpDB();
+    await new Promise((res, rej) => { const t = db.transaction(AUTOBKP_STORE, 'readwrite'); t.objectStore(AUTOBKP_STORE).put({ dia: hoje, ts: new Date().toISOString(), dados }); t.oncomplete = res; t.onerror = () => rej(t.error); });
+    // Poda: mantém só os últimos N dias
+    const todos = await _abpListaDias();
+    const apagar = todos.slice(AUTOBKP_MANTER);
+    if (apagar.length) { const db2 = await _abpDB(); const st = _abpTx(db2, 'readwrite'); apagar.forEach(d => { try { st.delete(d); } catch (e) {} }); }
+    console.log('🕘 Backup automático salvo:', hoje);
+  } catch (e) { console.warn('auto-backup falhou (não crítico):', e && e.message); }
+}
+function _fmtDiaBR(d) { const [a, m, dd] = String(d).split('-'); return dd && m && a ? `${dd}/${m}/${a}` : d; }
+// Telinha pra ver, restaurar e baixar os backups automáticos
+async function abrirAutoBackups() {
+  const dias = await _abpListaDias();
+  const old = document.getElementById('abp-modal'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'abp-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+  const linhas = dias.length
+    ? dias.map(d => `<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600">📅 ${_fmtDiaBR(d)}${d === new Date().toISOString().slice(0,10) ? ' <span style="font-size:10px;color:var(--green)">(hoje)</span>' : ''}</span>
+        <span style="display:flex;gap:6px">
+          <button class="btn ghost sm" onclick="baixarAutoBackup('${d}')" title="Baixar como arquivo .json">⬇ Baixar</button>
+          <button class="btn primary sm" onclick="restaurarAutoBackup('${d}')" title="Voltar o sistema pra esse dia">↩ Restaurar</button>
+        </span>
+      </div>`).join('')
+    : '<div style="color:var(--muted);font-size:13px;padding:12px 0">Ainda não há backups automáticos. O primeiro é salvo hoje sozinho.</div>';
+  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:22px;max-width:420px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:80vh;overflow:auto">
+      <div style="font-size:16px;font-weight:800;margin-bottom:4px">🕘 Backups automáticos</div>
+      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">O sistema salva uma cópia por dia sozinho (últimos ${AUTOBKP_MANTER} dias). É a sua rede de segurança. Restaurar volta o sistema pra aquele dia.</div>
+      ${linhas}
+      <button class="btn ghost sm" style="margin-top:16px;width:100%" onclick="document.getElementById('abp-modal').remove()">Fechar</button>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+}
+async function baixarAutoBackup(dia) {
+  const snap = await _abpGet(dia);
+  if (!snap || !snap.dados) { alert('Não achei esse backup.'); return; }
+  const blob = new Blob([JSON.stringify(snap.dados, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `backup_rokbox_${String(dia).split('-').reverse().join('-')}.json`;
+  a.click();
+}
+async function restaurarAutoBackup(dia) {
+  const snap = await _abpGet(dia);
+  if (!snap || !snap.dados) { alert('Não achei esse backup.'); return; }
+  if (!confirm(`Restaurar o sistema para o backup de ${_fmtDiaBR(dia)}?\n\nO estado de agora será substituído pelo desse dia.\n\n💡 Dica: os outros dias continuam guardados aqui, então dá pra voltar se precisar.`)) return;
+  for (const [k, v] of Object.entries(snap.dados)) { try { await saveData(k, v); } catch (e) {} }
+  alert('Backup restaurado! Recarregando...');
   location.reload();
 }
 
@@ -11703,6 +11797,7 @@ function delCheckboxHeader(source) {
   try { syncExtratoToRecebimentos(); } catch(e) {} // reconstrói os PIX do extrato a partir dos vínculos salvos (corrige PIX que sumia no reload)
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
   try { atualizarSaude(); } catch(e) {}
+  try { autoBackupDiario(); } catch(e) {} // 🕘 salva 1 backup por dia sozinho (rede de segurança)
 
   // Testa conexão Supabase
   try {
