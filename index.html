@@ -234,6 +234,7 @@ tr:hover td{background:#fafaf8}
   box-shadow:0 4px 24px rgba(0,0,0,0.25);white-space:nowrap">
   <span id="delete-bar-count" style="font-size:13px;font-weight:600"></span>
   <span id="delete-bar-sum" style="font-size:13px;font-weight:700;color:#ffd479"></span>
+  <button id="delete-bar-dup" class="btn sm" onclick="duplicarSelecao()" style="padding:6px 14px;display:none;background:#2f6f57;color:#fff" title="Cria uma cópia EM ABERTO de cada linha marcada (do Contas a Pagar)">📄 Duplicar</button>
   <button class="btn danger sm" onclick="executarExclusao()" style="padding:6px 16px">🗑 Excluir selecionados</button>
   <button onclick="limparSelecao()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;line-height:1">✕</button>
 </div>
@@ -395,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v397/07-516';
+const APP_VERSION = 'v398/07-517';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11610,7 +11611,35 @@ function updateDeleteBar() {
     });
     const sumEl = document.getElementById('delete-bar-sum');
     if (sumEl) sumEl.textContent = soma ? '· Σ ' + fmtVal(soma) : '';
+    // Botão Duplicar: só aparece quando há linhas do Contas a Pagar marcadas.
+    const dupEl = document.getElementById('delete-bar-dup');
+    if (dupEl) dupEl.style.display = [...deleteSelection].some(k => k.startsWith('contasPagar:')) ? 'inline-block' : 'none';
   }
+}
+// Duplica as linhas marcadas do Contas a Pagar: cria uma cópia EM ABERTO de cada uma (pra você
+// ajustar valor/data depois). Não copia pagamento nem vínculo de banco (nasce limpa).
+function duplicarSelecao() {
+  const idxs = [...deleteSelection].filter(k => k.startsWith('contasPagar:')).map(k => +k.split(':')[1]);
+  if (!idxs.length) { alert('Marque uma ou mais linhas do Contas a Pagar para duplicar.'); return; }
+  const novas = [];
+  idxs.forEach(i => {
+    const o = contasPagar[i]; if (!o) return;
+    const c = { ...o };
+    c.vencimento = o.vencimento ? new Date(o.vencimento) : null;
+    c.dataPag = null; c.pago = false; c.cancelado = false; c.situacao = 'Em Aberto';
+    c.numero = ''; c._manual = true; // conta nova, sem herdar nº (não casa com o débito do banco do original)
+    c.rateio = Array.isArray(o.rateio) ? o.rateio.map(r => ({ ...r })) : [];
+    delete c._origemEstorno; delete c._origemExtrato; delete c._compraPedidoId; delete c._folhaKey;
+    novas.push(c);
+  });
+  if (!novas.length) return;
+  contasPagar.push(...novas);
+  deleteSelection.clear();
+  updateDeleteBar();
+  document.querySelectorAll('.del-check').forEach(cb => cb.checked = false);
+  saveData('contasPagar', contasPagar);
+  try { renderPagar(); } catch (e) {}
+  alert(`✓ ${novas.length} linha(s) duplicada(s) como EM ABERTO.\n\nEstão no topo/rodapé da lista (destacadas em amarelo). Clique no ✏️ pra ajustar valor, data ou fornecedor.`);
 }
 
 function limparSelecao() {
