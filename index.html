@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v398/07-517';
+const APP_VERSION = 'v399/07-518';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4638,7 +4638,7 @@ function renderPagar() {
           <td class="cpcol-status"><select class="inline-input" style="width:110px;font-weight:700;color:${c.cancelado?'var(--muted)':(c.pago?'var(--green)':'var(--red)')}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago&&!c.cancelado?'selected':''}>Em Aberto</option><option value="pago" ${c.pago&&!c.cancelado?'selected':''}>Pago</option><option value="cancelado" ${c.cancelado?'selected':''}>🚫 Cancelado</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
           <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
-          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)">${c.numero?` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>`:''}<br><input class="inline-input" style="width:170px;margin-top:2px;font-size:10px" value="${(c.pix||'').replace(/"/g,'&quot;')}" placeholder="💠 PIX (vazio = usa a do fornecedor)" title="Chave PIX. Se deixar vazio, usa a PIX cadastrada no fornecedor (Cadastro → Fornecedores). Aparece como 💠 na linha fechada." onchange="updateContaPagar(${realIdx},'pix',this.value)"></td>
+          <td class="cpcol-fornecedor"><input class="inline-input" style="width:140px" list="cp-forn-list" value="${(c.fornecedor||'').replace(/"/g,'&quot;')}" placeholder="fornecedor" onchange="updateContaPagar(${realIdx},'fornecedor',this.value)"> <input class="inline-input" style="width:74px;font-size:10px" value="${(c.numero||'').replace(/"/g,'&quot;')}" placeholder="nº" title="Número da conta/NF. Se 2 parcelas têm o MESMO número, diferencie (ex.: 305585-2, 305585-3) pra conseguir conciliar cada uma no banco." onchange="updateContaPagar(${realIdx},'numero',this.value)"><br><input class="inline-input" style="width:170px;margin-top:2px;font-size:10px" value="${(c.pix||'').replace(/"/g,'&quot;')}" placeholder="💠 PIX (vazio = usa a do fornecedor)" title="Chave PIX. Se deixar vazio, usa a PIX cadastrada no fornecedor (Cadastro → Fornecedores). Aparece como 💠 na linha fechada." onchange="updateContaPagar(${realIdx},'pix',this.value)"></td>
           <td class="cpcol-categoria"><input class="inline-input" style="width:140px" list="cp-cat-list" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
           <td class="cpcol-valor" style="text-align:right"><input class="inline-input" style="width:95px;text-align:right" value="${c.valor?c.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="0,00" onchange="updateContaPagar(${realIdx},'valor',this.value)"></td>
           <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
@@ -10654,8 +10654,18 @@ function receberPedidoCompra(pedidoId) {
     let acum = 0;
     parc.forEach((c, k) => { let v = +(totalFinal * ((c.valor || 0) / totalAtual)).toFixed(2); if (k === parc.length - 1) v = +(totalFinal - acum).toFixed(2); acum += v; c.valor = v; });
   }
-  // Grava o nº da NF em todas as parcelas do pedido e marca recebido
-  contasPagar.filter(c => c._compraPedidoId === pedidoId).forEach(c => { if (nfTxt) c.numero = nfTxt; });
+  // Grava o nº da NF nas parcelas. Se há MAIS de uma parcela, cada uma leva um sufixo (/1, /2…)
+  // pra o número ficar ÚNICO — senão elas colidem na conciliação (o mesmo nº = "a mesma conta"
+  // pro banco, e conciliar uma travava as outras). Mantém a conciliação já feita (remapeia a chave).
+  if (nfTxt) {
+    const parcs = contasPagar.filter(c => c._compraPedidoId === pedidoId);
+    parcs.forEach((c, k) => {
+      const antes = chaveContaPagar(c);
+      c.numero = parcs.length > 1 ? `${nfTxt}/${k + 1}` : nfTxt;
+      const depois = chaveContaPagar(c);
+      if (depois !== antes) { try { _remapChaveConta(antes, depois); } catch (e) {} }
+    });
+  }
   itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; });
   saveData('contasPagar', contasPagar); saveData('compras', compras);
   renderCompras();
