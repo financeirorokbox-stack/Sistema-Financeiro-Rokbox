@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v400/07-519';
+const APP_VERSION = 'v401/07-520';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5411,12 +5411,24 @@ function getParcelas(pedido) {
   const totalComTaxa = +((pedido.valorTotal || 0) + taxa).toFixed(2); // taxa/juros por mudança de prazo entra no total
   const valorParcela = +(totalComTaxa / dias.length).toFixed(2);
   let acum = 0;
+  const ovParc = cfg.vencParc || {}; // vencimentos ajustados na mão por parcela (sobrepõem o cálculo)
   return vencimentos.map((v, i) => {
     let valor = valorParcela;
     if (i === dias.length - 1) valor = +(totalComTaxa - acum).toFixed(2); // última acerta o arredondamento
     acum += valor;
-    return { pedido: pedido.pedido, parcela: i + 1, totalParcelas: dias.length, valor, vencimento: v, key: pedido.pedido + '-' + (i + 1) };
+    const ov = ovParc[i + 1];
+    const venc = ov ? new Date(ov + 'T12:00:00') : v;
+    return { pedido: pedido.pedido, parcela: i + 1, totalParcelas: dias.length, valor, vencimento: venc, key: pedido.pedido + '-' + (i + 1) };
   });
+}
+// Ajusta na mão o vencimento de UMA parcela do boleto (guarda em boletoConfig[pedido].vencParc).
+function setVencParcela(pedido, parcela, valor) {
+  if (!boletoConfig[pedido]) boletoConfig[pedido] = {};
+  if (!boletoConfig[pedido].vencParc) boletoConfig[pedido].vencParc = {};
+  if (valor) boletoConfig[pedido].vencParc[parcela] = valor;
+  else delete boletoConfig[pedido].vencParc[parcela];
+  saveData('boletoConfig', boletoConfig);
+  renderBoletos();
 }
 function getBoletosDaForma() {
   const pedidosB = getBoletosPorPedido();
@@ -5742,7 +5754,7 @@ function renderBoletos() {
             <option value="">Ano</option>${anos.map(a=>`<option value="${a}" ${String(a)===dsAno?'selected':''}>${a}</option>`).join('')}
           </select>
         </div></td>
-        <td style="font-size:11px;min-width:190px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<div style="white-space:nowrap;${cor}"><strong>${p.parcela}/${p.totalParcelas}</strong> · ${fmtDate(p.vencimento)} · ${fmtVal(p.valor)} ${st?'<span class="badge ok">✓</span>':''}</div>`;}).join('') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
+        <td style="font-size:11px;min-width:190px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<div style="white-space:nowrap;display:flex;align-items:center;gap:5px;margin-bottom:2px;${cor}"><strong>${p.parcela}/${p.totalParcelas}</strong> <input type="date" value="${_toDateInput(p.vencimento)}" onchange="setVencParcela('${String(p.pedido).replace(/'/g,"\\'")}',${p.parcela},this.value)" title="Ajustar o vencimento desta parcela" style="font-size:11px;padding:1px 3px;border:1px solid var(--border);border-radius:4px;width:118px"> ${fmtVal(p.valor)} ${st?'<span class="badge ok">✓</span>':''}</div>`;}).join('') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
         <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem de cobrança pronta">📱 ${boletoAvisado[String(ped.pedido)]?'Cobrar de novo':'Cobrar'}</button>${boletoAvisado[String(ped.pedido)]?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ ${fmtDiaBR(boletoAvisado[String(ped.pedido)])}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${ped.pedido}');return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>`:''}`:''}</div></td>
       </tr>`;
     }).join('')}
