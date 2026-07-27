@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v403/07-522';
+const APP_VERSION = 'v404/07-523';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2268,11 +2268,7 @@ function _renderContasImpl(el) {
           const parcelas = getParcelas({ pedido: ped.id, valorTotal: ped.valor });
           if (parcelas.length) {
             parcelas.forEach(parc => {
-              const pago = !!boletoStatus[parc.key];
-              const stParc = pago
-                ? { recebido: true, detalhe: boletoCobrancaStatus[parc.key]?.dataPagamento ? `✓ pago em ${fmtDate(boletoCobrancaStatus[parc.key].dataPagamento)}` : '✓ pago' }
-                : { recebido: false, detalhe: 'emitido, aguardando pagamento' };
-              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento }, cat, st: stParc, venc: parc.vencimento, realIdx: -1, semForma: true });
+              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento }, cat, st: _stParcelaBoleto(parc), venc: parc.vencimento, realIdx: -1, semForma: true });
             });
             return; // já empurrou as parcelas — não empurra a linha agregada
           }
@@ -2295,13 +2291,9 @@ function _renderContasImpl(el) {
               if (boletoJaAdd.has(ped.id)) return; // já gerou as parcelas deste pedido → NÃO duplica por linha de forma
               boletoJaAdd.add(ped.id);
               parcelas.forEach(parc => {
-                const pago = !!boletoStatus[parc.key];
-                const stParc = pago
-                  ? { recebido: true, detalhe: boletoCobrancaStatus[parc.key]?.dataPagamento ? `✓ pago em ${fmtDate(boletoCobrancaStatus[parc.key].dataPagamento)}` : '✓ pago' }
-                  : { recebido: false, detalhe: 'emitido, aguardando pagamento' };
                 linhas.push({
                   ped, f: { ...f, valor: parc.valor, descricao: `${f.descricao} — ${parc.parcela}/${parc.totalParcelas}` },
-                  cat: c.categoria, st: stParc, venc: parc.vencimento, realIdx: formaPagamento.indexOf(f)
+                  cat: c.categoria, st: _stParcelaBoleto(parc), venc: parc.vencimento, realIdx: formaPagamento.indexOf(f)
                 });
               });
               return; // pula linha agregada, forEach continua normalmente
@@ -5445,6 +5437,15 @@ function setVencParcela(pedido, parcela, valor) {
   saveData('boletoConfig', boletoConfig);
   renderBoletos();
   try { renderContas(); } catch (e) {} // reflete o vencimento novo no Contas a Receber na mesma hora
+}
+// Status de UMA parcela de boleto no Contas a Receber. PAGO só quando o pagamento REALMENTE caiu
+// (boletoCobrancaStatus.pago, vindo do relatório do Itaú). "Emitido" é só aguardando pagamento —
+// não é pago. (Corrige o boleto emitido aparecendo como PAGO no Contas a Receber.)
+function _stParcelaBoleto(parc) {
+  const cob = boletoCobrancaStatus[parc.key];
+  if (cob && cob.pago) return { recebido: true, detalhe: cob.dataPagamento ? `✓ pago em ${fmtDate(cob.dataPagamento)}` : '✓ pago' };
+  if (boletoStatus[parc.key]) return { recebido: false, detalhe: 'emitido, aguardando pagamento' };
+  return { recebido: false, detalhe: 'aguardando emissão' };
 }
 function getBoletosDaForma() {
   const pedidosB = getBoletosPorPedido();
