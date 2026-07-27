@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v399/07-518';
+const APP_VERSION = 'v400/07-519';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5742,7 +5742,7 @@ function renderBoletos() {
             <option value="">Ano</option>${anos.map(a=>`<option value="${a}" ${String(a)===dsAno?'selected':''}>${a}</option>`).join('')}
           </select>
         </div></td>
-        <td style="font-size:11px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<span style="${cor}">${p.parcela}/${p.totalParcelas}: ${fmtDate(p.vencimento)} ${fmtVal(p.valor)}</span> ${st?'<span class="badge ok">✓</span>':''}`;}).join('<br>') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
+        <td style="font-size:11px;min-width:190px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<div style="white-space:nowrap;${cor}"><strong>${p.parcela}/${p.totalParcelas}</strong> · ${fmtDate(p.vencimento)} · ${fmtVal(p.valor)} ${st?'<span class="badge ok">✓</span>':''}</div>`;}).join('') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
         <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem de cobrança pronta">📱 ${boletoAvisado[String(ped.pedido)]?'Cobrar de novo':'Cobrar'}</button>${boletoAvisado[String(ped.pedido)]?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ ${fmtDiaBR(boletoAvisado[String(ped.pedido)])}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${ped.pedido}');return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>`:''}`:''}</div></td>
       </tr>`;
     }).join('')}
