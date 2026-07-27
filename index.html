@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v404/07-523';
+const APP_VERSION = 'v405/07-524';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2540,7 +2540,11 @@ function _renderContasImpl(el) {
       <th>Pedido</th><th>Cliente</th><th>Loja</th><th>Operação</th>
       <th>Forma de Pagamento</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Liquidação</th><th>Detalhe</th>
     </tr></thead><tbody>
-    ${[...vis].sort((a,b)=>Number(b.f.pedido)-Number(a.f.pedido)).map(l=>{
+    ${[...vis].sort((a,b)=>{
+        // Ordena por VENCIMENTO (mais próximo primeiro); sem vencimento vai pro fim; empate → nº do pedido
+        const va = a.venc ? +new Date(a.venc) : Infinity, vb = b.venc ? +new Date(b.venc) : Infinity;
+        return va - vb || (Number(b.f.pedido) - Number(a.f.pedido));
+      }).map(l=>{
       if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; return `<tr style="background:#fffaf0">
         <td></td>
         <td><strong>${l.f.pedido && !String(l.f.pedido).startsWith('AV') ? '#' + l.f.pedido : '—'}</strong> <span class="badge" style="font-size:9px;background:#8a5a00;color:#fff" title="Boleto importado do Itaú (cliente fora do sistema)">Itaú</span></td>
