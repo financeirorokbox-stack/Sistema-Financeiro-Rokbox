@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v402/07-521';
+const APP_VERSION = 'v403/07-522';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2262,6 +2262,21 @@ function _renderContasImpl(el) {
         cat = formaOverrideMap[ped.id];
         descricao = cat;
         st = statusForma(ped.id, cat, ped.valor);
+        // Boleto Itaú JÁ CONFIGURADO com parcelas → mostra cada parcela com seu vencimento (igual à tela
+        // de Boletos a Emitir). Sem isto o boleto cash-first aparecia como 1 linha só, sem vencimento.
+        if (cat === 'Boleto Itaú') {
+          const parcelas = getParcelas({ pedido: ped.id, valorTotal: ped.valor });
+          if (parcelas.length) {
+            parcelas.forEach(parc => {
+              const pago = !!boletoStatus[parc.key];
+              const stParc = pago
+                ? { recebido: true, detalhe: boletoCobrancaStatus[parc.key]?.dataPagamento ? `✓ pago em ${fmtDate(boletoCobrancaStatus[parc.key].dataPagamento)}` : '✓ pago' }
+                : { recebido: false, detalhe: 'emitido, aguardando pagamento' };
+              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento }, cat, st: stParc, venc: parc.vencimento, realIdx: -1, semForma: true });
+            });
+            return; // já empurrou as parcelas — não empurra a linha agregada
+          }
+        }
       }
       linhas.push({ ped, f: { pedido: ped.id, descricao, valor: ped.valor, vencimento: null }, cat, st, venc: null, realIdx: -1, semForma: true });
     } else {
