@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v405/07-524';
+const APP_VERSION = 'v406/07-525';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10986,7 +10986,7 @@ function renderRH() {
     </div>
     <datalist id="rh-emp-list">${empresas.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
     <div class="table-wrap"><table><thead><tr>
-      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>% Adto</th><th>VT/dia</th><th>Home/sem</th><th>Categoria</th><th>💠 PIX</th><th></th>
+      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>% Adto</th><th>VT/dia</th><th title="Dias da semana em HOME OFFICE (não contam VT). Marque os dias fixos de cada um.">Home (dias)</th><th>Categoria</th><th>💠 PIX</th><th></th>
     </tr></thead><tbody>
     ${funcionariosRH.map((f, i) => `<tr style="${f.ativo === false ? 'opacity:.5' : ''}">
       <td style="text-align:center"><input type="checkbox" ${f.ativo !== false ? 'checked' : ''} onchange="updateFuncionarioRH(${i},'ativo',this.checked)" title="Desmarcado = não entra na folha"></td>
@@ -10996,7 +10996,7 @@ function renderRH() {
       <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${f.salario ? (+f.salario).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFuncionarioRH(${i},'salario',this.value)"></td>
       <td style="text-align:center"><input class="inline-input" type="number" min="0" max="100" style="width:52px;text-align:center" value="${f.adiantPct != null ? f.adiantPct : 40}" title="% do salário pago como ADIANTAMENTO (dia 20). Padrão 40%." onchange="updateFuncionarioRH(${i},'adiantPct',this.value)"></td>
       <td style="text-align:right"><input class="inline-input" style="width:64px;text-align:right" value="${f.vtDia ? (+f.vtDia).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" title="Vale transporte por DIA presencial (ex.: 18,76)" onchange="updateFuncionarioRH(${i},'vtDia',this.value)"></td>
-      <td style="text-align:center"><input class="inline-input" type="number" min="0" max="6" style="width:48px;text-align:center" value="${f.homeSem != null ? f.homeSem : 0}" title="Dias de HOME OFFICE por semana (não contam no VT)" onchange="updateFuncionarioRH(${i},'homeSem',this.value)"></td>
+      <td style="text-align:center"><div style="display:flex;gap:2px;justify-content:center">${[[1,'2ª'],[2,'3ª'],[3,'4ª'],[4,'5ª'],[5,'6ª']].map(([d,lbl])=>{const on=(f.homeDias||[]).includes(d);return `<button type="button" onclick="toggleHomeDia(${i},${d})" title="${lbl}-feira em home office (não conta VT)" style="width:22px;height:22px;border-radius:5px;border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'var(--accent)':'transparent'};color:${on?'#fff':'var(--muted)'};font-size:10px;cursor:pointer;font-weight:700">${lbl}</button>`;}).join('')}</div></td>
       <td><input class="inline-input" style="width:120px" list="cp-cat-list" value="${esc(f.categoria || 'SALÁRIO')}" onchange="updateFuncionarioRH(${i},'categoria',this.value)"></td>
       <td><input class="inline-input" style="width:160px" value="${esc(f.pix)}" placeholder="chave PIX" onchange="updateFuncionarioRH(${i},'pix',this.value)"></td>
       <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerFuncionarioRH(${i})" title="Remover do RH (não apaga contas já geradas)">🗑</button></td>
@@ -11059,6 +11059,7 @@ function preencherFolhaAuto() {
   const de = m._vtDe || (mes + '-01');
   const ate = m._vtAte || (mes + '-' + String(new Date(a, mo, 0).getDate()).padStart(2, '0'));
   const uteisBase = _diasUteisPeriodoRH(de, ate, _rhFeriados);
+  const uteisBrutos = _diasUteisPeriodoRH(de, ate, 0); // seg-sex do período, ANTES de tirar feriado
   const semanas = Math.max(1, Math.round((new Date(ate + 'T12:00:00') - new Date(de + 'T12:00:00')) / 86400000 / 7));
   const ativos = funcionariosRH.filter(f => f.ativo !== false && (f.nome || '').trim());
   if (!ativos.length) { alert('Nenhum funcionário ativo.'); return; }
@@ -11069,7 +11070,15 @@ function preencherFolhaAuto() {
     const pct = f.adiantPct != null ? +f.adiantPct : 40;
     if ((+f.salario || 0) > 0 && pct > 0) { r.adiant = +(((+f.salario) * pct) / 100).toFixed(2); nA++; }
     if ((+f.vtDia || 0) > 0) {
-      const dias = Math.max(0, uteisBase - Math.round((+f.homeSem || 0) * semanas));
+      let dias;
+      if (Array.isArray(f.homeDias) && f.homeDias.length) {
+        // EXATO: dias úteis do período − feriados − os dias da semana de home office desta pessoa
+        const home = _contarDiasSemana(de, ate, f.homeDias);
+        dias = Math.max(0, uteisBrutos - (+_rhFeriados || 0) - home);
+      } else {
+        // Compat (quem só informou "quantos por semana"): estimativa por semanas
+        dias = Math.max(0, uteisBase - Math.round((+f.homeSem || 0) * semanas));
+      }
       r.vt = +((+f.vtDia) * dias).toFixed(2); r.vtDias = dias; nV++;
     }
   });
@@ -11110,6 +11119,25 @@ function updateFuncionarioRH(i, campo, valor) {
   else f[campo] = valor;
   saveData('funcionariosRH', funcionariosRH);
   if (campo === 'ativo' || campo === 'salario') renderRH(); // atualiza os cards
+}
+// Marca/desmarca um dia da semana (1=2ª … 5=6ª) como HOME OFFICE do funcionário.
+function toggleHomeDia(i, dia) {
+  const f = funcionariosRH[i]; if (!f) return;
+  if (!Array.isArray(f.homeDias)) f.homeDias = [];
+  const k = f.homeDias.indexOf(dia);
+  if (k >= 0) f.homeDias.splice(k, 1); else f.homeDias.push(dia);
+  f.homeDias.sort((a, b) => a - b);
+  f.homeSem = f.homeDias.length; // mantém compat com quem ainda usa "quantos por semana"
+  saveData('funcionariosRH', funcionariosRH);
+  renderRH();
+}
+// Conta quantos dias do período [de,ate] caem nos dias da semana informados (getDay: 1=2ª … 5=6ª).
+function _contarDiasSemana(deISO, ateISO, diasSet) {
+  const de = new Date(deISO + 'T12:00:00'), ate = new Date(ateISO + 'T12:00:00');
+  if (isNaN(de) || isNaN(ate) || ate < de || !diasSet || !diasSet.length) return 0;
+  let n = 0;
+  for (let d = new Date(de); d <= ate; d.setDate(d.getDate() + 1)) { if (diasSet.includes(d.getDay())) n++; }
+  return n;
 }
 function removerFuncionarioRH(i) {
   const f = funcionariosRH[i]; if (!f) return;
