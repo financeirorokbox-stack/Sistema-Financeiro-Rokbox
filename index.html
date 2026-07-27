@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v401/07-520';
+const APP_VERSION = 'v402/07-521';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5429,6 +5429,7 @@ function setVencParcela(pedido, parcela, valor) {
   else delete boletoConfig[pedido].vencParc[parcela];
   saveData('boletoConfig', boletoConfig);
   renderBoletos();
+  try { renderContas(); } catch (e) {} // reflete o vencimento novo no Contas a Receber na mesma hora
 }
 function getBoletosDaForma() {
   const pedidosB = getBoletosPorPedido();
