@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v411/07-530';
+const APP_VERSION = 'v412/07-531';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7110,6 +7110,12 @@ function syncExtratoToRecebimentos() {
     return true;
   });
 
+  // Sobras JÁ movidas pra outro pedido (modelo _sobraDe): ao recriar o PIX do extrato da ORIGEM,
+  // desconta o que foi movido — senão o crédito volta CHEIO e a sobra "reaparece" na origem
+  // (era o bug das "sobras que se perdiam"). Os _sobraDe sobreviveram ao filtro acima.
+  const sobraPorOrigem = {};
+  recebimentosConsolidado.forEach(r => { if (r._sobraDe) sobraPorOrigem[String(r._sobraDe)] = (sobraPorOrigem[String(r._sobraDe)] || 0) + (r.bruto || 0); });
+
   Object.entries(extratoLinks).forEach(([id, link]) => {
     const t = extratoBancario.find(x => x.id === id);
     if (!t) return;
@@ -7129,14 +7135,18 @@ function syncExtratoToRecebimentos() {
       return;
     }
     const ped0 = pedidos.find(p => String(p.id) === String(pedIds[0]));
+    // Desconta a sobra já movida deste pedido (só quando o crédito é de UM pedido; com vários, o
+    // alocRecebGateway já divide por valor e não precisa).
+    let brutoPix = t.valor;
+    if (pedIds.length === 1 && sobraPorOrigem[pedIds[0]]) brutoPix = +(t.valor - sobraPorOrigem[pedIds[0]]).toFixed(2);
     // UMA entrada por crédito, listando TODOS os pedidos vinculados. O valor é DIVIDIDO entre eles
     // por `alocRecebGateway` (pelo valor de cada pedido). Antes criava 1 entrada de valor CHEIO por
     // pedido → com 2 pedidos, cada um parecia ter recebido o crédito inteiro e virava "sobra" falsa.
     recebimentosConsolidado.push({
       gateway: 'PIX (Extrato)',
-      bruto: t.valor,
+      bruto: brutoPix,
       taxa: 0,
-      liq: t.valor,
+      liq: brutoPix,
       data: t.data,
       nped: pedIds.join(','),
       nome: ped0 ? ped0.nome : '',
