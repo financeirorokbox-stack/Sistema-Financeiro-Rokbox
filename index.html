@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v412/07-531';
+const APP_VERSION = 'v413/07-532';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6354,6 +6354,15 @@ function resolverDevolucaoNaConciliacao(pedidoOriginal) {
 function credDevolucao(d) {
   const raw = devolucaoCredito[d.pedido + '|' + d.cliente];
   if (raw === '__editando__' || raw === '__vazio__') return '';
+  // Crédito PARCELADO: quando o cliente tem VÁRIAS devoluções do mesmo pedido apontando pra pedidos
+  // de crédito DIFERENTES entre si (cada pedaço usado num pedido), o vínculo manual é um só e não
+  // distingue as devoluções. Nesse caso, cada devolução usa o SEU próprio pedido de crédito (vazio cai
+  // no vínculo manual). Se todas apontam pro MESMO pedido, o vínculo manual continua valendo (não muda).
+  const grp = devolucoes.filter(x => String(x.pedido) === String(d.pedido) && (x.cliente || '') === (d.cliente || ''));
+  if (grp.length > 1) {
+    const distintos = new Set(grp.map(x => (x.pedidoCredito || '').trim()));
+    if (distintos.size > 1) return (d.pedidoCredito || '').trim() || raw || '';
+  }
   return raw || d.pedidoCredito || '';
 }
 // Parcela de uma devolução que cabe a UM pedido de crédito: DIVIDE o valor entre os pedidos do crédito
