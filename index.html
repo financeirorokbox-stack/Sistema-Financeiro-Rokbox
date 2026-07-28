@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v407/07-526';
+const APP_VERSION = 'v408/07-527';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8050,6 +8050,7 @@ function aceitarDifPedido(pedId, acao) {
 }
 
 let ppFiltroStatus = [];   // status marcados na Conciliação de Recebíveis (multi-seleção; vazio = todos)
+let ppMes = '';            // mês (YYYY-MM) selecionado na Conciliação de Recebíveis (vazio = todos)
 function renderPorPedido() {
   const cont = document.getElementById('conc-table');
   if (!cont) return;
@@ -8078,6 +8079,7 @@ function renderPorPedido() {
   let vis = linhas;
   if (ppFiltroStatus.length) vis = vis.filter(l => ppFiltroStatus.includes(l.status));
   if (fQ) vis = vis.filter(l => String(l.ped.id).includes(fQ) || (l.ped.nome || '').toLowerCase().includes(fQ));
+  if (ppMes) vis = vis.filter(l => { const d = l.ped.data instanceof Date ? l.ped.data : (l.ped.data ? new Date(l.ped.data) : null); return d && !isNaN(d) && (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')) === ppMes; });
   if (dfAtivo()) vis = vis.filter(l => passaData(l.ped.data));
   vis.sort((a, b) => Number(b.ped.id) - Number(a.ped.id));
 
@@ -8087,10 +8089,12 @@ function renderPorPedido() {
   // O que a conciliação está usando como valor do pedido (deve ser igual a Vendas).
   const totValorConc  = +linhas.reduce((s, l) => s + l.valorPed, 0).toFixed(2);
   const okVendas      = Math.abs(totValorConc - totVendas) <= 0.5;
-  const totPedidos    = totVendas; // exibe o valor autoritativo (Vendas)
-  const totRecebido   = +linhas.reduce((s, l) => s + l.somaBruto, 0).toFixed(2);  // dinheiro + boleto + devolução
-  const totDevolucao  = +linhas.reduce((s, l) => s + l.recs.filter(r => r.gateway === 'Devolução').reduce((a, r) => a + (r.bruto || 0), 0), 0).toFixed(2);
+  // Cards seguem o FILTRO da tela (mês/status/busca) — usam `vis`. Assim o "Total do mês" bate com a lista.
+  const totPedidos    = +vis.reduce((s, l) => s + (l.ped.valor || 0), 0).toFixed(2);
+  const totRecebido   = +vis.reduce((s, l) => s + l.somaBruto, 0).toFixed(2);  // dinheiro + boleto + devolução
+  const totDevolucao  = +vis.reduce((s, l) => s + l.recs.filter(r => r.gateway === 'Devolução').reduce((a, r) => a + (r.bruto || 0), 0), 0).toFixed(2);
   const difTot        = +(totPedidos - totRecebido).toFixed(2);
+  const filtrado      = !!(ppMes || ppFiltroStatus.length || fQ || dfAtivo());
   const difOk         = Math.abs(difTot) <= 0.5;
   // FONTE INDEPENDENTE 2: todo recebimento tem que estar em pedido, sem pedido ou período anterior.
   const totRecebGeral = +recebimentosConsolidado.reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
@@ -8100,7 +8104,7 @@ function renderPorPedido() {
   const okReceb       = Math.abs(totRecebGeral - (totEmPedidos + totSemPedido + totPeriodoAnt)) <= 0.5;
   const cards = `
     <div class="cards-row" style="margin-bottom:8px">
-      <div class="card blue"><div class="c-label">Total Pedidos (Venda/Troca)</div><div class="c-val">${fmtVal(totPedidos)}</div><div class="c-sub">${linhas.length} pedido(s)</div></div>
+      <div class="card blue"><div class="c-label">Total Pedidos (Venda/Troca)${filtrado ? ' · filtro' : ''}</div><div class="c-val">${fmtVal(totPedidos)}</div><div class="c-sub">${vis.length} pedido(s)${ppMes ? ' · ' + ppMes.split('-').reverse().join('/') : ''}</div></div>
       <div class="card green"><div class="c-label">Total Recebido</div><div class="c-val">${fmtVal(totRecebido)}</div><div class="c-sub">${totDevolucao ? `inclui devolução ${fmtVal(totDevolucao)}` : '&nbsp;'}</div></div>
       <div class="card ${difOk ? 'dark' : 'amber'}"><div class="c-label">Diferença</div><div class="c-val" style="color:${difOk ? 'var(--green)' : 'var(--amber)'}">${difTot === 0 ? '✓ 0' : fmtVal(Math.abs(difTot))}</div><div class="c-sub">${difOk ? '✓ bate' : (difTot > 0 ? 'falta receber' : 'sobra')}</div></div>
       <div class="card dark"><div class="c-label">Recebimentos (total geral)</div><div class="c-val">${fmtVal(totRecebGeral)}</div><div class="c-sub">sem pedido: ${fmtVal(totSemPedido)}</div></div>
@@ -8217,6 +8221,9 @@ function renderConcResult() {
     <div class="filter-bar">
       <span class="f-label">Pesquisar:</span>
       <input type="text" id="cr-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou nome..." oninput="buscaPersist.conc=this.value;debounceRender('renderConcResult')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">
+      <span class="f-label" style="margin-left:6px">Mês:</span>
+      <input type="month" id="cr-mes" value="${ppMes}" title="Mostra só os pedidos com data neste mês" onchange="ppMes=this.value;renderConcResult()" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+      ${ppMes ? `<button class="btn ghost sm" onclick="ppMes='';renderConcResult()" title="Limpar o mês">✕</button>` : ''}
       <button class="btn primary sm" onclick="reprocessarTudo()" title="Refaz a conciliação com os dados atuais: vincula automaticamente os pedidos/recebimentos novos e mantém os vínculos manuais">🔄 Reconciliar</button>
       ${tab==='extra' && recebimentosConsolidado.some(r=>!r.nped&&recebPeriodoAnterior(r)) ? `<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ${_verPeriodoAnt?'checked':''} onchange="_verPeriodoAnt=this.checked;renderConcResult()"> 📦 mostrar período anterior (${recebimentosConsolidado.filter(r=>!r.nped&&recebPeriodoAnterior(r)).length})</label>`:''}
     </div>
