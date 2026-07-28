@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v410/07-529';
+const APP_VERSION = 'v411/07-530';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2270,8 +2270,13 @@ function _renderContasImpl(el) {
         if (cat === 'Boleto Itaú') {
           const parcelas = getParcelas({ pedido: ped.id, valorTotal: ped.valor });
           if (parcelas.length) {
+            // Se o pedido JÁ foi todo recebido (por qualquer forma: boleto pago + PIX + sobra de outro
+            // pedido), a parcela mostra PAGA — mesmo que o carimbo de boleto pago não esteja na parcela.
+            const recebidoTot = getRecebimentosDoPedido(ped).reduce((s, r) => s + (r.bruto || 0), 0);
+            const quitadoPorReceb = recebidoTot >= (ped.valor || 0) - 0.5;
             parcelas.forEach(parc => {
-              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento }, cat, st: _stParcelaBoleto(parc), venc: parc.vencimento, realIdx: -1, semForma: true });
+              const stP = quitadoPorReceb ? { recebido: true, detalhe: '✓ pago' } : _stParcelaBoleto(parc);
+              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento }, cat, st: stP, venc: parc.vencimento, realIdx: -1, semForma: true });
             });
             return; // já empurrou as parcelas — não empurra a linha agregada
           }
@@ -7780,7 +7785,7 @@ function getRecebimentosDoPedido(ped) {
     // Boletos de PEDIDO (não-avulsos) são contados UMA vez só pelo bloco de Cobrança abaixo
     // (boletoCobrancaStatus). Sem isto, o mesmo boleto entrava 2x: aqui (lista consolidada que o
     // syncBoletosToRecebimentos gera) E lá embaixo → inflava o "Recebido" e criava Sobra falsa.
-    if (r.gateway === 'Boleto Itaú' && !r._avulso) return;
+    if (r.gateway === 'Boleto Itaú' && !r._avulso && !r._boletoPagoDireto) return; // o boleto pago DIRETO (relatório Itaú, cash-first) É contado aqui — não passa pelo boletoCobrancaStatus
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.includes(pedId)) return;
     const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)';
