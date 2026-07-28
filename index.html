@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v409/07-528';
+const APP_VERSION = 'v410/07-529';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8055,7 +8055,9 @@ let ppMes = '';            // mês (YYYY-MM) selecionado na Conciliação de Rec
 function _setPpMes() {
   const mm = document.getElementById('cr-selmes')?.value || '';
   const aa = document.getElementById('cr-selano')?.value || '';
-  ppMes = (mm && aa) ? (aa + '-' + mm) : '';
+  const novo = (mm && aa) ? (aa + '-' + mm) : '';
+  if (novo === ppMes) return; // filtro efetivo não mudou (ex.: só o mês escolhido) → NÃO re-renderiza (preserva a seleção parcial)
+  ppMes = novo;
   renderConcResult();
 }
 function renderPorPedido() {
