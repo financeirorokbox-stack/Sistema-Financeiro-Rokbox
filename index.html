@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v406/07-525';
+const APP_VERSION = 'v407/07-526';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -968,8 +968,11 @@ function renderUsuarios() {
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
         <input value="${esc(u.user)}" oninput="_editUsers[${i}].user=this.value" placeholder="Usuário"
           style="font-weight:700;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;min-width:120px">
-        <input type="text" value="${esc(u.pass)}" oninput="_editUsers[${i}].pass=this.value" placeholder="Senha"
-          style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:140px">
+        <div style="position:relative;width:160px">
+          <input id="user-pass-${i}" type="password" value="${esc(u.pass)}" oninput="_editUsers[${i}].pass=this.value" placeholder="Senha"
+            style="padding:6px 30px 6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
+          <button type="button" onclick="const p=document.getElementById('user-pass-${i}');const v=p.type==='password';p.type=v?'text':'password';this.textContent=v?'🙈':'👁';" title="Mostrar/ocultar senha" style="position:absolute;right:2px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1">👁</button>
+        </div>
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap">
           <input type="checkbox" ${u.admin ? 'checked' : ''} onchange="_editUsers[${i}].admin=this.checked;renderUsuarios()"> Admin
         </label>
