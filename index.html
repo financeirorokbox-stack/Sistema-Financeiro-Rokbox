@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v413/07-532';
+const APP_VERSION = 'v414/07-533';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6774,9 +6774,37 @@ function _parseRomaneio(linhas) {
   const total = parcelas.length ? +parcelas.reduce((s, p) => s + p.valor, 0).toFixed(2) : somaItens;
   return { formato: 'Romaneio', fornecedor, cnpj: '', numero: '', data: itens[0]._data || '', itens, parcelas, somaItens, frete: 0, total };
 }
-// Tenta todos os leitores conhecidos (Bling, Romaneio; novos fornecedores entram aqui).
+// Romaneio de FACÇÃO (modelo M.X.SANTANA): "EMPRESA : NOME" + colunas Produto/Cor/Dta Entrega/
+// Tamanhos (P M G GG)/Total peças/Vlr Peça/Passadoria/TOTAL A RECEBER. Sem parcelas (total único).
+function _parseRomaneioFaccao(linhas) {
+  const empLine = linhas.find(l => /^empresa\s*:/i.test(l));
+  const temCol = linhas.some(l => /total a receber/i.test(l));
+  if (!empLine || !temCol) return null;
+  let fornecedor = empLine.replace(/^empresa\s*:/i, '').trim();
+  const fc = fornecedoresCompras.find(f => f.nome && _normTxt(fornecedor).includes(_normTxt(f.nome)));
+  if (fc) fornecedor = fc.nome;
+  const itens = [];
+  let dataRef = '';
+  // desc  data(dd/mm/aaaa)  [grade nums]  totalPeças  R$ vlrPeça  R$ passadoria  R$ total
+  const reIt = /^(.+?)\s+(\d{2}\/\d{2}\/\d{4})\s+((?:\d+\s+)*\d+)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)$/;
+  linhas.forEach(l => {
+    const m = l.match(reIt);
+    if (!m) return;
+    const [, desc, data, nums, vlrPeca, passad, total] = m;
+    const arr = nums.trim().split(/\s+/).map(Number);
+    const qtd = arr[arr.length - 1];
+    const grade = arr.slice(0, -1);
+    const tot = _numBling(total);
+    if (!dataRef) dataRef = data;
+    itens.push({ codigo: '', un: 'pç', qtd, precoUn: qtd ? +(tot / qtd).toFixed(4) : (_numBling(vlrPeca) + _numBling(passad)), descPct: 0, total: tot, desc: desc.trim() + (grade.length ? ' (grade ' + grade.join('/') + ')' : '') });
+  });
+  if (!itens.length) return null;
+  const somaItens = +itens.reduce((s, it) => s + it.total, 0).toFixed(2);
+  return { formato: 'Romaneio Facção', fornecedor, cnpj: '', numero: '', data: dataRef, itens, parcelas: [], somaItens, frete: 0, total: somaItens };
+}
+// Tenta todos os leitores conhecidos (Bling, Romaneio, Romaneio Facção; novos fornecedores entram aqui).
 function _parsePedidoFornecedor(linhas) {
-  return _parsePropostaBling(linhas) || _parseRomaneio(linhas);
+  return _parsePropostaBling(linhas) || _parseRomaneio(linhas) || _parseRomaneioFaccao(linhas);
 }
 // Botão ☁ na aba Compras: puxa os PDFs da pasta e importa os novos.
 async function sincronizarPedidosCompras() {
