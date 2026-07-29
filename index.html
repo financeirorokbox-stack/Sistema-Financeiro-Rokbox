@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v418/07-537';
+const APP_VERSION = 'v419/07-538';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2442,9 +2442,13 @@ function _renderContasImpl(el) {
   // Pedidos já CONCILIADOS no banco (crédito vinculado no Extrato OU recebimento amarrado a um repasse) → selo e filtro.
   const pedidosConcBanco = new Set();
   Object.values(extratoLinks).forEach(lk => String(lk.pedido||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p => pedidosConcBanco.add(String(p))));
+  // Repasse conciliado: casa por gateway|data|valor|nome, IGNORANDO o nº do pedido — o nped do recebimento
+  // pode ter sido preenchido/trocado DEPOIS da conciliação (Braavo casa pelo nº do site primeiro), o que
+  // "envelhecia" a chave e fazia um pedido conciliado aparecer como 💰 pago em vez de 🔗 banco.
+  const _k4 = k => String(k).split('|').slice(0, 4).join('|');
   const repUsadasCR = new Set();
-  Object.values(repasseLinks).forEach(l => (l.itens||[]).forEach(k => repUsadasCR.add(k)));
-  if (repUsadasCR.size) recebimentosConsolidado.forEach(r => { if (r.nped && repUsadasCR.has(recKeyGlobal(r))) pedidosConcBanco.add(String(r.nped)); });
+  Object.values(repasseLinks).forEach(l => (l.itens||[]).forEach(k => repUsadasCR.add(_k4(k))));
+  if (repUsadasCR.size) recebimentosConsolidado.forEach(r => { if (r.nped && repUsadasCR.has(_k4(recKeyGlobal(r)))) pedidosConcBanco.add(String(r.nped)); });
 
   // ── Filtros ────────────────────────────────────────────────────────
   const fCat = el.querySelector('#fc-cat')?.value || '';
