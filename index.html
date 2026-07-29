@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v414/07-533';
+const APP_VERSION = 'v415/07-534';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11002,6 +11002,46 @@ function removeColecao(id) {
 // RH — FOLHA DE PAGAMENTO (gera as contas do mês no Contas a Pagar)
 // ════════════════════════════════════════════════════════════════════
 let _rhMes = ''; // mês escolhido na aba RH (sobrevive ao re-render da tela)
+// Lê o "Relatório de Líquidos" do contador (PDF): fornecedor, competência e cada empregado + líquido.
+function _parseRelatorioLiquidos(linhas) {
+  const compM = (linhas.find(l => /compet[êe]ncia/i.test(l)) || '').match(/(\d{2})\/(\d{4})/);
+  const competencia = compM ? compM[2] + '-' + compM[1] : '';
+  const empM = linhas.find(l => /^empresa\s*:/i.test(l)) || '';
+  const empresa = empM.replace(/^empresa\s*:/i, '').split(/p[áa]gina/i)[0].trim();
+  const emps = [];
+  linhas.forEach(l => {
+    // '45 ANA JULIA PALOCO PORFIRIO 537.961.758-13 2.361,12'
+    const m = l.match(/^(\d{1,5})\s+(.+?)\s+(\d{3}\.\d{3}\.\d{3}-\d{2})\s+([\d.]+,\d{2})$/);
+    if (m) emps.push({ codigo: m[1], nome: m[2].trim(), cpf: m[3], liquido: _numBling(m[4]) });
+  });
+  if (!emps.length) return null;
+  const totM = (linhas.find(l => /total da empresa/i.test(l)) || '').match(/([\d.]+,\d{2})\s*$/);
+  const total = totM ? _numBling(totM[1]) : +emps.reduce((s, e) => s + e.liquido, 0).toFixed(2);
+  return { empresa, competencia, empregados: emps, total };
+}
+// Sobe o PDF do contador e preenche o Sal. líquido de cada funcionário na folha do mês (bate pelo nome).
+async function lerLiquidosRH(file) {
+  if (!file) return;
+  let rel;
+  try { rel = _parseRelatorioLiquidos(await _pdfLinhas(new Uint8Array(await file.arrayBuffer()))); }
+  catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); return; }
+  if (!rel || !rel.empregados.length) { alert('Não reconheci esse PDF como o "Relatório de Líquidos" do contador.\n\nÉ o arquivo com a lista Código · Nome · CPF · Valor. Se for outro, me mande que eu ensino.'); return; }
+  const mes = rel.competencia || _rhMes || new Date().toISOString().slice(0, 7);
+  const casados = [], semCadastro = [];
+  rel.empregados.forEach(e => {
+    const f = funcionariosRH.find(x => nomesBatem(x.nome, e.nome));
+    if (f) casados.push({ f, e }); else semCadastro.push(e);
+  });
+  if (!casados.length) { alert('Li ' + rel.empregados.length + ' líquido(s), mas nenhum bateu com os funcionários cadastrados no RH (pelo nome).\n\nConfira se os nomes do cadastro são parecidos com os do contador.'); return; }
+  const resumo = casados.map(c => `• ${c.f.nome}: ${fmtVal(c.e.liquido)}`).join('\n');
+  const extra = semCadastro.length ? `\n\n⚠ Não achei no cadastro (não preenchi):\n${semCadastro.map(e => '• ' + e.nome + ' (' + fmtVal(e.liquido) + ')').join('\n')}` : '';
+  if (!confirm(`📄 Relatório de Líquidos${rel.empresa ? ' — ' + rel.empresa : ''}\nCompetência ${mes.split('-').reverse().join('/')} · total ${fmtVal(rel.total)}\n\nPreencher o "Sal. líquido" destes ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}?\n\n${resumo}${extra}\n\n(Sobrescreve só o Sal. líquido deste mês; o resto fica como está.)`)) return;
+  casados.forEach(c => { _fRow(mes, c.f.id).salLiq = c.e.liquido; });
+  _rhMes = mes;
+  saveData('folhaRH', folhaRH);
+  renderRH();
+  alert(`✓ Preenchi o Sal. líquido de ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}.${semCadastro.length ? `\n\n${semCadastro.length} não casaram (preencha na mão ou ajuste o nome no cadastro).` : ''}\n\nConfira na grade e clique 📤 Gerar folha.`);
+}
 function renderRH() {
   const el = document.getElementById('v-rh'); if (!el) return;
   const ativos = funcionariosRH.filter(f => f.ativo !== false);
@@ -11058,6 +11098,7 @@ function renderRH() {
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 14px">
       <button class="btn primary sm" onclick="addFuncionarioRH()">➕ Funcionário</button>
+      <label class="btn ok sm" style="cursor:pointer" title="Sobe o 'Relatório de Líquidos' do contador (PDF) e preenche o Sal. líquido de cada funcionário na folha do mês, batendo pelo nome.">📄 Ler líquidos do contador<input type="file" accept=".pdf" style="display:none" onchange="lerLiquidosRH(this.files[0]);this.value=''"></label>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="month" id="rh-mes" class="inline-input" value="${mesAtual}" style="width:150px" onchange="_rhMes=this.value;renderRH()">
         <button class="btn primary sm" onclick="gerarFolhaMes()" title="Gera as linhas da folha no Contas a Pagar: Adiantamento (dia 20) e Salário/DSR/Férias/VT/Extras (dia 05 do mês seguinte), cada uma com a categoria dela. Re-gerar ATUALIZA os valores, não duplica.">📤 Gerar folha → Contas a Pagar</button>
