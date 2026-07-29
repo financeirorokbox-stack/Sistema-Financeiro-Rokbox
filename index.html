@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v415/07-534';
+const APP_VERSION = 'v416/07-535';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -899,6 +899,23 @@ function enterApp() {
   document.getElementById('app').style.display = 'block';
   applyPermissions();
   try { atualizarBadgeCobranca(); mostrarAvisoCobranca(); } catch (e) {}
+  try { checarAvisoFolha(); } catch (e) {}
+}
+// Lembrete de folha: nos dias 05 (salários + enviar holerites) e 20 (adiantamento), mostra uma faixa.
+function checarAvisoFolha() {
+  const u = currentUser || {};
+  if (!(u.admin || (u.perms || []).includes('rh'))) return; // só quem cuida do RH
+  const hoje = new Date(); const dia = hoje.getDate();
+  if (dia !== 5 && dia !== 20) return;
+  const chave = LS_PREFIX + 'avisoFolha_' + hoje.toISOString().slice(0, 10);
+  try { if (localStorage.getItem(chave)) return; } catch (e) {}
+  const oldb = document.getElementById('aviso-folha'); if (oldb) oldb.remove();
+  const txt = dia === 5 ? 'pagar os <strong>SALÁRIOS</strong> e <strong>enviar os holerites</strong> pelo WhatsApp' : 'pagar o <strong>ADIANTAMENTO</strong> (dia 20)';
+  const el = document.createElement('div');
+  el.id = 'aviso-folha';
+  el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9998;background:#128C7E;color:#fff;padding:9px 16px;text-align:center;font-size:13px;font-weight:600;box-shadow:0 2px 12px rgba(0,0,0,.25)';
+  el.innerHTML = `🔔 Hoje é dia ${dia}: lembrete de ${txt}. <a href="#" onclick="setView('rh');document.getElementById('aviso-folha').remove();return false" style="color:#fff;text-decoration:underline;margin-left:10px">Abrir RH →</a> <a href="#" onclick="try{localStorage.setItem('${chave}','1')}catch(e){};document.getElementById('aviso-folha').remove();return false" style="color:#cfe8e0;text-decoration:underline;margin-left:14px">dispensar hoje ✕</a>`;
+  document.body.appendChild(el);
 }
 
 // Mostra/esconde abas conforme o usuário logado e vai para a 1ª permitida.
@@ -6665,6 +6682,38 @@ async function _pdfLinhas(bytes) {
   try { doc.destroy(); } catch (e) {}
   return linhas.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
+// Igual ao _pdfLinhas, mas devolve as linhas SEPARADAS por página (p/ separar holerite por funcionário).
+async function _pdfLinhasPorPagina(bytes) {
+  const pdfjs = await _pdfjsReady();
+  const doc = await pdfjs.getDocument({ data: bytes }).promise;
+  const paginas = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const tc = await page.getTextContent();
+    const its = tc.items.filter(it => (it.str || '').trim() !== '').map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }));
+    its.sort((a, b) => (Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x));
+    let atual = null, yAtual = null; const linhas = [];
+    its.forEach(it => { if (yAtual === null || Math.abs(it.y - yAtual) > 3) { if (atual) linhas.push(atual.join(' ')); atual = []; yAtual = it.y; } atual.push(it.s.trim()); });
+    if (atual && atual.length) linhas.push(atual.join(' '));
+    paginas.push(linhas.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean));
+  }
+  try { doc.destroy(); } catch (e) {}
+  return paginas;
+}
+// Carrega o pdf-lib (escrever/partir PDF) sob demanda — só quando for separar holerites.
+let _pdfLibPromise = null;
+function _pdfLibReady() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (_pdfLibPromise) return _pdfLibPromise;
+  _pdfLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+    s.onload = () => window.PDFLib ? resolve(window.PDFLib) : reject(new Error('pdf-lib não carregou'));
+    s.onerror = () => reject(new Error('Não consegui baixar a biblioteca de PDF (sem internet?).'));
+    document.head.appendChild(s);
+  });
+  return _pdfLibPromise;
+}
 const _numBling = s => { const n = parseFloat(String(s || '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
 const _normTxt = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 // Lê uma Proposta Comercial do Bling (modelo do PC-124): fornecedor, nº, data, itens e parcelas.
@@ -11099,6 +11148,7 @@ function renderRH() {
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 14px">
       <button class="btn primary sm" onclick="addFuncionarioRH()">➕ Funcionário</button>
       <label class="btn ok sm" style="cursor:pointer" title="Sobe o 'Relatório de Líquidos' do contador (PDF) e preenche o Sal. líquido de cada funcionário na folha do mês, batendo pelo nome.">📄 Ler líquidos do contador<input type="file" accept=".pdf" style="display:none" onchange="lerLiquidosRH(this.files[0]);this.value=''"></label>
+      <label class="btn ok sm" style="cursor:pointer" title="Sobe o 'Recibo de Pagamento' do contador (PDF com todos): separa o holerite de cada funcionário pra você baixar e enviar por WhatsApp.">📎 Separar holerites<input type="file" accept=".pdf" style="display:none" onchange="lerRecibosRH(this.files[0]);this.value=''"></label>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="month" id="rh-mes" class="inline-input" value="${mesAtual}" style="width:150px" onchange="_rhMes=this.value;renderRH()">
         <button class="btn primary sm" onclick="gerarFolhaMes()" title="Gera as linhas da folha no Contas a Pagar: Adiantamento (dia 20) e Salário/DSR/Férias/VT/Extras (dia 05 do mês seguinte), cada uma com a categoria dela. Re-gerar ATUALIZA os valores, não duplica.">📤 Gerar folha → Contas a Pagar</button>
@@ -11107,7 +11157,7 @@ function renderRH() {
     </div>
     <datalist id="rh-emp-list">${empresas.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
     <div class="table-wrap"><table><thead><tr>
-      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>% Adto</th><th>VT/dia</th><th title="Dias da semana em HOME OFFICE (não contam VT). Marque os dias fixos de cada um.">Home (dias)</th><th>Categoria</th><th>💠 PIX</th><th></th>
+      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>% Adto</th><th>VT/dia</th><th title="Dias da semana em HOME OFFICE (não contam VT). Marque os dias fixos de cada um.">Home (dias)</th><th>Categoria</th><th>💠 PIX</th><th>📱 WhatsApp</th><th></th>
     </tr></thead><tbody>
     ${funcionariosRH.map((f, i) => `<tr style="${f.ativo === false ? 'opacity:.5' : ''}">
       <td style="text-align:center"><input type="checkbox" ${f.ativo !== false ? 'checked' : ''} onchange="updateFuncionarioRH(${i},'ativo',this.checked)" title="Desmarcado = não entra na folha"></td>
@@ -11120,12 +11170,89 @@ function renderRH() {
       <td style="text-align:center"><div style="display:flex;gap:2px;justify-content:center">${[[1,'2ª'],[2,'3ª'],[3,'4ª'],[4,'5ª'],[5,'6ª']].map(([d,lbl])=>{const on=(f.homeDias||[]).includes(d);return `<button type="button" onclick="toggleHomeDia(${i},${d})" title="${lbl}-feira em home office (não conta VT)" style="width:22px;height:22px;border-radius:5px;border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'var(--accent)':'transparent'};color:${on?'#fff':'var(--muted)'};font-size:10px;cursor:pointer;font-weight:700">${lbl}</button>`;}).join('')}</div></td>
       <td><input class="inline-input" style="width:120px" list="cp-cat-list" value="${esc(f.categoria || 'SALÁRIO')}" onchange="updateFuncionarioRH(${i},'categoria',this.value)"></td>
       <td><input class="inline-input" style="width:160px" value="${esc(f.pix)}" placeholder="chave PIX" onchange="updateFuncionarioRH(${i},'pix',this.value)"></td>
+      <td><input class="inline-input" style="width:120px" value="${esc(f.whatsapp)}" placeholder="(11) 99999-9999" title="Celular do funcionário — usado pra enviar o holerite pelo WhatsApp" onchange="updateFuncionarioRH(${i},'whatsapp',this.value)"></td>
       <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerFuncionarioRH(${i})" title="Remover do RH (não apaga contas já geradas)">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="11" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
+    </tr>`).join('') || '<tr><td colspan="12" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
     </tbody></table></div>
     ${confHTML}
+    <div id="rh-recibos">${_recibosRhHTML()}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:10px">💡 Preencha a <strong>folha do mês</strong> na grade acima (igual à sua planilha) e clique <strong>📤 Gerar</strong>: cada campo vira uma linha no Contas a Pagar com a categoria dele, já com a 💠 PIX. Re-gerar <strong>atualiza</strong> os valores (não duplica). Esta aba só aparece pra <strong>admin</strong> (ou usuário com a permissão "rh") — os salários ficam reservados.</div>
   `;
+}
+// ── Holerites: separar o "Recibo de Pagamento" por funcionário e enviar por WhatsApp ──
+let _recibosRH = []; // [{codigo, nome, liquido, funcId, whatsapp, url, nomeArq}] — transitório (blobs em memória)
+function _recibosRhHTML() {
+  if (!_recibosRH.length) return '';
+  const linhas = _recibosRH.map((r, i) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <span style="font-weight:700;min-width:180px">${r.nome}</span>
+      <span style="color:var(--green);font-weight:700;min-width:90px;text-align:right">${r.liquido ? fmtVal(r.liquido) : '—'}</span>
+      <span style="font-size:11px;color:${r.whatsapp ? 'var(--muted)' : 'var(--amber)'};min-width:120px">${r.whatsapp || '⚠ sem WhatsApp'}</span>
+      <button class="btn ghost sm" onclick="baixarHoleriteRH(${i})" title="Baixar o holerite desta pessoa (PDF)">⬇ Baixar</button>
+      <button class="btn sm" style="background:#128C7E;border-color:#128C7E;color:#fff" onclick="enviarHoleriteRH(${i})" title="Baixa o holerite e abre o WhatsApp da pessoa com a mensagem pronta — você anexa o arquivo e envia">📱 WhatsApp</button>
+    </div>`).join('');
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:16px;background:var(--surface)">
+    <div style="font-weight:700;margin-bottom:4px">📎 Holerites separados (${_recibosRH.length})</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">No computador: clica em 📱 WhatsApp, o holerite baixa e a conversa da pessoa abre com a mensagem pronta. Aí você <strong>arrasta o PDF</strong> pra conversa e envia. (O WhatsApp não deixa anexar sozinho por site.)</div>
+    ${linhas}
+    <button class="btn ghost sm" style="margin-top:10px" onclick="_recibosRH=[];renderRH()">✕ Limpar lista</button>
+  </div>`;
+}
+async function lerRecibosRH(file) {
+  if (!file) return;
+  let paginas, PDFLib, srcBytes;
+  try {
+    srcBytes = new Uint8Array(await file.arrayBuffer());
+    paginas = await _pdfLinhasPorPagina(srcBytes);
+    PDFLib = await _pdfLibReady();
+  } catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); return; }
+  // Descobre o funcionário de cada página (linha após "Nome do Funcionário") e agrupa páginas seguidas.
+  const grupos = []; // {codigo, nome, liquido, pags:[]}
+  paginas.forEach((linhas, idx) => {
+    let codigo = '', nome = '';
+    const iHead = linhas.findIndex(l => /nome do funcion/i.test(l));
+    if (iHead >= 0 && linhas[iHead + 1]) { const m = linhas[iHead + 1].match(/^(\d{1,5})\s+(.+?)\s+\d{5,6}/); if (m) { codigo = m[1]; nome = m[2].trim(); } }
+    const liqM = (linhas.find(l => /^\s*[\d.]+,\d{2}\s+_+\//.test(l)) || '').match(/([\d.]+,\d{2})/);
+    const liquido = liqM ? _numBling(liqM[1]) : 0;
+    const ult = grupos[grupos.length - 1];
+    if (ult && codigo && ult.codigo === codigo) { ult.pags.push(idx); if (!ult.liquido && liquido) ult.liquido = liquido; }
+    else grupos.push({ codigo, nome: nome || ('Funcionário ' + (idx + 1)), liquido, pags: [idx] });
+  });
+  if (!grupos.length) { alert('Não reconheci esse PDF como o "Recibo de Pagamento".'); return; }
+  // Monta um PDF por funcionário (copia as páginas dele).
+  const src = await PDFLib.PDFDocument.load(srcBytes);
+  const mesR = _rhMes || new Date().toISOString().slice(0, 7);
+  const novos = [];
+  for (const g of grupos) {
+    const out = await PDFLib.PDFDocument.create();
+    const pgs = await out.copyPages(src, g.pags);
+    pgs.forEach(p => out.addPage(p));
+    const bytes = await out.save();
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const f = funcionariosRH.find(x => nomesBatem(x.nome, g.nome));
+    // Líquido: do próprio recibo; se não veio, usa o Sal. líquido já lançado na folha do mês.
+    let liq = g.liquido;
+    if (!liq && f) { try { liq = (folhaRH[mesR] && folhaRH[mesR][f.id] && folhaRH[mesR][f.id].salLiq) || 0; } catch (e) {} }
+    novos.push({ codigo: g.codigo, nome: g.nome, liquido: liq, funcId: f ? f.id : '', whatsapp: (f && f.whatsapp) || '', url, nomeArq: `holerite_${g.nome.replace(/[^A-Za-zÀ-ú0-9]+/g, '_')}.pdf` });
+  }
+  _recibosRH = novos;
+  renderRH();
+  const semZap = novos.filter(r => !r.whatsapp).length;
+  alert(`✓ Separei ${novos.length} holerite(s), um por funcionário.${semZap ? `\n\n⚠ ${semZap} sem número de WhatsApp no cadastro (preencha a coluna 📱 WhatsApp pra poder enviar).` : ''}\n\nRole até "📎 Holerites separados" pra baixar/enviar cada um.`);
+}
+function baixarHoleriteRH(i) {
+  const r = _recibosRH[i]; if (!r) return;
+  const a = document.createElement('a'); a.href = r.url; a.download = r.nomeArq; a.click();
+}
+function enviarHoleriteRH(i) {
+  const r = _recibosRH[i]; if (!r) return;
+  baixarHoleriteRH(i); // baixa o PDF pra ela anexar
+  const fone = String(r.whatsapp || '').replace(/\D/g, '');
+  if (!fone) { alert('Esse funcionário está sem número de WhatsApp.\n\nPreencha a coluna 📱 WhatsApp no cadastro e tente de novo.\n\n(O holerite foi baixado assim mesmo.)'); return; }
+  const foneFull = fone.length <= 11 ? '55' + fone : fone; // Brasil
+  const mes = (_rhMes || new Date().toISOString().slice(0, 7)).split('-').reverse().join('/');
+  const msg = `Olá ${(r.nome || '').split(' ')[0]}! 🧡 Segue o seu holerite referente a ${mes}${r.liquido ? ` (líquido ${fmtVal(r.liquido)})` : ''}. Qualquer dúvida é só chamar.`;
+  window.open(`https://wa.me/${foneFull}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 // ── Helpers da folha mensal (a grade que espelha a planilha dela) ──
 let _rhFeriados = 0; // feriados no mês (só pro DSR estimado)
