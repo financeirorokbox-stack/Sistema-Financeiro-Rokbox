@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v416/07-535';
+const APP_VERSION = 'v417/07-536';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7329,6 +7329,28 @@ function renderExtrato() {
   const fEmp = el.querySelector('#ext-emp')?.value||'';
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
+  // ── Cash-first: pedidos Venda/Troca ainda EM ABERTO que NÃO têm linha de "forma" (por isso não
+  //    apareciam na lista de vínculo). Pré-calcula UMA vez (recebido por pedido + já vinculados). ──
+  const _recPorPed = {};
+  recebimentosConsolidado.forEach(r => {
+    if (r._estornoChave) return;
+    const ps = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!ps.length) return;
+    const v = (r.bruto != null ? r.bruto : (r.liq || 0)) / ps.length;
+    ps.forEach(pid => { _recPorPed[pid] = (_recPorPed[pid] || 0) + v; });
+  });
+  const _pedsComForma = new Set(formaPagamento.map(f => String(f.pedido)));
+  const _pedsJaVinc = new Set();
+  Object.values(extratoLinks).forEach(l => String(l.pedido || '').split(',').map(s => s.trim()).forEach(p => p && _pedsJaVinc.add(p)));
+  const _cashAbertos = pedidos.filter(p => {
+    if (_pedsComForma.has(String(p.id)) || _pedsJaVinc.has(String(p.id))) return false;
+    const cls = getClassificacao(p);
+    if (cls.naoAplicavel) return false;
+    const op = (cls.operacao || '').toLowerCase();
+    if (op && op !== 'venda' && op !== 'troca' && op !== '') return false;
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return false;
+    return (p.valor || 0) - (_recPorPed[String(p.id)] || 0) > 0.5; // ainda falta receber
+  }).map(p => ({ pedido: String(p.id), valor: +((p.valor || 0) - (_recPorPed[String(p.id)] || 0)).toFixed(2), descricao: 'Pix (Extrato/OFX)', cliente: p.nome || '', _cashFirst: true }));
   let visC = fQ ? creditos.filter(t=>t.memo.toLowerCase().includes(fQ)||String(extratoLinks[t.id]?.pedido||'').includes(fQ)) : creditos;
   // Empresa: filtra pelos pedidos vinculados ao crédito (créditos sem vínculo não têm empresa)
   if (fEmp) visC = visC.filter(t => {
@@ -7414,6 +7436,11 @@ function renderExtrato() {
                 if (st.recebido && !ehLoteBoleto && Math.abs((f.valor||0) - t.valor) > 1) return false;
                 return true;
               });
+              // Cash-first: junta os pedidos SEM forma ainda em aberto (não repete os que já entraram por forma).
+              if (!ehLoteBoleto) {
+                const _jaNaLista = new Set(pixAbertos.map(f => String(f.pedido)));
+                _cashAbertos.forEach(cf => { if (!_jaNaLista.has(cf.pedido)) pixAbertos.push(cf); });
+              }
               // Ordena por proximidade de valor com o crédito do extrato
               pixAbertos.sort((a, b) => Math.abs(a.valor - t.valor) - Math.abs(b.valor - t.valor));
               // Lote de BOLETOS: inclui também os boletos IMPORTADOS do Itaú (avulsos, fora do sistema),
@@ -7654,6 +7681,18 @@ function autoVincularExtrato() {
   const usados = new Set(
     Object.values(extratoLinks).flatMap(l => String(l.pedido).split(',').map(s => s.trim()))
   );
+  // Cash-first: pedidos SEM forma ainda em aberto (recebido por pedido, cálculo aproximado) — pra casar
+  // também os pedidos do modelo novo, que não têm linha de forma.
+  const _recPorPed = {};
+  recebimentosConsolidado.forEach(r => { if (r._estornoChave) return; const ps = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean); if (!ps.length) return; const v = (r.bruto != null ? r.bruto : (r.liq || 0)) / ps.length; ps.forEach(pid => { _recPorPed[pid] = (_recPorPed[pid] || 0) + v; }); });
+  const _pedsComForma = new Set(formaPagamento.map(f => String(f.pedido)));
+  const cashAbertos = pedidos.filter(p => {
+    if (_pedsComForma.has(String(p.id))) return false;
+    const cls = getClassificacao(p); if (cls.naoAplicavel) return false;
+    const op = (cls.operacao || '').toLowerCase(); if (op && op !== 'venda' && op !== 'troca' && op !== '') return false;
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return false;
+    return (p.valor || 0) - (_recPorPed[String(p.id)] || 0) > 0.5;
+  }).map(p => ({ pedido: String(p.id), valor: +((p.valor || 0) - (_recPorPed[String(p.id)] || 0)).toFixed(2) }));
   let n = 0;
   creditos.forEach(t => {
     const candidatos = formaPagamento.filter(f => {
@@ -7665,10 +7704,13 @@ function autoVincularExtrato() {
       if (statusForma(f.pedido, c.categoria, f.valor).recebido) return false;
       return Math.abs(f.valor - t.valor) <= 0.10;
     });
-    const unicos = [...new Set(candidatos.map(f => String(f.pedido)))];
-    if (unicos.length === 1 && !usados.has(unicos[0])) {
-      extratoLinks[t.id] = { pedido: unicos[0] };
-      usados.add(unicos[0]);
+    const unicos = new Set(candidatos.map(f => String(f.pedido)));
+    // Junta os cash-first que batem exato (não repete os que já vieram por forma nem os já usados)
+    cashAbertos.forEach(c => { if (Math.abs(c.valor - t.valor) <= 0.10 && !usados.has(c.pedido)) unicos.add(c.pedido); });
+    const arr = [...unicos].filter(p => !usados.has(p));
+    if (arr.length === 1) { // exatamente 1 pedido bate o valor → sem ambiguidade
+      extratoLinks[t.id] = { pedido: arr[0] };
+      usados.add(arr[0]);
       n++;
     }
   });
