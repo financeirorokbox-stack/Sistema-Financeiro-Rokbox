@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rk-fitness",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:\\Users\\ROKBOX\\RK-Fitness", "run", "dev"],
+      "port": 8080
+    }
+  ]
+}

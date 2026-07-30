@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v420/07-539';
+const APP_VERSION = 'v421/07-540';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -527,6 +527,36 @@ async function importarBackup(file) {
   }
   alert('Backup importado! Recarregando...');
   location.reload();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// IDENTIFICADOR ÚNICO POR LANÇAMENTO (_uid) — FASE 0 (aditivo)
+// ════════════════════════════════════════════════════════════════════
+// Dá a CADA lançamento (conta a pagar, recebimento, extrato, devolução, forma, boleto avulso)
+// um id ÚNICO e IMUTÁVEL. Nesta Fase 0 o _uid é APENAS gravado — o dedup e o matching NÃO usam
+// ele ainda, então NADA muda de comportamento. Nas próximas fases (um módulo por vez) cada
+// módulo passa a usar o _uid como identidade estável, matando a raiz dos bugs recorrentes.
+let _uidSeq = 0;
+function _novoUid() { return 'u' + Date.now().toString(36) + '_' + (_uidSeq++).toString(36) + Math.random().toString(36).slice(2, 6); }
+// Percorre os lançamentos e dá _uid a quem ainda não tem. Idempotente (nunca troca um _uid já
+// existente, nunca mexe em outro campo). Salva só os arrays que realmente ganharam id novo.
+function _garantirUids() {
+  const alvos = [
+    ['contasPagar', typeof contasPagar !== 'undefined' ? contasPagar : null],
+    ['recebimentosConsolidado', typeof recebimentosConsolidado !== 'undefined' ? recebimentosConsolidado : null],
+    ['extratoBancario', typeof extratoBancario !== 'undefined' ? extratoBancario : null],
+    ['devolucoes', typeof devolucoes !== 'undefined' ? devolucoes : null],
+    ['formaPagamento', typeof formaPagamento !== 'undefined' ? formaPagamento : null],
+    ['boletosAvulsos', typeof boletosAvulsos !== 'undefined' ? boletosAvulsos : null]
+  ];
+  let total = 0;
+  alvos.forEach(([nome, arr]) => {
+    if (!Array.isArray(arr)) return;
+    let n = 0;
+    for (const x of arr) { if (x && !x._uid) { x._uid = _novoUid(); n++; } }
+    if (n) { total += n; try { saveData(nome, arr); } catch (e) {} }
+  });
+  return total;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2222,6 +2252,7 @@ function _seloFechCR(l, concBanco) {
   return chip('#e6f4ea', '#1b7a3d', '💰 pago', 'Recebido (dinheiro) — ainda não casado com o extrato do banco.');
 }
 function renderContas() {
+  try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
   const el = document.getElementById('v-contas');
   if (!el) return;
   try {
@@ -4490,6 +4521,7 @@ function novaContaPagar() {
   renderPagar();
 }
 function renderPagar() {
+  try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
   setDateFilterRender(renderPagar);
   const el = document.getElementById('v-pagar');
   const fSt = el.querySelector('#cp-st')?.value || '';
@@ -7353,6 +7385,7 @@ function excluirExtratoDoBanco() {
   alert(`✓ ${remover.length} lançamento(s) removido(s) do banco "${nomeBanco}"${escopo}.` + (fechados.length ? ` ${fechados.length} preservado(s) por dia fechado.` : ''));
 }
 function renderExtrato() {
+  try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
   setDateFilterRender(renderExtrato);
   const el = document.getElementById('v-extrato');
   const fBanco = el.querySelector('#ext-banco')?.value || '';
@@ -12225,6 +12258,7 @@ function delCheckboxHeader(source) {
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
   initLojaCadastro();
+  try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
   try { aplicarBaixaConciliada(); } catch(e) {} // re-marca pagas as contas conciliadas (caso planilha re-importada tenha voltado "Atrasada")
   try { syncExtratoToRecebimentos(); } catch(e) {} // reconstrói os PIX do extrato a partir dos vínculos salvos (corrige PIX que sumia no reload)
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
