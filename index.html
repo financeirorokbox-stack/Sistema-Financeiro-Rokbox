@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v427/07-546';
+const APP_VERSION = 'v428/07-547';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -520,7 +520,7 @@ async function deleteData(key) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -675,7 +675,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1163,6 +1163,7 @@ let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,in
 let comprasSel = new Set(); // seleção (transitória) p/ aprovar vários pedidos de uma vez
 let comprasDriveLidos = {}; // arquivos de pedido de fornecedor (PDF) já lidos da pasta "Pedidos de Compras" do Drive: {nomeArquivo: dataISO}
 let divergenciasVendas = { sumidos: [], geradoEm: null, arquivo: '' }; // pedidos que estão no sistema mas NÃO vieram na última exportação de vendas (possível cancelamento/mudança de status) — só AVISA, nunca apaga sozinho
+let obsPedido = {}; // anotações livres por pedido (ex.: por que está nesse status) — { pedidoId: texto }. Só informativo, não mexe em cálculo.
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -8521,7 +8522,7 @@ function renderPorPedido() {
     </div>`;
   const tabela = vis.length === 0 ? '<div class="empty"><div class="e-icon">✓</div>Nenhum pedido nesta categoria</div>' : `
     <div class="table-wrap"><table><thead><tr>
-      <th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Recebimentos (bruto)</th><th>Recebido</th><th>Taxas</th><th>Líquido</th><th>Diferença</th><th>Status</th>
+      <th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Recebimentos (bruto)</th><th>Recebido</th><th>Taxas</th><th>Líquido</th><th>Diferença</th><th>Status</th><th>Obs</th>
     </tr></thead><tbody>
     ${vis.map(l => `<tr>
       <td><strong>#${l.ped.id}</strong></td>
@@ -8541,11 +8542,18 @@ function renderPorPedido() {
           ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',null)">Desfazer</button>`
         : ''
       }</td>
+      <td><input type="text" class="inline-input" style="min-width:150px;font-size:11px" value="${(obsPedido[l.ped.id]||'').replace(/"/g,'&quot;')}" placeholder="anotar..." title="Anotação livre sobre este pedido (ex.: por que está nesse status)" onchange="setObsPedido('${l.ped.id}',this.value)"></td>
     </tr>`).join('')}
     </tbody></table></div>`;
   cont.innerHTML = cards + head + tabela;
 }
 
+// Anotação livre por pedido (ex.: por que está nesse status). Só informativo, não mexe em cálculo.
+function setObsPedido(id, val) {
+  const t = (val || '').trim();
+  if (t) obsPedido[String(id)] = t; else delete obsPedido[String(id)];
+  saveData('obsPedido', obsPedido);
+}
 // Marca/desmarca um status no filtro multi-seleção da Conciliação de Recebíveis.
 function togglePpStatus(st) {
   const i = ppFiltroStatus.indexOf(st);
@@ -12340,7 +12348,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -12393,6 +12401,7 @@ function delCheckboxHeader(source) {
     else if (k==='recebOrfaoInfo') recebOrfaoInfo = v || {};
     else if (k==='comprasDriveLidos') comprasDriveLidos = v || {};
     else if (k==='divergenciasVendas') divergenciasVendas = v || { sumidos: [], geradoEm: null, arquivo: '' };
+    else if (k==='obsPedido') obsPedido = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
