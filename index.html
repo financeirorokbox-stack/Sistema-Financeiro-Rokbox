@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v422/07-541';
+const APP_VERSION = 'v423/07-542';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1241,6 +1241,16 @@ function debounceRender(fn, ms = 120) {
 // ════════════════════════════════════════════════════════════════════
 // NAVEGAÇÃO
 // ════════════════════════════════════════════════════════════════════
+// Cronômetro invisível: mede quanto cada tela leva pra desenhar e escreve no Console
+// (F12). Não muda nada visível. Serve pra achar QUAL tela está lenta ao trocar de aba.
+function _perf(nome, fn) {
+  const t0 = (window.performance && performance.now) ? performance.now() : 0;
+  try { return fn(); }
+  finally {
+    const ms = ((window.performance && performance.now) ? performance.now() : 0) - t0;
+    if (ms > 15) console.log('[perf] ' + nome + ': ' + ms.toFixed(0) + ' ms');
+  }
+}
 function setView(v) {
   if (!viewAllowed(v)) { const f = firstAllowedView(); if (!f) return; v = f; }
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
@@ -1257,17 +1267,17 @@ function setView(v) {
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
   document.getElementById('sub-fin').style.display = v === 'financeiro' ? 'flex' : 'none';
   document.getElementById('conc-pills').style.display = 'none';
-  if (v === 'dashboard') renderDashboard();
-  if (v === 'vendas') renderVendas();
-  if (v === 'compras') renderCompras();
-  if (v === 'rh') renderRH();
+  if (v === 'dashboard') _perf('Dashboard', renderDashboard);
+  if (v === 'vendas') _perf('Vendas', renderVendas);
+  if (v === 'compras') _perf('Compras', renderCompras);
+  if (v === 'rh') _perf('RH', renderRH);
   if (v === 'financeiro') {
     // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
     let s = currentSub === 'conc' ? 'contas' : currentSub;
     if (!subAllowed(s)) s = firstAllowedSub();
     if (s) setSub(s);
   }
-  if (v === 'cadastro') renderCadastro();
+  if (v === 'cadastro') _perf('Cadastro', renderCadastro);
 }
 
 // Abas principais do Financeiro (4). 'contas' é um GRUPO com sub-abas internas.
@@ -1291,7 +1301,7 @@ function setSub(s) {
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
   const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao };
   const v = document.getElementById('v-' + s); if (v) v.style.display = 'block';
-  if (renders[s]) renders[s]();
+  if (renders[s]) _perf(s, renders[s]);
 }
 // Sub-abas internas de Contas a Receber
 function setSubR(r) {
@@ -1303,7 +1313,7 @@ function setSubR(r) {
     const v = document.getElementById('v-' + x); if (v) v.style.display = x === r ? 'block' : 'none';
   });
   const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, conc: renderConc };
-  if (renders[r]) renders[r]();
+  if (renders[r]) _perf(r, renders[r]);
   // Aba unificada "Recebimentos e Conciliação": 2 botões no topo alternam entre a LISTA e a CONCILIAÇÃO.
   const tabsEl = document.getElementById('receb-conc-tabs');
   if (r === 'receb') {
