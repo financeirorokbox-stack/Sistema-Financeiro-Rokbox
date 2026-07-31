@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v426/07-545';
+const APP_VERSION = 'v425/07-544';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5390,7 +5390,7 @@ function renderRecebimentos() {
   const fPed = el.querySelector('#rr-ped')?.value || '';
   const gws = [...new Set(recebimentosConsolidado.map(r=>r.gateway))].sort();
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
-  const empresaDoPed = id => pedidoPorId(id)?.empresa || '';
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
 
   let vis = recebimentosConsolidado;
   if (fGw) vis = vis.filter(r=>r.gateway===fGw);
@@ -5952,7 +5952,7 @@ function renderBoletos() {
   const fQ = fQraw.toLowerCase();
   const fEmp = el.querySelector('#bl-emp')?.value||'';
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
-  const empresaDoPed = id => pedidoPorId(id)?.empresa || '';
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
   const dataDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.data;
   const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp) && (!dfAtivo() || passaData(dataDoPed(b.pedido))));
   const totalEmitidos = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])}).length;
@@ -6320,7 +6320,7 @@ function renderCobranca() {
   const fEmp = el.querySelector('#cob-emp')?.value||'';
   const fDataPor = el.querySelector('#cob-datapor')?.value || 'vencimento'; // filtra a data por Vencimento ou Liquidação (pagamento)
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
-  const empresaDoPed = id => pedidoPorId(id)?.empresa || '';
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
 
   el.innerHTML = `
     ${uploadWrap('cobranca', `<label class="upload-card" id="card-cobranca" for="file-cobranca">
@@ -7153,7 +7153,7 @@ function renderDevolucao() {
   const fEmp = el.querySelector('#dev-emp')?.value||'';
   const segs = [...new Set(devolucoes.map(d=>d.segmento))].sort();
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
-  const empresaDoPed = id => pedidoPorId(id)?.empresa || '';
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
   let vis = devolucoes;
   if (fSeg) vis = vis.filter(d=>d.segmento===fSeg);
   if (fEmp) vis = vis.filter(d=>empresaDoPed(d.pedido)===fEmp || empresaDoPed((String(d.pedidoCredito||'').match(/\d{4,6}/g)||[])[0])===fEmp);
@@ -7556,7 +7556,7 @@ function renderExtrato() {
   const fQ = fQraw.toLowerCase();
   const fEmp = el.querySelector('#ext-emp')?.value||'';
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
-  const empresaDoPed = id => pedidoPorId(id)?.empresa || '';
+  const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
   // ── Cash-first: pedidos Venda/Troca ainda EM ABERTO que NÃO têm linha de "forma" (por isso não
   //    apareciam na lista de vínculo). Pré-calcula UMA vez (recebido por pedido + já vinculados). ──
   const _recPorPed = {};
@@ -7635,6 +7635,10 @@ function renderExtrato() {
     </tr></thead><tbody>
     ${visC.sort((a,b)=>(b.data||0)-(a.data||0)).map(t=>{
       const link = extratoLinks[t.id];
+      const autoMatch = !link ? pedidos.find(p => {
+        const valEsp = getValorConciliacaoPedido(p);
+        return pedidoTemRecebimento(p) && Math.abs(valEsp - t.valor) <= 0.10;
+      }) : null;
       return `<tr>
         <td>${fmtDate(t.data)}</td><td>${t.memo}</td><td>${fmtVal(t.valor)}</td>
         <td>${link
@@ -7649,7 +7653,7 @@ function renderExtrato() {
                 const c = classificaForma(f.descricao);
                 if (!c.isReceita) return false;
                 if (GW_FORA.includes(c.categoria)) return false;
-                const ped = pedidoPorId(f.pedido);
+                const ped = pedidos.find(p => p.id === f.pedido);
                 if (!ped) return false;
                 const sit = ped.situacao || '';
                 if (SITUACOES_NAO_APLICAVEL.includes(sit.toLowerCase())) return false;
@@ -7685,7 +7689,7 @@ function renderExtrato() {
                 ${pixAbertos.length > 0 ? `
                 <div id="${listId}" style="display:none;border:1px solid var(--border);border-radius:6px;overflow:hidden;max-height:200px;overflow-y:auto;margin-top:6px">
                   ${pixAbertos.map(f => {
-                    const ped = pedidoPorId(f.pedido);
+                    const ped = pedidos.find(p => p.id === f.pedido);
                     const diff = Math.abs(f.valor - t.valor);
                     const icon = diff <= 0.10 ? '⚡ ' : '';
                     const bg = diff <= 0.10 ? 'background:var(--green-bg)' : '';
