@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v424/07-543';
+const APP_VERSION = 'v425/07-544';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6106,28 +6106,35 @@ function processCobrancaWorkbook(wb) {
   const boletos = getBoletosDaForma(); // boletos do sistema (vindos da Forma de Pagamento)
   let nBaixados = 0;
 
-  boletos.forEach(b => {
-    if (!boletoStatus[b.key]) return;
-    // Match preferencial: mesmo pedido (Seu Número) + valor do título próximo
-    let match = cobrancaRows.find(c =>
-      String(c.pedido) === String(b.pedido) &&
-      Math.abs(c.valorTitulo - b.valor) <= 0.05
-    );
-    // Fallback: valor + vencimento, sem nº de pedido
-    if (!match) {
-      match = cobrancaRows.find(c =>
-        Math.abs(c.valorTitulo - b.valor) <= 0.05 &&
-        daysDiff(c.vencimento, b.vencimento) <= 3
-      );
-    }
-    if (match) {
+  // Reconstrói o status dos boletos DOS PEDIDOS que vieram no relatório: o relatório é a fonte da
+  // verdade para eles. Sem isto, uma parcela marcada paga por engano continuava paga na reimportação.
+  const pedidosNoArq = new Set(cobrancaRows.map(c => String(c.pedido || '')).filter(Boolean));
+  boletos.forEach(b => { if (pedidosNoArq.has(String(b.pedido))) delete boletoCobrancaStatus[b.key]; });
+
+  // Casa cada PAGAMENTO do relatório com NO MÁXIMO UMA parcela (consome a linha). Antes, 1 pagamento
+  // de 2.247,52 marcava as 3 parcelas de mesmo valor como pagas → recebia 3x (bug do #40041).
+  // Para cada pagamento, escolhe a MELHOR parcela: mesmo pedido tem prioridade, depois vencimento mais próximo.
+  const boletosUsados = new Set(); // keys de parcela já casadas
+  cobrancaRows.forEach(c => {
+    let best = null, bestScore = Infinity;
+    boletos.forEach(b => {
+      if (!boletoStatus[b.key] || boletosUsados.has(b.key)) return;
+      if (Math.abs(c.valorTitulo - b.valor) > 0.05) return;      // valor tem que bater
+      const mesmoPedido = String(c.pedido) === String(b.pedido);
+      const dist = daysDiff(c.vencimento, b.vencimento);          // proximidade de vencimento (0..9999)
+      if (!mesmoPedido && dist > 3) return;                       // sem pedido, só casa se venc bem perto
+      const score = (mesmoPedido ? 0 : 100000) + dist;            // pedido igual ganha; empate → venc mais perto
+      if (score < bestScore) { bestScore = score; best = b; }
+    });
+    if (best) {
+      boletosUsados.add(best.key);
       nBaixados++;
-      boletoCobrancaStatus[b.key] = {
-        dataPagamento: match.dataPagamento,
-        pago: !!match.dataPagamento || match.status.includes('pag'),
-        valorTitulo: match.valorTitulo,
-        valorPago: match.valorPago,
-        juros: match.juros
+      boletoCobrancaStatus[best.key] = {
+        dataPagamento: c.dataPagamento,
+        pago: !!c.dataPagamento || c.status.includes('pag'),
+        valorTitulo: c.valorTitulo,
+        valorPago: c.valorPago,
+        juros: c.juros
       };
     }
   });
