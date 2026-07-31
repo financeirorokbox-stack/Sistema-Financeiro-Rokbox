@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v423/07-542';
+const APP_VERSION = 'v424/07-543';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -520,7 +520,7 @@ async function deleteData(key) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -675,7 +675,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1162,6 +1162,7 @@ let colecoes = []; // [{id,nome,subgrupo}] — coleções por subgrupo (CMV/CMV 
 let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,insumo,unidade,qtd,custoUnit,custoTotal,colecao,dataLimite,categoria,solicitante,empresa,status,condicaoId,nf,dataReceb,obs,_pedidoContas}]
 let comprasSel = new Set(); // seleção (transitória) p/ aprovar vários pedidos de uma vez
 let comprasDriveLidos = {}; // arquivos de pedido de fornecedor (PDF) já lidos da pasta "Pedidos de Compras" do Drive: {nomeArquivo: dataISO}
+let divergenciasVendas = { sumidos: [], geradoEm: null, arquivo: '' }; // pedidos que estão no sistema mas NÃO vieram na última exportação de vendas (possível cancelamento/mudança de status) — só AVISA, nunca apaga sozinho
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
 let difAceita = {}; // { pedidoId: true } — diferenças aceitas na aba Por Pedido
 let devolucaoAcao = {}; // { 'pedido|cliente': 'aceito' | 'cobrar' }
@@ -1693,6 +1694,76 @@ function toggleVendasUploads() {
   if (b) b.textContent = esconder ? '⚙ subir arquivo manual (avançado)' : '⚙ ocultar upload manual';
   try { localStorage.setItem('vendasUploadsRecolhido', esconder ? '1' : '0'); } catch (e) {}
 }
+
+// ════════════════════════════════════════════════════════════════════
+// "A ÚLTIMA PLANILHA MANDA" — aviso de pedidos que sumiram da exportação
+// ════════════════════════════════════════════════════════════════════
+// Um pedido tem dinheiro/conciliação preso? (se sim, NUNCA oferecemos remover)
+function pedidoTemVinculoFinanceiro(id) {
+  const sid = String(id);
+  if (recebimentosConsolidado.some(r => String(r.nped) === sid)) return true;
+  if (formaPagamento.some(f => String(f.pedido) === sid)) return true;
+  if (boletosAvulsos.some(b => String(b.pedido) === sid)) return true;
+  if (results && results.ok && results.ok.some(x => String(x.ped && x.ped.id) === sid)) return true;
+  try {
+    for (const k in extratoLinks) { const v = extratoLinks[k]; if (v && String(v.nped) === sid) return true; }
+    for (const k in repasseLinks) { const r = repasseLinks[k]; if (r && r.itens && r.itens.some(it => String(it.nped) === sid)) return true; }
+  } catch (e) {}
+  return false;
+}
+// Compara os pedidos do arquivo com os que o sistema já tem NA MESMA empresa e período do arquivo.
+// Os que estão no sistema e NÃO vieram no arquivo = "sumidos" (aviso). Retorna quantos achou.
+function _detectarSumidosVendas(pedsDoArquivo, empresaArq, nomeArquivo) {
+  if (!pedsDoArquivo || !pedsDoArquivo.length) return 0;
+  const fileIds = new Set(pedsDoArquivo.map(p => String(p.id)));
+  // Período coberto pelo arquivo (min/max da data dos pedidos do arquivo).
+  const datas = pedsDoArquivo.map(p => p.data ? new Date(p.data).getTime() : null).filter(Boolean);
+  if (!datas.length) return 0;
+  const minD = Math.min(...datas), maxD = Math.max(...datas);
+  const sumidos = pedidos.filter(p => {
+    if (String(p.empresa || '') !== String(empresaArq || '')) return false; // só a mesma empresa
+    if (fileIds.has(String(p.id))) return false;                            // veio no arquivo → ok
+    const t = p.data ? new Date(p.data).getTime() : null;
+    if (t == null || t < minD || t > maxD) return false;                    // fora do período do arquivo → ignora
+    return true;
+  }).map(p => ({
+    id: String(p.id), nome: p.nome || '', valor: +p.valor || 0,
+    situacao: p.situacao || '', loja: p.loja || '',
+    data: p.data || null, temVinculo: pedidoTemVinculoFinanceiro(p.id)
+  })).sort((a, b) => b.valor - a.valor);
+  divergenciasVendas = { sumidos, geradoEm: new Date().toISOString(), arquivo: nomeArquivo || '' };
+  saveData('divergenciasVendas', divergenciasVendas);
+  return sumidos.length;
+}
+// Remove um pedido fantasma (sem dinheiro preso). Sempre confirma; respeita mês fechado.
+function removerPedidoSumido(id) {
+  const sid = String(id);
+  const d = divergenciasVendas.sumidos.find(x => x.id === sid);
+  if (!d) return;
+  if (d.temVinculo) { alert('Esse pedido tem recebimento/conciliação ligado. Por segurança, não dá pra remover por aqui.'); return; }
+  const p = pedidos.find(x => String(x.id) === sid);
+  if (p && typeof diaFechado === 'function' && diaFechado(p.data)) {
+    alert('Esse pedido é de um dia/mês FECHADO. Reabra o período antes de remover.'); return;
+  }
+  if (!confirm('Remover o pedido #' + sid + ' (' + d.nome + ', ' + fmtVal(d.valor) + ')?\n\nEle não veio na última exportação e não tem dinheiro ligado. Isso não mexe em mais nada.')) return;
+  pedidos = pedidos.filter(x => String(x.id) !== sid);
+  divergenciasVendas.sumidos = divergenciasVendas.sumidos.filter(x => x.id !== sid);
+  saveData('pedidos', pedidos);
+  saveData('divergenciasVendas', divergenciasVendas);
+  try { renderVendas(); } catch (e) {}
+}
+// "Manter": tira o pedido do aviso sem apagar nada (você conferiu e ele fica).
+function manterPedidoSumido(id) {
+  const sid = String(id);
+  divergenciasVendas.sumidos = divergenciasVendas.sumidos.filter(x => x.id !== sid);
+  saveData('divergenciasVendas', divergenciasVendas);
+  try { renderVendas(); } catch (e) {}
+}
+function limparAvisoSumidos() {
+  divergenciasVendas = { sumidos: [], geradoEm: null, arquivo: '' };
+  saveData('divergenciasVendas', divergenciasVendas);
+  try { renderVendas(); } catch (e) {}
+}
 function renderVendas() {
   const el = document.getElementById('v-vendas');
   const mostrarUp = uploadsManuaisVisiveis(); // uploads manuais escondidos (o normal é o ☁ Sincronizar do Drive)
@@ -1736,6 +1807,7 @@ function renderVendas() {
     })}
 
     <div id="vendas-cards" class="cards-row"></div>
+    <div id="vendas-diverg"></div>
     <div id="vendas-devol-detalhe"></div>
     <div id="vendas-loja-fix"></div>
     <div id="vendas-table"></div>
@@ -1811,10 +1883,22 @@ function renderVendas() {
       else Object.assign(existing, np);
     });
     saveData('pedidos', pedidos);
+    // ── "A última planilha manda": detecta pedidos que SUMIRAM da exportação ──
+    // Compara SÓ dentro da mesma empresa e do período que veio no arquivo (não mexe em outros meses).
+    // Nunca apaga: só monta a lista de aviso. Ela decide depois.
+    let nSumidos = 0;
+    try { nSumidos = _detectarSumidosVendas(newPeds, empresa, file.name); } catch (e) { console.warn('detecta sumidos:', e); }
     // Recebimentos da Braavo que estavam "sem pedido" podem casar agora que a venda chegou
     try { const nSite = resolverRecebPorSite(); if (nSite) console.log('Braavo: ' + nSite + ' recebimento(s) casados pelo nº do site'); } catch (e) {}
     renderPedidosTable();
-    document.getElementById('status-pedidos').textContent = '✓ ' + pedidos.length + ' pedidos' + (empresa ? ' (' + empresa + ')' : '');
+    const totalArq = newPeds.reduce((s, p) => s + (p.valor || 0), 0);
+    document.getElementById('status-pedidos').textContent = '✓ ' + newPeds.length + ' pedidos nesta planilha · ' + fmtVal(totalArq) + (empresa ? ' (' + empresa + ')' : '');
+    // Confirmação na hora + aviso de fantasmas (só quando a importação foi da tela de Vendas, não em cadeia)
+    if (files.length === 1 || i >= files.length) {
+      let msg = '✓ Importado: ' + newPeds.length + ' pedidos, total ' + fmtVal(totalArq) + (empresa ? ' (' + empresa + ')' : '') + '.';
+      if (nSumidos > 0) msg += '\n\n⚠ ' + nSumidos + ' pedido(s) estão no sistema mas NÃO vieram nesta exportação (podem ter sido cancelados ou mudado de status). Veja o aviso na tela de Vendas para conferir.';
+      alert(msg);
+    }
   });
 
   // Atualiza SÓ o Frete (e Outras Despesas) dos pedidos JÁ EXISTENTES — sem tocar em valor/situação/conciliação.
@@ -2114,6 +2198,36 @@ function renderPedidosTable() {
         </tr>`).join('')}
         </tbody></table></div>`;
   } else if (fixEl) fixEl.innerHTML = '';
+
+  // ── Aviso "sumiram da última exportação" (a última planilha manda) ──
+  const divEl = document.getElementById('vendas-diverg');
+  if (divEl) {
+    const sum = (divergenciasVendas && divergenciasVendas.sumidos) || [];
+    if (!sum.length) divEl.innerHTML = '';
+    else {
+      const totalSum = sum.reduce((s, x) => s + (x.valor || 0), 0);
+      divEl.innerHTML = `<div style="border:1px solid var(--amber);background:rgba(245,158,11,.08);border-radius:12px;padding:14px 16px;margin:6px 0 16px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <strong style="color:var(--amber)">⚠ ${sum.length} pedido(s) sumiram da última exportação</strong>
+          <span style="font-size:12px;color:var(--muted)">somando ${fmtVal(totalSum)}${divergenciasVendas.arquivo ? ' · arquivo: ' + divergenciasVendas.arquivo : ''}</span>
+          <button class="btn ghost sm" style="font-size:11px;margin-left:auto" onclick="limparAvisoSumidos()" title="Some com o aviso (não apaga nenhum pedido)">✕ dispensar aviso</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estão no sistema mas NÃO vieram na planilha que você acabou de subir. Podem ter sido cancelados ou mudado de status no Bling. Confira e decida (nada é apagado sozinho).</div>
+        <div class="table-wrap"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th>Valor</th><th>Situação (no sistema)</th><th>Ação</th></tr></thead><tbody>
+        ${sum.map(x => `<tr>
+          <td><strong>#${x.id}</strong></td><td>${x.nome}</td><td>${fmtDate(x.data)}</td><td>${fmtVal(x.valor)}</td>
+          <td>${x.situacao || '—'} <span style="font-size:10px;color:var(--muted)">· ${x.loja || ''}</span></td>
+          <td style="white-space:nowrap">
+            <button class="btn ghost sm" onclick="manterPedidoSumido('${x.id}')" title="Você conferiu e ele fica. Só tira do aviso.">✓ manter</button>
+            ${x.temVinculo
+              ? `<span style="font-size:11px;color:var(--muted)" title="Tem recebimento/conciliação ligado — não pode remover por aqui">🔒 tem R$ ligado</span>`
+              : `<button class="btn danger sm" onclick="removerPedidoSumido('${x.id}')" title="Remove o pedido (ele não tem dinheiro ligado)">🗑 remover</button>`}
+          </td>
+        </tr>`).join('')}
+        </tbody></table></div>
+      </div>`;
+    }
+  }
 
   const filtered = getFilteredPedidos();
   const totalGeral = pedidos.reduce((s,p)=>s+p.valor,0);
@@ -12219,7 +12333,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -12271,6 +12385,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='recebOrfaoInfo') recebOrfaoInfo = v || {};
     else if (k==='comprasDriveLidos') comprasDriveLidos = v || {};
+    else if (k==='divergenciasVendas') divergenciasVendas = v || { sumidos: [], geradoEm: null, arquivo: '' };
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
