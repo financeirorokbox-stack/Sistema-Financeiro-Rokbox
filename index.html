@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v431/07-550';
+const APP_VERSION = 'v432/07-551';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11002,6 +11002,7 @@ function renderCompras() {
         `<button class="btn ${fSt === s ? 'primary' : 'ghost'} sm" onclick="setCmpTab('${s}')">${lbl}${s ? ` (${cnt(s)})` : ''}</button>`).join('')}
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
+      <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
@@ -11210,6 +11211,72 @@ function importarCompras(wb) {
 function novaCompra() {
   compras.push({ id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'), fornecedor: '', insumo: '', unidade: 'un', qtd: 0, custoUnit: 0, custoTotal: 0, frete: 0, colecao: '', dataLimite: '', dataFatur: '', categoria: '', solicitante: '', empresa: '', status: 'pendente' });
   saveData('compras', compras); renderCompras();
+}
+// ── Lançar romaneio (foto do WhatsApp) na mão, rápido ──────────────────
+// Romaneios chegam como FOTO (o sistema não lê imagem). Aqui ela bate: fornecedor + entrega 1x,
+// e os itens em sequência. Cada item vira uma linha PENDENTE em Compras (mesmo fluxo do resto).
+function abrirLancarRomaneio() {
+  const old = document.getElementById('romaneio-modal'); if (old) old.remove();
+  const forns = [...new Set(compras.map(c => c.fornecedor).filter(Boolean))].sort();
+  const ov = document.createElement('div');
+  ov.id = 'romaneio-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px';
+  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:20px;max-width:760px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="font-size:16px;font-weight:800;margin-bottom:2px">📸 Lançar romaneio (da foto)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Olhando a foto: preencha o fornecedor e a entrega uma vez, e bata os itens em sequência. Vira itens Pendentes em Compras.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="flex:2;min-width:160px"><label style="font-size:11px;color:var(--muted)">Fornecedor</label><input id="rom-forn" class="inline-input" list="rom-forn-list" placeholder="ex.: ILMA" style="width:100%"><datalist id="rom-forn-list">${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}">`).join('')}</datalist></div>
+      <div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted)">Entrega</label><input id="rom-entrega" type="date" class="inline-input" style="width:100%"></div>
+      <div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--muted)">Empresa (opcional)</label><input id="rom-empresa" class="inline-input" list="rom-emp-list" placeholder="${(empresasCadastro[0] || '')}" style="width:100%"><datalist id="rom-emp-list">${(empresasCadastro || []).map(e => `<option value="${String(e).replace(/"/g, '&quot;')}">`).join('')}</datalist></div>
+    </div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--muted)">
+      <th style="padding:4px">Descrição</th><th style="padding:4px">Referência</th><th style="padding:4px;width:70px">Qtd</th><th style="padding:4px;width:95px">Valor un.</th><th style="width:30px"></th>
+    </tr></thead><tbody id="rom-linhas"></tbody></table>
+    <div style="margin:8px 0 14px"><button class="btn ghost sm" onclick="_romAddLinha()">➕ item</button></div>
+    <div style="text-align:right;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="document.getElementById('romaneio-modal').remove()">Cancelar</button>
+      <button class="btn primary" onclick="salvarRomaneio()">Lançar em Compras</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  _romAddLinha(); _romAddLinha(); _romAddLinha();
+}
+function _romAddLinha() {
+  const tb = document.getElementById('rom-linhas'); if (!tb) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td style="padding:2px"><input class="inline-input rom-desc" style="width:100%" placeholder="Camiseta UV..."></td>
+    <td style="padding:2px"><input class="inline-input rom-ref" style="width:100%" placeholder="RKWL26.46"></td>
+    <td style="padding:2px"><input class="inline-input rom-qtd" type="number" style="width:100%"></td>
+    <td style="padding:2px"><input class="inline-input rom-val" type="number" step="0.01" style="width:100%"></td>
+    <td style="padding:2px;text-align:center"><button class="btn ghost sm" style="color:var(--red);padding:1px 6px" onclick="this.closest('tr').remove()">✕</button></td>`;
+  tb.appendChild(tr);
+}
+function salvarRomaneio() {
+  const forn = (document.getElementById('rom-forn')?.value || '').trim();
+  if (!forn) { alert('Informe o fornecedor (ex.: ILMA).'); return; }
+  const entregaISO = document.getElementById('rom-entrega')?.value || '';
+  const entregaBR = entregaISO ? entregaISO.split('-').reverse().join('/') : '';
+  const empresa = (document.getElementById('rom-empresa')?.value || '').trim();
+  const linhas = [...document.querySelectorAll('#rom-linhas tr')].map(tr => ({
+    desc: (tr.querySelector('.rom-desc')?.value || '').trim(),
+    ref: (tr.querySelector('.rom-ref')?.value || '').trim(),
+    qtd: num(tr.querySelector('.rom-qtd')?.value || 0),
+    val: num(tr.querySelector('.rom-val')?.value || 0)
+  })).filter(l => l.desc || l.qtd || l.val);
+  if (!linhas.length) { alert('Adicione ao menos um item (Descrição/Qtd/Valor).'); return; }
+  linhas.forEach(l => {
+    compras.push({
+      id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'),
+      fornecedor: forn, insumo: l.desc + (l.ref ? ' (' + l.ref + ')' : ''), unidade: 'un',
+      qtd: l.qtd, custoUnit: l.val, custoTotal: +((l.qtd || 0) * (l.val || 0)).toFixed(2), frete: 0,
+      colecao: '', dataLimite: entregaBR, dataFatur: entregaISO, categoria: '', solicitante: '', empresa, status: 'pendente'
+    });
+  });
+  saveData('compras', compras);
+  document.getElementById('romaneio-modal')?.remove();
+  try { setCmpTab('pendente'); } catch (e) { renderCompras(); }
+  const tot = linhas.reduce((s, l) => s + (l.qtd || 0) * (l.val || 0), 0);
+  alert('✓ Romaneio lançado: ' + linhas.length + ' item(ns) de "' + forn + '", total ' + fmtVal(tot) + '.\n\nEntraram como Pendentes. Confira, aprove e gere o pedido pra criar as parcelas no Contas a Pagar.');
 }
 function updateCompra(id, field, value) {
   const c = compras.find(x => x.id === id); if (!c) return;
