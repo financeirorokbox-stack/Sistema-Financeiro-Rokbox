@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v429/07-548';
+const APP_VERSION = 'v430/07-549';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7447,6 +7447,17 @@ function syncExtratoToRecebimentos() {
   // (era o bug das "sobras que se perdiam"). Os _sobraDe sobreviveram ao filtro acima.
   const sobraPorOrigem = {};
   recebimentosConsolidado.forEach(r => { if (r._sobraDe) sobraPorOrigem[String(r._sobraDe)] = (sobraPorOrigem[String(r._sobraDe)] || 0) + (r.bruto || 0); });
+  // Quanto cada pedido JÁ tem de recebimento SEM ser do extrato (manuais, sobras recebidas, PayPal/Braavo,
+  // boletos) — os créditos do extrato foram removidos acima e serão recriados. Serve pra CAPar o desconto
+  // da sobra: se o corte já foi feito num lançamento que PERSISTE (ex.: manual), o pedido não tem excesso e
+  // NÃO se desconta de novo do crédito do banco (senão cortava 2x e o pedido ia pra FALTA no reload — bug do #279).
+  const jaRecebPorPed = {};
+  recebimentosConsolidado.forEach(r => {
+    const ps = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!ps.length) return;
+    const v = (r.bruto || 0) / ps.length;
+    ps.forEach(pid => { jaRecebPorPed[pid] = (jaRecebPorPed[pid] || 0) + v; });
+  });
 
   Object.entries(extratoLinks).forEach(([id, link]) => {
     const t = extratoBancario.find(x => x.id === id);
@@ -7468,9 +7479,17 @@ function syncExtratoToRecebimentos() {
     }
     const ped0 = pedidos.find(p => String(p.id) === String(pedIds[0]));
     // Desconta a sobra já movida deste pedido (só quando o crédito é de UM pedido; com vários, o
-    // alocRecebGateway já divide por valor e não precisa).
+    // alocRecebGateway já divide por valor e não precisa). CAP: desconta no máximo o EXCESSO real do
+    // pedido (o que passaria do valor dele usando o crédito cheio). Se o corte da sobra já foi feito num
+    // lançamento que persiste (ex.: manual do #279), não há excesso → desconta 0 → não corta 2x nem vai pra FALTA.
     let brutoPix = t.valor;
-    if (pedIds.length === 1 && sobraPorOrigem[pedIds[0]]) brutoPix = +(t.valor - sobraPorOrigem[pedIds[0]]).toFixed(2);
+    if (pedIds.length === 1 && sobraPorOrigem[pedIds[0]]) {
+      const _o = pedIds[0];
+      const _valorO = ped0 ? getValorConciliacaoPedido(ped0) : 0;
+      const _excesso = +((t.valor + (jaRecebPorPed[_o] || 0)) - _valorO).toFixed(2);
+      const _descontar = Math.max(0, Math.min(sobraPorOrigem[_o], _excesso));
+      brutoPix = +(t.valor - _descontar).toFixed(2);
+    }
     // UMA entrada por crédito, listando TODOS os pedidos vinculados. O valor é DIVIDIDO entre eles
     // por `alocRecebGateway` (pelo valor de cada pedido). Antes criava 1 entrada de valor CHEIO por
     // pedido → com 2 pedidos, cada um parecia ter recebido o crédito inteiro e virava "sobra" falsa.
