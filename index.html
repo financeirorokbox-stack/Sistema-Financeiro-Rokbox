@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v428/07-547';
+const APP_VERSION = 'v429/07-548';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5270,6 +5270,24 @@ function removerRecebManual(idx) {
   recebimentosConsolidado = recebimentosConsolidado.filter((_, i) => i !== idx);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRecebimentos();
+  try { renderConcResult(); } catch (e) {}
+}
+// Corrige o VALOR de um recebimento manual (ex.: 1 pagamento de abril era p/ 2 pedidos e ficou o valor
+// cheio num só). Muda só este lançamento; nada é recriado (é manual). Resolve a "sobra" na origem.
+function editarValorRecebManual(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r || !r._recebManual) return;
+  const atual = (r.bruto || 0).toFixed(2).replace('.', ',');
+  const novoRaw = prompt('Valor recebido DESTE lançamento (pedido #' + (r.nped || '—') + '):\n\nDica: se um pagamento foi dividido entre pedidos, coloque aqui só a parte deste pedido.', atual);
+  if (novoRaw == null) return;
+  const novo = parseFloat(String(novoRaw).replace(/\./g, '').replace(',', '.'));
+  if (isNaN(novo) || novo < 0) { alert('Valor inválido.'); return; }
+  const v = +novo.toFixed(2);
+  r.bruto = v; r.liq = v;
+  saveData('recebimentosConsolidado', recebimentosConsolidado);
+  renderRecebimentos();
+  try { renderContas(); } catch (e) {}
+  try { renderConcResult(); } catch (e) {}
 }
 // Abre/fecha o formulário de estorno manual.
 function toggleEstornoManualBox() {
@@ -5510,7 +5528,7 @@ function renderRecebimentos() {
           : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}
         ${r._sobraDe ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerSobra(${realIdx})" title="Apaga este lançamento de sobra e devolve o valor ao pedido #${r._sobraDe}">↩ desfazer sobra (de #${r._sobraDe})</button>` : ''}
         ${(r._estornoManual || r._difEstorno) ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="desfazerEstornoManual(${realIdx})" title="Desfaz este estorno manual (remove o estorno, a diferença e a despesa em Contas a Pagar, se houver)">↩ desfazer estorno</button>` : ''}
-        ${r._recebManual ? ` <span class="badge" style="font-size:9px;background:#e6f4ea;color:#1b7a3d">manual</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removerRecebManual(${realIdx})" title="Remove este recebimento manual">↩ desfazer</button>` : ''}</td>
+        ${r._recebManual ? ` <span class="badge" style="font-size:9px;background:#e6f4ea;color:#1b7a3d">manual</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="editarValorRecebManual(${realIdx})" title="Corrigir o valor deste recebimento (ex.: pagamento dividido entre pedidos)">✏ valor</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removerRecebManual(${realIdx})" title="Remove este recebimento manual">↩ desfazer</button>` : ''}</td>
       <td>${fmtVal(r.bruto)}</td>
       <td>${fmtVal(r.taxa)}</td>
       <td>${fmtVal(r.liq)}</td>
