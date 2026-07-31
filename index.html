@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v421/07-540';
+const APP_VERSION = 'v422/07-541';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -443,7 +443,26 @@ async function sbInit() {
   } catch(e) {}
 }
 
+// ── Cache de performance ──────────────────────────────────────────────
+// Muitos cálculos pesados (índices por pedido, boletos) eram refeitos DO ZERO
+// a cada chamada, inclusive dentro de loops de render → travava com muitos dados.
+// _dataVersion sobe a cada saveData; os caches abaixo só recalculam quando ela muda.
+// Assim, dentro de um mesmo render (dados parados) a conta roda 1x só, sem mudar resultado.
+let _dataVersion = 0;
+function _bumpDataVersion() { _dataVersion++; }
+// Índice pedido-por-id (mata os pedidos.find repetidos).
+let _pedIdxCache = null, _pedIdxVer = -1;
+function pedidoPorId(id) {
+  if (_pedIdxVer !== _dataVersion || !_pedIdxCache) {
+    _pedIdxCache = new Map();
+    pedidos.forEach(p => _pedIdxCache.set(String(p.id), p));
+    _pedIdxVer = _dataVersion;
+  }
+  return _pedIdxCache.get(String(id));
+}
+
 async function saveData(key, data) {
+  _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   // Sempre salva no localStorage (backup local)
   try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(data)); } catch(e) {}
 
@@ -5453,7 +5472,14 @@ function renderRecebimentos() {
 // ════════════════════════════════════════════════════════════════════
 // BOLETOS
 // ════════════════════════════════════════════════════════════════════
+let _boletosCache = null, _boletosVer = -1;
 function getBoletosPorPedido() {
+  if (_boletosVer === _dataVersion && _boletosCache) return _boletosCache; // cache: só recalcula se dados mudaram
+  const r = _getBoletosPorPedidoCalc();
+  _boletosCache = r; _boletosVer = _dataVersion;
+  return r;
+}
+function _getBoletosPorPedidoCalc() {
   if (!formaPagamento.length && !Object.keys(formaOverrideMap).length) return [];
   const byPedido = {};
   formaPagamento.forEach(f => {
@@ -5463,7 +5489,7 @@ function getBoletosPorPedido() {
     const ehBoleto = override ? (override === 'Boleto Itaú') : desc.includes('boleto');
     if (!ehBoleto) return;
     if (!byPedido[f.pedido]) {
-      const ped = pedidos.find(p => String(p.id) === String(f.pedido));
+      const ped = pedidoPorId(f.pedido);
       byPedido[f.pedido] = {
         pedido: String(f.pedido),
         cliente: f.cliente || (ped ? ped.nome : ''),
@@ -5479,7 +5505,7 @@ function getBoletosPorPedido() {
   // Pedidos com override "Boleto Itaú" mas SEM linha de Forma de Pagamento → inclui pelo valor do pedido.
   Object.keys(formaOverrideMap).forEach(pid => {
     if (formaOverrideMap[pid] !== 'Boleto Itaú' || byPedido[pid]) return;
-    const ped = pedidos.find(p => String(p.id) === String(pid));
+    const ped = pedidoPorId(pid);
     if (!ped) return;
     byPedido[pid] = {
       pedido: String(pid),
