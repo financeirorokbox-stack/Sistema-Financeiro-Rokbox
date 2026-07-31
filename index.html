@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v430/07-549';
+const APP_VERSION = 'v431/07-550';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1606,11 +1606,17 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       const txnId = String(r['ID da transação'] || '');
       const refId = String(r['ID da transação de referência'] || r['ID de transação de referência'] || r['Código de referência'] || '');
 
-      // Tenta extrair o número do pedido do "Assunto" ou "Título do produto"
+      // Tenta extrair o número do pedido do "Assunto" ou "Título do produto".
+      // ATENÇÃO: é TEXTO LIVRE — às vezes tem um número solto que POR ACASO é o pedido de OUTRO cliente
+      // (ex.: pagamento do João virava pedido da Larissa). Só aceita o nº se o pedido EXISTE e o NOME do
+      // cliente bate. Senão, fica SEM pedido (vínculo manual), nunca gruda num pedido/cliente errado.
       let nped = null;
       const texto = String(r['Assunto'] || '') + ' ' + String(r['Título do produto'] || '');
       const m = texto.match(/(\d{4,6})/);
-      if (m) nped = m[1];
+      if (m) {
+        const _pc = pedidos.find(p => String(p.id) === String(m[1]));
+        if (_pc && nomesBatem(_pc.nome, r['Nome'] || '')) nped = m[1];
+      }
 
       target.push({
         gateway: gatewayName, bruto, taxa, liq, data, nped,
@@ -5067,11 +5073,17 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       const txnId = String(r['ID da transação'] || '');
       const refId = String(r['ID da transação de referência'] || r['ID de transação de referência'] || r['Código de referência'] || '');
 
-      // Tenta extrair o número do pedido do "Assunto" ou "Título do produto"
+      // Tenta extrair o número do pedido do "Assunto" ou "Título do produto".
+      // ATENÇÃO: é TEXTO LIVRE — às vezes tem um número solto que POR ACASO é o pedido de OUTRO cliente
+      // (ex.: pagamento do João virava pedido da Larissa). Só aceita o nº se o pedido EXISTE e o NOME do
+      // cliente bate. Senão, fica SEM pedido (vínculo manual), nunca gruda num pedido/cliente errado.
       let nped = null;
       const texto = String(r['Assunto'] || '') + ' ' + String(r['Título do produto'] || '');
       const m = texto.match(/(\d{4,6})/);
-      if (m) nped = m[1];
+      if (m) {
+        const _pc = pedidos.find(p => String(p.id) === String(m[1]));
+        if (_pc && nomesBatem(_pc.nome, r['Nome'] || '')) nped = m[1];
+      }
 
       target.push({
         gateway: gatewayName, bruto, taxa, liq, data, nped,
@@ -8245,6 +8257,12 @@ function autoVincularPorValor() {
   pedidos.forEach(ped => {
     const sit = (ped.situacao || '').toLowerCase();
     if (SITUACOES_NAO_APLICAVEL.includes(sit)) return;
+    // TRAVA: nunca vincular automático num pedido JÁ QUITADO (recebido >= valor). Um crédito novo num
+    // pedido fechado seria erro/sobra → ele fica em "sem pedido" pra ser vinculado na mão no pedido certo.
+    try {
+      const jaReceb = getRecebimentosDoPedido(ped).reduce((s, r) => s + (r.bruto || 0), 0);
+      if (jaReceb >= getValorConciliacaoPedido(ped) - 0.5) return;
+    } catch (e) {}
     const formas = formaPagamento.filter(f => String(f.pedido) === String(ped.id) && classificaForma(f.descricao).isReceita);
     formas.forEach(f => {
       const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
