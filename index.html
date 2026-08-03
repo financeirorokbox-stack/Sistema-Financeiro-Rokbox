@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v444/08-563';
+const APP_VERSION = 'v445/08-564';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7636,14 +7636,19 @@ function syncExtratoToRecebimentos() {
       }
       return;
     }
-    const ped0 = pedidos.find(p => String(p.id) === String(pedIds[0]));
+    // Boletos avulsos (AV:) vinculados a este crédito são só CONCILIAÇÃO — a receita deles já veio do
+    // pagamento do próprio boleto. Tira do cálculo da receita PIX; se o crédito quita SÓ avulsos, não
+    // cria receita (fica só conciliado ao banco). Ex.: cliente pagou os boletos por PIX.
+    const pedReais = pedIds.filter(p => !String(p).startsWith('AV:'));
+    if (!pedReais.length) return;
+    const ped0 = pedidos.find(p => String(p.id) === String(pedReais[0]));
     // Desconta a sobra já movida deste pedido (só quando o crédito é de UM pedido; com vários, o
     // alocRecebGateway já divide por valor e não precisa). CAP: desconta no máximo o EXCESSO real do
     // pedido (o que passaria do valor dele usando o crédito cheio). Se o corte da sobra já foi feito num
     // lançamento que persiste (ex.: manual do #279), não há excesso → desconta 0 → não corta 2x nem vai pra FALTA.
     let brutoPix = t.valor;
-    if (pedIds.length === 1 && sobraPorOrigem[pedIds[0]]) {
-      const _o = pedIds[0];
+    if (pedReais.length === 1 && sobraPorOrigem[pedReais[0]]) {
+      const _o = pedReais[0];
       const _valorO = ped0 ? getValorConciliacaoPedido(ped0) : 0;
       const _excesso = +((t.valor + (jaRecebPorPed[_o] || 0)) - _valorO).toFixed(2);
       const _descontar = Math.max(0, Math.min(sobraPorOrigem[_o], _excesso));
@@ -7658,7 +7663,7 @@ function syncExtratoToRecebimentos() {
       taxa: 0,
       liq: brutoPix,
       data: t.data,
-      nped: pedIds.join(','),
+      nped: pedReais.join(','),
       nome: ped0 ? ped0.nome : '',
       tipo: 'PIX',
       status: 'pago',
@@ -7868,9 +7873,13 @@ function renderExtrato() {
               }
               // Ordena por proximidade de valor com o crédito do extrato
               pixAbertos.sort((a, b) => Math.abs(a.valor - t.valor) - Math.abs(b.valor - t.valor));
-              // Lote de BOLETOS: inclui também os boletos IMPORTADOS do Itaú (avulsos, fora do sistema),
-              // pra flegar junto com os de Vendas. Entram só como CONCILIAÇÃO (não recriam receita).
-              if (ehLoteBoleto) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: a.valorTitulo || a.valorPago || 0, descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)') + (a.pedido ? ' #' + a.pedido : ''), _avulso: true, _avPago: !!a.dataPagamento }));
+              // Inclui os boletos avulsos (Itaú, fora do sistema) pra flegar. Aparecem quando o crédito é
+              // lote de BOLETOS ("boleto" no histórico) OU quando o histórico traz o NOME de um cliente com
+              // avulso (ex.: cliente pagou o boleto por PIX — "PIX RECEBIDO LIBIA..."). Entram SÓ como
+              // CONCILIAÇÃO (a sincronização não recria receita p/ AV:). Isto é só exibição, seguro.
+              const _memoAv = (t.memo || '').toLowerCase();
+              const mostrarAvulsos = ehLoteBoleto || boletosAvulsos.some(a => { const p = (a.cliente || '').toLowerCase().trim().split(/\s+/)[0]; return p && p.length >= 4 && _memoAv.includes(p); });
+              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: a.valorTitulo || a.valorPago || 0, descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)') + (a.pedido ? ' #' + a.pedido : ''), _avulso: true, _avPago: !!a.dataPagamento }));
               const hasAutoMatch = pixAbertos.length > 0 && Math.abs(pixAbertos[0].valor - t.valor) <= 0.10;
               const listId = 'ext-list-' + t.id;
               return `<div style="min-width:260px;max-width:340px">
