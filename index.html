@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v432/07-551';
+const APP_VERSION = 'v433/07-552';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10942,7 +10942,7 @@ function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro'
 const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
 // Colunas da tabela de Compras (chips 👁 mostram/ocultam; escolha fica salva no aparelho)
 const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['emp','Empresa'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
-let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcultas'); return v ? JSON.parse(v) : ['un','desc','solic']; } catch (e) { return ['un','desc','solic']; } })();
+let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcultas'); return v ? JSON.parse(v) : ['un','solic']; } catch (e) { return ['un','solic']; } })();
 // Aba (etapa do fluxo) selecionada em Compras — lembrada no aparelho
 let cmpTab = (() => { try { return localStorage.getItem('cmpTab') || ''; } catch (e) { return ''; } })();
 function setCmpTab(s) { cmpTab = s; try { localStorage.setItem('cmpTab', s); } catch (e) {} renderCompras(); }
