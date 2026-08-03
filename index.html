@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v439/08-558';
+const APP_VERSION = 'v440/08-559';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3302,7 +3302,52 @@ function renderComissao() {
     ${outros.length ? `<div class="table-wrap" style="max-width:760px"><table><thead><tr><th>Nome</th><th>Base</th><th style="text-align:right">%</th><th style="text-align:right">Base (R$)</th><th style="text-align:right">Comissão</th><th></th></tr></thead><tbody>
       ${outros.map(o=>{ const okey='OUTRO§'+o.nome+'§'+comPeriodoInfo().key; const ofech=comissaoFechada[okey]; const ojs=o.nome.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); return `<tr><td><strong>${o.nome}</strong></td><td>${o.base==='total'?'Total da empresa':'Vendas '+o.base}</td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(o.baseUsada)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(ofech?ofech.total:o.comissao)}</td><td style="text-align:right">${ofech?`<span class="badge" style="background:var(--green);color:#fff;font-size:9px">✓ folha</span> <button class="btn ghost sm" style="color:var(--amber)" onclick="reabrirComissaoVendedor('${ojs}')" title="Tira da Folha e reabre">↩</button>`:`<button class="btn primary sm" style="font-size:11px" onclick="fecharOutroFolha('${ojs}',${o.comissao})" title="Lança na Folha (RH) do funcionário">→ Folha</button>`}</td></tr>`; }).join('')}
       <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="4">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td><td></td></tr>
-    </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhum cadastrado em Cadastro → Comissão Outros.</div>'}`;
+    </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhum cadastrado em Cadastro → Comissão Outros.</div>'}
+
+    <div class="section-title" style="margin-top:28px">📋 Relatório de comissão (para a folha)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Nome completo do funcionário, empresa e o valor da comissão <strong>lançado na Folha</strong> (junta vendedores + Outros por pessoa). ${_mesRHdoPeriodo() ? 'Mês ' + _mesRHdoPeriodo().split('-').reverse().join('/') + '.' : 'Filtre por <strong>1 mês + 1 ano</strong> no Período pra ver.'}</div>
+    ${(() => {
+      const mesR = _mesRHdoPeriodo();
+      if (!mesR) return '';
+      const rel = funcionariosRH.filter(f => f.ativo !== false).map(f => ({ nome: f.nome || '', empresa: f.empresa || '', com: +(((folhaRH[mesR] && folhaRH[mesR][f.id] && folhaRH[mesR][f.id].comissao) || 0)) })).filter(x => x.com > 0.005).sort((a, b) => b.com - a.com);
+      if (!rel.length) return '<div style="font-size:12px;color:var(--muted)">Nenhuma comissão lançada na folha deste mês ainda. Use os botões <strong>Fechar → Folha</strong> acima.</div>';
+      const tot = rel.reduce((s, x) => s + x.com, 0);
+      return `<div style="margin-bottom:6px"><button class="btn primary sm" onclick="exportarRelComissaoFolha()" title="Gera um PDF simples: nome completo, empresa e comissão. Abre a janela de impressão pra você salvar como PDF.">📄 Gerar PDF</button></div>
+        <div class="table-wrap" style="max-width:640px"><table><thead><tr><th>Funcionário</th><th>Empresa</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
+        ${rel.map(x => `<tr><td><strong>${x.nome}</strong></td><td>${x.empresa || '—'}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(x.com)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total</td><td style="text-align:right;color:var(--green)">${fmtVal(tot)}</td></tr>
+        </tbody></table></div>`;
+    })()}`;
+}
+// Relatório de comissão da folha (Nome completo · Empresa · Comissão) em PDF SIMPLES:
+// abre uma janela de impressão pronta; a usuária salva como PDF (ou imprime).
+function exportarRelComissaoFolha() {
+  const mesR = _mesRHdoPeriodo();
+  if (!mesR) { alert('Filtre a Comissão por 1 mês e 1 ano no Período antes de gerar o PDF.'); return; }
+  const rel = funcionariosRH.filter(f => f.ativo !== false)
+    .map(f => ({ nome: f.nome || '', empresa: f.empresa || '', com: +(((folhaRH[mesR] && folhaRH[mesR][f.id] && folhaRH[mesR][f.id].comissao) || 0)) }))
+    .filter(x => x.com > 0.005).sort((a, b) => b.com - a.com);
+  if (!rel.length) { alert('Nenhuma comissão lançada na folha deste mês. Use "Fechar → Folha" primeiro.'); return; }
+  const tot = rel.reduce((s, x) => s + x.com, 0);
+  const mesLbl = mesR.split('-').reverse().join('/');
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const linhas = rel.map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.empresa) || '—'}</td><td class="r">${fmtVal(x.com)}</td></tr>`).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Comissão ${mesLbl}</title>
+    <style>body{font-family:Arial,Helvetica,sans-serif;margin:32px;color:#222}
+    h1{font-size:19px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:18px}
+    table{border-collapse:collapse;width:100%;max-width:640px} th,td{border:1px solid #ccc;padding:7px 10px;font-size:13px;text-align:left}
+    th{background:#f3f3f3} .r{text-align:right} tfoot td{font-weight:bold;background:#fafafa}
+    @media print{.noprint{display:none}}</style></head><body>
+    <h1>Relatório de Comissão</h1>
+    <div class="sub">Competência: ${mesLbl} &nbsp;·&nbsp; Painel de Gestão RK</div>
+    <table><thead><tr><th>Funcionário</th><th>Empresa</th><th class="r">Comissão</th></tr></thead>
+    <tbody>${linhas}</tbody>
+    <tfoot><tr><td colspan="2">TOTAL</td><td class="r">${fmtVal(tot)}</td></tr></tfoot></table>
+    <div class="noprint" style="margin-top:20px"><button onclick="window.print()" style="padding:8px 14px;font-size:13px;cursor:pointer">🖨 Imprimir / Salvar PDF</button></div>
+    <scr` + `ipt>setTimeout(function(){window.print()},350)</scr` + `ipt></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('Permita pop-ups (janela nova) para gerar o PDF.'); return; }
+  w.document.write(html); w.document.close();
 }
 // Exporta a comissão (vendedores por pedido + outros) para .xlsx, p/ conferência.
 function exportarComissao() {
