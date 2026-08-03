@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v443/08-562';
+const APP_VERSION = 'v444/08-563';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7884,7 +7884,9 @@ function renderExtrato() {
                 </div>
                 <!-- Lista suspensa (escondida por padrão) -->
                 ${pixAbertos.length > 0 ? `
-                <div id="${listId}" style="display:none;border:1px solid var(--border);border-radius:6px;overflow:hidden;max-height:200px;overflow-y:auto;margin-top:6px">
+                <div id="wrap-${listId}" style="display:none;margin-top:6px">
+                <input type="text" oninput="_extListFilter('${t.id}',this.value)" placeholder="🔍 filtrar por cliente ou pedido (ex.: LIBIA)" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:4px">
+                <div id="${listId}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;max-height:200px;overflow-y:auto">
                   ${pixAbertos.map(f => {
                     const ped = pedidos.find(p => p.id === f.pedido);
                     const diff = Math.abs(f.valor - t.valor);
@@ -7903,6 +7905,7 @@ function renderExtrato() {
                       <span style="color:var(--muted);font-size:11px;white-space:nowrap;margin-left:4px">${fmtVal(f.valor)}</span>
                     </label>`;
                   }).join('')}
+                </div>
                 </div>` : ''}
                 <!-- Status da seleção -->
                 <div id="ext-sel-${t.id}" style="font-size:11px;color:var(--muted);margin-top:4px;min-height:16px"
@@ -8028,10 +8031,17 @@ function renderExtrato() {
 }
 
 function toggleExtList(id) {
-  const el = document.getElementById('ext-list-' + id);
+  const el = document.getElementById('wrap-ext-list-' + id) || document.getElementById('ext-list-' + id);
   if (!el) return;
   const open = el.style.display !== 'none';
   el.style.display = open ? 'none' : 'block';
+  if (!open) { const inp = el.querySelector('input[type=text]'); if (inp) setTimeout(() => inp.focus(), 30); }
+}
+// Filtra a lista de boletos/pedidos de um crédito do extrato por texto (cliente ou nº pedido).
+function _extListFilter(id, txt) {
+  const box = document.getElementById('ext-list-' + id); if (!box) return;
+  const q = (txt || '').toLowerCase().trim();
+  box.querySelectorAll('label').forEach(l => { l.style.display = (!q || l.textContent.toLowerCase().includes(q)) ? 'flex' : 'none'; });
 }
 
 function extCheckLimit(id, cb) {
