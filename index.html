@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v434/07-553';
+const APP_VERSION = 'v435/07-554';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5995,6 +5995,14 @@ function renderBoletos() {
   let nVencidos = 0, nAVencer = 0;
   vis.forEach(b => getParcelas(b).forEach(p => { if (!boletoStatus[p.key] && p.vencimento) { const dd = Math.floor((p.vencimento - hoje0) / 86400000); if (dd < 0) nVencidos++; else if (dd <= diasAviso) nAVencer++; } }));
 
+  // Crédito de devolução por pedido (mesma conta do Contas a Receber) — pra mostrar o LÍQUIDO a emitir:
+  // se parte do pedido já foi paga com crédito de devolução, o boleto no banco é só o RESTANTE.
+  const _credDevBol = {};
+  (devolucoes || []).forEach(d => {
+    const credEfetivo = credDevolucao(d);
+    (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => { _credDevBol[pc] = (_credDevBol[pc] || 0) + (d.valorPago || 0); });
+  });
+
   el.innerHTML = `
     ${filtrosBar({
       nAtivos: [fEmp,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
@@ -6035,7 +6043,7 @@ function renderBoletos() {
           style="width:14px;height:14px;cursor:pointer" onchange="toggleDeleteRow('formaPagamento',${idxFP},this.checked)"></td>
         <td><strong>#${ped.pedido}</strong></td>
         <td>${ped.cliente}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(cfg.fone||'').replace(/"/g,'&quot;')}" placeholder="📱 WhatsApp cliente" title="Telefone do cliente com DDD — usado no botão Cobrar" onchange="setBoletoConfig('${ped.pedido}','fone',this.value)"></td><td>${ped.loja}</td>
-        <td><strong>${fmtVal(ped.valorTotal)}</strong></td>
+        <td><strong>${fmtVal(ped.valorTotal)}</strong>${(_credDevBol[ped.pedido] > 0.5 && _credDevBol[ped.pedido] < (ped.valorTotal || 0)) ? `<br><span style="font-size:9px;color:var(--accent)" title="Parte deste pedido já foi paga com crédito de devolução. No banco, emita só este líquido.">− devol. ${fmtVal(_credDevBol[ped.pedido])} → emitir <strong>${fmtVal(+((ped.valorTotal || 0) - _credDevBol[ped.pedido]).toFixed(2))}</strong></span>` : ''}</td>
         <td><input class="inline-input" style="width:80px;text-align:right" value="${cfg.taxa||''}" placeholder="0,00" title="Taxa/juros por mudança de prazo — soma no total e se distribui nas parcelas" onchange="setBoletoConfig('${ped.pedido}','taxa',this.value)"></td>
         <td><select class="inline-input" style="width:120px" onchange="setBoletoConfig('${ped.pedido}','prazo',this.value)">
           <option value="">Prazo...</option>
