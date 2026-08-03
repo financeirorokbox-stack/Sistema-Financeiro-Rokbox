@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v446/08-565';
+const APP_VERSION = 'v447/08-566';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7879,7 +7879,9 @@ function renderExtrato() {
               // CONCILIAÇÃO (a sincronização não recria receita p/ AV:). Isto é só exibição, seguro.
               const _memoAv = (t.memo || '').toLowerCase();
               const mostrarAvulsos = ehLoteBoleto || boletosAvulsos.some(a => { const p = (a.cliente || '').toLowerCase().trim().split(/\s+/)[0]; return p && p.length >= 4 && _memoAv.includes(p); });
-              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: a.valorTitulo || a.valorPago || 0, descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento }));
+              // Valor com MULTA/JUROS quando ela lançou o "quanto caiu no banco" (valorPago) — é o que
+              // realmente entrou e casa com o depósito. Sem isso, mostrava o título e nunca batia.
+              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: (a.valorPago != null && a.valorPago > 0) ? a.valorPago : (a.valorTitulo || 0), descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento }));
               const hasAutoMatch = pixAbertos.length > 0 && Math.abs(pixAbertos[0].valor - t.valor) <= 0.10;
               const listId = 'ext-list-' + t.id;
               return `<div style="min-width:260px;max-width:340px">
