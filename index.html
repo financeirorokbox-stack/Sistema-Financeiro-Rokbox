@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v441/08-560';
+const APP_VERSION = 'v442/08-561';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5953,6 +5953,18 @@ function cobrarBoletoWpp(pedidoId, parcelaKey) {
   _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
   marcarAvisadoBoleto(ped.pedido);
 }
+// Uma parcela de boleto está PAGA? Considera o carimbo da cobrança (boletoCobrancaStatus) E o boleto
+// pago DIRETO (cash-first): vira recebimento "Boleto Itaú" no pedido mas NÃO carimba a parcela — sem
+// isto o boleto pago aparecia como "Atrasado" na cobrança (ex.: #357). Retorna o status pago (ou null).
+function _boletoCobPago(b) {
+  const c = boletoCobrancaStatus[b.key];
+  if (c && c.pago) return c;
+  const recs = recebimentosConsolidado.filter(r => r.gateway === 'Boleto Itaú' && (r._boletoPagoDireto || r._avulso)
+    && String(r.nped || '').split(',').map(s => s.trim()).includes(String(b.pedido)));
+  const tot = recs.reduce((s, r) => s + (r.bruto || 0), 0);
+  if (tot >= (b.valor || 0) - 0.5) return { pago: true, dataPagamento: (recs[0] && recs[0].data) || null, valorPago: b.valor || 0 };
+  return null;
+}
 // ── Lembretes de cobrança (aviso ao abrir + selo no menu + cobrar vencidos) ──
 // Lista de boletos A COBRAR (em aberto): avulsos do Itaú + boletos do sistema emitidos e não pagos.
 function boletosACobrar() {
@@ -5966,7 +5978,7 @@ function boletosACobrar() {
   try {
     getBoletosDaForma().forEach(b => {
       if (!boletoStatus[b.key]) return;
-      if (boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) return;
+      if (_boletoCobPago(b)) return; // já pago (carimbo OU boleto pago direto)
       if (!b.vencimento) return;
       const venc = new Date(b.vencimento); if (isNaN(venc)) return;
       out.push({ tipo: 'sistema', ref: b.pedido, key: b.key, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: venc < hoje });
@@ -6608,7 +6620,7 @@ function renderCobranca() {
       <th>Vencimento</th><th>Data Pagto</th><th>Status</th><th>Dias atraso</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.sort((a,b)=>(b.vencimento||0)-(a.vencimento||0)).map(b=>{
-      const c = boletoCobrancaStatus[b.key];
+      const c = _boletoCobPago(b);
       let badge, dias='—';
       if (c?.pago) { badge='<span class="badge ok">Pago</span>'; if(c.dataPagamento&&b.vencimento){const d=Math.round((new Date(c.dataPagamento)-new Date(b.vencimento))/86400000);dias=d>0?`+${d}`:'0';} }
       else if (b.vencimento&&new Date(b.vencimento)<today){badge='<span class="badge err">Atrasado</span>';dias=String(Math.round((today-new Date(b.vencimento))/86400000));}
