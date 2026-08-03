@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v435/07-554';
+const APP_VERSION = 'v436/08-555';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5640,6 +5640,24 @@ function getBoletosPorPedido() {
 function _getBoletosPorPedidoCalc() {
   if (!formaPagamento.length && !Object.keys(formaOverrideMap).length) return [];
   const byPedido = {};
+  // Pra emitir o boleto pelo LÍQUIDO: crédito de devolução + pagamentos de OUTRAS formas por pedido.
+  // (Calculado DIRETO aqui, sem chamar getRecebimentosDoPedido — que chama getBoletosPorPedido e causaria recursão.)
+  const _credDevPorPed = {};
+  (devolucoes || []).forEach(d => {
+    const credEfetivo = credDevolucao(d);
+    (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => { _credDevPorPed[pc] = (_credDevPorPed[pc] || 0) + (d.valorPago || 0); });
+  });
+  const _recNaoBoletoPorPed = {}; // pagamentos que NÃO são boleto (PIX/PayPal/Braavo/manuais) — reduzem o boleto a emitir
+  recebimentosConsolidado.forEach(r => {
+    if (r._estornoChave || r.gateway === 'Boleto Itaú') return; // estorno neutralizado; boleto não reduz a si mesmo
+    const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!peds.length) return;
+    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)';
+    peds.forEach(pid => {
+      const bruto = (peds.length > 1 && ehGw) ? alocRecebGateway(r, pid) : (r.bruto || r.liq || 0);
+      _recNaoBoletoPorPed[pid] = (_recNaoBoletoPorPed[pid] || 0) + bruto;
+    });
+  });
   formaPagamento.forEach(f => {
     const desc = (f.descricao || '').toLowerCase();
     // Respeita a troca manual de forma: se há override, vale ele; senão, a descrição original.
@@ -5665,12 +5683,21 @@ function _getBoletosPorPedidoCalc() {
     if (formaOverrideMap[pid] !== 'Boleto Itaú' || byPedido[pid]) return;
     const ped = pedidoPorId(pid);
     if (!ped) return;
+    // Cash-first: se parte já foi paga (recebimentos) ou virou crédito de devolução, o boleto A EMITIR
+    // é só o RESTANTE. Isto NÃO muda o Contas a Receber (que usa o valor cheio do pedido direto), só a emissão.
+    // Só pagamentos de OUTRAS formas (PIX, PayPal…) e crédito de devolução reduzem o boleto a emitir.
+    // Pagamento do PRÓPRIO boleto NÃO reduz (o boleto já foi emitido cheio; suas parcelas se pagam à parte).
+    const _jaPago = +(((_recNaoBoletoPorPed[pid] || 0)) + (_credDevPorPed[pid] || 0)).toFixed(2);
+    const _cheio = ped.valor || 0;
+    const _liq = Math.max(0, +(_cheio - _jaPago).toFixed(2));
     byPedido[pid] = {
       pedido: String(pid),
       cliente: ped.nome || '',
       loja: ped.loja || '',
       situacao: ped.situacao || '',
-      valorTotal: ped.valor || 0,
+      valorTotal: _liq,          // LÍQUIDO a emitir (cheio − já pago/creditado)
+      _valorCheio: _cheio,       // valor total do pedido (referência)
+      _jaPago: _jaPago,          // o que já entrou (recebimento + crédito devolução)
       linhas: []
     };
   });
@@ -5995,14 +6022,6 @@ function renderBoletos() {
   let nVencidos = 0, nAVencer = 0;
   vis.forEach(b => getParcelas(b).forEach(p => { if (!boletoStatus[p.key] && p.vencimento) { const dd = Math.floor((p.vencimento - hoje0) / 86400000); if (dd < 0) nVencidos++; else if (dd <= diasAviso) nAVencer++; } }));
 
-  // Crédito de devolução por pedido (mesma conta do Contas a Receber) — pra mostrar o LÍQUIDO a emitir:
-  // se parte do pedido já foi paga com crédito de devolução, o boleto no banco é só o RESTANTE.
-  const _credDevBol = {};
-  (devolucoes || []).forEach(d => {
-    const credEfetivo = credDevolucao(d);
-    (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => { _credDevBol[pc] = (_credDevBol[pc] || 0) + (d.valorPago || 0); });
-  });
-
   el.innerHTML = `
     ${filtrosBar({
       nAtivos: [fEmp,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
@@ -6043,7 +6062,7 @@ function renderBoletos() {
           style="width:14px;height:14px;cursor:pointer" onchange="toggleDeleteRow('formaPagamento',${idxFP},this.checked)"></td>
         <td><strong>#${ped.pedido}</strong></td>
         <td>${ped.cliente}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(cfg.fone||'').replace(/"/g,'&quot;')}" placeholder="📱 WhatsApp cliente" title="Telefone do cliente com DDD — usado no botão Cobrar" onchange="setBoletoConfig('${ped.pedido}','fone',this.value)"></td><td>${ped.loja}</td>
-        <td><strong>${fmtVal(ped.valorTotal)}</strong>${(_credDevBol[ped.pedido] > 0.5 && _credDevBol[ped.pedido] < (ped.valorTotal || 0)) ? `<br><span style="font-size:9px;color:var(--accent)" title="Parte deste pedido já foi paga com crédito de devolução. No banco, emita só este líquido.">− devol. ${fmtVal(_credDevBol[ped.pedido])} → emitir <strong>${fmtVal(+((ped.valorTotal || 0) - _credDevBol[ped.pedido]).toFixed(2))}</strong></span>` : ''}</td>
+        <td><strong>${fmtVal(ped.valorTotal)}</strong>${(ped._jaPago > 0.5) ? `<br><span style="font-size:9px;color:var(--accent)" title="Este é o LÍQUIDO a emitir. O valor cheio do pedido é ${fmtVal(ped._valorCheio)}, mas ${fmtVal(ped._jaPago)} já entrou (pagamento e/ou crédito de devolução). Emita no banco só este líquido.">cheio ${fmtVal(ped._valorCheio)} − já pago ${fmtVal(ped._jaPago)}</span>` : ''}</td>
         <td><input class="inline-input" style="width:80px;text-align:right" value="${cfg.taxa||''}" placeholder="0,00" title="Taxa/juros por mudança de prazo — soma no total e se distribui nas parcelas" onchange="setBoletoConfig('${ped.pedido}','taxa',this.value)"></td>
         <td><select class="inline-input" style="width:120px" onchange="setBoletoConfig('${ped.pedido}','prazo',this.value)">
           <option value="">Prazo...</option>
