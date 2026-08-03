@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v445/08-564';
+const APP_VERSION = 'v446/08-565';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7879,7 +7879,7 @@ function renderExtrato() {
               // CONCILIAÇÃO (a sincronização não recria receita p/ AV:). Isto é só exibição, seguro.
               const _memoAv = (t.memo || '').toLowerCase();
               const mostrarAvulsos = ehLoteBoleto || boletosAvulsos.some(a => { const p = (a.cliente || '').toLowerCase().trim().split(/\s+/)[0]; return p && p.length >= 4 && _memoAv.includes(p); });
-              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: a.valorTitulo || a.valorPago || 0, descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)') + (a.pedido ? ' #' + a.pedido : ''), _avulso: true, _avPago: !!a.dataPagamento }));
+              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: a.valorTitulo || a.valorPago || 0, descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento }));
               const hasAutoMatch = pixAbertos.length > 0 && Math.abs(pixAbertos[0].valor - t.valor) <= 0.10;
               const listId = 'ext-list-' + t.id;
               return `<div style="min-width:260px;max-width:340px">
@@ -7909,7 +7909,7 @@ function renderExtrato() {
                       <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}" data-v="${f.valor||0}"
                         style="width:14px;height:14px;cursor:pointer;flex-shrink:0"
                         ${diff<=0.10?'checked':''} onchange="extCheckLimit('${t.id}',this)">
-                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}${f._avulso?`<span class="badge" style="font-size:9px;background:#8a5a00;color:#fff">Itaú</span> ${f.cliente}`:`<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}`}</span>
+                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}${f._avulso?`<span class="badge" style="font-size:9px;background:#8a5a00;color:#fff">Itaú</span> ${f._pedNum?`<strong>#${f._pedNum}</strong> `:''}${f.cliente}`:`<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}`}</span>
                       ${badge}
                       <span style="color:var(--muted);font-size:11px;white-space:nowrap;margin-left:4px">${fmtVal(f.valor)}</span>
                     </label>`;
