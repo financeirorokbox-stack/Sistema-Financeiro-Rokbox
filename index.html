@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v433/07-552';
+const APP_VERSION = 'v434/07-553';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3073,16 +3073,19 @@ function renderComissao() {
     const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
     const devol = devolPorPed[String(p.id)] || 0;
     const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
-    const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2)); // o que realmente não foi pago
+    const emAbertoRaw = Math.max(0, +((p.valor || 0) - recebido).toFixed(2)); // o que realmente não foi pago
+    const difAceitaP = difAceita[String(p.id)] === 'aceito'; // você aceitou não receber a diferença → ENCERRADO
+    const emAberto = difAceitaP ? 0 : emAbertoRaw; // diferença ACEITA não é mais "a receber" (não fica pendente)
     const vend = p.vendedor || 'Sem vendedor';
     const isento = comissaoExcecoes.includes(vend); // vendedor que NÃO ganha comissão
     let pct = isento ? 0 : comissaoDaLoja(p.loja); // % base vem do Cadastro → Lojas (pode virar % de faixa abaixo)
     // BOLETO conta cheio mesmo sem ter pago (não abate); os DEMAIS em aberto abatem a base.
-    const diferenca = diferencaDoPedido(p, emAberto);
+    // A diferença (aceita ou ainda em aberto) abate a base → comissão sempre sobre o que REALMENTE entrou.
+    const diferenca = diferencaDoPedido(p, emAbertoRaw);
     const baseAuto = +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
     const base = baseDoPedido(p, baseAuto);
     const comissao = +(Math.max(0, base) * pct).toFixed(2); // base negativa → comissão ZERO
-    return { p, frete, outras, devol, emAberto, diferenca, baseAuto, vend, isento, pct, base, comissao };
+    return { p, frete, outras, devol, emAberto, difAceitaP, diferenca, baseAuto, vend, isento, pct, base, comissao };
   });
   // ── METAS: se o filtro é de UM mês e o vendedor tem meta, a comissão dele usa a FAIXA de atingimento
   //    (soma da base / meta), pelo SEGMENTO da loja de cada pedido. Recalcula pct/comissao desses vendedores.
@@ -3211,7 +3214,7 @@ function renderComissao() {
       <td style="text-align:right;color:var(--muted)">${l.outras?fmtVal(l.outras):'—'}</td>
       <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
       <td style="text-align:right;color:${l.emAberto?'var(--amber)':'var(--muted)'}">${l.emAberto?fmtVal(l.emAberto):'—'}</td>
-      <td style="text-align:right;cursor:pointer;color:${l.diferenca?'var(--red)':'var(--muted)'}" onclick="editarDiferencaPedido('${l.p.id}')" title="${diferencaOverride[l.p.id]!=null?'Diferença AJUSTADA manualmente. Clique para editar (vazio volta ao automático).':'Boleto conta cheio (0); demais em aberto abatem. Clique para ajustar na mão.'}">${l.diferenca?fmtVal(l.diferenca):'—'}${diferencaOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:''}</td>
+      <td style="text-align:right;cursor:pointer;color:${l.diferenca?'var(--red)':'var(--muted)'}" onclick="editarDiferencaPedido('${l.p.id}')" title="${diferencaOverride[l.p.id]!=null?'Diferença AJUSTADA manualmente. Clique para editar (vazio volta ao automático).':(l.difAceitaP?'Diferença ACEITA na conciliação (você aceitou não receber). Não é mais em aberto; abate a base pois a comissão é sobre o que entrou.':'Boleto conta cheio (0); demais em aberto abatem. Clique para ajustar na mão.')}">${l.diferenca?fmtVal(l.diferenca):'—'}${diferencaOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:(l.difAceitaP?` <span class="badge" style="font-size:8px;background:#ede7f6;color:#5e35b1">aceita</span>`:'')}</td>
       <td>${l.vend}${l.isento?' <span class="badge" style="font-size:9px;background:var(--muted);color:#fff">isento</span>':''}</td>
       <td>${l.p.loja||'—'}</td>
       <td style="text-align:right;${l.pct?'':'color:var(--amber)'}" title="${l.pctFaixa?'% da faixa de meta atingida':'% da loja'}">${l.isento?'—':(l.pct*100).toFixed(2)+'%'}${l.pctFaixa?' 🎯':''}</td>
