@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v442/08-561';
+const APP_VERSION = 'v443/08-562';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11150,6 +11150,7 @@ function renderCompras() {
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
+      <button class="btn ok sm" onclick="document.getElementById('file-compras')?.click()" title="Sobe uma planilha (.xlsx) de requisição/romaneio: Fornecedor · Insumo · Qtde · Custo un. — importa direto.">📄 Importar planilha</button>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
