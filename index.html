@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v438/08-557';
+const APP_VERSION = 'v439/08-558';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3046,13 +3046,15 @@ function fecharComissaoVendedor(vend) {
   if (!mesRH) { alert('Para enviar para a Folha, filtre a Comissão por UM mês e UM ano (ex.: mês 07 / 2026) no Período acima.'); return; }
   const fid = _pedirFuncRH('Enviar a comissão de ' + vend + ' (' + fmtVal(total) + ') para a FOLHA de qual funcionário?', vend);
   if (!fid) return;
-  _fRow(mesRH, fid).comissao = +total.toFixed(2);
+  const _r = _fRow(mesRH, fid);
+  const _antes = (+_r.comissao) || 0; // SOMA (ex.: "Karen" + "Karen H" na mesma funcionária)
+  _r.comissao = +(_antes + total).toFixed(2);
   comissaoFechada[key] = { vend, total, qtd, periodo: per.label, data: new Date().toISOString(), _folhaFid: fid, _folhaMes: mesRH };
   saveData('folhaRH', folhaRH);
   saveData('comissaoFechada', comissaoFechada);
   renderComissao();
   const fn = funcionariosRH.find(f => f.id === fid);
-  alert('✅ Comissão de ' + vend + ' (' + fmtVal(total) + ') lançada na FOLHA de ' + (fn ? fn.nome : '') + ' — ' + mesRH.split('-').reverse().join('/') + '.\n\nNa aba RH, clique "Gerar folha" pra criar o pagamento (dia 05, junto com o salário).');
+  alert('✅ Comissão de ' + vend + ' (' + fmtVal(total) + ') lançada na FOLHA de ' + (fn ? fn.nome : '') + ' — ' + mesRH.split('-').reverse().join('/') + '.' + (_antes > 0 ? '\n(Somou com a comissão que já estava: total agora ' + fmtVal(_r.comissao) + '.)' : '') + '\n\nNa aba RH, clique "Gerar folha" pra criar o pagamento (dia 05, junto com o salário).');
 }
 function reabrirComissaoVendedor(vend) {
   const per = comPeriodoInfo();
@@ -3064,7 +3066,8 @@ function reabrirComissaoVendedor(vend) {
   // Modelo NOVO (folha): zera o campo comissão da folha do funcionário.
   if (info._folhaFid && info._folhaMes) {
     if (!confirm('Reabrir a comissão de ' + vend + ' e tirar da Folha (' + fmtVal(info.total) + ')?')) return;
-    try { _fRow(info._folhaMes, info._folhaFid).comissao = null; saveData('folhaRH', folhaRH); } catch (e) {}
+    // SUBTRAI só a parte deste fechamento (preserva outras comissões somadas na mesma funcionária).
+    try { const _r = _fRow(info._folhaMes, info._folhaFid); const _novo = +(((+_r.comissao) || 0) - info.total).toFixed(2); _r.comissao = _novo > 0.005 ? _novo : null; saveData('folhaRH', folhaRH); } catch (e) {}
   } else {
     // Modelo ANTIGO (Contas a Pagar): remove o lançamento.
     const idx = contasPagar.findIndex(c => c._comissaoKey === key);
@@ -3088,7 +3091,8 @@ function fecharOutroFolha(nome, valor) {
   if (!mesRH) { alert('Para enviar para a Folha, filtre a Comissão por UM mês e UM ano no Período acima.'); return; }
   const fid = _pedirFuncRH('Enviar a comissão de ' + nome + ' (' + fmtVal(valor) + ') para a FOLHA de qual funcionário?', nome);
   if (!fid) return;
-  _fRow(mesRH, fid).comissao = +valor.toFixed(2);
+  const _r = _fRow(mesRH, fid);
+  _r.comissao = +((((+_r.comissao) || 0)) + valor).toFixed(2); // SOMA com o que já estiver lá
   comissaoFechada[key] = { vend: nome, total: valor, qtd: 0, periodo: per.label, data: new Date().toISOString(), _folhaFid: fid, _folhaMes: mesRH };
   saveData('folhaRH', folhaRH);
   saveData('comissaoFechada', comissaoFechada);
