@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v440/08-559';
+const APP_VERSION = 'v441/08-560';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5935,13 +5935,20 @@ function marcarAvisadoBoleto(pedido) { boletoAvisado[String(pedido)] = _hojeISO(
 function desmarcarAvisadoBoleto(pedido) { delete boletoAvisado[String(pedido)]; saveData('boletoAvisado', boletoAvisado); _reRenderCob(); }
 function marcarAvisadoAvulso(i) { if (boletosAvulsos[i]) { boletosAvulsos[i].cobradoEm = _hojeISO(); saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); } }
 function desmarcarAvisadoAvulso(i) { if (boletosAvulsos[i]) { delete boletosAvulsos[i].cobradoEm; saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); } }
-function cobrarBoletoWpp(pedidoId) {
+function cobrarBoletoWpp(pedidoId, parcelaKey) {
   const ped = getBoletosPorPedido().find(b => String(b.pedido) === String(pedidoId));
   if (!ped) { alert('Pedido não encontrado.'); return; }
   const cfg = boletoConfig[ped.pedido] || {};
   const todas = getParcelas(ped);
-  const pend = todas.filter(p => !boletoStatus[p.key]);
-  const alvo = pend.length ? pend : todas;
+  let alvo;
+  if (parcelaKey) {
+    // Cobrar SÓ a parcela clicada (é o que ela quer ao clicar numa linha específica).
+    alvo = todas.filter(p => p.key === parcelaKey);
+  } else {
+    const pend = todas.filter(p => !boletoStatus[p.key]);
+    alvo = pend.length ? pend : todas;
+  }
+  if (!alvo.length) alvo = todas;
   const itens = alvo.map(p => ({ label: `Parcela ${p.parcela}/${p.totalParcelas}`, venc: p.vencimento, valor: p.valor }));
   _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
   marcarAvisadoBoleto(ped.pedido);
@@ -5962,7 +5969,7 @@ function boletosACobrar() {
       if (boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) return;
       if (!b.vencimento) return;
       const venc = new Date(b.vencimento); if (isNaN(venc)) return;
-      out.push({ tipo: 'sistema', ref: b.pedido, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: venc < hoje });
+      out.push({ tipo: 'sistema', ref: b.pedido, key: b.key, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: venc < hoje });
     });
   } catch (e) {}
   return out;
@@ -6013,7 +6020,7 @@ function cobrarVencidos() {
 function cobrarProximoDaFila() {
   if (!_filaCobranca || _filaCobPos >= _filaCobranca.length) { _filaCobranca = null; renderCobranca(); alert('✓ Você passou por todos os vencidos.'); return; }
   const x = _filaCobranca[_filaCobPos]; _filaCobPos++;
-  if (x.tipo === 'avulso') cobrarAvulsoWpp(x.ref); else cobrarBoletoWpp(x.ref);
+  if (x.tipo === 'avulso') cobrarAvulsoWpp(x.ref); else cobrarBoletoWpp(x.ref, x.key);
   renderCobranca(); // atualiza o botão "próximo"
 }
 function setDataSaida(pedido, campo, valor) {
@@ -6613,7 +6620,7 @@ function renderCobranca() {
         <td>${b.parcela}/${b.totalParcelas}</td><td>${fmtVal(b.valor)}</td>
         <td>${fmtDate(b.vencimento)}</td><td>${c?.dataPagamento?fmtDate(c.dataPagamento):'—'}</td>
         <td>${badge}</td><td style="color:var(--red)">${dias}</td>
-        <td>${c?.pago ? '<span style="color:var(--muted);font-size:11px">—</span>' : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${b.pedido}')" title="Abre o WhatsApp com a cobrança do pedido (todas as parcelas pendentes)">📱 ${av?'Cobrar de novo':'Cobrar'}</button>${av?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(av)}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${b.pedido}');return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>`:''} <a href="#" onclick="if(confirm('Desmarcar este boleto como emitido?')){delete boletoStatus['${b.key}'];saveData('boletoStatus',boletoStatus);renderCobranca()}return false" style="text-decoration:none;color:var(--muted);font-size:11px" title="Desmarcar emitido">🗑</a></div>`}</td>
+        <td>${c?.pago ? '<span style="color:var(--muted);font-size:11px">—</span>' : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${b.pedido}','${b.key}')" title="Abre o WhatsApp com a cobrança SÓ desta parcela (${b.parcela}/${b.totalParcelas})">📱 ${av?'Cobrar de novo':'Cobrar'}</button>${av?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(av)}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${b.pedido}');return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>`:''} <a href="#" onclick="if(confirm('Desmarcar este boleto como emitido?')){delete boletoStatus['${b.key}'];saveData('boletoStatus',boletoStatus);renderCobranca()}return false" style="text-decoration:none;color:var(--muted);font-size:11px" title="Desmarcar emitido">🗑</a></div>`}</td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
