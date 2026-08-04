@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v448/08-567';
+const APP_VERSION = 'v449/08-568';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11225,7 +11225,7 @@ function renderCompras() {
       <td class="cmpcol-emp">${ro ? (c.empresa ? `<span class="badge info">${c.empresa}</span>` : '—') : `<select class="inline-input" style="width:90px" onchange="updateCompra('${c.id}','empresa',this.value);renderCompras()"><option value="">—</option>${empresasCadastro.map(e => `<option value="${e.replace(/"/g, '&quot;')}" ${e === c.empresa ? 'selected' : ''}>${e}</option>`).join('')}</select>`}</td>
       <td class="cmpcol-insumo">${ro ? `<div class="cmp-ell" title="${(c.insumo || '').replace(/"/g, '&quot;')}">${c.insumo || '—'}</div>` : `<input class="inline-input" style="width:180px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" title="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
       <td class="cmpcol-un">${ro ? (c.unidade || '') : `<input class="inline-input" style="width:40px" value="${(c.unidade || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','unidade',this.value)">`}</td>
-      <td class="cmpcol-qtd" style="text-align:right">${ro ? (c.qtd || '') : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
+      <td class="cmpcol-qtd" style="text-align:right">${ro ? ((c.qtdRecebida != null && c.qtdRecebida !== (c.qtd || 0)) ? `<span title="Pedido ${c.qtd||0} · Recebido ${c.qtdRecebida}"><span style="color:var(--muted);text-decoration:line-through">${c.qtd||0}</span> → <strong style="color:var(--amber)">${c.qtdRecebida}</strong></span>` : (c.qtd || '')) : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
       <td class="cmpcol-custou" style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
       <td class="cmpcol-total" style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
       <td class="cmpcol-frete" style="text-align:right">${ro ? fmtVal(c.frete || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.frete || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','frete',this.value)">`}</td>
@@ -11257,11 +11257,87 @@ function acoesCompra(c) {
   let b = '';
   if (st === 'pendente') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','aprovado')">✅ Aprovar</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="setStatusCompra('${c.id}','rejeitado')" title="Rejeitar">❌</button>`;
   else if (st === 'aprovado') b = `<span style="font-size:10px;color:var(--muted)">use 📦 acima</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')" title="Voltar p/ pendente">↩</button>`;
-  else if (st === 'pedido') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="receberPedidoCompra('${c._pedidoId || ''}')" title="Confere a NF: registra o nº da nota, ajusta o valor das parcelas se veio diferente e marca como Recebido">📄 Conferir NF</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="desfazerPedidoCompra('${c._pedidoId || ''}')" title="Desfazer pedido: remove as parcelas em aberto e volta p/ aprovado">↩ desfazer</button>`;
+  else if (st === 'pedido') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="abrirConferirPedido('${c._pedidoId || ''}')" title="Confere item a item: ajusta a QUANTIDADE que chegou (se veio diferente do pedido), recalcula o valor, registra a NF e marca como Recebido">📄 Conferir</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="desfazerPedidoCompra('${c._pedidoId || ''}')" title="Desfazer pedido: remove as parcelas em aberto e volta p/ aprovado">↩ desfazer</button>`;
   else if (st === 'recebido') b = `<span style="font-size:10px;color:var(--green)">✓ Recebido${c.nfNumero ? ' · NF ' + c.nfNumero : ''}</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pedido')" title="Voltar p/ pedido (reconferir)">↩</button>`;
   else if (st === 'rejeitado') b = `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')">↩ reabrir</button>`;
   else b = `<span style="font-size:10px;color:var(--muted)">${COMPRA_ST[st][0]}</span>`;
   return b + ` <a href="#" onclick="removerCompra('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700;margin-left:4px" title="Remover">✕</a>`;
+}
+// ── Conferir recebimento ITEM A ITEM: ajusta a quantidade que chegou (pode vir diferente do pedido),
+//    recalcula o valor, registra a NF e ajusta as parcelas do Contas a Pagar. ──
+function abrirConferirPedido(pedidoId) {
+  if (!pedidoId) { alert('Pedido não encontrado.'); return; }
+  const itens = compras.filter(c => c._pedidoId === pedidoId);
+  if (!itens.length) { alert('Pedido não encontrado.'); return; }
+  const forn = itens[0].fornecedor || '';
+  const old = document.getElementById('conf-modal'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'conf-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px';
+  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:20px;max-width:820px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="font-size:16px;font-weight:800;margin-bottom:2px">📄 Conferir recebimento — ${forn}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Ajuste a <strong>quantidade que chegou</strong> em cada item (se veio diferente do que você pediu). O valor recalcula sozinho, e as parcelas do Contas a Pagar se ajustam.</div>
+    <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted)">Nº da NF (opcional)</label><br><input id="conf-nf" class="inline-input" value="${(itens[0].nfNumero || '').replace(/"/g, '&quot;')}" placeholder="ex.: 12345" style="width:180px"></div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--muted)">
+      <th style="padding:4px">Item</th><th style="padding:4px;text-align:right;width:70px">Pedido</th><th style="padding:4px;text-align:right;width:95px">Recebido</th><th style="padding:4px;text-align:right;width:85px">Custo un.</th><th style="padding:4px;text-align:right;width:95px">Subtotal</th>
+    </tr></thead><tbody id="conf-linhas">
+    ${itens.map((c, i) => `<tr data-id="${c.id}">
+      <td style="padding:3px">${String(c.insumo || 'item').replace(/</g, '&lt;')}</td>
+      <td style="padding:3px;text-align:right">${c.qtd || 0}</td>
+      <td style="padding:3px;text-align:right"><input type="number" step="0.01" class="conf-qtd inline-input" data-i="${i}" data-cu="${c.custoUnit || 0}" value="${c.qtdRecebida != null ? c.qtdRecebida : (c.qtd || 0)}" style="width:80px;text-align:right" oninput="_confRecalc()"></td>
+      <td style="padding:3px;text-align:right">${fmtVal(c.custoUnit || 0)}</td>
+      <td style="padding:3px;text-align:right;font-weight:600" class="conf-sub" data-i="${i}">${fmtVal((c.qtdRecebida != null ? c.qtdRecebida : (c.qtd || 0)) * (c.custoUnit || 0))}</td>
+    </tr>`).join('')}
+    </tbody><tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4" style="padding:6px;text-align:right">Total recebido</td><td id="conf-total" style="padding:6px;text-align:right;color:var(--green)"></td></tr></tfoot></table>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">As parcelas no Contas a Pagar serão ajustadas pra esse total (se nenhuma estiver paga).</div>
+    <div style="text-align:right;display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn ghost" onclick="document.getElementById('conf-modal').remove()">Cancelar</button>
+      <button class="btn primary" onclick="salvarConferirPedido('${pedidoId}')">✓ Confirmar recebimento</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  _confRecalc();
+}
+function _confRecalc() {
+  let tot = 0;
+  document.querySelectorAll('#conf-linhas .conf-qtd').forEach(inp => {
+    const q = num(inp.value) || 0; const cu = +inp.dataset.cu || 0; const sub = +(q * cu).toFixed(2); tot += sub;
+    const cell = document.querySelector('.conf-sub[data-i="' + inp.dataset.i + '"]'); if (cell) cell.textContent = fmtVal(sub);
+  });
+  const tEl = document.getElementById('conf-total'); if (tEl) tEl.textContent = fmtVal(+tot.toFixed(2));
+}
+function salvarConferirPedido(pedidoId) {
+  const itens = compras.filter(c => c._pedidoId === pedidoId);
+  if (!itens.length) return;
+  const forn = itens[0].fornecedor || '';
+  const nfTxt = (document.getElementById('conf-nf')?.value || '').trim();
+  // Aplica a qtd recebida e recalcula o custo total de cada item.
+  document.querySelectorAll('#conf-linhas tr').forEach(tr => {
+    const c = compras.find(x => x.id === tr.dataset.id); if (!c) return;
+    const q = num(tr.querySelector('.conf-qtd')?.value || 0);
+    c.qtdRecebida = q;
+    c.custoTotal = +(q * (c.custoUnit || 0)).toFixed(2);
+  });
+  const totalFinal = +itens.reduce((s, c) => s + (c.custoTotal || 0) + (c.frete || 0) - (c.desconto || 0), 0).toFixed(2);
+  // Ajusta as parcelas do Contas a Pagar (proporcional), se nenhuma estiver paga.
+  const parc = contasPagar.filter(c => c._compraPedidoId === pedidoId);
+  const totalAtual = +parc.reduce((s, c) => s + (c.valor || 0), 0).toFixed(2);
+  const pagas = parc.filter(c => c.pago).length;
+  if (pagas) { if (Math.abs(totalFinal - totalAtual) > 0.01) alert('⚠ Há parcela(s) já PAGAS neste pedido — não mexi nos valores. Ajuste no Contas a Pagar se precisar.'); }
+  else if (Math.abs(totalFinal - totalAtual) > 0.01 && totalAtual > 0) {
+    let acum = 0; parc.forEach((c, k) => { let v = +(totalFinal * ((c.valor || 0) / totalAtual)).toFixed(2); if (k === parc.length - 1) v = +(totalFinal - acum).toFixed(2); acum += v; c.valor = v; });
+  }
+  // Grava o nº da NF nas parcelas (sufixo /1,/2… quando há mais de uma, pra não colidir na conciliação).
+  if (nfTxt) {
+    const parcs = contasPagar.filter(c => c._compraPedidoId === pedidoId);
+    parcs.forEach((c, k) => { const antes = chaveContaPagar(c); c.numero = parcs.length > 1 ? `${nfTxt}/${k + 1}` : nfTxt; const depois = chaveContaPagar(c); if (depois !== antes) { try { _remapChaveConta(antes, depois); } catch (e) {} } });
+  }
+  itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; });
+  saveData('compras', compras); saveData('contasPagar', contasPagar);
+  document.getElementById('conf-modal')?.remove();
+  renderCompras();
+  const nDif = itens.filter(c => (c.qtdRecebida != null ? c.qtdRecebida : c.qtd) !== (c.qtd || 0)).length;
+  alert('✓ Recebimento conferido — ' + forn + '.' + (nfTxt ? '\nNF ' + nfTxt : '') + '\nTotal: ' + fmtVal(totalFinal) + (nDif ? `\n\n⚠ ${nDif} item(ns) vieram em quantidade DIFERENTE do pedido (o valor já foi ajustado pelo recebido).` : ''));
 }
 // Conferir NF: registra o nº da nota, ajusta valor E/OU reparcelamento e marca RECEBIDO.
 function receberPedidoCompra(pedidoId) {
