@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v452/08-571';
+const APP_VERSION = 'v453/08-572';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1597,10 +1597,14 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       // Ignora retiradas/saques (não é venda nem reembolso de cliente).
       if (tl.includes('retirada') || tl.includes('saque')) return;
       const status = String(r['Status'] || '').toLowerCase();
-      // Só entram CONCLUÍDOS (ignora pendente, em espera, negado, cancelado, devolvido...).
-      if (!(status.includes('conclu') || status.includes('complet'))) return;
       // Reembolso/estorno: ENTRA com valor NEGATIVO para ABATER o que foi pago.
-      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || bruto < 0;
+      // Inclui a RETENÇÃO/RESERVA da PayPal (disputa/investigação): é um estorno que quem faz é a
+      // PayPal, não a cliente — o dinheiro já saiu do saldo AGORA, mesmo o status ficando "Pendente".
+      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || tl.includes('reten') || tl.includes('reserva') || tl.includes('investiga') || tl.includes('disputa') || bruto < 0;
+      // Negado/cancelado nunca entra (nem estorno). Positivo "Pendente" também não (venda ainda não caiu).
+      if (status.includes('neg') || status.includes('cancel')) return;
+      const concluido = status.includes('conclu') || status.includes('complet');
+      if (!concluido && !ehReembolso) return; // só entra pendente se for estorno/retenção (dinheiro já saiu)
       if (!ehReembolso && bruto <= 0) return; // outros valores não positivos que não são reembolso
 
       const taxa = ehReembolso ? num(r['Tarifa']) : Math.abs(num(r['Tarifa']));
@@ -5169,10 +5173,14 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       // Ignora retiradas/saques (não é venda nem reembolso de cliente).
       if (tl.includes('retirada') || tl.includes('saque')) return;
       const status = String(r['Status'] || '').toLowerCase();
-      // Só entram CONCLUÍDOS (ignora pendente, em espera, negado, cancelado, devolvido...).
-      if (!(status.includes('conclu') || status.includes('complet'))) return;
       // Reembolso/estorno: ENTRA com valor NEGATIVO para ABATER o que foi pago.
-      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || bruto < 0;
+      // Inclui a RETENÇÃO/RESERVA da PayPal (disputa/investigação): é um estorno que quem faz é a
+      // PayPal, não a cliente — o dinheiro já saiu do saldo AGORA, mesmo o status ficando "Pendente".
+      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || tl.includes('reten') || tl.includes('reserva') || tl.includes('investiga') || tl.includes('disputa') || bruto < 0;
+      // Negado/cancelado nunca entra (nem estorno). Positivo "Pendente" também não (venda ainda não caiu).
+      if (status.includes('neg') || status.includes('cancel')) return;
+      const concluido = status.includes('conclu') || status.includes('complet');
+      if (!concluido && !ehReembolso) return; // só entra pendente se for estorno/retenção (dinheiro já saiu)
       if (!ehReembolso && bruto <= 0) return; // outros valores não positivos que não são reembolso
 
       const taxa = ehReembolso ? num(r['Tarifa']) : Math.abs(num(r['Tarifa']));
