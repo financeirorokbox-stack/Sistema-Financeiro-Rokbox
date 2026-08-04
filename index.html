@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v454/08-573';
+const APP_VERSION = 'v455/08-574';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6597,6 +6597,21 @@ function _acordoRecalc() {
   const ck = document.getElementById('ac-check');
   if (ck) { const dif = +(soma - alvo).toFixed(2); ck.innerHTML = `Soma das parcelas: <strong style="color:${Math.abs(dif) <= 0.02 ? 'var(--green)' : 'var(--amber)'}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}${Math.abs(dif) > 0.02 ? ` <span style="color:var(--amber)">(dif ${fmtVal(dif)})</span>` : ' ✓'}`; }
 }
+// Próxima sigla de acordo (A01, A02...) — pra ela achar a parcela na conciliação do Extrato.
+function _proxCodAcordo() {
+  let max = 0;
+  acordos.forEach(a => { const m = String(a.codigo || '').match(/^A(\d+)$/); if (m) max = Math.max(max, +m[1]); });
+  return 'A' + String(max + 1).padStart(2, '0');
+}
+// Garante que todo acordo tenha sigla e que suas parcelas carreguem a sigla (backfill dos antigos).
+function _garantirCodAcordos() {
+  let mudou = false;
+  acordos.forEach(a => {
+    if (!a.codigo) { a.codigo = _proxCodAcordo(); mudou = true; }
+    boletosAvulsos.forEach(b => { if (b._acordoParc === a.id && b._acordoCod !== a.codigo) { b._acordoCod = a.codigo; mudou = true; } });
+  });
+  if (mudou) { saveData('acordos', acordos); saveData('boletosAvulsos', boletosAvulsos); }
+}
 function criarAcordo() {
   const sel = _acordoSel || [];
   if (!sel.length) return;
@@ -6608,17 +6623,18 @@ function criarAcordo() {
   const soma = +parcelas.reduce((s, p) => s + p.valor, 0).toFixed(2);
   if (Math.abs(soma - alvo) > 0.5 && !confirm(`A soma das parcelas (${fmtVal(soma)}) está diferente do total do acordo (${fmtVal(alvo)}).\n\nCriar mesmo assim?`)) return;
   const id = 'ac_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+  const codigo = _proxCodAcordo();
   const cliente = _acordoCliente || (sel[0] && sel[0].cliente) || '';
   const fone = (sel.map(s => s.tipo === 'avulso' ? s.fone : '').find(Boolean)) || '';
   sel.forEach(s => { if (s.tipo === 'avulso') { s.ref._acordoId = id; } else { sistemaAcordo[s.key] = id; } });
-  parcelas.forEach((p, k) => boletosAvulsos.push({ pedido: '', cliente, valorTitulo: +p.valor.toFixed(2), valorPago: 0, dataPagamento: null, vencimento: p.venc ? new Date(p.venc + 'T12:00:00') : null, fone, _acordoParc: id, _acordoParcN: `${k + 1}/${parcelas.length}` }));
-  acordos.push({ id, cliente, data: new Date().toISOString(), multa: +multa.toFixed(2), valorOriginal: totalOrig, valorAcordo: alvo, nParc: parcelas.length, nOrig: sel.length });
+  parcelas.forEach((p, k) => boletosAvulsos.push({ pedido: '', cliente, valorTitulo: +p.valor.toFixed(2), valorPago: 0, dataPagamento: null, vencimento: p.venc ? new Date(p.venc + 'T12:00:00') : null, fone, _acordoParc: id, _acordoParcN: `${k + 1}/${parcelas.length}`, _acordoCod: codigo }));
+  acordos.push({ id, codigo, cliente, data: new Date().toISOString(), multa: +multa.toFixed(2), valorOriginal: totalOrig, valorAcordo: alvo, nParc: parcelas.length, nOrig: sel.length });
   saveData('boletosAvulsos', boletosAvulsos); saveData('sistemaAcordo', sistemaAcordo); saveData('acordos', acordos);
   _cobAvSel.clear(); _cobSisSel.clear(); _acordoSel = [];
   document.getElementById('acordo-modal')?.remove();
   try { syncBoletosToRecebimentos(); } catch (e) {}
   renderCobranca();
-  alert('🤝 Acordo criado — ' + cliente + '.\n' + sel.length + ' boleto(s) saíram da cobrança (em acordo) → ' + parcelas.length + ' parcela(s), total ' + fmtVal(alvo) + (multa ? ` (multa ${fmtVal(multa)})` : '') + '.');
+  alert('🤝 Acordo ' + codigo + ' criado, ' + cliente + '.\n' + sel.length + ' boleto(s) saíram da cobrança (em acordo) → ' + parcelas.length + ' parcela(s), total ' + fmtVal(alvo) + (multa ? ` (multa ${fmtVal(multa)})` : '') + '.\n\nAs parcelas aparecem com a sigla ' + codigo + ' na lista "A receber fora do sistema" e no Extrato, pra você conciliar.');
 }
 function desfazerAcordo(id) {
   const ac = acordos.find(a => a.id === id); if (!ac) return;
@@ -6634,6 +6650,7 @@ function desfazerAcordo(id) {
 }
 function renderCobranca() {
   setDateFilterRender(renderCobranca);
+  if (acordos.length) _garantirCodAcordos();
   const el = document.getElementById('v-cobranca');
   const emitidos = getBoletosDaForma().filter(b=>boletoStatus[b.key]);
   const today = new Date();
@@ -6674,7 +6691,7 @@ function renderCobranca() {
       const t0 = new Date(); t0.setHours(0, 0, 0, 0);
       const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr${_cobAvSel.has(i) ? ' style="background:var(--green-bg)"' : ''}>
         <td style="text-align:center"><input type="checkbox" style="width:15px;height:15px;cursor:pointer" ${_cobAvSel.has(i) ? 'checked' : ''} title="Marcar p/ cobrar junto (mesmo cliente = 1 mensagem)" onchange="toggleCobAvSel(${i},this.checked)"></td>
-        <td><strong>#${a.pedido || '—'}</strong></td>
+        <td>${a._acordoCod ? `<span class="badge" style="background:#0a7d55;color:#fff;font-weight:700" title="Parcela do acordo ${a._acordoCod}">🤝 ${a._acordoCod}</span> <span style="font-size:10px;color:var(--muted)">${a._acordoParcN || ''}</span>` : `<strong>#${a.pedido || '—'}</strong>`}</td>
         <td>${a.cliente || '—'}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(a.fone || '').replace(/"/g, '&quot;')}" placeholder="📱 WhatsApp cliente" onchange="setAvulsoFone(${i},this.value)"></td>
         <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
         <td><input class="inline-input" style="width:140px;font-size:11px" value="${(a.obsCobranca || '').replace(/"/g, '&quot;')}" placeholder="ex.: vai pagar no pix" title="Anotação livre desta cobrança" onchange="setObsAvulso(${i},this.value)"></td>
@@ -6703,11 +6720,11 @@ function renderCobranca() {
       </tbody></table></div>` : ''}` : ''}`;
     })() : ''}
     ${acordos.length ? `<div class="section-title" style="margin-top:8px">🤝 Acordos de renegociação (${acordos.length})</div>
-      <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Cliente</th><th>Data</th><th style="text-align:right">Boletos orig.</th><th style="text-align:right">Multa</th><th style="text-align:right">Acordo</th><th>Situação</th><th></th></tr></thead><tbody>
+      <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Sigla</th><th>Cliente</th><th>Data</th><th style="text-align:right">Boletos orig.</th><th style="text-align:right">Multa</th><th style="text-align:right">Acordo</th><th>Situação</th><th></th></tr></thead><tbody>
       ${acordos.slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).map(ac=>{
         const parc = boletosAvulsos.filter(a=>a._acordoParc===ac.id);
         const pagas = parc.filter(a=>a.dataPagamento).length;
-        return `<tr><td><strong>${ac.cliente||'—'}</strong></td><td style="font-size:11px;color:var(--muted)">${ac.data?fmtDate(ac.data):'—'}</td>
+        return `<tr><td><span class="badge" style="background:#0a7d55;color:#fff;font-weight:700">🤝 ${ac.codigo||'—'}</span></td><td><strong>${ac.cliente||'—'}</strong></td><td style="font-size:11px;color:var(--muted)">${ac.data?fmtDate(ac.data):'—'}</td>
           <td style="text-align:right;color:var(--muted)">${fmtVal(ac.valorOriginal)} <span style="font-size:10px">(${ac.nOrig})</span></td>
           <td style="text-align:right;color:var(--amber)">${ac.multa?fmtVal(ac.multa):'—'}</td>
           <td style="text-align:right;font-weight:700">${fmtVal(ac.valorAcordo)}</td>
@@ -6715,7 +6732,7 @@ function renderCobranca() {
           <td><button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerAcordo('${ac.id}')" title="Cliente não cumpriu: volta os boletos originais pra cobrança e remove as parcelas do acordo">↩ Desfazer</button></td></tr>`;
       }).join('')}
       </tbody></table></div>
-      <div style="font-size:11px;color:var(--muted);margin:-8px 0 14px">As parcelas de cada acordo aparecem na lista "A receber fora do sistema" acima, pra você cobrar e dar baixa normalmente.</div>` : ''}`;
+      <div style="font-size:11px;color:var(--muted);margin:-8px 0 14px">As parcelas de cada acordo aparecem com a sigla (ex.: 🤝 A01) na lista "A receber fora do sistema" acima e também no Extrato, na hora de conciliar o PIX. É só procurar pela sigla ou pelo nome do cliente.</div>` : ''}`;
 
   // Anexa o upload SÓ DEPOIS de todo o innerHTML (o += abaixo recria o input e apagaria o listener).
   const attachCobUpload = () => setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
@@ -7905,6 +7922,7 @@ function excluirExtratoDoBanco() {
 }
 function renderExtrato() {
   try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
+  if (acordos.length) { try { _garantirCodAcordos(); } catch(e) {} } // parcelas de acordo carregam a sigla p/ achar na lista
   setDateFilterRender(renderExtrato);
   const el = document.getElementById('v-extrato');
   const fBanco = el.querySelector('#ext-banco')?.value || '';
@@ -8038,7 +8056,7 @@ function renderExtrato() {
               const mostrarAvulsos = ehLoteBoleto || boletosAvulsos.some(a => { const p = (a.cliente || '').toLowerCase().trim().split(/\s+/)[0]; return p && p.length >= 4 && _memoAv.includes(p); });
               // Valor com MULTA/JUROS quando ela lançou o "quanto caiu no banco" (valorPago) — é o que
               // realmente entrou e casa com o depósito. Sem isso, mostrava o título e nunca batia.
-              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: (a.valorPago != null && a.valorPago > 0) ? a.valorPago : (a.valorTitulo || 0), descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento }));
+              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: (a.valorPago != null && a.valorPago > 0) ? a.valorPago : (a.valorTitulo || 0), descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento, _avCod: a._acordoCod || '', _avParcN: a._acordoParcN || '' }));
               const hasAutoMatch = pixAbertos.length > 0 && Math.abs(pixAbertos[0].valor - t.valor) <= 0.10;
               const listId = 'ext-list-' + t.id;
               return `<div style="min-width:260px;max-width:340px">
@@ -8068,7 +8086,7 @@ function renderExtrato() {
                       <input type="checkbox" class="ext-pick-${t.id}" value="${f.pedido}" data-v="${f.valor||0}"
                         style="width:14px;height:14px;cursor:pointer;flex-shrink:0"
                         ${diff<=0.10?'checked':''} onchange="extCheckLimit('${t.id}',this)">
-                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}${f._avulso?`<span class="badge" style="font-size:9px;background:#8a5a00;color:#fff">Itaú</span> ${f._pedNum?`<strong>#${f._pedNum}</strong> `:''}${f.cliente}`:`<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}`}</span>
+                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon}${f._avulso?(f._avCod?`<span class="badge" style="font-size:9px;background:#0a7d55;color:#fff;font-weight:700">🤝 ${f._avCod}</span> <span style="font-size:9px;color:var(--muted)">${f._avParcN||''}</span> ${f.cliente}`:`<span class="badge" style="font-size:9px;background:#8a5a00;color:#fff">Itaú</span> ${f._pedNum?`<strong>#${f._pedNum}</strong> `:''}${f.cliente}`):`<strong>#${f.pedido}</strong> ${ped?.nome||f.cliente}`}</span>
                       ${badge}
                       <span style="color:var(--muted);font-size:11px;white-space:nowrap;margin-left:4px">${fmtVal(f.valor)}</span>
                     </label>`;
