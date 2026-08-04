@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v453/08-572';
+const APP_VERSION = 'v454/08-573';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6418,6 +6418,38 @@ function removerBoletoAvulso(i) {
   syncBoletosToRecebimentos();
   renderCobranca();
 }
+// Adiciona um boleto avulso (pedido FORA do sistema) na mão, sem precisar do relatório do Itaú.
+// Mesma estrutura dos importados: entra EM ABERTO (a receber) pra acompanhar e cobrar.
+function addBoletoAvulsoManual() {
+  const cliente = prompt('Nome do PAGADOR (cliente do boleto):', '');
+  if (cliente === null) return;
+  if (!cliente.trim()) { alert('Preciso do nome do pagador.'); return; }
+  const vStr = prompt(`Valor do boleto (R$) — pagador: ${cliente.trim()}:`, '');
+  if (vStr === null) return;
+  const valor = num(vStr);
+  if (!valor || valor <= 0) { alert('Valor inválido.'); return; }
+  const vencStr = prompt('Vencimento (dd/mm/aaaa):', '');
+  if (vencStr === null) return;
+  const venc = vencStr.trim() ? parseDate(vencStr) : null;
+  if (vencStr.trim() && (!venc || isNaN(venc))) { alert('Data de vencimento inválida. Use dd/mm/aaaa.'); return; }
+  const pedido = prompt('Nº do pedido / "Seu Número" (opcional, deixe em branco se não tiver):', '');
+  if (pedido === null) return;
+  const fone = prompt('Telefone p/ cobrar por WhatsApp (opcional, só números com DDD):', '');
+  if (fone === null) return;
+  const empresa = escolherEmpresa('Qual EMPRESA desse boleto?');
+  const novo = { pedido: String(pedido || '').trim(), cliente: cliente.trim(), valorTitulo: +valor.toFixed(2), valorPago: 0, dataPagamento: null, vencimento: venc, fone: String(fone || '').trim(), empresa: empresa || '' };
+  // Evita duplicar se já existir um igual (mesma chave pedido|valor|venc|pagador).
+  const k = chaveBoletoAvulso(novo);
+  if (boletosAvulsos.some(a => chaveBoletoAvulso(a) === k)) {
+    if (!confirm('Já existe um boleto igual (mesmo pagador, valor e vencimento). Adicionar mesmo assim?')) return;
+  }
+  boletosAvulsos.push(novo);
+  saveData('boletosAvulsos', boletosAvulsos);
+  syncBoletosToRecebimentos();
+  _cobAvulsosAberto = true;
+  renderCobranca();
+  alert(`✓ Boleto adicionado:\n${cliente.trim()} — ${fmtVal(valor)}${venc ? '\nVence em ' + fmtDate(venc) : ''}\n\nAparece agora em "A receber fora do sistema".`);
+}
 // Telefone do cliente no boleto avulso (a receber) — usado no botão Cobrar
 function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].fone = val; saveData('boletosAvulsos', boletosAvulsos); }
 function setObsAvulso(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].obsCobranca = val; saveData('boletosAvulsos', boletosAvulsos); } // anotação livre (ex.: "vai pagar no pix")
@@ -6657,6 +6689,7 @@ function renderCobranca() {
         ${abertos.length ? `<span style="font-size:11px;color:var(--muted)">Total a receber <strong>${fmtVal(totalAb)}</strong></span>` : ''}
         ${avOpen && (_cobAvSel.size + _cobSisSel.size) ? `<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarSelecionados()" title="Junta os do mesmo cliente numa mensagem só (avulsos + emitidos)">📱 Cobrar selecionados (${_cobAvSel.size + _cobSisSel.size})</button>` : ''}
         ${(_cobAvSel.size + _cobSisSel.size) ? `<button class="btn ok sm" onclick="abrirAcordo()" title="Renegociar os boletos marcados: multa + novas parcelas. Os originais saem da cobrança (em acordo).">🤝 Fazer acordo (${_cobAvSel.size + _cobSisSel.size})</button>` : ''}
+        ${avOpen ? `<button class="btn ghost sm" style="font-size:11px" onclick="addBoletoAvulsoManual()" title="Adicionar um boleto de pedido fora do sistema na mão (sem precisar do relatório do Itaú)">➕ Adicionar na mão</button>` : ''}
         ${avOpen ? `<button class="btn ghost sm" style="font-size:11px" onclick="deduparBoletosAvulsos()" title="Remove boletos duplicados (mantém um de cada)">🧹 Remover duplicados</button>` : ''}
       </div>
       ${avOpen ? `${abertos.length ? `<div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th style="width:28px"></th><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Obs</th><th>Ações</th></tr></thead><tbody>
