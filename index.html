@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v451/08-570';
+const APP_VERSION = 'v452/08-571';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -520,7 +520,7 @@ async function deleteData(key) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -675,7 +675,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1103,6 +1103,9 @@ let _msgCobAberto = false; // editor de mensagens do WhatsApp começa RECOLHIDO
 let _cobAvulsosAberto = false; // bloco "A receber fora do sistema" (boletos avulsos) começa RECOLHIDO
 let _cobAvSel = new Set();     // índices dos boletos avulsos marcados p/ cobrar de uma vez (agrupa por cliente)
 let _cobSisSel = new Set();    // keys dos boletos EMITIDOS pelo sistema marcados p/ cobrar junto
+let acordos = [];              // ACORDOS de renegociação: [{id,cliente,data,obs,multa,valorOriginal,valorAcordo}]. Os originais (avulsos com a._acordoId / sistema em sistemaAcordo) saem da cobrança; as parcelas do acordo são boletosAvulsos com a._acordoParc=id (o novo a receber). Desfazer restaura.
+let sistemaAcordo = {};        // { parcelaKey(pedido-N): acordoId } — boletos de PEDIDO do sistema que entraram num acordo (renegociados)
+let _acordoSel = [], _acordoCliente = ''; // seleção transitória enquanto a telinha de acordo está aberta
 let extratoBancario = [];
 let extDelTipo = 'todos';     // seção "apagar duplicados" do Extrato: todos | credito | debito (só filtro de tela)
 let extratoLinks = {};
@@ -5854,6 +5857,7 @@ function setVencParcela(pedido, parcela, valor) {
 // (boletoCobrancaStatus.pago, vindo do relatório do Itaú). "Emitido" é só aguardando pagamento —
 // não é pago. (Corrige o boleto emitido aparecendo como PAGO no Contas a Receber.)
 function _stParcelaBoleto(parc) {
+  if (sistemaAcordo[parc.key]) return { recebido: true, detalhe: '🤝 renegociado em acordo' }; // saiu daqui, virou parcela de acordo
   const cob = boletoCobrancaStatus[parc.key];
   if (cob && cob.pago) return { recebido: true, detalhe: cob.dataPagamento ? `✓ pago em ${fmtDate(cob.dataPagamento)}` : '✓ pago' };
   if (boletoStatus[parc.key]) return { recebido: false, detalhe: 'emitido, aguardando pagamento' };
@@ -5975,7 +5979,7 @@ function boletosACobrar() {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
   const out = [];
   (boletosAvulsos || []).forEach((a, i) => {
-    if (a.dataPagamento || !a.vencimento) return;
+    if (a.dataPagamento || !a.vencimento || a._acordoId) return; // _acordoId = renegociado (saiu da cobrança)
     const venc = new Date(a.vencimento); if (isNaN(venc)) return;
     out.push({ tipo: 'avulso', ref: i, cliente: a.cliente || '', valor: a.valorTitulo || 0, venc, vencido: venc < hoje, fone: a.fone || '' });
   });
@@ -5983,6 +5987,7 @@ function boletosACobrar() {
     getBoletosDaForma().forEach(b => {
       if (!boletoStatus[b.key]) return;
       if (_boletoCobPago(b)) return; // já pago (carimbo OU boleto pago direto)
+      if (sistemaAcordo[b.key]) return; // boleto renegociado num acordo → saiu da cobrança
       if (!b.vencimento) return;
       const venc = new Date(b.vencimento); if (isNaN(venc)) return;
       out.push({ tipo: 'sistema', ref: b.pedido, key: b.key, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: venc < hoje });
@@ -6492,6 +6497,101 @@ function isBoletoRecebidoFile(file, wb) {
   );
 }
 
+// ── ACORDO de renegociação ────────────────────────────────────────────
+// Junta boletos selecionados (avulsos e/ou do sistema) num acordo com multa e novas parcelas.
+// Os originais viram "em acordo" (saem da cobrança/a receber, viram histórico); as parcelas do acordo
+// viram o novo a receber (boletos avulsos com _acordoParc). Desfazer restaura tudo (cliente não pagou).
+function _acordoSelecionados() {
+  const avs = [..._cobAvSel].map(i => { const a = boletosAvulsos[i]; return a ? { tipo: 'avulso', i, ref: a, cliente: a.cliente || '', valor: +(a.valorTitulo || a.valorPago || 0), venc: a.vencimento, pedido: a.pedido || '', fone: a.fone || '' } : null; }).filter(Boolean);
+  const sisMap = {}; try { getBoletosDaForma().forEach(b => { sisMap[b.key] = b; }); } catch (e) {}
+  const sis = [..._cobSisSel].map(key => { const b = sisMap[key]; return b ? { tipo: 'sistema', key, cliente: b.cliente || '', valor: +(b.valor || 0), venc: b.vencimento, pedido: b.pedido, parcela: b.parcela, totalParcelas: b.totalParcelas } : null; }).filter(Boolean);
+  return [...avs, ...sis];
+}
+function abrirAcordo() {
+  const sel = _acordoSelecionados();
+  if (!sel.length) { alert('Marque os boletos (caixinhas) que entram no acordo — nos avulsos e/ou na tabela de baixo.'); return; }
+  const clientes = [...new Set(sel.map(s => (s.cliente || '').trim()).filter(Boolean))];
+  _acordoSel = sel; _acordoCliente = clientes[0] || '';
+  const totalOrig = +sel.reduce((s, x) => s + x.valor, 0).toFixed(2);
+  const old = document.getElementById('acordo-modal'); if (old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'acordo-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px';
+  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:20px;max-width:720px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="font-size:16px;font-weight:800;margin-bottom:2px">🤝 Fazer acordo${_acordoCliente ? ' — ' + _acordoCliente : ''}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Os boletos escolhidos saem da cobrança (viram "em acordo") e são substituídos pelas parcelas novas abaixo. Total dos boletos: <strong>${fmtVal(totalOrig)}</strong>.${clientes.length > 1 ? ' <span style="color:var(--amber)">⚠ Marcou boletos de clientes diferentes; o acordo junta todos.</span>' : ''}</div>
+    <div style="max-height:120px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:6px 8px;margin-bottom:12px;font-size:12px">
+      ${sel.map(s => `<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0"><span>${s.tipo === 'avulso' ? '🏷 ' : ''}${s.pedido ? '#' + s.pedido + ' ' : ''}${s.cliente}${s.tipo === 'sistema' ? ` (parc. ${s.parcela}/${s.totalParcelas})` : ''}</span><span style="color:var(--muted)">${fmtVal(s.valor)}</span></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;align-items:end">
+      <div><label style="font-size:11px;color:var(--muted)">Multa/juros (opcional)</label><br><input id="ac-multa" type="number" step="0.01" class="inline-input" value="0" style="width:110px;text-align:right" oninput="_acordoRecalc()"></div>
+      <div style="font-size:12px;color:var(--muted)">Total do acordo: <strong id="ac-alvo" style="color:var(--accent)">${fmtVal(totalOrig)}</strong></div>
+    </div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:4px">Parcelas do acordo (datas e valores)</div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:3px">Vencimento</th><th style="padding:3px;text-align:right;width:120px">Valor</th><th style="width:30px"></th></tr></thead><tbody id="ac-parc"></tbody></table>
+    <div style="margin:6px 0 2px"><button class="btn ghost sm" onclick="_acordoAddParc()">➕ parcela</button></div>
+    <div id="ac-check" style="font-size:11px;margin:6px 0 12px"></div>
+    <div style="text-align:right;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="document.getElementById('acordo-modal').remove()">Cancelar</button>
+      <button class="btn primary" onclick="criarAcordo()">🤝 Criar acordo</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  _acordoAddParc(totalOrig); // começa com 1 parcela = total
+  _acordoRecalc();
+}
+function _acordoAddParc(valorInicial) {
+  const tb = document.getElementById('ac-parc'); if (!tb) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td style="padding:2px"><input type="date" class="ac-venc inline-input" style="width:150px"></td>
+    <td style="padding:2px"><input type="number" step="0.01" class="ac-valor inline-input" style="width:110px;text-align:right" value="${valorInicial != null ? (+valorInicial).toFixed(2) : ''}" oninput="_acordoRecalc()"></td>
+    <td style="padding:2px;text-align:center"><button class="btn ghost sm" style="color:var(--red);padding:1px 6px" onclick="this.closest('tr').remove();_acordoRecalc()">✕</button></td>`;
+  tb.appendChild(tr);
+}
+function _acordoRecalc() {
+  const totalOrig = +(_acordoSel || []).reduce((s, x) => s + x.valor, 0).toFixed(2);
+  const multa = num(document.getElementById('ac-multa')?.value || 0);
+  const alvo = +(totalOrig + multa).toFixed(2);
+  const aEl = document.getElementById('ac-alvo'); if (aEl) aEl.textContent = fmtVal(alvo);
+  let soma = 0; document.querySelectorAll('#ac-parc .ac-valor').forEach(inp => soma += num(inp.value) || 0);
+  soma = +soma.toFixed(2);
+  const ck = document.getElementById('ac-check');
+  if (ck) { const dif = +(soma - alvo).toFixed(2); ck.innerHTML = `Soma das parcelas: <strong style="color:${Math.abs(dif) <= 0.02 ? 'var(--green)' : 'var(--amber)'}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}${Math.abs(dif) > 0.02 ? ` <span style="color:var(--amber)">(dif ${fmtVal(dif)})</span>` : ' ✓'}`; }
+}
+function criarAcordo() {
+  const sel = _acordoSel || [];
+  if (!sel.length) return;
+  const multa = num(document.getElementById('ac-multa')?.value || 0);
+  const totalOrig = +sel.reduce((s, x) => s + x.valor, 0).toFixed(2);
+  const alvo = +(totalOrig + multa).toFixed(2);
+  const parcelas = [...document.querySelectorAll('#ac-parc tr')].map(tr => ({ venc: tr.querySelector('.ac-venc')?.value || '', valor: num(tr.querySelector('.ac-valor')?.value || 0) })).filter(p => p.valor > 0);
+  if (!parcelas.length) { alert('Adicione ao menos uma parcela do acordo (com valor).'); return; }
+  const soma = +parcelas.reduce((s, p) => s + p.valor, 0).toFixed(2);
+  if (Math.abs(soma - alvo) > 0.5 && !confirm(`A soma das parcelas (${fmtVal(soma)}) está diferente do total do acordo (${fmtVal(alvo)}).\n\nCriar mesmo assim?`)) return;
+  const id = 'ac_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+  const cliente = _acordoCliente || (sel[0] && sel[0].cliente) || '';
+  const fone = (sel.map(s => s.tipo === 'avulso' ? s.fone : '').find(Boolean)) || '';
+  sel.forEach(s => { if (s.tipo === 'avulso') { s.ref._acordoId = id; } else { sistemaAcordo[s.key] = id; } });
+  parcelas.forEach((p, k) => boletosAvulsos.push({ pedido: '', cliente, valorTitulo: +p.valor.toFixed(2), valorPago: 0, dataPagamento: null, vencimento: p.venc ? new Date(p.venc + 'T12:00:00') : null, fone, _acordoParc: id, _acordoParcN: `${k + 1}/${parcelas.length}` }));
+  acordos.push({ id, cliente, data: new Date().toISOString(), multa: +multa.toFixed(2), valorOriginal: totalOrig, valorAcordo: alvo, nParc: parcelas.length, nOrig: sel.length });
+  saveData('boletosAvulsos', boletosAvulsos); saveData('sistemaAcordo', sistemaAcordo); saveData('acordos', acordos);
+  _cobAvSel.clear(); _cobSisSel.clear(); _acordoSel = [];
+  document.getElementById('acordo-modal')?.remove();
+  try { syncBoletosToRecebimentos(); } catch (e) {}
+  renderCobranca();
+  alert('🤝 Acordo criado — ' + cliente + '.\n' + sel.length + ' boleto(s) saíram da cobrança (em acordo) → ' + parcelas.length + ' parcela(s), total ' + fmtVal(alvo) + (multa ? ` (multa ${fmtVal(multa)})` : '') + '.');
+}
+function desfazerAcordo(id) {
+  const ac = acordos.find(a => a.id === id); if (!ac) return;
+  if (!confirm(`Desfazer o acordo de ${ac.cliente} (${fmtVal(ac.valorAcordo)})?\n\nOs ${ac.nOrig} boleto(s) originais VOLTAM para a cobrança e as ${ac.nParc} parcela(s) do acordo são removidas.\n\n(Use quando o cliente não cumpriu o acordo.)`)) return;
+  boletosAvulsos = boletosAvulsos.filter(a => a._acordoParc !== id);   // remove as parcelas do acordo
+  boletosAvulsos.forEach(a => { if (a._acordoId === id) delete a._acordoId; }); // restaura avulsos originais
+  Object.keys(sistemaAcordo).forEach(k => { if (sistemaAcordo[k] === id) delete sistemaAcordo[k]; }); // restaura sistema
+  acordos = acordos.filter(a => a.id !== id);
+  saveData('boletosAvulsos', boletosAvulsos); saveData('sistemaAcordo', sistemaAcordo); saveData('acordos', acordos);
+  try { syncBoletosToRecebimentos(); } catch (e) {}
+  renderCobranca();
+  alert('↩ Acordo desfeito. Os boletos originais voltaram para a cobrança.');
+}
 function renderCobranca() {
   setDateFilterRender(renderCobranca);
   const el = document.getElementById('v-cobranca');
@@ -6528,7 +6628,7 @@ function renderCobranca() {
       const _qav = i => { const a = boletosAvulsos[i]; return !fQ || `${a.pedido || ''} ${a.cliente || ''} ${a.fone || ''} ${a.obsCobranca || ''} ${(a.valorTitulo || 0).toFixed(2)} ${(a.valorPago || 0).toFixed(2)} ${a.vencimento ? fmtDate(a.vencimento) : ''} ${a.dataPagamento ? fmtDate(a.dataPagamento) : ''}`.toLowerCase().includes(fQ); };
       const idxAll = boletosAvulsos.map((a, i) => i).filter(_qav);
       const _vencMs = a => a && a.vencimento ? new Date(a.vencimento).getTime() : 0;
-      const abertos = idxAll.filter(i => !boletosAvulsos[i].dataPagamento).sort((x, y) => _vencMs(boletosAvulsos[y]) - _vencMs(boletosAvulsos[x])); // vencimento decrescente
+      const abertos = idxAll.filter(i => !boletosAvulsos[i].dataPagamento && !boletosAvulsos[i]._acordoId).sort((x, y) => _vencMs(boletosAvulsos[y]) - _vencMs(boletosAvulsos[x])); // vencimento decrescente (renegociados em acordo ficam de fora)
       const pagos = idxAll.filter(i => boletosAvulsos[i].dataPagamento);
       const avOpen = _cobAvulsosAberto || !!fQ; // recolhido por padrão; a busca abre sozinha p/ ver o resultado
       const t0 = new Date(); t0.setHours(0, 0, 0, 0);
@@ -6548,6 +6648,7 @@ function renderCobranca() {
         <button class="btn ghost sm" style="font-size:12px;font-weight:700" onclick="_cobAvulsosAberto=!_cobAvulsosAberto;renderCobranca()">📱 A receber fora do sistema (${abertos.length}) ${avOpen ? '▾' : '▸'}</button>
         ${abertos.length ? `<span style="font-size:11px;color:var(--muted)">Total a receber <strong>${fmtVal(totalAb)}</strong></span>` : ''}
         ${avOpen && (_cobAvSel.size + _cobSisSel.size) ? `<button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarSelecionados()" title="Junta os do mesmo cliente numa mensagem só (avulsos + emitidos)">📱 Cobrar selecionados (${_cobAvSel.size + _cobSisSel.size})</button>` : ''}
+        ${(_cobAvSel.size + _cobSisSel.size) ? `<button class="btn ok sm" onclick="abrirAcordo()" title="Renegociar os boletos marcados: multa + novas parcelas. Os originais saem da cobrança (em acordo).">🤝 Fazer acordo (${_cobAvSel.size + _cobSisSel.size})</button>` : ''}
         ${avOpen ? `<button class="btn ghost sm" style="font-size:11px" onclick="deduparBoletosAvulsos()" title="Remove boletos duplicados (mantém um de cada)">🧹 Remover duplicados</button>` : ''}
       </div>
       ${avOpen ? `${abertos.length ? `<div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th style="width:28px"></th><th>Pedido</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Obs</th><th>Ações</th></tr></thead><tbody>
@@ -6559,7 +6660,21 @@ function renderCobranca() {
         ${pagos.map(rowPago).join('')}
         <tr style="border-top:2px solid var(--border)"><td colspan="2"><strong>Total</strong></td><td><strong>${fmtVal(pagos.reduce((s, i) => s + (boletosAvulsos[i].valorPago || 0), 0))}</strong></td><td colspan="2"></td></tr>
       </tbody></table></div>` : ''}` : ''}`;
-    })() : ''}`;
+    })() : ''}
+    ${acordos.length ? `<div class="section-title" style="margin-top:8px">🤝 Acordos de renegociação (${acordos.length})</div>
+      <div class="table-wrap" style="margin-bottom:16px"><table><thead><tr><th>Cliente</th><th>Data</th><th style="text-align:right">Boletos orig.</th><th style="text-align:right">Multa</th><th style="text-align:right">Acordo</th><th>Situação</th><th></th></tr></thead><tbody>
+      ${acordos.slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).map(ac=>{
+        const parc = boletosAvulsos.filter(a=>a._acordoParc===ac.id);
+        const pagas = parc.filter(a=>a.dataPagamento).length;
+        return `<tr><td><strong>${ac.cliente||'—'}</strong></td><td style="font-size:11px;color:var(--muted)">${ac.data?fmtDate(ac.data):'—'}</td>
+          <td style="text-align:right;color:var(--muted)">${fmtVal(ac.valorOriginal)} <span style="font-size:10px">(${ac.nOrig})</span></td>
+          <td style="text-align:right;color:var(--amber)">${ac.multa?fmtVal(ac.multa):'—'}</td>
+          <td style="text-align:right;font-weight:700">${fmtVal(ac.valorAcordo)}</td>
+          <td style="font-size:11px">${pagas}/${parc.length} parcela(s) paga(s)</td>
+          <td><button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerAcordo('${ac.id}')" title="Cliente não cumpriu: volta os boletos originais pra cobrança e remove as parcelas do acordo">↩ Desfazer</button></td></tr>`;
+      }).join('')}
+      </tbody></table></div>
+      <div style="font-size:11px;color:var(--muted);margin:-8px 0 14px">As parcelas de cada acordo aparecem na lista "A receber fora do sistema" acima, pra você cobrar e dar baixa normalmente.</div>` : ''}`;
 
   // Anexa o upload SÓ DEPOIS de todo o innerHTML (o += abaixo recria o input e apagaria o listener).
   const attachCobUpload = () => setupUpload('file-cobranca','card-cobranca','status-cobranca',({wb})=>{
@@ -12721,7 +12836,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -12775,6 +12890,8 @@ function delCheckboxHeader(source) {
     else if (k==='comprasDriveLidos') comprasDriveLidos = v || {};
     else if (k==='divergenciasVendas') divergenciasVendas = v || { sumidos: [], geradoEm: null, arquivo: '' };
     else if (k==='obsPedido') obsPedido = v || {};
+    else if (k==='acordos') acordos = v || [];
+    else if (k==='sistemaAcordo') sistemaAcordo = v || {};
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
