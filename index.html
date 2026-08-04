@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v450/08-569';
+const APP_VERSION = 'v451/08-570';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4787,6 +4787,10 @@ function renderPagar() {
   // Chaves de contas já CONCILIADAS no banco (vinculadas a um débito do extrato) → selo e filtro.
   const chavesConcBanco = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
+  // PERF: evita O(n²) no desenho das linhas — índice da conta e contagem por chave, 1x só (antes cada
+  // linha fazia contasPagar.indexOf + contasPagar.filter por TODAS as contas = travava com muitas contas).
+  const _cpIdxOf = new Map(); contasPagar.forEach((c, i) => _cpIdxOf.set(c, i));
+  const _cpChaveCount = {}; contasPagar.forEach(c => { const k = chaveContaPagar(c); _cpChaveCount[k] = (_cpChaveCount[k] || 0) + 1; });
 
   let vis = contasPagar;
   if (fSt === 'pago') vis = vis.filter(c => c.pago);
@@ -4945,7 +4949,7 @@ function renderPagar() {
         <th class="cpcol-vencimento">Vencimento</th><th class="cpcol-competencia">Competência</th><th class="cpcol-status">Status</th><th class="cpcol-empresa">Empresa</th><th class="cpcol-banco">Banco</th><th class="cpcol-fornecedor">Fornecedor</th><th class="cpcol-categoria">Categoria</th><th class="cpcol-valor" style="text-align:right">Valor</th><th class="cpcol-rateio">Rateio</th><th class="cpcol-pagamento">Liquidação</th><th class="cpcol-historico">Histórico</th>
       </tr></thead><tbody>
       ${[...vis].sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)).map(c=>{
-        const realIdx = contasPagar.indexOf(c);
+        const realIdx = _cpIdxOf.get(c);
         const conc = chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno || c._origemExtrato; // travada: vínculo no banco OU estorno conciliado no recebimento
         const rateioStr = (c.rateio && c.rateio.length)
           ? c.rateio.map(r=>`<span title="${[r.empresa,r.grupo,r.categoria,r.colecao].filter(Boolean).join(' › ')}">${r.empresa||'—'}${r.colecao?' · '+r.colecao:(r.grupo?' · '+r.grupo:'')} ${fmtVal(r.valor)}</span>`).join('<br>')
@@ -4957,7 +4961,7 @@ function renderPagar() {
             ${delCheckbox('contasPagar', realIdx)}
             <td class="cpcol-vencimento">${c.vencimento?fmtDate(c.vencimento):'—'}</td>
             <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
-            <td class="cpcol-status">${stBadge}${(contasPagar.filter(x=>chaveContaPagar(x)===chaveContaPagar(c)).length>1)?` <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--amber)" onclick="separarContaColidida(${realIdx})" title="Esta conta tem o MESMO número de outra parcela e pode estar travada/paga por engano. Clique pra dar um número próprio e soltar (o vínculo do banco fica na parcela certa).">⚠ nº repetido</button>`:''}</td>
+            <td class="cpcol-status">${stBadge}${(_cpChaveCount[chaveContaPagar(c)]>1)?` <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--amber)" onclick="separarContaColidida(${realIdx})" title="Esta conta tem o MESMO número de outra parcela e pode estar travada/paga por engano. Clique pra dar um número próprio e soltar (o vínculo do banco fica na parcela certa).">⚠ nº repetido</button>`:''}</td>
             <td class="cpcol-empresa">${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
             <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
             <td class="cpcol-fornecedor"><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} ${c._origemEstorno?`<span class="badge ok" style="font-size:9px" title="↩ Estorno conciliado pelo RECEBIMENTO (repasse PayPal/Braavo). Travado pra não mexer — desfaça em Recebimentos (↩ desfazer estorno) se precisar.">🔒🔗 conciliado (receb.)</span>`:`<span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span>`}</td>
