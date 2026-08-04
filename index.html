@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v457/08-576';
+const APP_VERSION = 'v458/08-577';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6452,6 +6452,8 @@ function addBoletoAvulsoManual() {
 }
 // Telefone do cliente no boleto avulso (a receber) — usado no botão Cobrar
 function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].fone = val; saveData('boletosAvulsos', boletosAvulsos); }
+// Nº do pedido de um boleto avulso (pra identificar). Re-sincroniza (o vínculo com recebimento usa o pedido).
+function setAvulsoPedido(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].pedido = String(val || '').trim(); saveData('boletosAvulsos', boletosAvulsos); try { syncBoletosToRecebimentos(); } catch (e) {} }
 function setObsAvulso(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].obsCobranca = val; saveData('boletosAvulsos', boletosAvulsos); } // anotação livre (ex.: "vai pagar no pix")
 function toggleCobAvSel(i, on) { if (on) _cobAvSel.add(i); else _cobAvSel.delete(i); renderCobranca(); }
 function toggleCobSisSel(key, on) { if (on) _cobSisSel.add(key); else _cobSisSel.delete(key); renderCobranca(); }
@@ -6691,12 +6693,12 @@ function renderCobranca() {
       const t0 = new Date(); t0.setHours(0, 0, 0, 0);
       const rowAberto = i => { const a = boletosAvulsos[i]; let cor = ''; if (a.vencimento) { const dd = Math.floor((new Date(a.vencimento) - t0) / 86400000); if (dd < 0) cor = 'color:var(--red);font-weight:700'; else if (dd <= 5) cor = 'color:var(--amber);font-weight:700'; } return `<tr${_cobAvSel.has(i) ? ' style="background:var(--green-bg)"' : ''}>
         <td style="text-align:center"><input type="checkbox" style="width:15px;height:15px;cursor:pointer" ${_cobAvSel.has(i) ? 'checked' : ''} title="Marcar p/ cobrar junto (mesmo cliente = 1 mensagem)" onchange="toggleCobAvSel(${i},this.checked)"></td>
-        <td>${a._acordoCod ? `<span class="badge" style="background:#0a7d55;color:#fff;font-weight:700" title="Parcela do acordo ${a._acordoCod}">🤝 ${a._acordoCod}</span> <span style="font-size:10px;color:var(--muted)">${a._acordoParcN || ''}</span>` : `<strong>#${a.pedido || '—'}</strong>`}</td>
+        <td>${a._acordoCod ? `<span class="badge" style="background:#0a7d55;color:#fff;font-weight:700" title="Parcela do acordo ${a._acordoCod}">🤝 ${a._acordoCod}</span> <span style="font-size:10px;color:var(--muted)">${a._acordoParcN || ''}</span>` : `<input class="inline-input" style="width:90px;font-size:11px" value="${(a.pedido || '').replace(/"/g, '&quot;')}" placeholder="nº pedido" title="Nº do pedido pra identificar" onchange="setAvulsoPedido(${i},this.value)">`}</td>
         <td>${a.cliente || '—'}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(a.fone || '').replace(/"/g, '&quot;')}" placeholder="📱 WhatsApp cliente" onchange="setAvulsoFone(${i},this.value)"></td>
         <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
         <td><input class="inline-input" style="width:140px;font-size:11px" value="${(a.obsCobranca || '').replace(/"/g, '&quot;')}" placeholder="ex.: vai pagar no pix" title="Anotação livre desta cobrança" onchange="setObsAvulso(${i},this.value)"></td>
         <td><div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 ${a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${a.cobradoEm ? `<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(a.cobradoEm)}</span> <a href="#" onclick="desmarcarAvisadoAvulso(${i});return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
-      const rowPago = i => { const a = boletosAvulsos[i]; const dISO = a.dataPagamento ? _toDateInput(a.dataPagamento) : ''; const comMulta = (a.valorPago != null && a.valorTitulo && a.valorPago > a.valorTitulo + 0.005); return `<tr><td><strong>#${a.pedido || '—'}</strong></td><td>${a.cliente || '—'}</td>
+      const rowPago = i => { const a = boletosAvulsos[i]; const dISO = a.dataPagamento ? _toDateInput(a.dataPagamento) : ''; const comMulta = (a.valorPago != null && a.valorTitulo && a.valorPago > a.valorTitulo + 0.005); return `<tr><td><input class="inline-input" style="width:90px;font-size:11px" value="${(a.pedido || '').replace(/"/g, '&quot;')}" placeholder="nº pedido" title="Nº do pedido pra identificar" onchange="setAvulsoPedido(${i},this.value)"></td><td>${a.cliente || '—'}</td>
         <td><input class="inline-input" type="number" step="0.01" style="width:96px;text-align:right" value="${(a.valorPago != null ? a.valorPago : (a.valorTitulo || 0)).toFixed(2)}" onchange="setAvulsoRecebido(${i},'valorPago',this.value)" title="Valor que caiu no banco (com multa/juros se o boleto venceu). Título: ${fmtVal(a.valorTitulo || 0)}">${comMulta ? ` <span style="font-size:9px;color:var(--amber)" title="Título ${fmtVal(a.valorTitulo)} + multa/juros">+multa</span>` : ''}</td>
         <td><input class="inline-input" type="date" style="width:132px" value="${dISO}" onchange="setAvulsoRecebido(${i},'dataPagamento',this.value)" title="Data que o PIX caiu no banco"></td>
         <td><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></td></tr>`; };
