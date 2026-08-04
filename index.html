@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v455/08-574';
+const APP_VERSION = 'v456/08-575';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6652,7 +6652,7 @@ function renderCobranca() {
   setDateFilterRender(renderCobranca);
   if (acordos.length) _garantirCodAcordos();
   const el = document.getElementById('v-cobranca');
-  const emitidos = getBoletosDaForma().filter(b=>boletoStatus[b.key]);
+  const emitidos = getBoletosDaForma().filter(b=>boletoStatus[b.key] && !sistemaAcordo[b.key]); // boletos do sistema que entraram num acordo saem daqui (viram parcela do acordo)
   const today = new Date();
   const fSt = el.querySelector('#cob-st')?.value||'';
   const fQ  = (el.querySelector('#cob-q')?.value||'').toLowerCase();
