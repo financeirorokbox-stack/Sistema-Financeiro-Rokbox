@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v459/08-578';
+const APP_VERSION = 'v460/08-579';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5346,7 +5346,7 @@ function editarNpedRec(idx) {
 // Nunca remove um recebimento já amarrado a um depósito (repasse) e prefere manter o que tem pedido vinculado.
 function removerRecebimentosDuplicados() {
   const usados = repasseUsados();
-  const keyOf = r => r._txnId ? ('tx:' + r._txnId)
+  const keyOf = r => r._txnId ? ('tx:' + r._txnId + '@' + (r.bruto || 0).toFixed(2)) // valor com sinal: retenção (-) e cancelamento (+) têm o MESMO ID mas NÃO são duplicados
     : ['k', r.gateway, r.data ? new Date(r.data).toISOString().slice(0, 10) : '', (r.bruto || 0).toFixed(2), (r.nome || '').trim().toLowerCase()].join('|');
   const grupos = {};
   recebimentosConsolidado.forEach((r, i) => { (grupos[keyOf(r)] = grupos[keyOf(r)] || []).push({ r, i }); });
@@ -5675,8 +5675,11 @@ function renderRecebimentos() {
     // Chave à prova de RE-UPLOAD: usa o ID ÚNICO da transação quando existe (PayPal _txnId, Rede _nsu) —
     // estável e não muda ao vincular pedido. Sem ID, usa conteúdo SEM o nº do pedido (que muda ao conciliar,
     // e antes fazia o re-upload de um recebimento já vinculado DUPLICAR).
-    const recKey = r => r._txnId ? ('tx:' + String(r._txnId))
-      : (r._nsu ? ('nsu:' + String(r._nsu))
+    // Inclui o VALOR (com sinal) junto do ID: a PayPal usa o MESMO "ID da transação" na retenção (-200,53)
+    // e no cancelamento dela (+200,53). Sem o valor na chave, o cancelamento era visto como repetido e sumia.
+    // Mesmo ID + mesmo valor = de fato repetido (re-upload), continua sem duplicar.
+    const recKey = r => r._txnId ? ('tx:' + String(r._txnId) + '@' + (r.bruto||0).toFixed(2))
+      : (r._nsu ? ('nsu:' + String(r._nsu) + '@' + (r.bruto||0).toFixed(2))
       : ['k', r.gateway, (r.data ? new Date(r.data).toISOString().slice(0,10) : ''), (r.bruto||0).toFixed(2), (r.taxa||0).toFixed(2), (r.nome||'').trim().toLowerCase()].join('|'));
     const existKeys = new Set(recebimentosConsolidado.map(recKey));
 
