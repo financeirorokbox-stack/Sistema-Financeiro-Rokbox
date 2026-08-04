@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v449/08-568';
+const APP_VERSION = 'v450/08-569';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7781,6 +7781,19 @@ function renderExtrato() {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return false;
     return (p.valor || 0) - (_recPorPed[String(p.id)] || 0) > 0.5; // ainda falta receber
   }).map(p => ({ pedido: String(p.id), valor: +((p.valor || 0) - (_recPorPed[String(p.id)] || 0)).toFixed(2), descricao: 'Pix (Extrato/OFX)', cliente: p.nome || '', _cashFirst: true }));
+  // PERF: a base de pedidos "em aberto pelo banco" (forma de receita, pedido existe, não cancelado, com
+  // o status já resolvido) NÃO depende do crédito — calcula 1x aqui em vez de por crédito (era o que
+  // deixava o Extrato lento: formaPagamento.filter com pedidos.find + statusForma por crédito).
+  const _GW_FORA = ['PayPal', 'BraavoPay', 'Cartão'];
+  const _pixBase = [];
+  formaPagamento.forEach(f => {
+    const c = classificaForma(f.descricao);
+    if (!c.isReceita || _GW_FORA.includes(c.categoria)) return;
+    const ped = pedidoPorId(f.pedido);
+    if (!ped) return;
+    if (SITUACOES_NAO_APLICAVEL.includes((ped.situacao || '').toLowerCase())) return;
+    _pixBase.push({ f, recebido: statusForma(f.pedido, c.categoria, f.valor).recebido });
+  });
   let visC = fQ ? creditos.filter(t=>t.memo.toLowerCase().includes(fQ)||String(extratoLinks[t.id]?.pedido||'').includes(fQ)) : creditos;
   // Empresa: filtra pelos pedidos vinculados ao crédito (créditos sem vínculo não têm empresa)
   if (fEmp) visC = visC.filter(t => {
@@ -7837,10 +7850,6 @@ function renderExtrato() {
     </tr></thead><tbody>
     ${visC.sort((a,b)=>(b.data||0)-(a.data||0)).map(t=>{
       const link = extratoLinks[t.id];
-      const autoMatch = !link ? pedidos.find(p => {
-        const valEsp = getValorConciliacaoPedido(p);
-        return pedidoTemRecebimento(p) && Math.abs(valEsp - t.valor) <= 0.10;
-      }) : null;
       return `<tr>
         <td>${fmtDate(t.data)}</td><td>${t.memo}</td><td>${fmtVal(t.valor)}</td>
         <td>${link
@@ -7849,23 +7858,11 @@ function renderExtrato() {
           : (() => {
               // Pedidos EM ABERTO que entram pelo banco (PIX, Boleto, Depósito, Dinheiro…).
               // Exclui gateways que conciliam por fora (PayPal/Braavo/Cartão) e o que não é receita.
-              const GW_FORA = ['PayPal', 'BraavoPay', 'Cartão'];
               const ehLoteBoleto = /boleto/i.test(t.memo || ''); // depósito de BOLETOS RECEBIDOS (lote)
-              const pixAbertos = formaPagamento.filter(f => {
-                const c = classificaForma(f.descricao);
-                if (!c.isReceita) return false;
-                if (GW_FORA.includes(c.categoria)) return false;
-                const ped = pedidos.find(p => p.id === f.pedido);
-                if (!ped) return false;
-                const sit = ped.situacao || '';
-                if (SITUACOES_NAO_APLICAVEL.includes(sit.toLowerCase())) return false;
-                const st = statusForma(f.pedido, c.categoria, f.valor);
-                // Depósito de BOLETOS (lote): mostra TAMBÉM os já recebidos, pois o crédito é a soma
-                // dos boletos em aberto + os que já constam recebidos. Assim o "Flegado" fecha o total.
-                // Em ABERTO: sempre. JÁ RECEBIDO: se for lote de boleto, também; senão só quando o valor bate.
-                if (st.recebido && !ehLoteBoleto && Math.abs((f.valor||0) - t.valor) > 1) return false;
-                return true;
-              });
+              // Usa a base pré-calculada (_pixBase). Só o filtro por VALOR depende do crédito.
+              // Depósito de BOLETOS (lote): mostra também os já recebidos (o crédito é a soma dos boletos);
+              // senão, um já-recebido só entra se o valor bate. Em aberto: sempre.
+              const pixAbertos = _pixBase.filter(b => !(b.recebido && !ehLoteBoleto && Math.abs((b.f.valor||0) - t.valor) > 1)).map(b => b.f);
               // Cash-first: junta os pedidos SEM forma ainda em aberto (não repete os que já entraram por forma).
               if (!ehLoteBoleto) {
                 const _jaNaLista = new Set(pixAbertos.map(f => String(f.pedido)));
@@ -7899,7 +7896,7 @@ function renderExtrato() {
                 <input type="text" oninput="_extListFilter('${t.id}',this.value)" placeholder="🔍 filtrar por cliente ou pedido (ex.: LIBIA)" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:4px">
                 <div id="${listId}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;max-height:200px;overflow-y:auto">
                   ${pixAbertos.map(f => {
-                    const ped = pedidos.find(p => p.id === f.pedido);
+                    const ped = pedidoPorId(f.pedido);
                     const diff = Math.abs(f.valor - t.valor);
                     const icon = diff <= 0.10 ? '⚡ ' : '';
                     const bg = diff <= 0.10 ? 'background:var(--green-bg)' : '';
