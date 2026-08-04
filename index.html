@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v456/08-575';
+const APP_VERSION = 'v457/08-576';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8056,7 +8056,9 @@ function renderExtrato() {
               const mostrarAvulsos = ehLoteBoleto || boletosAvulsos.some(a => { const p = (a.cliente || '').toLowerCase().trim().split(/\s+/)[0]; return p && p.length >= 4 && _memoAv.includes(p); });
               // Valor com MULTA/JUROS quando ela lançou o "quanto caiu no banco" (valorPago) — é o que
               // realmente entrou e casa com o depósito. Sem isso, mostrava o título e nunca batia.
-              if (mostrarAvulsos) boletosAvulsos.forEach((a, ai) => pixAbertos.push({ pedido: 'AV:' + ai, valor: (a.valorPago != null && a.valorPago > 0) ? a.valorPago : (a.valorTitulo || 0), descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento, _avCod: a._acordoCod || '', _avParcN: a._acordoParcN || '' }));
+              // PARCELA DE ACORDO: aparece SEMPRE (mesmo com nome do histórico diferente — parente costuma
+              // pagar por outro nome). Ela acha pela sigla A0x ou pelo nome do cliente no filtro da lista.
+              boletosAvulsos.forEach((a, ai) => { if (mostrarAvulsos || (a._acordoParc && !a.dataPagamento)) pixAbertos.push({ pedido: 'AV:' + ai, valor: (a.valorPago != null && a.valorPago > 0) ? a.valorPago : (a.valorTitulo || 0), descricao: 'boleto', cliente: (a.cliente || '(avulso Itaú)'), _pedNum: a.pedido || '', _avulso: true, _avPago: !!a.dataPagamento, _avCod: a._acordoCod || '', _avParcN: a._acordoParcN || '' }); });
               const hasAutoMatch = pixAbertos.length > 0 && Math.abs(pixAbertos[0].valor - t.valor) <= 0.10;
               const listId = 'ext-list-' + t.id;
               return `<div style="min-width:260px;max-width:340px">
