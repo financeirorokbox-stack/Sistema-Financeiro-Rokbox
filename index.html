@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v447/08-566';
+const APP_VERSION = 'v448/08-567';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9903,9 +9903,10 @@ function renderBanco() {
                           const bg = usada ? 'opacity:.7' : (preCheck?'background:var(--green-bg)':(paga?'opacity:.85':''));
                           return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;${bg}">
                             <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveC)}" data-v="${c.valor||0}" data-cartao="${/cart[aã]o/i.test((c.observacao||'')+' '+(c.descricao||'')+' '+(catContaPagar(c)||''))?'1':'0'}" ${preCheck?'checked':''} ${usada?'disabled':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
-                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato&&!usada?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${selo}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}${c.vencimento?(' · '+fmtDate(c.vencimento)):''}</span>
+                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato&&!usada?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${selo}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}</span>
+                            <span style="color:var(--muted);font-size:11px;white-space:nowrap;flex-shrink:0" title="Vencimento da conta">📅 ${c.vencimento?fmtDate(c.vencimento):'—'}</span>
                             ${usada && outroId && outroId!==t.id ? `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;flex-shrink:0" onclick="event.preventDefault();cbMoverContaDebito('${encodeURIComponent(chaveC)}','${t.id}')" title="Desfaz o vínculo no outro débito e vincula a este">Mover para cá</button>` : ''}
-                            <span style="color:var(--muted);white-space:nowrap">${fmtVal(c.valor||0)}</span>
+                            <span style="color:var(--muted);white-space:nowrap;flex-shrink:0">${fmtVal(c.valor||0)}</span>
                           </label>`;
                         }).join('')}
                       </div>
