@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v458/08-577';
+const APP_VERSION = 'v459/08-578';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1597,15 +1597,16 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       // Ignora retiradas/saques (não é venda nem reembolso de cliente).
       if (tl.includes('retirada') || tl.includes('saque')) return;
       const status = String(r['Status'] || '').toLowerCase();
-      // Reembolso/estorno: ENTRA com valor NEGATIVO para ABATER o que foi pago.
-      // Inclui a RETENÇÃO/RESERVA da PayPal (disputa/investigação): é um estorno que quem faz é a
-      // PayPal, não a cliente — o dinheiro já saiu do saldo AGORA, mesmo o status ficando "Pendente".
-      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || tl.includes('reten') || tl.includes('reserva') || tl.includes('investiga') || tl.includes('disputa') || bruto < 0;
-      // Negado/cancelado nunca entra (nem estorno). Positivo "Pendente" também não (venda ainda não caiu).
-      if (status.includes('neg') || status.includes('cancel')) return;
+      // AJUSTE da PayPal (NÃO é venda de cliente): reembolso, estorno, chargeback, contestação, a
+      // RETENÇÃO/RESERVA por disputa e o CANCELAMENTO/liberação dessa retenção. Esses mexem no saldo
+      // mesmo com status "Pendente" ou "Negado" (é a PayPal que faz, não a cliente), então ENTRAM sempre.
+      // O SINAL manda: negativo abate (estorno), positivo é dinheiro que VOLTOU (ex.: cancelamento da
+      // retenção, +200,53). Só a VENDA comum (pagamento positivo) precisa estar "Concluída" pra entrar.
+      const ehAjustePaypal = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || tl.includes('reten') || tl.includes('reserva') || tl.includes('investiga') || tl.includes('disputa') || tl.includes('cancelam') || tl.includes('revers') || tl.includes('liber');
+      const ehReembolso = bruto < 0; // negativo = saiu do saldo (abate)
       const concluido = status.includes('conclu') || status.includes('complet');
-      if (!concluido && !ehReembolso) return; // só entra pendente se for estorno/retenção (dinheiro já saiu)
-      if (!ehReembolso && bruto <= 0) return; // outros valores não positivos que não são reembolso
+      if (!concluido && !ehAjustePaypal) return;              // venda não-concluída (pendente/negada) fica fora
+      if (!ehReembolso && !ehAjustePaypal && bruto <= 0) return; // não-positivo que não é ajuste: ignora
 
       const taxa = ehReembolso ? num(r['Tarifa']) : Math.abs(num(r['Tarifa']));
       const liq  = num(r['Líquido']);
@@ -5173,15 +5174,16 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       // Ignora retiradas/saques (não é venda nem reembolso de cliente).
       if (tl.includes('retirada') || tl.includes('saque')) return;
       const status = String(r['Status'] || '').toLowerCase();
-      // Reembolso/estorno: ENTRA com valor NEGATIVO para ABATER o que foi pago.
-      // Inclui a RETENÇÃO/RESERVA da PayPal (disputa/investigação): é um estorno que quem faz é a
-      // PayPal, não a cliente — o dinheiro já saiu do saldo AGORA, mesmo o status ficando "Pendente".
-      const ehReembolso = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || tl.includes('reten') || tl.includes('reserva') || tl.includes('investiga') || tl.includes('disputa') || bruto < 0;
-      // Negado/cancelado nunca entra (nem estorno). Positivo "Pendente" também não (venda ainda não caiu).
-      if (status.includes('neg') || status.includes('cancel')) return;
+      // AJUSTE da PayPal (NÃO é venda de cliente): reembolso, estorno, chargeback, contestação, a
+      // RETENÇÃO/RESERVA por disputa e o CANCELAMENTO/liberação dessa retenção. Esses mexem no saldo
+      // mesmo com status "Pendente" ou "Negado" (é a PayPal que faz, não a cliente), então ENTRAM sempre.
+      // O SINAL manda: negativo abate (estorno), positivo é dinheiro que VOLTOU (ex.: cancelamento da
+      // retenção, +200,53). Só a VENDA comum (pagamento positivo) precisa estar "Concluída" pra entrar.
+      const ehAjustePaypal = tl.includes('reembolso') || tl.includes('estorno') || tl.includes('refund') || tl.includes('chargeback') || tl.includes('contesta') || tl.includes('reten') || tl.includes('reserva') || tl.includes('investiga') || tl.includes('disputa') || tl.includes('cancelam') || tl.includes('revers') || tl.includes('liber');
+      const ehReembolso = bruto < 0; // negativo = saiu do saldo (abate)
       const concluido = status.includes('conclu') || status.includes('complet');
-      if (!concluido && !ehReembolso) return; // só entra pendente se for estorno/retenção (dinheiro já saiu)
-      if (!ehReembolso && bruto <= 0) return; // outros valores não positivos que não são reembolso
+      if (!concluido && !ehAjustePaypal) return;              // venda não-concluída (pendente/negada) fica fora
+      if (!ehReembolso && !ehAjustePaypal && bruto <= 0) return; // não-positivo que não é ajuste: ignora
 
       const taxa = ehReembolso ? num(r['Tarifa']) : Math.abs(num(r['Tarifa']));
       const liq  = num(r['Líquido']);
