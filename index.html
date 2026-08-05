@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v464/08-583';
+const APP_VERSION = 'v465/08-584';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12275,7 +12275,9 @@ function gerarFolhaMes() {
   const descPedDeG = fid => pedDescG.filter(d => d.funcId === fid).reduce((s, d) => s + (+d.valor || 0), 0);
   ativos.forEach(f => {
     const r = _fRow(mes, f.id);
-    const base = { fornecedor: f.nome.trim(), empresa: f.empresa || '', pix: f.pix || '' };
+    // competencia = MÊS DA FOLHA em todas as linhas: o salário pago dia 05/mês seguinte é despesa do mês
+    // TRABALHADO (folha), não do mês do pagamento. Sem isto, as linhas do dia 05 caíam na competência errada no DRE.
+    const base = { fornecedor: f.nome.trim(), empresa: f.empresa || '', pix: f.pix || '', competencia: mes };
     upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Adiantamento ' + mm, categoria: 'SALÁRIOS', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
     const dpF = descPedDeG(f.id);
     const sal = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF)).toFixed(2);
