@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v466/08-585';
+const APP_VERSION = 'v467/08-586';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11335,6 +11335,8 @@ function renderCompras() {
   if (fQ) vis = vis.filter(c => (c.insumo || '').toLowerCase().includes(fQ) || (c.fornecedor || '').toLowerCase().includes(fQ) || (c.colecao || '').toLowerCase().includes(fQ) || (c.categoria || '').toLowerCase().includes(fQ));
   const cnt = st => compras.filter(c => (c.status || 'pendente') === st).length;
   const somaVis = vis.reduce((s, c) => s + totalCompra(c), 0);
+  const somaQtdVis = vis.reduce((s, c) => s + (+c.qtd || 0), 0);
+  const _fmtQtd = q => (+q || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
   // Aprovados agrupados por fornecedor → viram Pedido (gera parcelas no Contas a Pagar).
   const aprovForn = {};
   compras.filter(c => (c.status || '') === 'aprovado').forEach(c => { const f = c.fornecedor || '(sem fornecedor)'; (aprovForn[f] = aprovForn[f] || []).push(c); });
@@ -11365,15 +11367,16 @@ function renderCompras() {
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
       <button class="btn ghost sm" style="color:var(--red)" onclick="excluirComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Exclui de uma vez todos os itens marcados nos quadradinhos (uma confirmação só)">🗑 Excluir${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
-      <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) : ''}</span>
+      <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) + ' · qtd ' + _fmtQtd([...comprasSel].reduce((s, id) => { const c = compras.find(x => x.id === id); return s + (c ? +c.qtd || 0 : 0); }, 0)) : ''}</span>
     </div>
     ${fornsAprov.length && (fSt === '' || fSt === 'aprovado') ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;background:var(--surface)">
       <div style="font-weight:700;margin-bottom:8px">📦 Fazer pedido — itens aprovados por fornecedor</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Escolha a <strong>condição de pagamento</strong> e a <strong>Data de Faturamento</strong> (o prazo conta a partir dela) → gera as parcelas <strong>em aberto</strong> no Contas a Pagar (previstas no Fluxo).</div>
-      <div class="table-wrap"><table style="white-space:nowrap;font-size:12px"><thead><tr><th>Fornecedor</th><th style="text-align:right">Itens</th><th style="text-align:right">Total (c/ frete)</th><th>Condição (prazo)</th><th>Data Faturamento</th><th></th></tr></thead><tbody>
-      ${fornsAprov.map((f, i) => { const itens = aprovForn[f]; const tot = itens.reduce((s, c) => s + totalCompra(c), 0); const fc = fornecedoresCompras.find(x => x.nome === f); const condDef = fc ? fc.condicaoId : ''; const dfDef = (itens.find(c => c.dataFatur) || {}).dataFatur || ''; return `<tr>
+      <div class="table-wrap"><table style="white-space:nowrap;font-size:12px"><thead><tr><th>Fornecedor</th><th style="text-align:right">Itens</th><th style="text-align:right">Qtd</th><th style="text-align:right">Total (c/ frete)</th><th>Condição (prazo)</th><th>Data Faturamento</th><th></th></tr></thead><tbody>
+      ${fornsAprov.map((f, i) => { const itens = aprovForn[f]; const tot = itens.reduce((s, c) => s + totalCompra(c), 0); const qtd = itens.reduce((s, c) => s + (+c.qtd || 0), 0); const fc = fornecedoresCompras.find(x => x.nome === f); const condDef = fc ? fc.condicaoId : ''; const dfDef = (itens.find(c => c.dataFatur) || {}).dataFatur || ''; return `<tr>
         <td><strong>${f}</strong></td>
         <td style="text-align:right">${itens.length}</td>
+        <td style="text-align:right">${_fmtQtd(qtd)}</td>
         <td style="text-align:right"><strong>${fmtVal(tot)}</strong></td>
         <td><select class="inline-input" id="ped-cond-${i}" style="width:200px"><option value="">— escolha —</option>${condicoesPagamento.map(cc => `<option value="${cc.id}" ${cc.id === condDef ? 'selected' : ''}>${(cc.nome || '').replace(/"/g, '&quot;')}</option>`).join('')}</select></td>
         <td><input type="date" class="inline-input" id="ped-datafat-${i}" style="width:130px" value="${dfDef}"></td>
@@ -11389,7 +11392,7 @@ function renderCompras() {
       <span style="color:var(--muted)">👁 Colunas:</span>
       ${CMP_COLS.map(([k,lbl])=>{ const oc=cmpColsOcultas.includes(k); return `<span onclick="toggleCmpCol('${k}')" title="${oc?'Mostrar':'Ocultar'} ${lbl}" style="cursor:pointer;padding:2px 9px;border-radius:11px;user-select:none;${oc?'opacity:.5;text-decoration:line-through;background:var(--bg);border:1px solid var(--border)':'background:var(--accent);color:#fff;border:1px solid var(--accent)'}">${lbl}</span>`; }).join('')}
       <span style="flex:1"></span>
-      <span style="color:var(--muted)">${vis.length} item(ns) · total <strong>${fmtVal(somaVis)}</strong></span>
+      <span style="color:var(--muted)">${vis.length} item(ns) · qtd <strong>${_fmtQtd(somaQtdVis)}</strong> · total <strong>${fmtVal(somaVis)}</strong></span>
     </div>
     <style>
       .cmp-tbl{font-size:11px;white-space:nowrap;border-collapse:collapse}
@@ -11422,7 +11425,18 @@ function renderCompras() {
       <td class="cmpcol-status"><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
       <td>${acoesCompra(c)}</td>
     </tr>`; }).join('')}
-    </tbody></table></div>`}
+    </tbody><tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:var(--bg)">
+      <td></td><td class="cmpcol-data"></td><td class="cmpcol-forn"></td><td class="cmpcol-emp"></td>
+      <td class="cmpcol-insumo" style="text-align:right">Total (${vis.length})</td>
+      <td class="cmpcol-un"></td>
+      <td class="cmpcol-qtd" style="text-align:right" title="Soma das quantidades">${_fmtQtd(somaQtdVis)}</td>
+      <td class="cmpcol-custou"></td>
+      <td class="cmpcol-total" style="text-align:right">${fmtVal(vis.reduce((s, c) => s + (+c.custoTotal || 0), 0))}</td>
+      <td class="cmpcol-frete" style="text-align:right">${fmtVal(vis.reduce((s, c) => s + (+c.frete || 0), 0))}</td>
+      <td class="cmpcol-desc" style="text-align:right">${fmtVal(vis.reduce((s, c) => s + (+c.desconto || 0), 0))}</td>
+      <td class="cmpcol-totalg" style="text-align:right">${fmtVal(somaVis)}</td>
+      <td class="cmpcol-datafat"></td><td class="cmpcol-colecao"></td><td class="cmpcol-cat"></td><td class="cmpcol-solic"></td><td class="cmpcol-status"></td><td></td>
+    </tr></tfoot></table></div>`}
   `;
   // Devolve a rolagem pra onde estava (não pula pro topo ao editar/apagar)
   window.scrollTo(window.scrollX, _sy);
