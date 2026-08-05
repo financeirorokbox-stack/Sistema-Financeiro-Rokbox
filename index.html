@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v476/08-595';
+const APP_VERSION = 'v477/08-596';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12114,15 +12114,22 @@ function renderRH() {
 let _recibosRH = []; // [{codigo, nome, liquido, funcId, whatsapp, url, nomeArq}] — transitório (blobs em memória)
 function _recibosRhHTML() {
   if (!_recibosRH.length) return '';
-  const linhas = _recibosRH.map((r, i) => `
+  const _mesKeyRec = _rhMes || new Date().toISOString().slice(0, 7);
+  const linhas = _recibosRH.map((r, i) => {
+    const rel = _relatorioPagoRH(r.funcId, r.nome, _mesKeyRec, r.liquido); // conferência (mesmo cálculo do WhatsApp)
+    const conf = rel.texto
+      ? `<div style="font-size:10px;color:var(--muted);width:100%;margin-top:2px">🔎 conferência: líquido do holerite <strong>${fmtVal((+r.liquido) || 0)}</strong> + VT/extras = <strong style="color:var(--green)">total a enviar ${fmtVal(rel.total)}</strong></div>`
+      : `<div style="font-size:10px;color:var(--amber);width:100%;margin-top:2px">🔎 sem dados da folha deste mês pra conferir (vai só o holerite)</div>`;
+    return `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);flex-wrap:wrap;${r.enviado ? 'opacity:.6' : ''}">
       <span style="font-weight:700;min-width:180px">${r.nome}${r.enviado ? ' <span style="font-size:10px;color:var(--green);font-weight:700">✓ enviado</span>' : ''}</span>
-      <span style="color:var(--green);font-weight:700;min-width:90px;text-align:right">${r.liquido ? fmtVal(r.liquido) : '—'}</span>
+      <span style="color:var(--green);font-weight:700;min-width:90px;text-align:right" title="Líquido lido do holerite">${r.liquido ? fmtVal(r.liquido) : '—'}</span>
       <span style="font-size:11px;color:${r.whatsapp ? 'var(--muted)' : 'var(--amber)'};min-width:120px">${r.whatsapp || '⚠ sem WhatsApp'}</span>
       <button class="btn ghost sm" onclick="baixarHoleriteRH(${i})" title="Baixar o holerite desta pessoa (PDF)">⬇ Baixar</button>
       <button class="btn sm" style="background:#128C7E;border-color:#128C7E;color:#fff" onclick="enviarHoleriteRH(${i})" title="Baixa o holerite e abre o WhatsApp da pessoa com a mensagem pronta — você anexa o arquivo e envia">📱 ${r.enviado ? 'Enviar de novo' : 'WhatsApp'}</button>
       <button class="btn ghost sm" style="color:var(--red)" onclick="removerHoleriteRH(${i})" title="Remover este holerite da lista (libera espaço). Use depois de enviar.">🗑</button>
-    </div>`).join('');
+      ${conf}
+    </div>`; }).join('');
   const nEnv = _recibosRH.filter(r => r.enviado).length;
   return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:16px;background:var(--surface)">
     <div style="font-weight:700;margin-bottom:4px">📎 Holerites separados (${_recibosRH.length})${nEnv ? ` <span style="font-size:11px;color:var(--green);font-weight:400">· ${nEnv} enviado(s)</span>` : ''}</div>
@@ -12198,7 +12205,7 @@ function baixarHoleriteRH(i) {
 function _relatorioPagoRH(funcId, nome, mesKey, liquidoPdf) {
   const r = (funcId && folhaRH[mesKey]) ? folhaRH[mesKey][funcId] : null;
   const dpF = r ? ((_folhaDo(mesKey)._pedidosDesc || []).filter(d => d.funcId === funcId)).reduce((s, d) => s + (+d.valor || 0), 0) : 0;
-  const holerite = (r && +r.salLiq) ? +r.salLiq : (+liquidoPdf || 0); // salário líquido (do holerite)
+  const holerite = (+liquidoPdf) ? +liquidoPdf : (r ? (+r.salLiq || 0) : 0); // líquido LIDO DO HOLERITE (PDF); folha só como reserva
   const vt = r ? (+r.vt || 0) : 0, vtDias = r ? (+r.vtDias || 0) : 0;
   const ferias = r ? (+r.ferias || 0) : 0, extras = r ? (+r.extras || 0) : 0;
   const linhas = [];
