@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v472/08-591';
+const APP_VERSION = 'v473/08-592';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12137,7 +12137,9 @@ async function lerRecibosRH(file) {
   let paginas, PDFLib, srcBytes;
   try {
     srcBytes = new Uint8Array(await file.arrayBuffer());
-    paginas = await _comLimite(_pdfLinhasPorPagina(srcBytes), 25000, 'A leitura do PDF travou (o processador de PDF do navegador não respondeu). Costuma ser uma extensão/bloqueador do navegador. Tente num outro navegador ou desative extensões nesta página.');
+    // pdf.js "transfere"/esvazia o buffer que recebe (detach). Passamos uma CÓPIA pra leitura e
+    // guardamos srcBytes intacto pra separação (pdf-lib), senão ele trava sem os dados.
+    paginas = await _comLimite(_pdfLinhasPorPagina(srcBytes.slice()), 25000, 'A leitura do PDF travou (o processador de PDF do navegador não respondeu). Costuma ser uma extensão/bloqueador do navegador. Tente num outro navegador ou desative extensões nesta página.');
     _stat(`⏳ (2/3) ${paginas.length} página(s) lida(s). Separando por funcionário...`);
     PDFLib = await _comLimite(_pdfLibReady(), 10000, 'A biblioteca que separa o PDF não iniciou.');
   } catch (e) { alert('Não consegui ler o PDF:\n\n' + (e && e.message || e)); renderRH(); return; }
@@ -12155,21 +12157,24 @@ async function lerRecibosRH(file) {
   });
   if (!grupos.length) { alert('Não reconheci esse PDF como o "Recibo de Pagamento".\n\nO sistema procura a linha "Nome do Funcionário" em cada página. Se o seu holerite tem outro layout, me manda o PDF que eu ajusto a leitura.'); renderRH(); return; }
   // Monta um PDF por funcionário (copia as páginas dele).
-  const src = await PDFLib.PDFDocument.load(srcBytes);
+  _stat(`⏳ (3/3) Montando ${grupos.length} holerite(s)...`);
   const mesR = _rhMes || new Date().toISOString().slice(0, 7);
   const novos = [];
-  for (const g of grupos) {
-    const out = await PDFLib.PDFDocument.create();
-    const pgs = await out.copyPages(src, g.pags);
-    pgs.forEach(p => out.addPage(p));
-    const bytes = await out.save();
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    const f = funcionariosRH.find(x => nomesBatem(x.nome, g.nome));
-    // Líquido: do próprio recibo; se não veio, usa o Sal. líquido já lançado na folha do mês.
-    let liq = g.liquido;
-    if (!liq && f) { try { liq = (folhaRH[mesR] && folhaRH[mesR][f.id] && folhaRH[mesR][f.id].salLiq) || 0; } catch (e) {} }
-    novos.push({ codigo: g.codigo, nome: g.nome, liquido: liq, funcId: f ? f.id : '', whatsapp: (f && f.whatsapp) || '', url, nomeArq: `holerite_${g.nome.replace(/[^A-Za-zÀ-ú0-9]+/g, '_')}.pdf` });
-  }
+  try {
+    const src = await PDFLib.PDFDocument.load(srcBytes);
+    for (const g of grupos) {
+      const out = await PDFLib.PDFDocument.create();
+      const pgs = await out.copyPages(src, g.pags);
+      pgs.forEach(p => out.addPage(p));
+      const bytes = await out.save();
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const f = funcionariosRH.find(x => nomesBatem(x.nome, g.nome));
+      // Líquido: do próprio recibo; se não veio, usa o Sal. líquido já lançado na folha do mês.
+      let liq = g.liquido;
+      if (!liq && f) { try { liq = (folhaRH[mesR] && folhaRH[mesR][f.id] && folhaRH[mesR][f.id].salLiq) || 0; } catch (e) {} }
+      novos.push({ codigo: g.codigo, nome: g.nome, liquido: liq, funcId: f ? f.id : '', whatsapp: (f && f.whatsapp) || '', url, nomeArq: `holerite_${g.nome.replace(/[^A-Za-zÀ-ú0-9]+/g, '_')}.pdf` });
+    }
+  } catch (e) { alert('Li o PDF, mas travou ao separar os holerites:\n\n' + (e && e.message || e) + '\n\nMe manda essa mensagem que eu ajusto.'); renderRH(); return; }
   _recibosRH = novos;
   renderRH();
   const semZap = novos.filter(r => !r.whatsapp).length;
