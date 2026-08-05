@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v480/08-599';
+const APP_VERSION = 'v481/08-600';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12136,7 +12136,8 @@ function renderRH() {
       <label class="btn ok sm" style="cursor:pointer" title="Sobe o 'Recibo de Pagamento' do contador (PDF com todos): separa o holerite de cada funcionário pra você baixar e enviar por WhatsApp.">📎 Separar holerites<input type="file" accept=".pdf" style="display:none" onchange="lerRecibosRH(this.files[0]);this.value=''"></label>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="month" id="rh-mes" class="inline-input" value="${mesAtual}" style="width:150px" onchange="_rhMes=this.value;renderRH()">
-        <button class="btn primary sm" onclick="gerarFolhaMes()" title="Gera as linhas da folha no Contas a Pagar: Adiantamento (dia 20) e Salário/DSR/Férias/VT/Extras (dia 05 do mês seguinte), cada uma com a categoria dela. Re-gerar ATUALIZA os valores, não duplica.">📤 Gerar folha → Contas a Pagar</button>
+        <button class="btn ok sm" onclick="gerarFolhaMes('adiant')" title="Gera SÓ o adiantamento (vence dia 20 do mês selecionado). Não mexe no salário. Use por volta do dia 20.">💵 Gerar adiantamento (dia 20)</button>
+        <button class="btn primary sm" onclick="gerarFolhaMes('demais')" title="Gera Salário, DSR, Férias, VT e Extras (vencem dia 05 do mês seguinte). Não mexe no adiantamento já gerado. Use por volta do dia 05.">📤 Gerar salário e o resto (dia 05)</button>
         <button class="btn ghost sm" onclick="desfazerFolhaMes()" title="Remove as contas da folha desse mês que ainda estão EM ABERTO (pagas/canceladas não são tocadas)">↩ desfazer</button>
       </span>
     </div>
@@ -12453,7 +12454,12 @@ function removerFuncionarioRH(i) {
   saveData('funcionariosRH', funcionariosRH);
   renderRH();
 }
-function gerarFolhaMes() {
+// soParte: 'adiant' = só o adiantamento (dia 20); 'demais' = salário/comissão/DSR/férias/VT/extras (dia 05);
+// vazio/null = tudo. Separado porque o adiantamento (dia 20) e o resto (dia 05) são gerados em dias diferentes,
+// e gerar um NÃO pode mexer no outro (chaves _folhaKey distintas por parte).
+function gerarFolhaMes(soParte) {
+  const fazAdiant = soParte !== 'demais';
+  const fazDemais = soParte !== 'adiant';
   const mes = document.getElementById('rh-mes')?.value || _rhMes || new Date().toISOString().slice(0, 7); // YYYY-MM
   if (!mes) { alert('Escolha o mês da folha.'); return; }
   const [ano, m] = mes.split('-').map(Number);
@@ -12486,7 +12492,8 @@ function gerarFolhaMes() {
     //  • Adiantamento e VT → competência = mês SEGUINTE (mesSeg)
     // Competência é independente do vencimento (quando cai o pagamento), por isso não mexemos nas datas.
     const base = { fornecedor: f.nome.trim(), empresa: f.empresa || '', pix: f.pix || '', competencia: mes };
-    upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { competencia: mesSeg, descricao: 'Adiantamento ' + mm, categoria: 'SALÁRIOS', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
+    if (fazAdiant) upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { competencia: mesSeg, descricao: 'Adiantamento ' + mm, categoria: 'SALÁRIOS', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
+    if (!fazDemais) return; // só adiantamento: não mexe no salário/comissão/etc
     const dpF = descPedDeG(f.id);
     const sal = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF)).toFixed(2);
     // Categoria do salário = a do cadastro do funcionário; vazia OU o antigo "SALÁRIO" (singular) viram
@@ -12505,9 +12512,10 @@ function gerarFolhaMes() {
   });
   saveData('contasPagar', contasPagar);
   // Pedidos descontados COM nº: viram RECEBIMENTO "Desconto em Folha" → o pedido fecha no Contas a Receber.
+  // (Só na parte do salário/dia 05; ao gerar SÓ o adiantamento, não mexe nisso.)
   let recPed = 0;
   const chavesVivasDP = new Set();
-  pedDescG.forEach(dp => {
+  if (fazDemais) pedDescG.forEach(dp => {
     if (!((+dp.valor || 0) > 0) || !String(dp.pedido || '').trim()) return;
     const key = 'folhaDP|' + dp.id + '|' + mes;
     chavesVivasDP.add(key);
@@ -12518,10 +12526,13 @@ function gerarFolhaMes() {
     recPed++;
   });
   // Item removido da lista → tira o recebimento correspondente (só os deste mês, gerados pela folha).
-  recebimentosConsolidado = recebimentosConsolidado.filter(x => !x._folhaDesc || !String(x._folhaDesc).endsWith('|' + mes) || chavesVivasDP.has(x._folhaDesc));
-  if (recPed || pedDescG.length) saveData('recebimentosConsolidado', recebimentosConsolidado);
+  if (fazDemais) recebimentosConsolidado = recebimentosConsolidado.filter(x => !x._folhaDesc || !String(x._folhaDesc).endsWith('|' + mes) || chavesVivasDP.has(x._folhaDesc));
+  if (recPed || (fazDemais && pedDescG.length)) saveData('recebimentosConsolidado', recebimentosConsolidado);
   renderRH();
-  alert(`✓ Folha ${mm}: ${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.\n\n• Adiantamento: venc. 20/${String(m).padStart(2, '0')}\n• Salário, DSR, Férias, VT e Extras: venc. 05/${String(m2).padStart(2, '0')}\n• Comissão: vem da aba 💸 Comissão (não gero aqui, pra não duplicar)${recPed ? `\n• ${recPed} pedido(s) de funcionário marcado(s) RECEBIDO(S) (Desconto em Folha) no Contas a Receber` : ''}\n\nRe-gerar ATUALIZA os valores das linhas em aberto (não duplica).`);
+  const oQue = soParte === 'adiant' ? `Adiantamento (venc. 20/${String(m).padStart(2, '0')})`
+    : soParte === 'demais' ? `Salário, DSR, Férias, VT e Extras (venc. 05/${String(m2).padStart(2, '0')})`
+    : `Adiantamento (20/${String(m).padStart(2, '0')}) + Salário/DSR/Férias/VT/Extras (05/${String(m2).padStart(2, '0')})`;
+  alert(`✓ Folha ${mm} — ${oQue}\n\n${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.${recPed ? `\n${recPed} pedido(s) marcado(s) RECEBIDO(S) (Desconto em Folha).` : ''}\n\nRe-gerar ATUALIZA os valores em aberto (não duplica). ${soParte === 'adiant' ? 'Isso NÃO mexe no salário; quando gerar o salário (dia 05), o adiantamento fica intacto.' : soParte === 'demais' ? 'Isso NÃO mexe no adiantamento já gerado.' : ''}`);
 }
 function desfazerFolhaMes() {
   const mes = document.getElementById('rh-mes')?.value; if (!mes) return;
