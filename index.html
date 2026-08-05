@@ -415,7 +415,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v469/08-588';
+const APP_VERSION = 'v470/08-589';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12119,14 +12119,38 @@ function baixarHoleriteRH(i) {
   const r = _recibosRH[i]; if (!r) return;
   const a = document.createElement('a'); a.href = r.url; a.download = r.nomeArq; a.click();
 }
+// Resumo "tudo que foi pago" ao funcionário no mês (pra mandar junto do holerite no WhatsApp).
+function _relatorioPagoRH(funcId, nome, mesKey) {
+  if (!funcId || !folhaRH[mesKey] || !folhaRH[mesKey][funcId]) return { texto: '', total: 0 };
+  const r = folhaRH[mesKey][funcId];
+  const dpF = ((_folhaDo(mesKey)._pedidosDesc || []).filter(d => d.funcId === funcId)).reduce((s, d) => s + (+d.valor || 0), 0);
+  const com = (r.comissao != null) ? +r.comissao : comissaoMesRH(nome, mesKey);
+  const adiant = +r.adiant || 0, salLiq = +r.salLiq || 0, desc = +r.descontos || 0;
+  const linhas = [];
+  const add = (lbl, v) => { if (Math.abs(v) > 0.005) linhas.push(`• ${lbl}: ${fmtVal(v)}`); };
+  add('Adiantamento (dia 20)', adiant);
+  add('Salário líquido (dia 05)', +(salLiq - desc - dpF).toFixed(2));
+  add('Comissão', +com || 0);
+  add('DSR', +r.dsr || 0);
+  add('Férias', +r.ferias || 0);
+  add('Vale transporte', +r.vt || 0);
+  add('Extras', +r.extras || 0);
+  if (desc > 0.005) linhas.push(`• Descontos: −${fmtVal(desc)}`);
+  if (dpF > 0.005) linhas.push(`• Pedidos descontados: −${fmtVal(dpF)}`);
+  const total = +(adiant + (salLiq - desc - dpF) + (+com || 0) + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0)).toFixed(2);
+  if (!linhas.length) return { texto: '', total: 0 };
+  return { texto: `\n\n*Resumo do que foi pago:*\n${linhas.join('\n')}\n*Total pago: ${fmtVal(total)}*`, total };
+}
 function enviarHoleriteRH(i) {
   const r = _recibosRH[i]; if (!r) return;
   baixarHoleriteRH(i); // baixa o PDF pra ela anexar
   const fone = String(r.whatsapp || '').replace(/\D/g, '');
   if (!fone) { alert('Esse funcionário está sem número de WhatsApp.\n\nPreencha a coluna 📱 WhatsApp no cadastro e tente de novo.\n\n(O holerite foi baixado assim mesmo.)'); return; }
   const foneFull = fone.length <= 11 ? '55' + fone : fone; // Brasil
-  const mes = (_rhMes || new Date().toISOString().slice(0, 7)).split('-').reverse().join('/');
-  const msg = `Olá ${(r.nome || '').split(' ')[0]}! 🧡 Segue o seu holerite referente a ${mes}${r.liquido ? ` (líquido ${fmtVal(r.liquido)})` : ''}. Qualquer dúvida é só chamar.`;
+  const mesKey = _rhMes || new Date().toISOString().slice(0, 7);
+  const mes = mesKey.split('-').reverse().join('/');
+  const rel = _relatorioPagoRH(r.funcId, r.nome, mesKey);
+  const msg = `Olá ${(r.nome || '').split(' ')[0]}! 🧡 Segue o seu holerite referente a ${mes}${(!rel.texto && r.liquido) ? ` (líquido ${fmtVal(r.liquido)})` : ''}.${rel.texto}\n\nQualquer dúvida é só chamar. 🧡`;
   window.open(`https://wa.me/${foneFull}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 // ── Helpers da folha mensal (a grade que espelha a planilha dela) ──
