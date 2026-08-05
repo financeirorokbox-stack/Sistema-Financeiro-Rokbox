@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v460/08-579';
+const APP_VERSION = 'v461/08-580';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11998,7 +11998,7 @@ function renderRH() {
       <td style="text-align:center"><input class="inline-input" type="number" min="0" max="100" style="width:52px;text-align:center" value="${f.adiantPct != null ? f.adiantPct : 40}" title="% do salário pago como ADIANTAMENTO (dia 20). Padrão 40%." onchange="updateFuncionarioRH(${i},'adiantPct',this.value)"></td>
       <td style="text-align:right"><input class="inline-input" style="width:64px;text-align:right" value="${f.vtDia ? (+f.vtDia).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" title="Vale transporte por DIA presencial (ex.: 18,76)" onchange="updateFuncionarioRH(${i},'vtDia',this.value)"></td>
       <td style="text-align:center"><div style="display:flex;gap:2px;justify-content:center">${[[1,'2ª'],[2,'3ª'],[3,'4ª'],[4,'5ª'],[5,'6ª']].map(([d,lbl])=>{const on=(f.homeDias||[]).includes(d);return `<button type="button" onclick="toggleHomeDia(${i},${d})" title="${lbl}-feira em home office (não conta VT)" style="width:22px;height:22px;border-radius:5px;border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'var(--accent)':'transparent'};color:${on?'#fff':'var(--muted)'};font-size:10px;cursor:pointer;font-weight:700">${lbl}</button>`;}).join('')}</div></td>
-      <td><input class="inline-input" style="width:120px" list="cp-cat-list" value="${esc(f.categoria || 'SALÁRIO')}" onchange="updateFuncionarioRH(${i},'categoria',this.value)"></td>
+      <td><input class="inline-input" style="width:120px" list="cp-cat-list" value="${esc(f.categoria || 'SALÁRIOS')}" onchange="updateFuncionarioRH(${i},'categoria',this.value)"></td>
       <td><input class="inline-input" style="width:160px" value="${esc(f.pix)}" placeholder="chave PIX" onchange="updateFuncionarioRH(${i},'pix',this.value)"></td>
       <td><input class="inline-input" style="width:120px" value="${esc(f.whatsapp)}" placeholder="(11) 99999-9999" title="Celular do funcionário — usado pra enviar o holerite pelo WhatsApp" onchange="updateFuncionarioRH(${i},'whatsapp',this.value)"></td>
       <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerFuncionarioRH(${i})" title="Remover do RH (não apaga contas já geradas)">🗑</button></td>
@@ -12182,7 +12182,7 @@ function removerDescPedRH(mes, i) {
   saveData('folhaRH', folhaRH); renderRH();
 }
 function addFuncionarioRH() {
-  funcionariosRH.push({ id: 'func_' + Date.now(), nome: '', funcao: '', empresa: '', salario: 0, diaPag: 5, categoria: 'SALÁRIO', pix: '', ativo: true });
+  funcionariosRH.push({ id: 'func_' + Date.now(), nome: '', funcao: '', empresa: '', salario: 0, diaPag: 5, categoria: 'SALÁRIOS', pix: '', ativo: true });
   saveData('funcionariosRH', funcionariosRH);
   renderRH();
 }
@@ -12256,7 +12256,11 @@ function gerarFolhaMes() {
     upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Adiantamento ' + mm, categoria: 'ADIANTAMENTO', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
     const dpF = descPedDeG(f.id);
     const sal = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF)).toFixed(2);
-    upsert('folhaS|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Salário ' + mm + (f.funcao ? ' — ' + f.funcao : ''), categoria: (f.categoria || 'SALÁRIO').trim() || 'SALÁRIO', observacao: 'Folha ' + mm + ' — salário líquido' + ((+r.descontos || 0) > 0 ? ' · descontos ' + fmtVal(+r.descontos) : '') + (dpF > 0 ? ' · pedidos descontados ' + fmtVal(dpF) : ''), vencimento: venc05, valor: sal }));
+    // Categoria do salário = a do cadastro do funcionário; vazia OU o antigo "SALÁRIO" (singular) viram
+    // "SALÁRIOS" (o nome exato da lista-mestre de despesas, grupo PESSOAL), pra casar no Fluxo/DRE.
+    const _catSalRaw = (f.categoria || '').trim();
+    const catSal = (!_catSalRaw || _catSalRaw.toUpperCase() === 'SALÁRIO') ? 'SALÁRIOS' : _catSalRaw;
+    upsert('folhaS|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Salário ' + mm + (f.funcao ? ' — ' + f.funcao : ''), categoria: catSal, observacao: 'Folha ' + mm + ' — salário líquido' + ((+r.descontos || 0) > 0 ? ' · descontos ' + fmtVal(+r.descontos) : '') + (dpF > 0 ? ' · pedidos descontados ' + fmtVal(dpF) : ''), vencimento: venc05, valor: sal }));
     // Comissão do funcionário → paga na folha (dia 05). Usa o campo Comissão do RH (r.comissao) ou,
     // se vazio, a comissão que vem da aba Comissão por nome (comissaoMesRH).
     const _comF = (r.comissao != null) ? +r.comissao : comissaoMesRH(f.nome, mes);
