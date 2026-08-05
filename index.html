@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v471/08-590';
+const APP_VERSION = 'v472/08-591';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12132,13 +12132,15 @@ function _recibosRhHTML() {
 async function lerRecibosRH(file) {
   if (!file) return;
   const _stat = m => { const el = document.getElementById('rh-recibos'); if (el) el.innerHTML = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:16px;background:var(--surface);font-weight:700">${m}</div>`; };
-  _stat('⏳ Lendo o PDF e separando por funcionário... (pode levar alguns segundos)');
+  const _comLimite = (promessa, ms, msg) => Promise.race([promessa, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+  _stat('⏳ (1/3) Lendo as páginas do PDF...');
   let paginas, PDFLib, srcBytes;
   try {
     srcBytes = new Uint8Array(await file.arrayBuffer());
-    paginas = await _pdfLinhasPorPagina(srcBytes);
-    PDFLib = await _pdfLibReady();
-  } catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); renderRH(); return; }
+    paginas = await _comLimite(_pdfLinhasPorPagina(srcBytes), 25000, 'A leitura do PDF travou (o processador de PDF do navegador não respondeu). Costuma ser uma extensão/bloqueador do navegador. Tente num outro navegador ou desative extensões nesta página.');
+    _stat(`⏳ (2/3) ${paginas.length} página(s) lida(s). Separando por funcionário...`);
+    PDFLib = await _comLimite(_pdfLibReady(), 10000, 'A biblioteca que separa o PDF não iniciou.');
+  } catch (e) { alert('Não consegui ler o PDF:\n\n' + (e && e.message || e)); renderRH(); return; }
   // Descobre o funcionário de cada página (linha após "Nome do Funcionário") e agrupa páginas seguidas.
   const grupos = []; // {codigo, nome, liquido, pags:[]}
   paginas.forEach((linhas, idx) => {
