@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v463/08-582';
+const APP_VERSION = 'v464/08-583';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11944,10 +11944,12 @@ function renderRH() {
     </tr></thead><tbody>
     ${ativos.map(f => { const r = _fRow(mesAtual, f.id); const comAuto = comissaoMesRH(f.nome, mesAtual); const com = r.comissao != null ? r.comissao : comAuto; const dsrEst = dsrEstimadoRH(com, mesAtual, _rhFeriados); const dpF = descPedDe(f.id); const tot = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF) + com + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0)).toFixed(2);
       const inp = (campo, val) => `<input class="inline-input" style="width:80px;text-align:right" value="${val ? (+val).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFolhaRH('${mesAtual}','${f.id}','${campo}',this.value)">`;
+      const _dt = _diasTrabRH(f.admissao, mesAtual); // admissão no meio do mês → dias trabalhados
+      const _prop = _dt ? _salProporcionalRH(f.salario, f.admissao, mesAtual) : null;
       return `<tr>
-        <td><strong>${esc(f.nome)}</strong></td>
+        <td><strong>${esc(f.nome)}</strong>${_dt ? `<div style="font-size:9px;color:var(--amber)" title="Admitida no meio do mês — salário proporcional aos dias trabalhados">🗓 admissão ${fmtDate(new Date(f.admissao + 'T12:00:00'))} · trabalhou ${_dt.dias}/${_dt.diasMes} dias</div>` : ''}</td>
         <td style="text-align:right">${inp('adiant', r.adiant)}</td>
-        <td style="text-align:right">${inp('salLiq', r.salLiq)}</td>
+        <td style="text-align:right">${inp('salLiq', r.salLiq)}${(_prop != null) ? `<div style="font-size:9px;color:var(--muted)" title="Salário do cadastro (${fmtVal(+f.salario||0)}) ÷ ${_dt.diasMes} dias × ${_dt.dias} trabalhados. Confira com o líquido do contador.">proporc. ${fmtVal(_prop)}</div>` : ''}</td>
         <td style="text-align:right">${inp('descontos', r.descontos)}</td>
         <td style="text-align:right"><input class="inline-input" style="width:84px;text-align:right" value="${r.comissao != null ? (+r.comissao).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="${comAuto ? comAuto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}" title="Vazio = usa a comissão da aba 💸 Comissão (${fmtVal(comAuto)})" onchange="updateFolhaRH('${mesAtual}','${f.id}','comissao',this.value)"></td>
         <td style="text-align:right">${inp('dsr', r.dsr)}<div style="font-size:9px;color:var(--muted)" title="DSR estimado = comissão ÷ dias úteis × (domingos + feriados)">est. ${fmtVal(dsrEst)}</div></td>
@@ -11987,7 +11989,7 @@ function renderRH() {
     </div>
     <datalist id="rh-emp-list">${empresas.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
     <div class="table-wrap"><table><thead><tr>
-      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th>% Adto</th><th>VT/dia</th><th title="Dias da semana em HOME OFFICE (não contam VT). Marque os dias fixos de cada um.">Home (dias)</th><th>Categoria</th><th>💠 PIX</th><th>📱 WhatsApp</th><th></th>
+      <th>Ativo</th><th>Nome</th><th>Função</th><th>Empresa</th><th style="text-align:right">Salário</th><th title="Data de admissão. Se for no meio do mês, a folha mostra os dias trabalhados e o salário proporcional.">Admissão</th><th>% Adto</th><th>VT/dia</th><th title="Dias da semana em HOME OFFICE (não contam VT). Marque os dias fixos de cada um.">Home (dias)</th><th>Categoria</th><th>💠 PIX</th><th>📱 WhatsApp</th><th></th>
     </tr></thead><tbody>
     ${funcionariosRH.map((f, i) => `<tr style="${f.ativo === false ? 'opacity:.5' : ''}">
       <td style="text-align:center"><input type="checkbox" ${f.ativo !== false ? 'checked' : ''} onchange="updateFuncionarioRH(${i},'ativo',this.checked)" title="Desmarcado = não entra na folha"></td>
@@ -11995,6 +11997,7 @@ function renderRH() {
       <td><input class="inline-input" style="width:120px" value="${esc(f.funcao)}" placeholder="função" onchange="updateFuncionarioRH(${i},'funcao',this.value)"></td>
       <td><input class="inline-input" style="width:110px" list="rh-emp-list" value="${esc(f.empresa)}" placeholder="empresa" onchange="updateFuncionarioRH(${i},'empresa',this.value)"></td>
       <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${f.salario ? (+f.salario).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFuncionarioRH(${i},'salario',this.value)"></td>
+      <td><input type="date" class="inline-input" style="width:130px" value="${esc(f.admissao || '')}" title="Data de admissão (deixe vazio se já é antiga)" onchange="updateFuncionarioRH(${i},'admissao',this.value)"></td>
       <td style="text-align:center"><input class="inline-input" type="number" min="0" max="100" style="width:52px;text-align:center" value="${f.adiantPct != null ? f.adiantPct : 40}" title="% do salário pago como ADIANTAMENTO (dia 20). Padrão 40%." onchange="updateFuncionarioRH(${i},'adiantPct',this.value)"></td>
       <td style="text-align:right"><input class="inline-input" style="width:64px;text-align:right" value="${f.vtDia ? (+f.vtDia).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" title="Vale transporte por DIA presencial (ex.: 18,76)" onchange="updateFuncionarioRH(${i},'vtDia',this.value)"></td>
       <td style="text-align:center"><div style="display:flex;gap:2px;justify-content:center">${[[1,'2ª'],[2,'3ª'],[3,'4ª'],[4,'5ª'],[5,'6ª']].map(([d,lbl])=>{const on=(f.homeDias||[]).includes(d);return `<button type="button" onclick="toggleHomeDia(${i},${d})" title="${lbl}-feira em home office (não conta VT)" style="width:22px;height:22px;border-radius:5px;border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'var(--accent)':'transparent'};color:${on?'#fff':'var(--muted)'};font-size:10px;cursor:pointer;font-weight:700">${lbl}</button>`;}).join('')}</div></td>
@@ -12002,7 +12005,7 @@ function renderRH() {
       <td><input class="inline-input" style="width:160px" value="${esc(f.pix)}" placeholder="chave PIX" onchange="updateFuncionarioRH(${i},'pix',this.value)"></td>
       <td><input class="inline-input" style="width:120px" value="${esc(f.whatsapp)}" placeholder="(11) 99999-9999" title="Celular do funcionário — usado pra enviar o holerite pelo WhatsApp" onchange="updateFuncionarioRH(${i},'whatsapp',this.value)"></td>
       <td><button class="btn ghost sm" style="color:var(--red)" onclick="removerFuncionarioRH(${i})" title="Remover do RH (não apaga contas já geradas)">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="12" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
+    </tr>`).join('') || '<tr><td colspan="13" style="color:var(--muted);padding:14px">Nenhum funcionário ainda. Clique em ➕ Funcionário pra começar.</td></tr>'}
     </tbody></table></div>
     ${confHTML}
     <div id="rh-recibos">${_recibosRhHTML()}</div>
@@ -12106,6 +12109,26 @@ function dsrEstimadoRH(comissao, mes, feriados) {
   const fer = Math.max(0, +feriados || 0);
   const uteis = dias - domingos - fer;
   return uteis > 0 ? +(comissao / uteis * (domingos + fer)).toFixed(2) : 0;
+}
+// Dias trabalhados no mês pra quem foi admitido no meio do mês (proporcional do salário).
+// admissaoISO = 'AAAA-MM-DD'; mes = 'AAAA-MM'. Retorna null se não é admissão parcial deste mês.
+function _diasTrabRH(admissaoISO, mes) {
+  if (!admissaoISO || !mes) return null;
+  const adm = new Date(admissaoISO + 'T12:00:00'); if (isNaN(adm)) return null;
+  const [a, m] = String(mes).split('-').map(Number);
+  const diasMes = new Date(a, m, 0).getDate();
+  const admMes = adm.getFullYear() * 12 + adm.getMonth();
+  const refMes = (a) * 12 + (m - 1);
+  if (admMes > refMes) return { dias: 0, diasMes, parcial: true }; // admitido depois do mês: 0 dias
+  if (admMes < refMes) return null; // admitido antes: mês cheio, sem proporcional
+  const dia = adm.getDate();
+  return { dias: Math.max(0, diasMes - dia + 1), diasMes, parcial: true, admDia: dia };
+}
+// Salário proporcional aos dias trabalhados (calendário: salário ÷ dias do mês × dias trabalhados).
+function _salProporcionalRH(salarioBase, admissaoISO, mes) {
+  const d = _diasTrabRH(admissaoISO, mes);
+  if (!d || !d.parcial || !(salarioBase > 0)) return null;
+  return +(((+salarioBase) / d.diasMes) * d.dias).toFixed(2);
 }
 function updateFolhaRH(mes, id, campo, valor) {
   const r = _fRow(mes, id);
