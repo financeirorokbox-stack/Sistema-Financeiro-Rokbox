@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v477/08-596';
+const APP_VERSION = 'v478/08-597';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12159,7 +12159,7 @@ async function lerRecibosRH(file) {
     let codigo = '', nome = '';
     const iHead = linhas.findIndex(l => /nome do funcion/i.test(l));
     if (iHead >= 0 && linhas[iHead + 1]) { const m = linhas[iHead + 1].match(/^(\d{1,5})\s+(.+?)\s+\d{5,6}/); if (m) { codigo = m[1]; nome = m[2].trim(); } }
-    const liqM = (linhas.find(l => /^\s*[\d.]+,\d{2}\s+_+\//.test(l)) || '').match(/([\d.]+,\d{2})/);
+    const liqM = (linhas.find(l => /[\d.]+,\d{2}\s+_+\//.test(l)) || '').match(/([\d.]+,\d{2})/); // líquido = valor seguido do campo Data (____/____/___). SEM âncora ^ (a linha começa com um caractere invisível do PDF, senão lia 0)
     const liquido = liqM ? _numBling(liqM[1]) : 0;
     const ult = grupos[grupos.length - 1];
     if (ult && codigo && ult.codigo === codigo) { ult.pags.push(idx); if (!ult.liquido && liquido) ult.liquido = liquido; }
