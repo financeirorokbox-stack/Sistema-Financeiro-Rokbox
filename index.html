@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v473/08-592';
+const APP_VERSION = 'v474/08-593';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12175,10 +12175,15 @@ async function lerRecibosRH(file) {
       novos.push({ codigo: g.codigo, nome: g.nome, liquido: liq, funcId: f ? f.id : '', whatsapp: (f && f.whatsapp) || '', url, nomeArq: `holerite_${g.nome.replace(/[^A-Za-zÀ-ú0-9]+/g, '_')}.pdf` });
     }
   } catch (e) { alert('Li o PDF, mas travou ao separar os holerites:\n\n' + (e && e.message || e) + '\n\nMe manda essa mensagem que eu ajusto.'); renderRH(); return; }
-  _recibosRH = novos;
+  // JUNTA com os já separados (duas folhas/empresas): substitui quem tem o mesmo nome, mantém o resto.
+  // Assim subir a 2ª folha NÃO apaga a 1ª. Re-subir a mesma folha só atualiza (não duplica).
+  const _keyRec = r => (r.nome || '').trim().toLowerCase();
+  const novosNomes = new Set(novos.map(_keyRec));
+  _recibosRH.forEach(r => { if (novosNomes.has(_keyRec(r)) && r.url) { try { URL.revokeObjectURL(r.url); } catch (e) {} } }); // libera os PDFs substituídos
+  _recibosRH = _recibosRH.filter(r => !novosNomes.has(_keyRec(r))).concat(novos);
   renderRH();
   const semZap = novos.filter(r => !r.whatsapp).length;
-  alert(`✓ Separei ${novos.length} holerite(s), um por funcionário.${semZap ? `\n\n⚠ ${semZap} sem número de WhatsApp no cadastro (preencha a coluna 📱 WhatsApp pra poder enviar).` : ''}\n\nRole até "📎 Holerites separados" pra baixar/enviar cada um.`);
+  alert(`✓ Separei ${novos.length} holerite(s) desta folha (${_recibosRH.length} no total).${semZap ? `\n\n⚠ ${semZap} sem número de WhatsApp no cadastro (preencha a coluna 📱 WhatsApp pra poder enviar).` : ''}\n\nRole até "📎 Holerites separados" pra baixar/enviar cada um.\n\n(Pode subir a outra folha/empresa que ela SOMA aqui, não apaga.)`);
 }
 function baixarHoleriteRH(i) {
   const r = _recibosRH[i]; if (!r) return;
