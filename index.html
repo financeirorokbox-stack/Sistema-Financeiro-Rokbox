@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v461/08-580';
+const APP_VERSION = 'v462/08-581';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12253,7 +12253,7 @@ function gerarFolhaMes() {
   ativos.forEach(f => {
     const r = _fRow(mes, f.id);
     const base = { fornecedor: f.nome.trim(), empresa: f.empresa || '', pix: f.pix || '' };
-    upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Adiantamento ' + mm, categoria: 'ADIANTAMENTO', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
+    upsert('folhaA|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Adiantamento ' + mm, categoria: 'SALÁRIOS', observacao: 'Folha ' + mm + ' — adiantamento (dia 20)', vencimento: venc20, valor: +(+r.adiant || 0).toFixed(2) }));
     const dpF = descPedDeG(f.id);
     const sal = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF)).toFixed(2);
     // Categoria do salário = a do cadastro do funcionário; vazia OU o antigo "SALÁRIO" (singular) viram
