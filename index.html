@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v467/08-586';
+const APP_VERSION = 'v468/08-587';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7237,14 +7237,18 @@ function _pdfjsReady() {
   if (_pdfjsPromise) return _pdfjsPromise;
   _pdfjsPromise = new Promise((resolve, reject) => {
     const s = document.createElement('script');
+    let done = false;
+    const falhar = msg => { if (done) return; done = true; clearTimeout(to); _pdfjsPromise = null; reject(new Error(msg)); }; // reset p/ poder tentar de novo
+    const to = setTimeout(() => falhar('O leitor de PDF (pdf.js) demorou demais pra carregar. Confira a internet e tente de novo.'), 20000);
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
     s.onload = () => {
+      if (done) return; done = true; clearTimeout(to);
       try {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         resolve(window.pdfjsLib);
-      } catch (e) { reject(e); }
+      } catch (e) { _pdfjsPromise = null; reject(e); }
     };
-    s.onerror = () => reject(new Error('Não consegui baixar o leitor de PDF (sem internet?).'));
+    s.onerror = () => falhar('Não consegui baixar o leitor de PDF (sem internet?).');
     document.head.appendChild(s);
   });
   return _pdfjsPromise;
@@ -7296,9 +7300,12 @@ function _pdfLibReady() {
   if (_pdfLibPromise) return _pdfLibPromise;
   _pdfLibPromise = new Promise((resolve, reject) => {
     const s = document.createElement('script');
+    let done = false;
+    const falhar = msg => { if (done) return; done = true; clearTimeout(to); _pdfLibPromise = null; reject(new Error(msg)); };
+    const to = setTimeout(() => falhar('A biblioteca que separa o PDF (pdf-lib) demorou demais pra carregar. Confira a internet e tente de novo.'), 20000);
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
-    s.onload = () => window.PDFLib ? resolve(window.PDFLib) : reject(new Error('pdf-lib não carregou'));
-    s.onerror = () => reject(new Error('Não consegui baixar a biblioteca de PDF (sem internet?).'));
+    s.onload = () => { if (done) return; done = true; clearTimeout(to); window.PDFLib ? resolve(window.PDFLib) : (falhar('A biblioteca de PDF (pdf-lib) carregou mas não iniciou. Tente de novo.')); };
+    s.onerror = () => falhar('Não consegui baixar a biblioteca de PDF (sem internet?).');
     document.head.appendChild(s);
   });
   return _pdfLibPromise;
@@ -12047,12 +12054,14 @@ function _recibosRhHTML() {
 }
 async function lerRecibosRH(file) {
   if (!file) return;
+  const _stat = m => { const el = document.getElementById('rh-recibos'); if (el) el.innerHTML = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:16px;background:var(--surface);font-weight:700">${m}</div>`; };
+  _stat('⏳ Lendo o PDF e separando por funcionário... (pode levar alguns segundos)');
   let paginas, PDFLib, srcBytes;
   try {
     srcBytes = new Uint8Array(await file.arrayBuffer());
     paginas = await _pdfLinhasPorPagina(srcBytes);
     PDFLib = await _pdfLibReady();
-  } catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); return; }
+  } catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); renderRH(); return; }
   // Descobre o funcionário de cada página (linha após "Nome do Funcionário") e agrupa páginas seguidas.
   const grupos = []; // {codigo, nome, liquido, pags:[]}
   paginas.forEach((linhas, idx) => {
@@ -12065,7 +12074,7 @@ async function lerRecibosRH(file) {
     if (ult && codigo && ult.codigo === codigo) { ult.pags.push(idx); if (!ult.liquido && liquido) ult.liquido = liquido; }
     else grupos.push({ codigo, nome: nome || ('Funcionário ' + (idx + 1)), liquido, pags: [idx] });
   });
-  if (!grupos.length) { alert('Não reconheci esse PDF como o "Recibo de Pagamento".'); return; }
+  if (!grupos.length) { alert('Não reconheci esse PDF como o "Recibo de Pagamento".\n\nO sistema procura a linha "Nome do Funcionário" em cada página. Se o seu holerite tem outro layout, me manda o PDF que eu ajusto a leitura.'); renderRH(); return; }
   // Monta um PDF por funcionário (copia as páginas dele).
   const src = await PDFLib.PDFDocument.load(srcBytes);
   const mesR = _rhMes || new Date().toISOString().slice(0, 7);
