@@ -396,7 +396,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v462/08-581';
+const APP_VERSION = 'v463/08-582';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4972,7 +4972,7 @@ function renderPagar() {
             <td class="cpcol-status">${stBadge}${(_cpChaveCount[chaveContaPagar(c)]>1)?` <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--amber)" onclick="separarContaColidida(${realIdx})" title="Esta conta tem o MESMO número de outra parcela e pode estar travada/paga por engano. Clique pra dar um número próprio e soltar (o vínculo do banco fica na parcela certa).">⚠ nº repetido</button>`:''}</td>
             <td class="cpcol-empresa">${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
             <td class="cpcol-banco"><input class="inline-input" style="width:100px" list="cp-banco-list" value="${(c.banco||'').replace(/"/g,'&quot;')}" placeholder="banco" onchange="updateContaPagar(${realIdx},'banco',this.value)"></td>
-            <td class="cpcol-fornecedor"><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''} ${c._origemEstorno?`<span class="badge ok" style="font-size:9px" title="↩ Estorno conciliado pelo RECEBIMENTO (repasse PayPal/Braavo). Travado pra não mexer — desfaça em Recebimentos (↩ desfazer estorno) se precisar.">🔒🔗 conciliado (receb.)</span>`:`<span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span>`}</td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor||'—'}</strong>${c.numero?` <span style="font-size:10px;color:var(--muted)">#${c.numero}</span>`:''}${c._folhaKey?` <span class="badge" style="font-size:9px;background:#5b3fa8;color:#fff" title="Linha gerada pela Folha (aba RH).">👤 folha</span>`:''} ${c._origemEstorno?`<span class="badge ok" style="font-size:9px" title="↩ Estorno conciliado pelo RECEBIMENTO (repasse PayPal/Braavo). Travado pra não mexer — desfaça em Recebimentos (↩ desfazer estorno) se precisar.">🔒🔗 conciliado (receb.)</span>`:`<span class="badge ok" style="font-size:9px" title="Conciliada no banco — desfaça o vínculo na Conciliação Bancária para poder editar">🔒🔗</span>`}</td>
             <td class="cpcol-categoria"><input class="inline-input" style="width:140px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear entre empresas">✂</button></td>
@@ -4992,7 +4992,7 @@ function renderPagar() {
             <td class="cpcol-status">${c.cancelado ? '<span class="badge" style="background:var(--muted);color:#fff">🚫 CANCELADO</span>' : (c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
             <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
             <td class="cpcol-banco">${c.banco || mut}</td>
-            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${(()=>{ const _px=pixDaConta(c); return _px ? ` <a href="#" title="💠 PIX: ${_px.replace(/"/g,'&quot;')}&#10;(clique para copiar)" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''; })()}</td>
+            <td class="cpcol-fornecedor"><strong>${c.fornecedor || '—'}</strong>${c.numero ? ` <span style="font-size:9px;color:var(--muted)">#${c.numero}</span>` : ''}${c._folhaKey ? ` <span class="badge" style="font-size:9px;background:#5b3fa8;color:#fff" title="Linha gerada pela Folha (aba RH). As previsões feitas na mão não têm este selo.">👤 folha</span>` : ''}${(()=>{ const _px=pixDaConta(c); return _px ? ` <a href="#" title="💠 PIX: ${_px.replace(/"/g,'&quot;')}&#10;(clique para copiar)" onclick="copiarPix(${realIdx});return false" style="text-decoration:none;font-size:11px">💠</a>` : ''; })()}</td>
             <td class="cpcol-categoria">${catContaPagar(c) || mut}</td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr}</td>
