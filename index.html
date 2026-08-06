@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v482/08-601';
+const APP_VERSION = 'v483/08-602';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11450,7 +11450,8 @@ function renderCompras() {
       <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="🔍 Buscar" oninput="debounceRender('renderCompras')" style="width:170px">
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
-      <button class="btn ghost sm" style="color:var(--red)" onclick="excluirComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Exclui de uma vez todos os itens marcados nos quadradinhos (uma confirmação só)">🗑 Excluir${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
+      <button class="btn ghost sm" id="cmp-excluir-sel" style="color:var(--red)" onclick="excluirComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Exclui de uma vez todos os itens marcados nos quadradinhos (uma confirmação só)">🗑 Excluir${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
+      <button class="btn ghost sm" style="color:var(--red)" onclick="desfazerUltimaImportacaoCompras()" title="Remove de uma vez TODOS os itens da última planilha importada (só os pendentes dessa importação).">↩ Desfazer última importação</button>
       <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) + ' · qtd ' + _fmtQtd([...comprasSel].reduce((s, id) => { const c = compras.find(x => x.id === id); return s + (c ? +c.qtd || 0 : 0); }, 0)) : ''}</span>
     </div>
     ${fornsAprov.length && (fSt === '' || fSt === 'aprovado') ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;background:var(--surface)">
@@ -11773,6 +11774,7 @@ function importarCompras(wb) {
   const col = (r, ...ns) => { for (const k of Object.keys(r)) { const kl = k.toLowerCase().trim(); if (ns.some(n => kl.includes(n))) return r[k]; } return null; };
   const chave = c => [c.fornecedor, c.insumo, c.colecao, (c.custoTotal || 0).toFixed(2), c.dataSolic].join('|');
   const existentes = new Set(compras.map(chave));
+  const lote = 'imp_' + Date.now(); // marca esta importação (pra poder desfazer tudo de uma vez)
   let add = 0, dup = 0;
   rows.forEach(r => {
     const forn = col(r, 'fornecedor'); const insumo = col(r, 'insumo', 'produto');
@@ -11786,13 +11788,25 @@ function importarCompras(wb) {
       unidade: String(col(r, 'un', 'unidade') || '').trim(), qtd, custoUnit: cu, custoTotal: ct, frete: num(col(r, 'frete')),
       colecao: String(col(r, 'coleç', 'colecao', 'pl') || '').trim(), dataLimite: _fmtDataCell(col(r, 'data limite', 'limite')), dataFatur: _toISOCell(col(r, 'data fatur', 'data limite', 'faturamento', 'limite')),
       categoria: String(col(r, 'categoria') || '').trim(), solicitante: String(col(r, 'solicitante') || '').trim(),
-      empresa: '', status: 'pendente'
+      empresa: '', status: 'pendente', _impLote: lote
     };
     if (existentes.has(chave(c))) { dup++; return; }
     existentes.add(chave(c)); compras.push(c); add++;
   });
   saveData('compras', compras); renderCompras();
-  alert(`✓ ${add} item(ns) importado(s) como PENDENTES${dup ? ` · ${dup} já existiam (não dupliquei)` : ''}.`);
+  alert(`✓ ${add} item(ns) importado(s) como PENDENTES${dup ? ` · ${dup} já existiam (não dupliquei)` : ''}.\n\nSe importou errado, use "↩ Desfazer última importação" pra tirar tudo de uma vez.`);
+}
+// Remove de uma vez todos os itens da ÚLTIMA importação (só os que ainda estão pendentes dessa importação).
+function desfazerUltimaImportacaoCompras() {
+  const lotes = compras.map(c => c._impLote).filter(Boolean);
+  if (!lotes.length) { alert('Não achei nenhuma importação recente pra desfazer.\n\n(Só funciona para planilhas importadas a partir de agora. Pra importações antigas, filtre por fornecedor, marque tudo e use 🗑 Excluir.)'); return; }
+  const ultimo = lotes.sort().slice(-1)[0]; // maior timestamp = mais recente
+  const alvo = compras.filter(c => c._impLote === ultimo && (c.status || 'pendente') === 'pendente');
+  if (!alvo.length) { alert('A última importação não tem mais itens pendentes pra remover (já foram aprovados/viraram pedido).'); return; }
+  if (!confirm(`Desfazer a última importação?\n\nVou remover ${alvo.length} item(ns) PENDENTE(S) dessa planilha.\n(Não mexe em itens já aprovados/pedidos, nem em nada do Contas a Pagar.)`)) return;
+  compras = compras.filter(c => !(c._impLote === ultimo && (c.status || 'pendente') === 'pendente'));
+  comprasSel.clear(); saveData('compras', compras); renderCompras();
+  alert(`✓ Removi ${alvo.length} item(ns) da última importação.`);
 }
 function novaCompra() {
   compras.push({ id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'), fornecedor: '', insumo: '', unidade: 'un', qtd: 0, custoUnit: 0, custoTotal: 0, frete: 0, colecao: '', dataLimite: '', dataFatur: '', categoria: '', solicitante: '', empresa: '', status: 'pendente' });
@@ -11881,6 +11895,8 @@ function toggleCompraSel(id, on) {
   const n = comprasSel.size;
   const b = document.getElementById('cmp-aprovar-sel');
   if (b) { b.disabled = !n; b.textContent = '✅ Aprovar selecionados' + (n ? ` (${n})` : ''); }
+  const ex = document.getElementById('cmp-excluir-sel');
+  if (ex) { ex.disabled = !n; ex.textContent = '🗑 Excluir' + (n ? ` (${n})` : ''); } // mantém o contador do Excluir vivo (não ficava atualizando ao marcar todos)
   const s = document.getElementById('cmp-sel-soma');
   if (s) s.textContent = n ? 'Σ ' + fmtVal(_comprasSelSoma()) : '';
 }
