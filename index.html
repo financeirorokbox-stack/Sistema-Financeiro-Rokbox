@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v481/08-600';
+const APP_VERSION = 'v482/08-601';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11567,9 +11567,9 @@ function abrirConferirPedido(pedidoId) {
     ${itens.map((c, i) => `<tr data-id="${c.id}">
       <td style="padding:3px">${String(c.insumo || 'item').replace(/</g, '&lt;')}</td>
       <td style="padding:3px;text-align:right">${c.qtd || 0}</td>
-      <td style="padding:3px;text-align:right"><input type="number" step="0.01" class="conf-qtd inline-input" data-i="${i}" data-cu="${c.custoUnit || 0}" value="${c.qtdRecebida != null ? c.qtdRecebida : (c.qtd || 0)}" style="width:80px;text-align:right" oninput="_confRecalc()"></td>
-      <td style="padding:3px;text-align:right">${fmtVal(c.custoUnit || 0)}</td>
-      <td style="padding:3px;text-align:right;font-weight:600" class="conf-sub" data-i="${i}">${fmtVal((c.qtdRecebida != null ? c.qtdRecebida : (c.qtd || 0)) * (c.custoUnit || 0))}</td>
+      <td style="padding:3px;text-align:right"><input type="number" step="0.01" class="conf-qtd inline-input" value="${c.qtdRecebida != null ? c.qtdRecebida : (c.qtd || 0)}" style="width:80px;text-align:right" oninput="_confRecalc()"></td>
+      <td style="padding:3px;text-align:right"><input type="number" step="0.01" class="conf-cu inline-input" value="${(+c.custoUnit || 0)}" style="width:80px;text-align:right" title="Custo unitário — edite se veio diferente do pedido" oninput="_confRecalc()"></td>
+      <td style="padding:3px;text-align:right;font-weight:600" class="conf-sub">${fmtVal((c.qtdRecebida != null ? c.qtdRecebida : (c.qtd || 0)) * (c.custoUnit || 0))}</td>
     </tr>`).join('')}
     </tbody><tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4" style="padding:6px;text-align:right">Total recebido</td><td id="conf-total" style="padding:6px;text-align:right;color:var(--green)"></td></tr></tfoot></table>
     <div style="font-size:11px;color:var(--muted);margin-top:8px">As parcelas no Contas a Pagar serão ajustadas pra esse total (se nenhuma estiver paga).</div>
@@ -11612,7 +11612,7 @@ function _confParcRecalc() {
   const rows = [...document.querySelectorAll('#conf-parcelas .conf-parc-row')];
   rows.forEach((r, k) => { const l = r.querySelector('.conf-parc-lbl'); if (l) l.textContent = 'Parcela ' + (k + 1) + '/' + rows.length; });
   let soma = 0; rows.forEach(r => { soma += num(r.querySelector('.conf-pval')?.value || 0); });
-  let itensTot = 0; document.querySelectorAll('#conf-linhas .conf-qtd').forEach(inp => { itensTot += (num(inp.value) || 0) * (+inp.dataset.cu || 0); });
+  let itensTot = 0; document.querySelectorAll('#conf-linhas tr').forEach(tr => { itensTot += (num(tr.querySelector('.conf-qtd')?.value || 0)) * (num(tr.querySelector('.conf-cu')?.value || 0)); });
   const alvo = +(itensTot + (window._confAlvoExtra || 0)).toFixed(2);
   const el = document.getElementById('conf-parc-soma'); if (!el) return;
   const dif = +(soma - alvo).toFixed(2);
@@ -11620,9 +11620,10 @@ function _confParcRecalc() {
 }
 function _confRecalc() {
   let tot = 0;
-  document.querySelectorAll('#conf-linhas .conf-qtd').forEach(inp => {
-    const q = num(inp.value) || 0; const cu = +inp.dataset.cu || 0; const sub = +(q * cu).toFixed(2); tot += sub;
-    const cell = document.querySelector('.conf-sub[data-i="' + inp.dataset.i + '"]'); if (cell) cell.textContent = fmtVal(sub);
+  document.querySelectorAll('#conf-linhas tr').forEach(tr => {
+    const q = num(tr.querySelector('.conf-qtd')?.value || 0); const cu = num(tr.querySelector('.conf-cu')?.value || 0);
+    const sub = +(q * cu).toFixed(2); tot += sub;
+    const cell = tr.querySelector('.conf-sub'); if (cell) cell.textContent = fmtVal(sub);
   });
   const tEl = document.getElementById('conf-total'); if (tEl) tEl.textContent = fmtVal(+tot.toFixed(2));
   try { _confParcRecalc(); } catch (e) {}
@@ -11636,6 +11637,8 @@ function salvarConferirPedido(pedidoId) {
   document.querySelectorAll('#conf-linhas tr').forEach(tr => {
     const c = compras.find(x => x.id === tr.dataset.id); if (!c) return;
     const q = num(tr.querySelector('.conf-qtd')?.value || 0);
+    const cuInp = tr.querySelector('.conf-cu');
+    if (cuInp && cuInp.value !== '') c.custoUnit = +num(cuInp.value).toFixed(4); // custo unit editado na conferência
     c.qtdRecebida = q;
     c.custoTotal = +(q * (c.custoUnit || 0)).toFixed(2);
   });
