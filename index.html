@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v483/08-602';
+const APP_VERSION = 'v484/08-603';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5743,9 +5743,12 @@ function renderRecebimentos() {
     // Inclui o VALOR (com sinal) junto do ID: a PayPal usa o MESMO "ID da transação" na retenção (-200,53)
     // e no cancelamento dela (+200,53). Sem o valor na chave, o cancelamento era visto como repetido e sumia.
     // Mesmo ID + mesmo valor = de fato repetido (re-upload), continua sem duplicar.
-    const recKey = r => r._txnId ? ('tx:' + String(r._txnId) + '@' + (r.bruto||0).toFixed(2))
-      : (r._nsu ? ('nsu:' + String(r._nsu) + '@' + (r.bruto||0).toFixed(2))
-      : ['k', r.gateway, (r.data ? new Date(r.data).toISOString().slice(0,10) : ''), (r.bruto||0).toFixed(2), (r.taxa||0).toFixed(2), (r.nome||'').trim().toLowerCase()].join('|'));
+    // Usa o VALOR ORIGINAL importado (_brutoImport) quando existe — assim um pagamento que teve a sobra
+    // "cortada" (jogar sobra reduz o bruto) continua sendo reconhecido no re-import e NÃO duplica.
+    const _valImp = r => (r._brutoImport != null ? r._brutoImport : (r.bruto || 0)).toFixed(2);
+    const recKey = r => r._txnId ? ('tx:' + String(r._txnId) + '@' + _valImp(r))
+      : (r._nsu ? ('nsu:' + String(r._nsu) + '@' + _valImp(r))
+      : ['k', r.gateway, (r.data ? new Date(r.data).toISOString().slice(0,10) : ''), _valImp(r), (r.taxa||0).toFixed(2), (r.nome||'').trim().toLowerCase()].join('|'));
     const existKeys = new Set(recebimentosConsolidado.map(recKey));
 
     files.forEach(file => {
@@ -8822,6 +8825,8 @@ function jogarSobra(pedId) {
     data: r.data, nped: String(alvo), nome: alvoPed ? alvoPed.nome : (r.nome || ''),
     tipo: r.tipo, status: 'pago', _sobraDe: String(pedId)
   });
+  // Guarda o valor ORIGINAL importado (só na 1ª vez) pra o re-import reconhecer o pagamento e NÃO duplicar.
+  if (r._brutoImport == null) r._brutoImport = (r.bruto || 0);
   r.bruto = +((r.bruto || 0) - sobra).toFixed(2);
   r.taxa = +((r.taxa || 0) - taxaMov).toFixed(2);
   r.liq = +(r.bruto - r.taxa).toFixed(2);
