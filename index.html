@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v486/08-605';
+const APP_VERSION = 'v487/08-606';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6588,6 +6588,15 @@ function cobrarAvulsoWpp(i) {
   _abrirWpp(a.fone, montarMsgCobranca(a.cliente, a.pedido ? 'pedido #' + a.pedido : '', [{ label: 'Boleto', venc: a.vencimento, valor: a.valorTitulo || 0 }]));
   marcarAvisadoAvulso(i);
 }
+// ENVIAR o boleto avulso (mensagem de ENTREGA, não de cobrança/atraso). Serve p/ parcela de acordo também.
+function enviarAvulsoWpp(i) {
+  const a = boletosAvulsos[i]; if (!a) return;
+  const nome1 = (a.cliente || '').split(' ')[0];
+  const ref = a._acordoCod ? ` (acordo ${a._acordoCod}${a._acordoParcN ? ' — parcela ' + a._acordoParcN : ''})` : (a.pedido ? ' do pedido #' + a.pedido : '');
+  const msg = `Olá ${nome1}! 🧡 Segue o seu boleto${ref} no valor de ${fmtVal(a.valorTitulo || 0)}${a.vencimento ? `, com vencimento em ${fmtDate(a.vencimento)}` : ''}.\n\nO boleto está em anexo. 📎 Assim que efetuar o pagamento é só me avisar. Qualquer dúvida, estou à disposição! 🧡`;
+  _abrirWpp(a.fone, msg);
+  marcarAvisadoAvulso(i);
+}
 // Marca um boleto avulso em aberto como RECEBIDO
 // Lê um valor digitado em pt-BR (aceita "254,91", "254.91", "1.371,65") → número. Se vazio/inválido, usa o padrão.
 function _parseValorBR(str, padrao) {
@@ -6842,7 +6851,7 @@ function renderCobranca() {
         <td>${a.cliente || '—'}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(a.fone || '').replace(/"/g, '&quot;')}" placeholder="📱 WhatsApp cliente" onchange="setAvulsoFone(${i},this.value)"></td>
         <td>${fmtVal(a.valorTitulo || 0)}</td><td style="${cor}">${a.vencimento ? fmtDate(a.vencimento) : '—'}</td>
         <td><input class="inline-input" style="width:140px;font-size:11px" value="${(a.obsCobranca || '').replace(/"/g, '&quot;')}" placeholder="ex.: vai pagar no pix" title="Anotação livre desta cobrança" onchange="setObsAvulso(${i},this.value)"></td>
-        <td><div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta">📱 ${a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${a.cobradoEm ? `<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(a.cobradoEm)}</span> <a href="#" onclick="desmarcarAvisadoAvulso(${i});return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="enviarAvulsoWpp(${i})" title="Abre o WhatsApp com a mensagem pronta pra ENVIAR o boleto (você anexa o PDF)">📎 Enviar</button><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${i})" title="Abre o WhatsApp com a cobrança pronta (para atraso/lembrete)">📱 ${a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${a.cobradoEm ? `<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ avisado ${fmtDiaBR(a.cobradoEm)}</span> <a href="#" onclick="desmarcarAvisadoAvulso(${i});return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${i})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${i})" title="Remover">🗑</button></div></td></tr>`; };
       const rowPago = i => { const a = boletosAvulsos[i]; const dISO = a.dataPagamento ? _toDateInput(a.dataPagamento) : ''; const comMulta = (a.valorPago != null && a.valorTitulo && a.valorPago > a.valorTitulo + 0.005); return `<tr><td><input class="inline-input" style="width:90px;font-size:11px" value="${(a.pedido || '').replace(/"/g, '&quot;')}" placeholder="nº pedido" title="Nº do pedido pra identificar" onchange="setAvulsoPedido(${i},this.value)"></td><td>${a.cliente || '—'}</td>
         <td><input class="inline-input" type="number" step="0.01" style="width:96px;text-align:right" value="${(a.valorPago != null ? a.valorPago : (a.valorTitulo || 0)).toFixed(2)}" onchange="setAvulsoRecebido(${i},'valorPago',this.value)" title="Valor que caiu no banco (com multa/juros se o boleto venceu). Título: ${fmtVal(a.valorTitulo || 0)}">${comMulta ? ` <span style="font-size:9px;color:var(--amber)" title="Título ${fmtVal(a.valorTitulo)} + multa/juros">+multa</span>` : ''}</td>
         <td><input class="inline-input" type="date" style="width:132px" value="${dISO}" onchange="setAvulsoRecebido(${i},'dataPagamento',this.value)" title="Data que o PIX caiu no banco"></td>
