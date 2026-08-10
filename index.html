@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v487/08-606';
+const APP_VERSION = 'v488/08-607';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6697,6 +6697,21 @@ function _acordoRecalc() {
   const ck = document.getElementById('ac-check');
   if (ck) { const dif = +(soma - alvo).toFixed(2); ck.innerHTML = `Soma das parcelas: <strong style="color:${Math.abs(dif) <= 0.02 ? 'var(--green)' : 'var(--amber)'}">${fmtVal(soma)}</strong> / ${fmtVal(alvo)}${Math.abs(dif) > 0.02 ? ` <span style="color:var(--amber)">(dif ${fmtVal(dif)})</span>` : ' ✓'}`; }
 }
+// Envia TODAS as parcelas do acordo numa mensagem só (ela emite/manda tudo de uma vez). Anexa os PDFs.
+function enviarBoletosAcordoWpp(id) {
+  const ac = acordos.find(a => a.id === id); if (!ac) return;
+  const parc = boletosAvulsos.filter(a => a._acordoParc === id);
+  if (!parc.length) { alert('Este acordo não tem parcelas.'); return; }
+  const fone = (parc.find(p => p.fone) || {}).fone || '';
+  const nome1 = (ac.cliente || '').split(' ')[0];
+  const linhas = parc.map(p => `• Parcela ${p._acordoParcN || ''}${p.vencimento ? ' — vence em ' + fmtDate(p.vencimento) : ''} — ${fmtVal(p.valorTitulo || 0)}${p.dataPagamento ? ' (paga ✓)' : ''}`).join('\n');
+  const total = parc.reduce((s, p) => s + (p.valorTitulo || 0), 0);
+  const msg = `Olá ${nome1}! 🧡 Conforme o nosso acordo, seguem os boletos${ac.multa ? ' (já com a multa combinada)' : ''} , total ${fmtVal(total)} em ${parc.length}x:\n\n${linhas}\n\nOs boletos estão em anexo. 📎 Assim que efetuar cada pagamento é só me avisar. Qualquer dúvida, estou à disposição! 🧡`;
+  _abrirWpp(fone, msg);
+  parc.forEach(p => { const i = boletosAvulsos.indexOf(p); if (i >= 0 && !boletosAvulsos[i].dataPagamento) boletosAvulsos[i].cobradoEm = _hojeISO(); });
+  saveData('boletosAvulsos', boletosAvulsos);
+  renderCobranca();
+}
 // Editar um acordo já criado: reabre o editor de parcelas (valor/data, ➕/✕) e a multa.
 // Boletos originais continuam em acordo; só as parcelas do acordo são refeitas. Parcela paga fica travada.
 function editarAcordo(id) {
@@ -6885,7 +6900,7 @@ function renderCobranca() {
           <td style="text-align:right;color:var(--amber)">${ac.multa?fmtVal(ac.multa):'—'}</td>
           <td style="text-align:right;font-weight:700">${fmtVal(ac.valorAcordo)}</td>
           <td style="font-size:11px">${pagas}/${parc.length} parcela(s) paga(s)</td>
-          <td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn ghost sm" onclick="editarAcordo('${ac.id}')" title="Editar as parcelas do acordo (valor/data), acrescentar/remover e a multa">✏ Editar</button><button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerAcordo('${ac.id}')" title="Cliente não cumpriu: volta os boletos originais pra cobrança e remove as parcelas do acordo">↩ Desfazer</button></div></td></tr>`;
+          <td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="enviarBoletosAcordoWpp('${ac.id}')" title="Envia TODAS as parcelas do acordo numa mensagem só pelo WhatsApp (você anexa os PDFs)">📎 Enviar boletos</button><button class="btn ghost sm" onclick="editarAcordo('${ac.id}')" title="Editar as parcelas do acordo (valor/data), acrescentar/remover e a multa">✏ Editar</button><button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerAcordo('${ac.id}')" title="Cliente não cumpriu: volta os boletos originais pra cobrança e remove as parcelas do acordo">↩ Desfazer</button></div></td></tr>`;
       }).join('')}
       </tbody></table></div>
       <div style="font-size:11px;color:var(--muted);margin:-8px 0 14px">As parcelas de cada acordo aparecem com a sigla (ex.: 🤝 A01) na lista "A receber fora do sistema" acima e também no Extrato, na hora de conciliar o PIX. É só procurar pela sigla ou pelo nome do cliente.</div>` : ''}`;
