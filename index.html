@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v484/08-603';
+const APP_VERSION = 'v485/08-604';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6042,6 +6042,21 @@ function cobrarBoletoWpp(pedidoId, parcelaKey) {
   _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
   marcarAvisadoBoleto(ped.pedido);
 }
+// ENVIAR o boleto ao cliente (tela Boletos a Emitir) — mensagem de ENTREGA (não de cobrança/atraso).
+// Ela anexa o PDF do boleto (do Itaú) na conversa e envia.
+function enviarBoletoWpp(pedidoId) {
+  const ped = getBoletosPorPedido().find(b => String(b.pedido) === String(pedidoId));
+  if (!ped) { alert('Pedido não encontrado.'); return; }
+  const cfg = boletoConfig[ped.pedido] || {};
+  const parcelas = getParcelas(ped);
+  if (!parcelas.length) { alert('Configure o prazo/data do boleto antes de enviar.'); return; }
+  const linhas = parcelas.map(p => `• Parcela ${p.parcela}/${p.totalParcelas}${p.vencimento ? ' — vence em ' + fmtDate(p.vencimento) : ''} — ${fmtVal(p.valor || 0)}`).join('\n');
+  const nome1 = (ped.cliente || '').split(' ')[0];
+  const total = parcelas.reduce((s, p) => s + (p.valor || 0), 0);
+  const msg = `Olá ${nome1}! 🧡 Segue o seu boleto referente ao pedido #${ped.pedido}${parcelas.length > 1 ? ` (total ${fmtVal(total)} em ${parcelas.length}x)` : ` (${fmtVal(total)})`}:\n\n${linhas}\n\nO boleto está em anexo. 📎 Assim que efetuar o pagamento é só me avisar. Qualquer dúvida, estou à disposição! 🧡`;
+  _abrirWpp(cfg.fone, msg);
+  marcarAvisadoBoleto(ped.pedido);
+}
 // Uma parcela de boleto está PAGA? Considera o carimbo da cobrança (boletoCobrancaStatus) E o boleto
 // pago DIRETO (cash-first): vira recebimento "Boleto Itaú" no pedido mas NÃO carimba a parcela — sem
 // isto o boleto pago aparecia como "Atrasado" na cobrança (ex.: #357). Retorna o status pago (ou null).
@@ -6268,7 +6283,7 @@ function renderBoletos() {
         <td style="text-align:center;padding:6px 4px"><input type="checkbox" class="del-check" data-source="formaPagamento" data-idx="${idxFP}"
           style="width:14px;height:14px;cursor:pointer" onchange="toggleDeleteRow('formaPagamento',${idxFP},this.checked)"></td>
         <td><strong>#${ped.pedido}</strong></td>
-        <td>${ped.cliente}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(cfg.fone||'').replace(/"/g,'&quot;')}" placeholder="📱 WhatsApp cliente" title="Telefone do cliente com DDD — usado no botão Cobrar" onchange="setBoletoConfig('${ped.pedido}','fone',this.value)"></td><td>${ped.loja}</td>
+        <td>${ped.cliente}<br><input class="inline-input" style="width:120px;font-size:10px;margin-top:2px" value="${(cfg.fone||'').replace(/"/g,'&quot;')}" placeholder="📱 WhatsApp cliente" title="Telefone do cliente com DDD — usado no botão Enviar boleto" onchange="setBoletoConfig('${ped.pedido}','fone',this.value)"></td><td>${ped.loja}</td>
         <td><strong>${fmtVal(ped.valorTotal)}</strong>${(ped._jaPago > 0.5) ? `<br><span style="font-size:9px;color:var(--accent)" title="Este é o LÍQUIDO a emitir. O valor cheio do pedido é ${fmtVal(ped._valorCheio)}, mas ${fmtVal(ped._jaPago)} já entrou (pagamento e/ou crédito de devolução). Emita no banco só este líquido.">cheio ${fmtVal(ped._valorCheio)} − já pago ${fmtVal(ped._jaPago)}</span>` : ''}</td>
         <td><input class="inline-input" style="width:80px;text-align:right" value="${cfg.taxa||''}" placeholder="0,00" title="Taxa/juros por mudança de prazo — soma no total e se distribui nas parcelas" onchange="setBoletoConfig('${ped.pedido}','taxa',this.value)"></td>
         <td><select class="inline-input" style="width:120px" onchange="setBoletoConfig('${ped.pedido}','prazo',this.value)">
@@ -6289,7 +6304,7 @@ function renderBoletos() {
           </select>
         </div></td>
         <td style="font-size:11px;min-width:190px">${parcelas.length ? parcelas.map(p=>{const st=boletoStatus[p.key];let cor='';if(!st&&p.vencimento){const dd=Math.floor((p.vencimento-hoje0)/86400000);if(dd<0)cor='color:var(--red);font-weight:700';else if(dd<=diasAviso)cor='color:var(--amber);font-weight:700';}return `<div style="white-space:nowrap;display:flex;align-items:center;gap:5px;margin-bottom:2px;${cor}"><strong>${p.parcela}/${p.totalParcelas}</strong> <input type="date" value="${_toDateInput(p.vencimento)}" onchange="setVencParcela('${String(p.pedido).replace(/'/g,"\\'")}',${p.parcela},this.value)" title="Ajustar o vencimento desta parcela" style="font-size:11px;padding:1px 3px;border:1px solid var(--border);border-radius:4px;width:118px"> ${fmtVal(p.valor)} ${st?'<span class="badge ok">✓</span>':''}</div>`;}).join('') : prazo&&!dataSaida?'<span style="color:var(--amber)">informe a data</span>':'<span style="color:var(--muted)">configure o prazo</span>'}</td>
-        <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem de cobrança pronta">📱 ${boletoAvisado[String(ped.pedido)]?'Cobrar de novo':'Cobrar'}</button>${boletoAvisado[String(ped.pedido)]?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Aviso enviado">✓ ${fmtDiaBR(boletoAvisado[String(ped.pedido)])}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${ped.pedido}');return false" title="Desmarcar aviso" style="text-decoration:none;color:var(--muted)">↩</a>`:''}`:''}</div></td>
+        <td><div style="display:flex;gap:4px;flex-wrap:wrap">${parcelas.length ? `<button class="btn ${allOk?'ghost':'primary'} sm" onclick="emitirBoleto('${ped.pedido}',${allOk})">${allOk?'✓ Emitido':'Marcar emitido'}</button>` : '<span style="font-size:11px;color:var(--muted)">configure primeiro</span>'}${parcelas.length?`<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="enviarBoletoWpp('${ped.pedido}')" title="Abre o WhatsApp com a mensagem pronta pra ENVIAR o boleto ao cliente (você anexa o PDF do boleto na conversa)">📱 ${boletoAvisado[String(ped.pedido)]?'Enviar de novo':'Enviar boleto'}</button>${boletoAvisado[String(ped.pedido)]?`<span style="font-size:10px;color:var(--green);font-weight:700" title="Boleto enviado">✓ ${fmtDiaBR(boletoAvisado[String(ped.pedido)])}</span> <a href="#" onclick="desmarcarAvisadoBoleto('${ped.pedido}');return false" title="Desmarcar" style="text-decoration:none;color:var(--muted)">↩</a>`:''}`:''}</div></td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
