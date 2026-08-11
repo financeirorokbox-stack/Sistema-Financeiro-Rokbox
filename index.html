@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v493/08-612';
+const APP_VERSION = 'v494/08-613';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4066,8 +4066,10 @@ function exportarModeloCR() {
       if (_dfOn && _porLiq && !passaData(pg.data)) return;
       // TRAVA anti-duplicação: o MESMO pagamento (pedido+data+valor+líquido+forma) só sai UMA vez, mesmo que
       // o pedido tenha 2 linhas (parcelas/formas). Antes, cada linha repetia os recebimentos (ex.: #39910/#40060 2x).
+      // Chave SEM a forma: cada linha (PIX/PayPal) marcava o MESMO pagamento com a forma dela, então o
+      // recebimento saía como PIX E como PayPal (ex.: #40167/#40135). Sem a forma na chave, junta os iguais.
       const liqRow = +(pg.liq != null ? pg.liq : pg.valor).toFixed(2);
-      const rk = pedNum + '|' + (pg.data ? new Date(pg.data).toISOString().slice(0, 10) : '') + '|' + (+pg.valor).toFixed(2) + '|' + liqRow.toFixed(2) + '|' + cat;
+      const rk = pedNum + '|' + (pg.data ? new Date(pg.data).toISOString().slice(0, 10) : '') + '|' + (+pg.valor).toFixed(2) + '|' + liqRow.toFixed(2);
       if (_rowKeyEmit.has(rk)) return;
       _rowKeyEmit.add(rk);
       // Valor = BRUTO; Recebido = LÍQUIDO (o que caiu no banco); Taxa = a taxa do gateway.
