@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v490/08-609';
+const APP_VERSION = 'v491/08-610';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2559,7 +2559,7 @@ function _renderContasImpl(el) {
             const quitadoPorReceb = recebidoTot >= (ped.valor || 0) - 0.5;
             parcelas.forEach(parc => {
               const stP = quitadoPorReceb ? { recebido: true, detalhe: '✓ pago' } : _stParcelaBoleto(parc);
-              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento }, cat, st: stP, venc: parc.vencimento, realIdx: -1, semForma: true });
+              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento, key: parc.key }, cat, st: stP, venc: parc.vencimento, realIdx: -1, semForma: true });
             });
             return; // já empurrou as parcelas — não empurra a linha agregada
           }
@@ -2583,7 +2583,7 @@ function _renderContasImpl(el) {
               boletoJaAdd.add(ped.id);
               parcelas.forEach(parc => {
                 linhas.push({
-                  ped, f: { ...f, valor: parc.valor, descricao: `${f.descricao} — ${parc.parcela}/${parc.totalParcelas}` },
+                  ped, f: { ...f, valor: parc.valor, descricao: `${f.descricao} — ${parc.parcela}/${parc.totalParcelas}`, key: parc.key },
                   cat: c.categoria, st: _stParcelaBoleto(parc), venc: parc.vencimento, realIdx: formaPagamento.indexOf(f)
                 });
               });
@@ -4005,7 +4005,9 @@ function pagamentosDaLinha(l) {
   if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: a.dataPagamento, valor: v, liq: v, taxa: 0 }); } return out; }
   if (l.cat === 'Boleto Itaú') {
     const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
-    if (bPed) getParcelas(bPed).forEach(p => { const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: cob.dataPagamento, valor: v, liq: v, taxa: 0 }); } });
+    // Se a LINHA é de uma parcela específica (l.f.key), só conta O PAGAMENTO DELA — senão cada linha de
+    // parcela somava TODAS as parcelas pagas do pedido e multiplicava (ex.: #40041 saía 3x no export).
+    if (bPed) getParcelas(bPed).forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: cob.dataPagamento, valor: v, liq: v, taxa: 0 }); } });
     return out;
   }
   recebimentosConsolidado.filter(r => r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => {
