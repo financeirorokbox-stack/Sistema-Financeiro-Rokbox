@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v488/08-607';
+const APP_VERSION = 'v489/08-608';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4209,12 +4209,21 @@ function exportarConciliacaoBancaria() {
         const resto = +(val - somaLiq).toFixed(2);
         if (resto > 0.02) rowsC.push([_noon(d), _noon(d), '', '(ajuste do repasse — recebimento não localizado)', 'Pago', comp, resto, 0, 0, 0, resto, 0, 0, gwCat, obs, _ma(d), _ma(d), resto, _noon(d), '']);
       } else if (lk && lk.pedido) {
-        // Vinculado a pedido(s) direto (PIX): uma linha por pedido.
+        // Vinculado a pedido(s) direto (PIX): uma linha por pedido/boleto avulso.
         const peds = String(lk.pedido).split(',').map(s => s.trim()).filter(Boolean);
         peds.forEach(pid => {
-          const p = pedidos.find(x => String(x.id) === String(pid));
-          const v = peds.length === 1 ? val : (p ? +(p.valor || 0).toFixed(2) : val);
-          rowsC.push([_noon(d), _noon(d), String(pid), nomeDoPed(pid), 'Pago', comp, v, 0, 0, 0, v, 0, 0, gwCat, obs, _ma(d), _ma(d), v, _noon(d), empDoPed(pid)]);
+          if (String(pid).startsWith('AV:')) {
+            // Boleto AVULSO (fora do sistema): usa o VALOR DELE (com multa, se ela lançou o valorPago),
+            // NÃO o valor cheio do crédito — senão um crédito que paga vários boletos saía repetido.
+            const a = boletosAvulsos[parseInt(String(pid).slice(3), 10)];
+            if (!a) return;
+            const v = +(((a.valorPago != null && a.valorPago > 0) ? a.valorPago : (a.valorTitulo || 0))).toFixed(2);
+            rowsC.push([_noon(d), _noon(d), String(a.pedido || ''), a.cliente || '', 'Pago', comp, v, 0, 0, 0, v, 0, 0, gwCat || 'Boleto Itaú', obs, _ma(d), _ma(d), v, _noon(d), a.empresa || '']);
+          } else {
+            const p = pedidos.find(x => String(x.id) === String(pid));
+            const v = peds.length === 1 ? val : (p ? +(p.valor || 0).toFixed(2) : val);
+            rowsC.push([_noon(d), _noon(d), String(pid), nomeDoPed(pid), 'Pago', comp, v, 0, 0, 0, v, 0, 0, gwCat, obs, _ma(d), _ma(d), v, _noon(d), empDoPed(pid)]);
+          }
         });
       } else {
         // Não conciliado / receita avulsa: uma linha só.
