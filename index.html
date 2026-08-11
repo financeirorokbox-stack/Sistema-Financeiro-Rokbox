@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v492/08-611';
+const APP_VERSION = 'v493/08-612';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4031,6 +4031,7 @@ function exportarModeloCR() {
   const rows = [headers];
   const _asDate = d => d ? (d instanceof Date ? d : new Date(d)) : null;
   const _pedNaoBolEmit = new Set(); // pedidos (não-boleto) cujos pagamentos já saíram — evita repetir por parcela
+  const _rowKeyEmit = new Set();    // trava anti-duplicação por pagamento (pedido+data+valor+líquido+forma)
   _linhasCRExport.forEach(l => {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
     const pedNum = String(l.f.pedido);
@@ -4063,8 +4064,14 @@ function exportarModeloCR() {
       somaPag += pg.valor; // BRUTO (p/ calcular o que falta em aberto contra o valor do pedido)
       // Filtro por LIQUIDAÇÃO: cada pagamento cai no MÊS da sua data (data do banco) → só entra o que passa.
       if (_dfOn && _porLiq && !passaData(pg.data)) return;
+      // TRAVA anti-duplicação: o MESMO pagamento (pedido+data+valor+líquido+forma) só sai UMA vez, mesmo que
+      // o pedido tenha 2 linhas (parcelas/formas). Antes, cada linha repetia os recebimentos (ex.: #39910/#40060 2x).
+      const liqRow = +(pg.liq != null ? pg.liq : pg.valor).toFixed(2);
+      const rk = pedNum + '|' + (pg.data ? new Date(pg.data).toISOString().slice(0, 10) : '') + '|' + (+pg.valor).toFixed(2) + '|' + liqRow.toFixed(2) + '|' + cat;
+      if (_rowKeyEmit.has(rk)) return;
+      _rowKeyEmit.add(rk);
       // Valor = BRUTO; Recebido = LÍQUIDO (o que caiu no banco); Taxa = a taxa do gateway.
-      rows.push(mkRow(pg.data, +pg.valor.toFixed(2), +(pg.liq != null ? pg.liq : pg.valor).toFixed(2), 'Pago', pg.taxa || 0));
+      rows.push(mkRow(pg.data, +pg.valor.toFixed(2), liqRow, 'Pago', pg.taxa || 0));
     });
     const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
     // O saldo em aberto não tem data de liquidação → não entra quando o filtro é por Liquidação.
