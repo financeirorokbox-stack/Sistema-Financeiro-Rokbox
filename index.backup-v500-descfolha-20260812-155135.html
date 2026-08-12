@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v501/08-620';
+const APP_VERSION = 'v500/08-619';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4086,7 +4086,7 @@ function exportarModeloCR() {
   const _pedComLinha = new Set();   // pedidos que JÁ emitiram alguma linha (pra o resgate no fim não duplicar)
   const _pedsNaTela = new Set(_linhasCRExport.map(l => String(l.f && l.f.pedido)).filter(Boolean)); // pedidos visíveis na tela de CR
   _linhasCRExport.forEach(l => {
-    if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente' || l.cat === 'Desconto em Folha') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber (desconto em folha não passa no banco)
+    if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
     const pedNum = String(l.f.pedido);
     // Pedido com PARCELAS (linhas l.f.key) mas PAGO por outra forma (PIX/PayPal): os pagamentos são do
     // PEDIDO, não da parcela → só a 1ª parcela emite; senão cada parcela repetia os recebimentos (ex.: #40060/#39910 saíam 2x).
@@ -4139,7 +4139,7 @@ function exportarModeloCR() {
   // _pedComLinha) → não duplica quem já apareceu por outra forma. O _rowKeyEmit ainda protege contra repetição.
   const _gwCatCR = { 'PayPal': 'PayPal', 'BraavoPay': 'BraavoPay', 'Boleto Itaú': 'Boleto Itaú', 'PIX (Extrato)': 'Pix (Extrato/OFX)', 'Desconto em Folha': 'Desconto em Folha' };
   recebimentosConsolidado.forEach(r => {
-    if (r._estornoChave || !r.data || r.gateway === 'Desconto em Folha') return; // desconto em folha não entra no CR (não passa no banco)
+    if (r._estornoChave || !r.data) return;
     String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean).forEach(pid => {
       if (!_pedsNaTela.has(pid) || _pedComLinha.has(pid)) return; // só pedido da tela que não emitiu NADA
       const valor = alocRecebGateway(r, pid);
