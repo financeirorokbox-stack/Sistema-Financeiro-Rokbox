@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v496/08-615';
+const APP_VERSION = 'v495/08-614';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4006,30 +4006,12 @@ function _dataBancoBoleto(refStr, dataPag) {
   const alvo = String(refStr);
   const dp = dataPag ? +new Date(dataPag) : null;
   const cand = [];
-  // Número(s) do pedido pra casar no repasse: se for avulso ('AV:idx'), usa o pedido de origem do avulso.
-  const nums = [];
-  if (alvo.indexOf('AV:') === 0) { const a = boletosAvulsos[+alvo.slice(3)]; if (a && a.pedido) nums.push(String(a.pedido)); }
-  else nums.push(alvo);
-  // 1) Vínculo DIRETO no extrato (crédito PIX etc. flegado ao pedido, ou ao avulso 'AV:idx').
   for (const extId in extratoLinks) {
     const lk = extratoLinks[extId];
     if (!lk || !lk.pedido) continue;
-    const toks = String(lk.pedido).split(',').map(s => s.trim());
-    let m = toks.includes(alvo);                                   // pedido do sistema, ou a própria chave 'AV:idx'
-    if (!m && nums.length) m = toks.some(tk => { if (tk.indexOf('AV:') === 0) { const a = boletosAvulsos[+tk.slice(3)]; return a && nums.includes(String(a.pedido)); } return false; });
-    if (!m) continue;
+    if (!String(lk.pedido).split(',').map(s => s.trim()).includes(alvo)) continue;
     const t = extratoBancario.find(x => x.id === extId);
     if (t && t.data) cand.push(+new Date(t.data));
-  }
-  // 2) REPASSE/LOTE (ex.: "BOLETOS RECEBIDOS" do Itaú, que junta vários boletos num crédito só, igual operadora):
-  //    o recebimento do pedido está amarrado a um depósito do banco → dataRepasseBanco devolve a data do crédito.
-  if (nums.length) {
-    recebimentosConsolidado.forEach(r => {
-      const rped = String(r.nped || '').split(',').map(s => s.trim());
-      if (!nums.some(n => rped.includes(n))) return;
-      const bd = dataRepasseBanco(r);
-      if (bd) cand.push(+new Date(bd));
-    });
   }
   if (!cand.length) return dataPag;                       // não conciliado → mantém a data da baixa
   if (dp == null) return new Date(Math.min.apply(null, cand));
