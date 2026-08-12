@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v500/08-619';
+const APP_VERSION = 'v499/08-618';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4083,8 +4083,6 @@ function exportarModeloCR() {
   const _asDate = d => d ? (d instanceof Date ? d : new Date(d)) : null;
   const _pedNaoBolEmit = new Set(); // pedidos (não-boleto) cujos pagamentos já saíram — evita repetir por parcela
   const _rowKeyEmit = new Set();    // trava anti-duplicação por pagamento (pedido+data+valor+líquido+forma)
-  const _pedComLinha = new Set();   // pedidos que JÁ emitiram alguma linha (pra o resgate no fim não duplicar)
-  const _pedsNaTela = new Set(_linhasCRExport.map(l => String(l.f && l.f.pedido)).filter(Boolean)); // pedidos visíveis na tela de CR
   _linhasCRExport.forEach(l => {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber
     const pedNum = String(l.f.pedido);
@@ -4127,40 +4125,10 @@ function exportarModeloCR() {
       _rowKeyEmit.add(rk);
       // Valor = BRUTO; Recebido = LÍQUIDO (o que caiu no banco); Taxa = a taxa do gateway.
       rows.push(mkRow(pg.data, +pg.valor.toFixed(2), liqRow, 'Pago', pg.taxa || 0));
-      _pedComLinha.add(pedNum);
     });
     const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
     // O saldo em aberto não tem data de liquidação → não entra quando o filtro é por Liquidação.
-    if (pendente > 0.01 && !(_dfOn && _porLiq)) { rows.push(mkRow(null, pendente, 0, 'Em Aberto')); _pedComLinha.add(pedNum); }
-  });
-  // RESGATE: pedido que ESTÁ na tela de CR mas ficou SEM nenhuma linha (ex.: forma "Boleto Itaú" quitado por
-  // PIX, sem baixa na cobrança: #357/#40352). O dinheiro caiu no banco (recebimento conciliado) mas o pedido
-  // sumia do relatório. Adiciona uma linha por recebimento, SÓ pros que ficaram de fora (não estão em
-  // _pedComLinha) → não duplica quem já apareceu por outra forma. O _rowKeyEmit ainda protege contra repetição.
-  const _gwCatCR = { 'PayPal': 'PayPal', 'BraavoPay': 'BraavoPay', 'Boleto Itaú': 'Boleto Itaú', 'PIX (Extrato)': 'Pix (Extrato/OFX)', 'Desconto em Folha': 'Desconto em Folha' };
-  recebimentosConsolidado.forEach(r => {
-    if (r._estornoChave || !r.data) return;
-    String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean).forEach(pid => {
-      if (!_pedsNaTela.has(pid) || _pedComLinha.has(pid)) return; // só pedido da tela que não emitiu NADA
-      const valor = alocRecebGateway(r, pid);
-      if (valor <= 0.005) return;
-      const brutoTot = r.bruto || r.liq || 0;
-      const liqTot = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0));
-      const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
-      const liq = +(liqTot * ratio).toFixed(2);
-      const taxa = +((r.taxa || 0) * ratio).toFixed(2);
-      const dLiq = _asDate(dataRepasseBanco(r) || r.data);
-      if (_dfOn && !passaData(dLiq)) return; // respeita o filtro de data (venc ou liquidação: aqui a data é a do banco)
-      const rk = pid + '|' + (dLiq ? dLiq.toISOString().slice(0, 10) : '') + '|' + (+valor).toFixed(2) + '|' + liq.toFixed(2);
-      if (_rowKeyEmit.has(rk)) return; _rowKeyEmit.add(rk);
-      const ped = pedidos.find(x => String(x.id) === pid);
-      const nome = ped ? (ped.nome || '') : (r.nome || '');
-      const emp = ped ? (ped.empresa || (lojaCadastro[ped.loja] && lojaCadastro[ped.loja].empresa) || '') : '';
-      const cat = _gwCatCR[r.gateway] || r.gateway || '';
-      const descricao = descricaoReceita(cat) || cat;
-      const comp = dLiq ? `01/${String(dLiq.getMonth() + 1).padStart(2, '0')}/${dLiq.getFullYear()}` : '';
-      rows.push([_noon(dLiq), _noon(dLiq), pid, nome, 'Pago', comp, +valor.toFixed(2), 0, 0, 0, liq, 0, taxa, descricao, `Ref. ao pedido de venda n° ${pid}`, cat, _ma(dLiq), _ma(dLiq), +valor.toFixed(2), _noon(dLiq), emp]);
-    });
+    if (pendente > 0.01 && !(_dfOn && _porLiq)) rows.push(mkRow(null, pendente, 0, 'Em Aberto'));
   });
   // Receitas avulsas (rendimentos etc. lançados na conciliação bancária): entram como recebidas na data do banco.
   _receitasCRExport.forEach(r => {
