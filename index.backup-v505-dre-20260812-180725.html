@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v506/08-625';
+const APP_VERSION = 'v505/08-624';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3520,67 +3520,6 @@ function dreTabelaHTML(tree, empCols, total, cor, prefix) {
   }).join('');
   return `<div class="table-wrap"><table><thead><tr><th>Grupo / Subgrupo</th>${empCols.map(e=>`<th style="text-align:right">${e}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-// DRE empilhada (formato do PDF de fechamento): SALDO ANTERIOR → RECEITAS (categoria/subcategoria por empresa)
-// → DESPESAS (categoria/subcategoria por empresa, com %) → SALDO FINAL. Reusa as MESMAS árvores do Fluxo.
-function dreCompletoHTML(treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal) {
-  const cell = v => v ? fmtVal(v) : '<span style="color:var(--border)">—</span>';
-  const pc = (v, base) => base > 0 ? (v / base * 100).toFixed(1) + '%' : '';
-  const empTotais = tree => { const o = {}; empCols.forEach(e => o[e] = 0); Object.values(tree).forEach(gd => empCols.forEach(e => o[e] += (gd.emp[e] || 0))); return o; };
-  function secao(tree, base, cor, prefix) {
-    return Object.entries(tree).sort((a, b) => b[1].tot - a[1].tot).map(([g, gd], gi) => {
-      const gid = 'dc' + prefix + gi;
-      const head = `<tr style="cursor:pointer;font-weight:600" onclick="toggleDreGrupo('${gid}')">
-        <td><span id="dre-arr-${gid}" style="display:inline-block;width:12px;color:var(--muted)">▸</span> ${g}</td>
-        ${empCols.map(e => `<td style="text-align:right">${cell(gd.emp[e] || 0)}</td>`).join('')}
-        <td style="text-align:right;color:${cor}">${fmtVal(gd.tot)}</td>
-        <td style="text-align:right;color:var(--muted)">${pc(gd.tot, base)}</td></tr>`;
-      const subs = Object.entries(gd.sub).sort((a, b) => b[1].tot - a[1].tot).map(([s, sd]) => `<tr class="dre-sub-${gid}" style="display:none">
-        <td style="padding-left:28px;color:var(--muted);font-size:12px">${s}</td>
-        ${empCols.map(e => `<td style="text-align:right;color:var(--muted);font-size:12px">${cell(sd.emp[e] || 0)}</td>`).join('')}
-        <td style="text-align:right;font-size:12px">${fmtVal(sd.tot)}</td>
-        <td style="text-align:right;color:var(--muted);font-size:12px">${pc(sd.tot, base)}</td></tr>`).join('');
-      return head + subs;
-    }).join('');
-  }
-  const nCols = empCols.length + 3;
-  const linha = (label, empVals, tot, cor, bg) => `<tr style="font-weight:800;${bg ? 'background:' + bg : ''}">
-    <td>${label}</td>
-    ${empCols.map(e => `<td style="text-align:right">${empVals ? cell(empVals[e] || 0) : ''}</td>`).join('')}
-    <td style="text-align:right;color:${cor || 'inherit'}">${tot != null ? fmtVal(tot) : ''}</td><td></td></tr>`;
-  return `<div class="table-wrap"><table><thead><tr><th>Categoria / Subcategoria</th>${empCols.map(e => `<th style="text-align:right">${e}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead><tbody>
-    ${linha('💰 SALDO ANTERIOR EM CONTA', null, saldoAnterior, 'var(--accent)', 'var(--bg)')}
-    ${linha('⬆ RECEITAS', empTotais(treeR), totEnt, 'var(--green)', 'var(--green-bg,#eafaf0)')}
-    ${secao(treeR, totEnt, 'var(--green)', 'r')}
-    ${linha('⬇ DESPESAS', empTotais(treeD), totSai, 'var(--red)', 'var(--red-bg,#fdeaea)')}
-    ${secao(treeD, totSai, 'var(--red)', 'd')}
-    ${linha('🏦 SALDO FINAL EM CONTA', null, saldoFinal, saldoFinal >= 0 ? 'var(--accent)' : 'var(--red)', 'var(--bg)')}
-  </tbody></table></div>`;
-}
-// Exporta a DRE (mesma tabela empilhada da tela) para Excel, no formato do PDF de fechamento.
-function exportarDRE() {
-  const d = window._dreExportData;
-  if (!d) { alert('Abra o Fluxo de Caixa antes de exportar.'); return; }
-  const { treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal } = d;
-  const rows = [['Categoria / Subcategoria', ...empCols, 'Total', '%']];
-  const r2 = v => +(+v || 0).toFixed(2);
-  const empArr = obj => empCols.map(e => r2(obj ? obj[e] : 0));
-  const empTot = tree => { const o = {}; empCols.forEach(e => o[e] = 0); Object.values(tree).forEach(gd => empCols.forEach(e => o[e] += (gd.emp[e] || 0))); return o; };
-  const pc = (v, base) => base > 0 ? +(v / base * 100).toFixed(1) : '';
-  const secao = (tree, base) => Object.entries(tree).sort((a, b) => b[1].tot - a[1].tot).forEach(([g, gd]) => {
-    rows.push(['  ' + g, ...empArr(gd.emp), r2(gd.tot), pc(gd.tot, base)]);
-    Object.entries(gd.sub).sort((a, b) => b[1].tot - a[1].tot).forEach(([s, sd]) => rows.push(['    ' + s, ...empArr(sd.emp), r2(sd.tot), pc(sd.tot, base)]));
-  });
-  rows.push(['SALDO ANTERIOR EM CONTA', ...empCols.map(() => ''), r2(saldoAnterior), '']);
-  rows.push(['RECEITAS', ...empArr(empTot(treeR)), r2(totEnt), '']);
-  secao(treeR, totEnt);
-  rows.push(['DESPESAS', ...empArr(empTot(treeD)), r2(totSai), '']);
-  secao(treeD, totSai);
-  rows.push(['SALDO FINAL EM CONTA', ...empCols.map(() => ''), r2(saldoFinal), '']);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'DRE');
-  const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
-  XLSX.writeFile(wb, `DRE_Fluxo_${mes}.xlsx`);
-}
 function toggleDreGrupo(gid) {
   const arr = document.getElementById('dre-arr-'+gid);
   const open = arr && arr.textContent.trim() === '▾';
@@ -3716,7 +3655,6 @@ function renderFluxo() {
   }
   const saldoAnterior = baseInicial + netAntes;
   const saldoFinal = saldoAnterior + (totEnt - totSai);
-  window._dreExportData = { treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal }; // p/ exportarDRE
 
   // ── EVOLUÇÃO MENSAL (gráfico de barras por mês) — respeita só o filtro de ANO ──
   const anoOk = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return false; return !dateFilter.ano.length || dateFilter.ano.includes(String(dt.getFullYear())); };
@@ -3764,12 +3702,6 @@ function renderFluxo() {
     })}
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Fluxo de Caixa</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas <strong>pagas</strong>) do período — regime de caixa. As <strong>🔮 previstas</strong> (contas em aberto, por vencimento) aparecem à parte, pra você projetar. Use o ⚙ Filtros para escolher mês/dia.</div>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
-      <div class="section-title" style="margin:0">📊 DRE — Receitas × Despesas (formato fechamento)</div>
-      <button class="btn ghost sm" onclick="toggleDreTudo()">▸ Expandir subcategorias</button>
-      <button class="btn ghost sm" onclick="exportarDRE()">📤 Exportar</button>
-    </div>
-    ${dreCompletoHTML(treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal)}
     <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:16px">
       <div><div class="f-label">${dfAtivo()?'Saldo anterior (antes do período)':'Saldo inicial'}</div><div style="font-weight:800;font-size:18px">${fmtVal(saldoAnterior)}</div></div>
       <div style="font-size:18px;color:var(--green)">+ ${fmtVal(totEnt)}</div>
