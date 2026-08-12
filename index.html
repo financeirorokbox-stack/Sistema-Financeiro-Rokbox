@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v496/08-615';
+const APP_VERSION = 'v497/08-616';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3847,7 +3847,7 @@ function getDataLiquidacao(l) {
         const ultima = pagas.sort((a,b) =>
           new Date(boletoCobrancaStatus[b.key].dataPagamento) - new Date(boletoCobrancaStatus[a.key].dataPagamento)
         )[0];
-        return fmtDate(_dataBancoBoleto(pedId, boletoCobrancaStatus[ultima.key].dataPagamento));
+        return fmtDate(_dataBancoBoleto(pedId, boletoCobrancaStatus[ultima.key].dataPagamento, boletoCobrancaStatus[ultima.key].valorPago != null ? boletoCobrancaStatus[ultima.key].valorPago : ultima.valor));
       }
     }
   }
@@ -3944,7 +3944,7 @@ function trocarForma(pedId, val) {
 // ── Exportação modelo "Contas a Receber" (15 colunas) ──────────────
 // Data de liquidação da linha como Date (reusa getDataLiquidacao e converte).
 function getLiqDate(l) {
-  if (l && l._avulso) { const a = boletosAvulsos[l._avIdx]; return a && a.dataPagamento ? new Date(_dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento)) : null; }
+  if (l && l._avulso) { const a = boletosAvulsos[l._avIdx]; return a && a.dataPagamento ? new Date(_dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento, a.valorPago != null ? a.valorPago : a.valorTitulo)) : null; }
   const m = String(getDataLiquidacao(l)).match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
@@ -4001,16 +4001,19 @@ function dadosRecebimentoLinha(l) {
 // Bancária usa a data do crédito; então o Contas a Receber tem que usar a MESMA data pra bater por dia.
 // refStr = número do pedido (boleto do sistema) OU 'AV:idx' (boleto avulso). Se não estiver conciliado,
 // devolve a própria data da baixa (dataPag), sem mudar nada (aditivo).
-function _dataBancoBoleto(refStr, dataPag) {
+function _dataBancoBoleto(refStr, dataPag, valParc) {
   if (!refStr) return dataPag;
   const alvo = String(refStr);
   const dp = dataPag ? +new Date(dataPag) : null;
+  const vP = (valParc != null && isFinite(+valParc)) ? +valParc : null; // valor DESTA parcela (pra não puxar a parcela errada)
+  const TOL = 0.10;
   const cand = [];
   // Número(s) do pedido pra casar no repasse: se for avulso ('AV:idx'), usa o pedido de origem do avulso.
   const nums = [];
   if (alvo.indexOf('AV:') === 0) { const a = boletosAvulsos[+alvo.slice(3)]; if (a && a.pedido) nums.push(String(a.pedido)); }
   else nums.push(alvo);
   // 1) Vínculo DIRETO no extrato (crédito PIX etc. flegado ao pedido, ou ao avulso 'AV:idx').
+  //    Só casa se o VALOR do crédito bater com a parcela — senão um crédito de LOTE puxaria parcela errada.
   for (const extId in extratoLinks) {
     const lk = extratoLinks[extId];
     if (!lk || !lk.pedido) continue;
@@ -4019,14 +4022,19 @@ function _dataBancoBoleto(refStr, dataPag) {
     if (!m && nums.length) m = toks.some(tk => { if (tk.indexOf('AV:') === 0) { const a = boletosAvulsos[+tk.slice(3)]; return a && nums.includes(String(a.pedido)); } return false; });
     if (!m) continue;
     const t = extratoBancario.find(x => x.id === extId);
-    if (t && t.data) cand.push(+new Date(t.data));
+    if (!t || !t.data) continue;
+    if (vP != null && Math.abs(Math.abs(t.valor || 0) - vP) > TOL) continue;
+    cand.push(+new Date(t.data));
   }
   // 2) REPASSE/LOTE (ex.: "BOLETOS RECEBIDOS" do Itaú, que junta vários boletos num crédito só, igual operadora):
   //    o recebimento do pedido está amarrado a um depósito do banco → dataRepasseBanco devolve a data do crédito.
+  //    Casa pelo VALOR da parcela (cada parcela cola só no crédito que tem o valor dela; senão inflava um pedido
+  //    de 2 parcelas colocando as duas no mesmo dia, ex.: #38645).
   if (nums.length) {
     recebimentosConsolidado.forEach(r => {
       const rped = String(r.nped || '').split(',').map(s => s.trim());
       if (!nums.some(n => rped.includes(n))) return;
+      if (vP != null) { const rv = Math.abs(r.bruto != null ? r.bruto : (r.liq || 0)); if (Math.abs(rv - vP) > TOL) return; }
       const bd = dataRepasseBanco(r);
       if (bd) cand.push(+new Date(bd));
     });
@@ -4045,12 +4053,12 @@ function pagamentosDaLinha(l) {
   const pedId = String(l.f.pedido);
   const out = [];
   // Cada pagamento traz: valor (BRUTO), liq (LÍQUIDO = o que caiu no banco) e taxa. Boleto/PIX/dinheiro: líquido = valor, taxa 0.
-  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: _dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento), valor: v, liq: v, taxa: 0 }); } return out; }
+  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: _dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento, v), valor: v, liq: v, taxa: 0 }); } return out; }
   if (l.cat === 'Boleto Itaú') {
     const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
     // Se a LINHA é de uma parcela específica (l.f.key), só conta O PAGAMENTO DELA — senão cada linha de
     // parcela somava TODAS as parcelas pagas do pedido e multiplicava (ex.: #40041 saía 3x no export).
-    if (bPed) getParcelas(bPed).forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: _dataBancoBoleto(pedId, cob.dataPagamento), valor: v, liq: v, taxa: 0 }); } });
+    if (bPed) getParcelas(bPed).forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: _dataBancoBoleto(pedId, cob.dataPagamento, v), valor: v, liq: v, taxa: 0 }); } });
     return out;
   }
   recebimentosConsolidado.filter(r => r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => {
