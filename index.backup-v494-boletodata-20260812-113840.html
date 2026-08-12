@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v495/08-614';
+const APP_VERSION = 'v494/08-613';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3847,7 +3847,7 @@ function getDataLiquidacao(l) {
         const ultima = pagas.sort((a,b) =>
           new Date(boletoCobrancaStatus[b.key].dataPagamento) - new Date(boletoCobrancaStatus[a.key].dataPagamento)
         )[0];
-        return fmtDate(_dataBancoBoleto(pedId, boletoCobrancaStatus[ultima.key].dataPagamento));
+        return fmtDate(boletoCobrancaStatus[ultima.key].dataPagamento);
       }
     }
   }
@@ -3944,7 +3944,7 @@ function trocarForma(pedId, val) {
 // ── Exportação modelo "Contas a Receber" (15 colunas) ──────────────
 // Data de liquidação da linha como Date (reusa getDataLiquidacao e converte).
 function getLiqDate(l) {
-  if (l && l._avulso) { const a = boletosAvulsos[l._avIdx]; return a && a.dataPagamento ? new Date(_dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento)) : null; }
+  if (l && l._avulso) { const a = boletosAvulsos[l._avIdx]; return a && a.dataPagamento ? new Date(a.dataPagamento) : null; }
   const m = String(getDataLiquidacao(l)).match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
@@ -3996,43 +3996,18 @@ function dadosRecebimentoLinha(l) {
   return { recebido: +recebido.toFixed(2), taxa: +taxa.toFixed(2), juros: +juros.toFixed(2), desconto: +desconto.toFixed(2) };
 }
 
-// Data do CRÉDITO no banco de um boleto (sistema ou avulso), pelo vínculo do Extrato (extratoLinks).
-// O boleto é pago numa data (baixa no Itaú) mas COMPENSA na conta corrente uns dias depois. A Conciliação
-// Bancária usa a data do crédito; então o Contas a Receber tem que usar a MESMA data pra bater por dia.
-// refStr = número do pedido (boleto do sistema) OU 'AV:idx' (boleto avulso). Se não estiver conciliado,
-// devolve a própria data da baixa (dataPag), sem mudar nada (aditivo).
-function _dataBancoBoleto(refStr, dataPag) {
-  if (!refStr) return dataPag;
-  const alvo = String(refStr);
-  const dp = dataPag ? +new Date(dataPag) : null;
-  const cand = [];
-  for (const extId in extratoLinks) {
-    const lk = extratoLinks[extId];
-    if (!lk || !lk.pedido) continue;
-    if (!String(lk.pedido).split(',').map(s => s.trim()).includes(alvo)) continue;
-    const t = extratoBancario.find(x => x.id === extId);
-    if (t && t.data) cand.push(+new Date(t.data));
-  }
-  if (!cand.length) return dataPag;                       // não conciliado → mantém a data da baixa
-  if (dp == null) return new Date(Math.min.apply(null, cand));
-  // O crédito compensa no dia do pagamento ou depois: prefere o mais próximo a partir da baixa (tolera 1 dia antes).
-  const depois = cand.filter(x => x >= dp - 86400000);
-  const pool = depois.length ? depois : cand;
-  pool.sort((a, b) => Math.abs(a - dp) - Math.abs(b - dp));
-  return new Date(pool[0]);
-}
 // Pagamentos REAIS de uma linha (cada recebimento com sua data no BANCO e valor alocado ao pedido).
 // Usado no relatório pra quebrar parciais em linhas por data de liquidação.
 function pagamentosDaLinha(l) {
   const pedId = String(l.f.pedido);
   const out = [];
   // Cada pagamento traz: valor (BRUTO), liq (LÍQUIDO = o que caiu no banco) e taxa. Boleto/PIX/dinheiro: líquido = valor, taxa 0.
-  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: _dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento), valor: v, liq: v, taxa: 0 }); } return out; }
+  if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: a.dataPagamento, valor: v, liq: v, taxa: 0 }); } return out; }
   if (l.cat === 'Boleto Itaú') {
     const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
     // Se a LINHA é de uma parcela específica (l.f.key), só conta O PAGAMENTO DELA — senão cada linha de
     // parcela somava TODAS as parcelas pagas do pedido e multiplicava (ex.: #40041 saía 3x no export).
-    if (bPed) getParcelas(bPed).forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: _dataBancoBoleto(pedId, cob.dataPagamento), valor: v, liq: v, taxa: 0 }); } });
+    if (bPed) getParcelas(bPed).forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: cob.dataPagamento, valor: v, liq: v, taxa: 0 }); } });
     return out;
   }
   recebimentosConsolidado.filter(r => r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => {
