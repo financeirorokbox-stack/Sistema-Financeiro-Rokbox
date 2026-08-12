@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v501/08-620';
+const APP_VERSION = 'v502/08-621';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4161,6 +4161,27 @@ function exportarModeloCR() {
       const comp = dLiq ? `01/${String(dLiq.getMonth() + 1).padStart(2, '0')}/${dLiq.getFullYear()}` : '';
       rows.push([_noon(dLiq), _noon(dLiq), pid, nome, 'Pago', comp, +valor.toFixed(2), 0, 0, 0, liq, 0, taxa, descricao, `Ref. ao pedido de venda n° ${pid}`, cat, _ma(dLiq), _ma(dLiq), +valor.toFixed(2), _noon(dLiq), emp]);
     });
+  });
+  // RECEBIMENTOS SEM PEDIDO (PayPal/Braavo que caíram no banco mas não casaram em nenhum pedido): entram como
+  // recebidos, na data do banco. Regra da Elaine: entrou no banco → entra no Contas a Receber. O estorno (quando
+  // houver) é SAÍDA e vai pro Contas a Pagar do mês em que saiu; aqui só entram os POSITIVOS (o estorno negativo
+  // não entra). Ex.: Viviana, retenção/chargeback devolvido, Juliana, João. Não duplica: não têm pedido, então
+  // nunca saíram por uma linha de pedido.
+  recebimentosConsolidado.forEach(r => {
+    if (r._estornoChave) return;
+    if (String(r.nped || '').trim()) return;                       // só os SEM pedido
+    if (r.gateway !== 'PayPal' && r.gateway !== 'BraavoPay') return; // operadora sem pedido casado
+    const v = +(r.bruto != null ? r.bruto : (r.liq || 0));
+    if (v <= 0.005) return;                                          // só o que ENTROU (positivo)
+    const dLiq = _asDate(dataRepasseBanco(r) || r.data);
+    if (_dfOn && !passaData(dLiq)) return;
+    const liq = +(r.liq != null ? r.liq : v).toFixed(2);
+    const taxa = +(r.taxa || 0).toFixed(2);
+    const rk = 'SEMPED|' + (r._uid || ((r.nome || '') + '|' + (dLiq ? dLiq.toISOString().slice(0, 10) : '') + '|' + v.toFixed(2)));
+    if (_rowKeyEmit.has(rk)) return; _rowKeyEmit.add(rk);
+    const cat = _gwCatCR[r.gateway] || r.gateway || '';
+    const comp = dLiq ? `01/${String(dLiq.getMonth() + 1).padStart(2, '0')}/${dLiq.getFullYear()}` : '';
+    rows.push([_noon(dLiq), _noon(dLiq), '', (r.nome || 'Recebido sem pedido'), 'Pago', comp, +v.toFixed(2), 0, 0, 0, liq, 0, taxa, cat, 'Recebimento sem pedido (PayPal/conciliação)', cat, _ma(dLiq), _ma(dLiq), +v.toFixed(2), _noon(dLiq), r.empresa || '']);
   });
   // Receitas avulsas (rendimentos etc. lançados na conciliação bancária): entram como recebidas na data do banco.
   _receitasCRExport.forEach(r => {
