@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v505/08-624';
+const APP_VERSION = 'v504/08-623';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8613,17 +8613,6 @@ function linkExtratoInline(id) {
   extratoLinks[id] = { pedido: unique.join(',') };
   saveData('extratoLinks', extratoLinks);
   syncExtratoToRecebimentos();
-  // AVISO: crédito conciliado a pedido/avulso SEM empresa fica orfao no fechamento (pedido da Elaine).
-  try {
-    const semEmp = [];
-    unique.forEach(pid => {
-      if (String(pid).indexOf('AV:') === 0) { const a = boletosAvulsos[parseInt(String(pid).slice(3), 10)]; if (a && !String(a.empresa || '').trim()) semEmp.push((a.cliente || 'boleto avulso') + ' (avulso)'); return; }
-      const p = pedidos.find(x => String(x.id) === String(pid));
-      const emp = p ? (p.empresa || (lojaCadastro[p.loja] && lojaCadastro[p.loja].empresa) || '') : '';
-      if (!String(emp).trim()) semEmp.push('#' + pid + (p ? (' ' + (p.nome || '')) : ' (sem pedido cadastrado)'));
-    });
-    if (semEmp.length) alert('⚠ Conciliado, mas SEM empresa:\n\n• ' + semEmp.join('\n• ') + '\n\nLembre de preencher a empresa (no pedido / cadastro), senão fica órfão no fechamento.');
-  } catch (e) {}
   renderExtrato();
 }
 
@@ -11314,8 +11303,6 @@ function cbLancarDespesa(extId, alvo) {
   const categoria = catEl ? catEl.value : '';
   const empresa = empEl ? empEl.value : '';
   if (!categoria) { alert('Escolha uma categoria.'); return; }
-  // AVISO: despesa sem empresa fica orfa no fechamento. Avisa na hora de conciliar (pedido da Elaine).
-  if (!empresa || !String(empresa).trim()) { if (!confirm('⚠ Você não escolheu a EMPRESA dessa despesa.\n\nSem empresa ela fica órfã no fechamento. Quer lançar assim mesmo?\n\nCancelar = volto pra você escolher a empresa antes.')) return; }
   const obs = (document.getElementById('cb-obs-' + extId)?.value || '').trim();
   const t = extratoBancario.find(x => x.id === extId);
   if (t && bloqueadoPorFechamento(t.data, t.banco)) return;
