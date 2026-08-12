@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v506/08-625';
+const APP_VERSION = 'v507/08-626';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3577,9 +3577,9 @@ function exportarDRE() {
   secao(treeD, totSai);
   rows.push(['SALDO FINAL EM CONTA', ...empCols.map(() => ''), r2(saldoFinal), '']);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'DRE');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Balancete');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
-  XLSX.writeFile(wb, `DRE_Fluxo_${mes}.xlsx`);
+  XLSX.writeFile(wb, `Balancete_${mes}.xlsx`);
 }
 function toggleDreGrupo(gid) {
   const arr = document.getElementById('dre-arr-'+gid);
@@ -3765,7 +3765,7 @@ function renderFluxo() {
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Fluxo de Caixa</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas <strong>pagas</strong>) do período — regime de caixa. As <strong>🔮 previstas</strong> (contas em aberto, por vencimento) aparecem à parte, pra você projetar. Use o ⚙ Filtros para escolher mês/dia.</div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
-      <div class="section-title" style="margin:0">📊 DRE — Receitas × Despesas (formato fechamento)</div>
+      <div class="section-title" style="margin:0">📊 Balancete — Receitas × Despesas por grupo (por empresa)</div>
       <button class="btn ghost sm" onclick="toggleDreTudo()">▸ Expandir subcategorias</button>
       <button class="btn ghost sm" onclick="exportarDRE()">📤 Exportar</button>
     </div>
@@ -3807,14 +3807,7 @@ function renderFluxo() {
       <div class="section-title" style="margin-top:0;color:var(--amber)">🔮 Saídas PREVISTAS por grupo (contas em aberto, por vencimento) — ${fmtVal(totSaiPrev)}</div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">${barrasFluxoHTML(saiPrev, totSaiPrev, 'var(--amber)')}</div>
     </div>` : ''}
-    <div style="display:flex;align-items:center;gap:12px;margin-top:28px;flex-wrap:wrap">
-      <div class="section-title" style="margin:0">📋 Detalhe por grupo — clique para abrir os subgrupos · valores por empresa</div>
-      <button id="dre-toggle-btn" class="btn ghost sm" onclick="toggleDreTudo()">▸ Expandir tudo</button>
-    </div>
-    <div class="section-title" style="color:var(--green);font-size:13px">⬆ Entradas</div>
-    ${dreTabelaHTML(treeR, empCols, totEnt, 'var(--green)', 'r')}
-    <div class="section-title" style="color:var(--red);font-size:13px;margin-top:18px">⬇ Saídas</div>
-    ${dreTabelaHTML(treeD, empCols, totSai, 'var(--red)', 'd')}`;
+    `;
 }
 // Remove uma receita avulsa (e libera o crédito do extrato que a originou). Re-renderiza Contas a Receber.
 function removerReceitaAvulsa(id) {
