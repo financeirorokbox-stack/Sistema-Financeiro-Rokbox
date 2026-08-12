@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v498/08-617';
+const APP_VERSION = 'v497/08-616';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4056,18 +4056,10 @@ function pagamentosDaLinha(l) {
   if (l._avulso) { const a = boletosAvulsos[l._avIdx] || {}; if (a.dataPagamento) { const v = a.valorPago != null ? a.valorPago : (a.valorTitulo || 0); out.push({ data: _dataBancoBoleto('AV:' + l._avIdx, a.dataPagamento, v), valor: v, liq: v, taxa: 0 }); } return out; }
   if (l.cat === 'Boleto Itaú') {
     const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
-    const parcelas = bPed ? getParcelas(bPed) : [];
-    // Se ALGUMA parcela tem baixa na cobrança (relatório do Itaú), o boleto é gerido pela baixa: conta por parcela.
     // Se a LINHA é de uma parcela específica (l.f.key), só conta O PAGAMENTO DELA — senão cada linha de
     // parcela somava TODAS as parcelas pagas do pedido e multiplicava (ex.: #40041 saía 3x no export).
-    const temBaixaPedido = parcelas.some(p => { const c = boletoCobrancaStatus[p.key]; return c && c.pago && c.dataPagamento; });
-    if (temBaixaPedido) {
-      parcelas.forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: _dataBancoBoleto(pedId, cob.dataPagamento, v), valor: v, liq: v, taxa: 0 }); } });
-      return out;
-    }
-    // SEM nenhuma baixa: o pedido pode ter sido pago por OUTRA forma (PIX/Braavo) ou o próprio boleto caiu como
-    // recebimento conciliado no banco (ex.: #357 quitado por 2 PIX + 1 Boleto). NÃO retorna aqui — cai no laço
-    // geral de recebimentos abaixo, que conta cada recebimento com a data do banco. Antes, sumia do Contas a Receber.
+    if (bPed) getParcelas(bPed).forEach(p => { if (l.f && l.f.key && p.key !== l.f.key) return; const cob = boletoCobrancaStatus[p.key]; if (cob && cob.pago && cob.dataPagamento) { const v = cob.valorPago != null ? cob.valorPago : p.valor; out.push({ data: _dataBancoBoleto(pedId, cob.dataPagamento, v), valor: v, liq: v, taxa: 0 }); } });
+    return out;
   }
   recebimentosConsolidado.filter(r => r.data && String(r.nped || '').split(',').map(s => s.trim()).includes(pedId)).forEach(r => {
     const valor = alocRecebGateway(r, pedId); // BRUTO alocado ao pedido
