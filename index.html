@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v508/08-627';
+const APP_VERSION = 'v509/08-628';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12792,14 +12792,19 @@ function gerarFolhaMes(soParte) {
   const [a2, m2] = mesSeg.split('-').map(Number);
   const ativos = funcionariosRH.filter(f => f.ativo !== false && (f.nome || '').trim());
   if (!ativos.length) { alert('Nenhum funcionário ativo com nome preenchido.'); return; }
-  // 1 CLIQUE: se NINGUÉM tem adiantamento preenchido ainda, calcula automático (% × salário do cadastro).
-  // Se JÁ tem algum valor (você ajustou quem está de férias / foi demitido), RESPEITA a grade e não recalcula.
-  let _adiantAuto = 0;
-  if (fazAdiant) {
+  // "Gerar adiantamento" — 1º clique: se NINGUÉM foi preenchido ainda, CALCULA (% × salário do cadastro) na grade
+  // e PARA, pra você revisar e ZERAR quem está de férias/demitido ANTES de enviar. 2º clique (já tem valores na
+  // grade): NÃO recalcula, envia ao Contas a Pagar respeitando o que você deixou.
+  if (soParte === 'adiant') {
     const algumAdiant = ativos.some(f => (+_fRow(mes, f.id).adiant || 0) > 0);
     if (!algumAdiant) {
-      ativos.forEach(f => { const r = _fRow(mes, f.id); const pct = f.adiantPct != null ? +f.adiantPct : 40; if ((+f.salario || 0) > 0 && pct > 0) { r.adiant = +(((+f.salario) * pct) / 100).toFixed(2); _adiantAuto++; } });
-      if (_adiantAuto) saveData('folhaRH', folhaRH);
+      let n = 0;
+      ativos.forEach(f => { const r = _fRow(mes, f.id); const pct = f.adiantPct != null ? +f.adiantPct : 40; if ((+f.salario || 0) > 0 && pct > 0) { r.adiant = +(((+f.salario) * pct) / 100).toFixed(2); n++; } });
+      if (n) {
+        saveData('folhaRH', folhaRH); renderRH();
+        alert(`⚡ Calculei o adiantamento (% × salário do cadastro) de ${n} funcionário(s) na grade.\n\n👉 Agora CONFIRA na grade e ZERE o adiantamento de quem está de FÉRIAS ou foi DEMITIDO.\n\nDepois clique de novo em "💵 Gerar adiantamento" para enviar ao Contas a Pagar.`);
+        return; // ainda NÃO envia — deixa você revisar as exceções primeiro
+      }
     }
   }
   const mm = String(m).padStart(2, '0') + '/' + ano;
@@ -12867,7 +12872,7 @@ function gerarFolhaMes(soParte) {
   const oQue = soParte === 'adiant' ? `Adiantamento (venc. 20/${String(m).padStart(2, '0')})`
     : soParte === 'demais' ? `Salário, DSR, Férias, VT e Extras (venc. 05/${String(m2).padStart(2, '0')})`
     : `Adiantamento (20/${String(m).padStart(2, '0')}) + Salário/DSR/Férias/VT/Extras (05/${String(m2).padStart(2, '0')})`;
-  alert(`✓ Folha ${mm} — ${oQue}\n\n${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.${recPed ? `\n${recPed} pedido(s) marcado(s) RECEBIDO(S) (Desconto em Folha).` : ''}\n\n${_adiantAuto ? `⚡ Calculei o adiantamento automático (% × salário) de ${_adiantAuto} funcionário(s). Confira na grade e ZERE o adiantamento de quem está de FÉRIAS ou foi DEMITIDO, depois clique de novo em "Gerar adiantamento".\n\n` : ''}Re-gerar ATUALIZA os valores em aberto (não duplica). ${soParte === 'adiant' ? 'Isso NÃO mexe no salário; quando gerar o salário (dia 05), o adiantamento fica intacto.' : soParte === 'demais' ? 'Isso NÃO mexe no adiantamento já gerado.' : ''}`);
+  alert(`✓ Folha ${mm} — ${oQue}\n\n${criadas} linha(s) criada(s), ${atualizadas} atualizada(s) no Contas a Pagar.${recPed ? `\n${recPed} pedido(s) marcado(s) RECEBIDO(S) (Desconto em Folha).` : ''}\n\nRe-gerar ATUALIZA os valores em aberto (não duplica). ${soParte === 'adiant' ? 'Isso NÃO mexe no salário; quando gerar o salário (dia 05), o adiantamento fica intacto.' : soParte === 'demais' ? 'Isso NÃO mexe no adiantamento já gerado.' : ''}`);
 }
 function desfazerFolhaMes() {
   const mes = document.getElementById('rh-mes')?.value; if (!mes) return;
