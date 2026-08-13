@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v518/08-637';
+const APP_VERSION = 'v517/08-636';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10202,47 +10202,6 @@ function _healConciliacaoLinks() {
   if (migrados || removidos) { saveData('debitoLinks', debitoLinks); saveData('repasseLinks', repasseLinks); }
   return { migrados, removidos };
 }
-// Re-concilia as TARIFAS por DATA. Toda tarifa é R$1 igualzinha, então o vínculo por VALOR gruda a conta no débito
-// de OUTRO dia; o débito do dia certo fica sem par e a trava acusa (mesmo com a conta existindo e paga). Aqui casa
-// cada conta de tarifa com o débito do MESMO dia. NÃO apaga conta nenhuma — só refaz o vínculo. Sobra de conta =
-// duplicata (pra cancelar na mão); sobra de débito = falta lançar. Retorna relatório por dia.
-function _reconciliarTarifasPorData() {
-  const isTarDeb = t => (t.valor || 0) < 0 && Math.abs(Math.abs(t.valor || 0) - 1) < 0.01 && /tarifa banc\w* transf/i.test(t.memo || '');
-  const isTarConta = c => !c.cancelado && Math.abs((c.valor || 0) - 1) < 0.01 && /tarifa banc\w* transf/i.test((c.descricao || '') + ' ' + (c.fornecedor || ''));
-  const diaDeb = t => t.data instanceof Date ? t.data.toISOString().slice(0, 10) : String(t.data || '').slice(0, 10);
-  const diaConta = c => { const d = c.vencimento || c.dataPag; return d instanceof Date ? d.toISOString().slice(0, 10) : String(d || '').slice(0, 10); };
-  const debs = extratoBancario.filter(isTarDeb);
-  const contas = contasPagar.filter(isTarConta);
-  if (!debs.length && !contas.length) return { vinculados: 0, sobraContas: [], sobraDebitos: [], mismatches: [] };
-  // 1) tira TODOS os vínculos das contas de tarifa (reconstrói limpo por data)
-  const tarChaves = new Set(contas.map(chaveContaPagar));
-  Object.keys(debitoLinks).forEach(extId => {
-    const itens = debLinkItens(debitoLinks[extId]).filter(it => !tarChaves.has(it.chave));
-    if (!itens.length) delete debitoLinks[extId];
-    else debitoLinks[extId] = { itens, total: itens.reduce((s, i) => s + (+i.valor || 0), 0) };
-  });
-  // 2) agrupa cada lado por dia
-  const debPorDia = {}, contaPorDia = {};
-  debs.forEach(t => (debPorDia[diaDeb(t)] = debPorDia[diaDeb(t)] || []).push(t));
-  contas.forEach(c => (contaPorDia[diaConta(c)] = contaPorDia[diaConta(c)] || []).push(c));
-  // 3) casa cada conta com um débito do MESMO dia
-  let vinculados = 0; const sobraContas = [], sobraDebitos = [], mismatches = [];
-  const dias = Array.from(new Set([...Object.keys(debPorDia), ...Object.keys(contaPorDia)])).sort();
-  dias.forEach(dia => {
-    const ds = debPorDia[dia] || [], cs = contaPorDia[dia] || [];
-    const n = Math.min(ds.length, cs.length);
-    for (let i = 0; i < n; i++) {
-      const c = cs[i];
-      debitoLinks[ds[i].id] = { itens: [{ chave: chaveContaPagar(c), fornecedor: c.fornecedor || 'TARIFAS', valor: +(c.valor || 1) }], total: +(c.valor || 1) };
-      vinculados++;
-    }
-    for (let i = n; i < cs.length; i++) sobraContas.push(cs[i]);   // conta sem débito = provável duplicata
-    for (let i = n; i < ds.length; i++) sobraDebitos.push(ds[i]);  // débito sem conta = falta lançar
-    if (ds.length !== cs.length) mismatches.push({ dia, debitos: ds.length, contas: cs.length });
-  });
-  saveData('debitoLinks', debitoLinks);
-  return { vinculados, sobraContas, sobraDebitos, mismatches };
-}
 // TRAVA AUTOMÁTICA (Parte 4): toda vez que abrir a Conciliação (ou exportar), avisa o que NÃO está conciliado —
 // que é o que faz o CR/CP não bater com o banco. Crédito sem pedido/repasse = o CR não vai ter; débito sem conta
 // a pagar = o CP não vai ter. Se tudo estiver conciliado no período, mostra ✅. Reusa os mesmos vínculos do banco.
@@ -10386,8 +10345,7 @@ function renderBanco() {
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
         <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
         <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
-        <button class="btn ghost sm" onclick="const h=_healConciliacaoLinks();renderBanco();alert(h.migrados||h.removidos?('🔧 Reparei os vínculos: '+h.migrados+' re-amarrado(s) ao lançamento certo'+(h.removidos?', '+h.removidos+' vínculo(s) morto(s) removido(s)':'')+'.\\n\\nSe alguma conciliação tinha se perdido no re-upload do extrato, ela volta agora.'):'✓ Nenhum vínculo órfão — todos os vínculos apontam pra lançamentos que existem.')" title="Re-amarra vínculos que se perderam quando o extrato foi re-importado (o id do FITID do Itaú muda a cada download)">🔧 Reparar vínculos</button>
-        <button class="btn ghost sm" onclick="const r=_reconciliarTarifasPorData();renderBanco();var msg=r.vinculados+' tarifa(s) re-amarrada(s) ao débito do MESMO dia.';if(r.mismatches&&r.mismatches.length){msg+='\\n\\nDias que NÃO batem:\\n'+r.mismatches.map(function(m){return '• '+m.dia.split('-').reverse().join('/')+': '+m.debitos+' débito(s) x '+m.contas+' conta(s)';}).join('\\n');}if(r.sobraContas&&r.sobraContas.length){msg+='\\n\\n⚠ '+r.sobraContas.length+' conta(s) de tarifa SOBRANDO (duplicata) — cancele no Contas a Pagar.';}if(r.sobraDebitos&&r.sobraDebitos.length){msg+='\\n\\n⚠ '+r.sobraDebitos.length+' débito(s) de tarifa SEM conta — falta lançar.';}if(!r.vinculados&&!(r.mismatches||[]).length){msg='✓ Tarifas já estão casadas por data — nada a ajustar.';}alert(msg);" title="Casa cada conta de tarifa (R$1) com o débito do MESMO dia. Conserta o vínculo grudado no dia errado; mostra os dias que não batem">🎯 Re-conciliar tarifas por data</button>`,
+        <button class="btn ghost sm" onclick="const h=_healConciliacaoLinks();renderBanco();alert(h.migrados||h.removidos?('🔧 Reparei os vínculos: '+h.migrados+' re-amarrado(s) ao lançamento certo'+(h.removidos?', '+h.removidos+' vínculo(s) morto(s) removido(s)':'')+'.\\n\\nSe alguma conciliação tinha se perdido no re-upload do extrato, ela volta agora.'):'✓ Nenhum vínculo órfão — todos os vínculos apontam pra lançamentos que existem.')" title="Re-amarra vínculos que se perderam quando o extrato foi re-importado (o id do FITID do Itaú muda a cada download)">🔧 Reparar vínculos</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Pesquisar histórico', `<input type="text" id="cb-q" value="${(buscaPersist.banco||'').replace(/"/g,'&quot;')}" placeholder="Ex.: cartão, fornecedor, valor..." oninput="buscaPersist.banco=this.value;debounceRender('renderBanco')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
