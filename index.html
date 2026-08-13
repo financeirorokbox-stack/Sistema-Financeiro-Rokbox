@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v512/08-631';
+const APP_VERSION = 'v513/08-632';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7149,7 +7149,7 @@ function renderCobranca() {
       // pedido/telefone/obs/valor, remover). Respeita os filtros (Status/Empresa/Busca). Substitui as 3 listas antigas.
       const _st = (venc, pago) => pago ? ['Pago', 'ok'] : (venc && new Date(venc) < today ? ['Atrasado', 'err'] : ['A Vencer', 'warn']);
       const _esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
-      const _sis = emitidos.map(b => ({ t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pc: `${b.parcela}/${b.totalParcelas}`, pago: !!boletoCobrancaStatus[b.key]?.pago, dpag: boletoCobrancaStatus[b.key]?.dataPagamento, emp: empresaDoPed(b.pedido) || '', avis: boletoAvisado[b.pedido] }));
+      const _sis = emitidos.map(b => { const _c = _boletoCobPago(b); return { t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pc: `${b.parcela}/${b.totalParcelas}`, pago: !!(_c && _c.pago), dpag: _c && _c.dataPagamento, emp: empresaDoPed(b.pedido) || '', avis: boletoAvisado[b.pedido] }; });
       const _av = boletosAvulsos.map((a, i) => ({ a, i })).filter(x => !x.a._acordoId).map(x => ({ t: 'av', a: x.a, ped: x.a.pedido || '', cli: x.a.cliente || '—', val: ((x.a.valorPago != null && x.a.valorPago > 0) ? x.a.valorPago : (x.a.valorTitulo || 0)), venc: x.a.vencimento, idx: x.i, cod: x.a._acordoCod, pago: !!x.a.dataPagamento, dpag: x.a.dataPagamento, emp: x.a.empresa || '' }));
       let _all = [..._sis, ..._av];
       if (fSt === 'pago') _all = _all.filter(r => r.pago);
