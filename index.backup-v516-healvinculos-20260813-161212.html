@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v517/08-636';
+const APP_VERSION = 'v516/08-635';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8633,7 +8633,6 @@ function renderExtrato() {
         add++;
       });
       saveData('extratoBancario', extratoBancario);
-      _healConciliacaoLinks(); // RE-AMARRA vínculos órfãos (ids do FITID mudam no re-upload) — antes se perdiam sozinhos
       syncExtratoToRecebimentos();
       // AUTOMÁTICO: já concilia o que bate com segurança (débitos com Conta a Pagar de valor único + repasses exatos).
       const auto = autoConciliarAposUpload(banco);
@@ -10179,29 +10178,6 @@ function conferenciaPeriodoHTML() {
     <div style="font-size:11px;color:var(--muted);margin-top:6px">Como o estorno vai pro Contas a Pagar, ele incha o Recebido e o Pago na MESMA medida — por isso cada lado sozinho não bate, mas o <strong>movimento líquido</strong> sim. Se o líquido não bater, aí é diferença de verdade (estorno pelo bruto, crédito/débito não lançado, extrato faltando). Recebido = mesma conta do export (filtre o mesmo período na aba Contas a Receber).</div>
   </div>`;
 }
-// REPARA VÍNCULOS ÓRFÃOS: quando o extrato é re-importado, o id do lançamento (FITID do Itaú é POSICIONAL, muda a
-// cada download) troca, e os vínculos (débito↔conta a pagar, repasse↔crédito) ficam presos a ids que não existem
-// mais → a conciliação "se perde sozinha". Isto re-amarra cada vínculo órfão a um lançamento ATUAL do MESMO VALOR
-// que está sem vínculo. GUARD: nunca roda com o extrato vazio (senão apagaria tudo). Só mexe em vínculo órfão.
-function _healConciliacaoLinks() {
-  if (!extratoBancario || !extratoBancario.length) return { migrados: 0, removidos: 0 };
-  const idsAtuais = new Set(extratoBancario.map(t => String(t.id)));
-  let migrados = 0, removidos = 0;
-  const reparar = (mapa, sinal, evitaExtLink) => {
-    Object.keys(mapa).forEach(oldId => {
-      if (idsAtuais.has(oldId)) return; // vínculo aponta pra um id que EXISTE → ok, não mexe
-      const link = mapa[oldId];
-      const val = Math.abs(+(link.total || (link.itens ? link.itens.reduce((s, i) => s + (+i.valor || 0), 0) : 0) || 0));
-      const alvo = val > 0.005 ? extratoBancario.find(t => (sinal > 0 ? (t.valor || 0) > 0 : (t.valor || 0) < 0) && !mapa[t.id] && (!evitaExtLink || !extratoLinks[t.id]) && Math.abs(Math.abs(t.valor) - val) <= 0.02) : null;
-      delete mapa[oldId];                 // tira o vínculo morto (aponta pra id que não existe)
-      if (alvo) { mapa[alvo.id] = link; migrados++; } else removidos++;
-    });
-  };
-  reparar(debitoLinks, -1, false);        // débito ↔ conta a pagar
-  reparar(repasseLinks, +1, true);        // repasse (operadora) ↔ crédito
-  if (migrados || removidos) { saveData('debitoLinks', debitoLinks); saveData('repasseLinks', repasseLinks); }
-  return { migrados, removidos };
-}
 // TRAVA AUTOMÁTICA (Parte 4): toda vez que abrir a Conciliação (ou exportar), avisa o que NÃO está conciliado —
 // que é o que faz o CR/CP não bater com o banco. Crédito sem pedido/repasse = o CR não vai ter; débito sem conta
 // a pagar = o CP não vai ter. Se tudo estiver conciliado no período, mostra ✅. Reusa os mesmos vínculos do banco.
@@ -10344,8 +10320,7 @@ function renderBanco() {
       acoes: `<button class="btn primary sm" onclick="cbAutoDebitos()" title="Concilia débitos que batem com exatamente uma Conta a Pagar pelo valor">⚡ Débitos automáticos</button>
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
         <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
-        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
-        <button class="btn ghost sm" onclick="const h=_healConciliacaoLinks();renderBanco();alert(h.migrados||h.removidos?('🔧 Reparei os vínculos: '+h.migrados+' re-amarrado(s) ao lançamento certo'+(h.removidos?', '+h.removidos+' vínculo(s) morto(s) removido(s)':'')+'.\\n\\nSe alguma conciliação tinha se perdido no re-upload do extrato, ela volta agora.'):'✓ Nenhum vínculo órfão — todos os vínculos apontam pra lançamentos que existem.')" title="Re-amarra vínculos que se perderam quando o extrato foi re-importado (o id do FITID do Itaú muda a cada download)">🔧 Reparar vínculos</button>`,
+        <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Pesquisar histórico', `<input type="text" id="cb-q" value="${(buscaPersist.banco||'').replace(/"/g,'&quot;')}" placeholder="Ex.: cartão, fornecedor, valor..." oninput="buscaPersist.banco=this.value;debounceRender('renderBanco')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
