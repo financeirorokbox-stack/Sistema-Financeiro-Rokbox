@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v515/08-634';
+const APP_VERSION = 'v516/08-635';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10183,13 +10183,13 @@ function conferenciaPeriodoHTML() {
 // a pagar = o CP não vai ter. Se tudo estiver conciliado no período, mostra ✅. Reusa os mesmos vínculos do banco.
 function _travaConciliacao(visT) {
   const conc = t => (t.valor || 0) >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
-  // Contas a Pagar LIVRES (não canceladas, não vinculadas a nenhum débito): pra saber se a despesa JÁ existe no CP.
-  const _linkCh = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => _linkCh.add(it.chave)));
-  const contaLivreIgual = v => contasPagar.some(c => !c.cancelado && !_linkCh.has(chaveContaPagar(c)) && Math.abs((c.valor || 0) - v) <= 0.02);
+  // "Já existe no CP" = QUALQUER conta não cancelada com o mesmo valor (vinculada OU não). Se existe, NÃO lançar
+  // de novo (senão duplica), mesmo que o vínculo tenha se perdido (ex.: re-importou o extrato e os ids mudaram).
+  const _existeConta = v => contasPagar.some(c => !c.cancelado && Math.abs((c.valor || 0) - v) <= 0.02);
   const credNC = visT.filter(t => (t.valor || 0) > 0 && !conc(t));
   const debNC = visT.filter(t => (t.valor || 0) < 0 && !conc(t));
-  const debVincular = debNC.filter(t => contaLivreIgual(Math.abs(t.valor))); // a conta JÁ existe no CP → falta só VINCULAR
-  const debLancar = debNC.filter(t => !contaLivreIgual(Math.abs(t.valor)));  // não existe no CP → LANÇAR despesa
+  const debVincular = debNC.filter(t => _existeConta(Math.abs(t.valor))); // a despesa JÁ existe no CP → só VINCULAR (não lançar)
+  const debLancar = debNC.filter(t => !_existeConta(Math.abs(t.valor)));  // não existe no CP → LANÇAR despesa
   const sCred = credNC.reduce((s, t) => s + t.valor, 0);
   const sDeb = debNC.reduce((s, t) => s + Math.abs(t.valor), 0);
   return { credNC, debNC, debVincular, debLancar, sCred, sDeb, ok: !credNC.length && !debNC.length };
