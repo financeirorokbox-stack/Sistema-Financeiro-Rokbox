@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v519/08-638';
+const APP_VERSION = 'v518/08-637';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2809,7 +2809,6 @@ function _renderContasImpl(el) {
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosContas()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
       <button class="btn ghost sm" onclick="exportarModeloCR()" title="Exporta o Contas a Receber (o que está filtrado) para Excel. Recebido = LÍQUIDO, com coluna Liquidação (data do banco). Filtre 'Data por: Liquidação' + o mês para bater com os Créditos da Conciliação.">📤 Exportar</button>
-      <button class="btn ghost sm" onclick="_syncPowerBI().then(function(r){alert('☁ Power BI atualizado!\\n\\nCR: '+r.cr+' linhas · CP: '+r.cp+' linhas gravadas no banco.\\n\\nAgora o Power BI já lê os números que batem com a Conciliação Bancária.');}).catch(function(e){alert('Não consegui atualizar o Power BI: '+e.message);});" title="Grava no Supabase o CR e o CP já calculados (todos os meses), pra as views do Power BI baterem com a Conciliação Bancária ao centavo. Não altera nada do sistema.">☁ Atualizar Power BI</button>
       <button class="btn ghost sm" onclick="reprocessarTudo()" title="Recalcula conciliação e contas a receber com os dados atuais; remove pareamentos antigos">🔄 Atualizar tudo</button>
     </div>
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
@@ -4135,10 +4134,9 @@ function pagamentosDaLinha(l) {
   });
   return out;
 }
-// Monta as linhas (AOA, com cabeçalho) do Contas a Receber. semFiltro=true ignora o filtro de data da tela
-// (traz TODOS os meses) — usado pra sincronizar o Power BI. Mesma lógica da exportação → mesmos números.
-function _crRowsAOA(semFiltro) {
-  const _dfOn = semFiltro ? false : dfAtivo(); const _porLiq = _linhasCRDataPor === 'liquidacao'; // filtra por PAGAMENTO respeitando o tipo
+function exportarModeloCR() {
+  if (!_linhasCRExport.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
+  const _dfOn = dfAtivo(); const _porLiq = _linhasCRDataPor === 'liquidacao'; // filtra por PAGAMENTO respeitando o tipo
   const headers = ['Liquidação','Data de vencimento','Número','Nome','Situação','Competência','Valor','Acréscimo','Juros','Desconto','Recebido','Taxa aliquota','Taxa fixa','Descrição','Observações','Categoria','Mês_Despesa','Mês_Liquidado','Valor','Data FCX','Empresa'];
   const _ma = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   // Datas AO MEIO-DIA local, senão o SheetJS converte pra UTC e "volta 1 dia" no Excel (mostrava 31/05 no lugar de 01/06).
@@ -4256,47 +4254,12 @@ function _crRowsAOA(semFiltro) {
     const nome = r.categoria || r.descricao || 'Receita';
     rows.push([_noon(d), _noon(d), '', nome, 'Pago', comp, v, 0, 0, 0, v, 0, 0, r.descricao || r.categoria || '', 'Receita avulsa (conciliação bancária)', r.categoria || '', _ma(d), _ma(d), v, _noon(d), r.empresa || '']);
   });
-  return rows;
-}
-function exportarModeloCR() {
-  if (!_linhasCRExport.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
-  const rows = _crRowsAOA(false);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Contas_a_Receber_${mes}.xlsx`);
   // TRAVA (Parte 4): avisa se há lançamento do banco NÃO conciliado no período (o CR/CP não vai bater por causa deles).
-  const _dfOn = dfAtivo();
   try { const _visB = extratoBancario.filter(t => !_dfOn || passaData(t.data)); const _tv = _travaConciliacao(_visB); if (!_tv.ok) alert(`⚠ Exportei, mas ATENÇÃO: no período há ${_tv.credNC.length} crédito(s) (${fmtVal(_tv.sCred)}) e ${_tv.debNC.length} débito(s) (${fmtVal(_tv.sDeb)}) do banco NÃO conciliados — vão dar diferença no CR/CP × Conciliação Bancária. Vincule na aba Extrato.`); } catch (e) {}
-  try { _syncPowerBI(); } catch (e) {}
-}
-// POWER BI: grava no Supabase o CR e o CP JÁ CALCULADOS (mesma lógica das telas/exportação), pra as views baterem
-// com a Conciliação Bancária ao centavo. É ADITIVO: cria as chaves flatCR/flatCP, não altera nada existente.
-// Roda ao exportar o CR e pelo botão "☁ Atualizar Power BI". O CP sai com a data de liquidação = data do DÉBITO no banco.
-async function _syncPowerBI() {
-  const dISO = v => { const d = v instanceof Date ? v : (v ? new Date(v) : null); return (d && !isNaN(d)) ? (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) : null; };
-  // CR: reusa EXATAMENTE as linhas da exportação, sem filtro de data (todos os meses). Colunas por índice do cabeçalho.
-  const aoa = _crRowsAOA(true);
-  const crFlat = aoa.slice(1).map(r => ({
-    data_liquidacao: dISO(r[0]), vencimento: dISO(r[1]), pedido: r[2] || null, cliente: r[3] || '',
-    situacao: r[4] || '', competencia: r[5] || '', valor_bruto: +(+r[6] || 0).toFixed(2),
-    recebido_liquido: +(+r[10] || 0).toFixed(2), taxa: +(+r[12] || 0).toFixed(2), descricao: r[13] || '',
-    canal_pagamento: r[15] || '', empresa: r[20] || ''
-  }));
-  // CP: todas as contas, com data_liquidacao = data do débito no banco (dataLiquidacaoConta) → bate com a Conciliação.
-  const cpFlat = contasPagar.map(c => {
-    const canc = (c.situacao === 'Cancelado') || !!c.cancelado;
-    return {
-      uid: c._uid || null, numero: c.numero || null, fornecedor: c.fornecedor || '', descricao: c.descricao || '',
-      categoria: c.categoria || '', empresa: c.empresa || '', valor: +(+c.valor || 0).toFixed(2),
-      vencimento: dISO(c.vencimento), data_pagamento: dISO(c.dataPag), data_liquidacao: dISO(dataLiquidacaoConta(c)),
-      situacao: c.situacao || '', pago: !!c.pago, cancelado: canc,
-      status: canc ? 'Cancelado' : (c.pago ? 'Liquidado' : 'Em aberto')
-    };
-  });
-  await saveData('flatCR', crFlat);
-  await saveData('flatCP', cpFlat);
-  return { cr: crFlat.length, cp: cpFlat.length };
 }
 // Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
 // (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
