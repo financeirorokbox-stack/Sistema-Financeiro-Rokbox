@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v520/08-639';
+const APP_VERSION = 'v521/08-640';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4275,12 +4275,11 @@ function exportarModeloCR() {
 // Roda ao exportar o CR e pelo botão "☁ Atualizar Power BI". O CP sai com a data de liquidação = data do DÉBITO no banco.
 async function _syncPowerBI() {
   const dISO = v => { const d = v instanceof Date ? v : (v ? new Date(v) : null); return (d && !isNaN(d)) ? (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) : null; };
-  // CR: reusa EXATAMENTE a lógica da exportação, mas com a lista COMPLETA (_linhasCR, SEM os filtros da tela) e
-  // TODAS as receitas avulsas — senão, se a tela tivesse um filtro ligado, faltariam linhas. Restaura no fim.
-  const _bkL = _linhasCRExport, _bkR = _receitasCRExport;
-  _linhasCRExport = (typeof _linhasCR !== 'undefined' && _linhasCR && _linhasCR.length) ? _linhasCR : _linhasCRExport;
-  _receitasCRExport = Array.isArray(receitasAvulsas) ? receitasAvulsas.slice() : _receitasCRExport;
-  let aoa; try { aoa = _crRowsAOA(true); } finally { _linhasCRExport = _bkL; _receitasCRExport = _bkR; }
+  // CR: reconstrói a lista do ZERO num elemento SOLTO (fora da tela). Assim independe do que está renderizado agora
+  // e de qualquer filtro (num div solto os querySelector de filtro dão null → _linhasCRExport nasce COMPLETO, sem
+  // filtro). Não mexe na tela que a usuária está vendo. Depois monta as linhas com a mesma lógica da exportação.
+  try { _renderContasImpl(document.createElement('div')); } catch (e) {}
+  const aoa = _crRowsAOA(true);
   const crFlat = aoa.slice(1).map(r => ({
     data_liquidacao: dISO(r[0]), vencimento: dISO(r[1]), pedido: r[2] || null, cliente: r[3] || '',
     situacao: r[4] || '', competencia: r[5] || '', valor_bruto: +(+r[6] || 0).toFixed(2),
