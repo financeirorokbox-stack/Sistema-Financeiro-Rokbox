@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v514/08-633';
+const APP_VERSION = 'v513/08-632';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4258,8 +4258,6 @@ function exportarModeloCR() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Contas a Receber');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Contas_a_Receber_${mes}.xlsx`);
-  // TRAVA (Parte 4): avisa se há lançamento do banco NÃO conciliado no período (o CR/CP não vai bater por causa deles).
-  try { const _visB = extratoBancario.filter(t => !_dfOn || passaData(t.data)); const _tv = _travaConciliacao(_visB); if (!_tv.ok) alert(`⚠ Exportei, mas ATENÇÃO: no período há ${_tv.credNC.length} crédito(s) (${fmtVal(_tv.sCred)}) e ${_tv.debNC.length} débito(s) (${fmtVal(_tv.sDeb)}) do banco NÃO conciliados — vão dar diferença no CR/CP × Conciliação Bancária. Vincule na aba Extrato.`); } catch (e) {}
 }
 // Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
 // (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
@@ -4448,8 +4446,6 @@ function exportarConciliacaoBancaria() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsD), 'Débitos');
   const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
   XLSX.writeFile(wb, `Conciliacao_Bancaria_${mes}.xlsx`);
-  // TRAVA (Parte 4): confirma se bate ou avisa o que falta conciliar.
-  try { const _tv = _travaConciliacao(vis); alert(_tv.ok ? '✅ CR/CP bate com a Conciliação Bancária — sem divergências no período (tudo conciliado).' : `⚠ Exportei, mas ATENÇÃO: ${_tv.credNC.length} crédito(s) (${fmtVal(_tv.sCred)}) e ${_tv.debNC.length} débito(s) (${fmtVal(_tv.sDeb)}) NÃO conciliados no período — vão dar diferença no fechamento. Vincule na aba Extrato.`); } catch (e) {}
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -10178,28 +10174,6 @@ function conferenciaPeriodoHTML() {
     <div style="font-size:11px;color:var(--muted);margin-top:6px">Como o estorno vai pro Contas a Pagar, ele incha o Recebido e o Pago na MESMA medida — por isso cada lado sozinho não bate, mas o <strong>movimento líquido</strong> sim. Se o líquido não bater, aí é diferença de verdade (estorno pelo bruto, crédito/débito não lançado, extrato faltando). Recebido = mesma conta do export (filtre o mesmo período na aba Contas a Receber).</div>
   </div>`;
 }
-// TRAVA AUTOMÁTICA (Parte 4): toda vez que abrir a Conciliação (ou exportar), avisa o que NÃO está conciliado —
-// que é o que faz o CR/CP não bater com o banco. Crédito sem pedido/repasse = o CR não vai ter; débito sem conta
-// a pagar = o CP não vai ter. Se tudo estiver conciliado no período, mostra ✅. Reusa os mesmos vínculos do banco.
-function _travaConciliacao(visT) {
-  const conc = t => (t.valor || 0) >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
-  const credNC = visT.filter(t => (t.valor || 0) > 0 && !conc(t));
-  const debNC = visT.filter(t => (t.valor || 0) < 0 && !conc(t));
-  const sCred = credNC.reduce((s, t) => s + t.valor, 0);
-  const sDeb = debNC.reduce((s, t) => s + Math.abs(t.valor), 0);
-  return { credNC, debNC, sCred, sDeb, ok: !credNC.length && !debNC.length };
-}
-function _travaConciliacaoHTML(visT) {
-  const tv = _travaConciliacao(visT);
-  if (tv.ok) return `<div style="background:#eafaf0;border:1px solid #bfe6cf;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1b7a3d;font-weight:700">✅ CR/CP bate com a Conciliação Bancária — sem divergências no período. Todos os lançamentos do banco estão conciliados.</div>`;
-  const _li = arr => arr.slice(0, 8).map(t => `<li>${fmtDate(t.data)} · <strong>${fmtVal(Math.abs(t.valor))}</strong> · ${(t.memo || '').replace(/</g, '&lt;').slice(0, 45)}</li>`).join('');
-  return `<div style="background:#fff4f4;border:1px solid #f0c9c9;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px">
-    <div style="font-weight:800;color:var(--red);margin-bottom:6px">⚠ Faltam conciliar — isso vai dar diferença no fechamento (CR/CP × banco): ${fmtVal(tv.sCred + tv.sDeb)}</div>
-    ${tv.credNC.length ? `<div style="margin-bottom:4px"><strong>${tv.credNC.length} crédito(s) sem pedido/repasse = ${fmtVal(tv.sCred)}</strong> (o CR não vai ter esses):<ul style="margin:4px 0 0 18px;padding:0">${_li(tv.credNC)}${tv.credNC.length > 8 ? `<li>… e mais ${tv.credNC.length - 8}</li>` : ''}</ul></div>` : ''}
-    ${tv.debNC.length ? `<div><strong>${tv.debNC.length} débito(s) sem conta a pagar = ${fmtVal(tv.sDeb)}</strong> (o CP não vai ter esses):<ul style="margin:4px 0 0 18px;padding:0">${_li(tv.debNC)}${tv.debNC.length > 8 ? `<li>… e mais ${tv.debNC.length - 8}</li>` : ''}</ul></div>` : ''}
-    <div style="font-size:11px;color:var(--muted);margin-top:6px">Vincule cada um (na aba Extrato) pra o fechamento fechar. Quando tudo estiver conciliado, aqui vira ✅.</div>
-  </div>`;
-}
 function renderBanco() {
   setDateFilterRender(renderBanco); // troca para o filtro de data desta aba ANTES de usar passaData
   const el = document.getElementById('v-banco');
@@ -10327,7 +10301,6 @@ function renderBanco() {
       <div class="card ${entradas-saidas>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(entradas-saidas)}</div></div>
       <div class="card ${pendentes?'amber':'dark'}"><div class="c-label">Pendentes</div><div class="c-val">${pendentes}</div></div>
     </div>
-    ${_travaConciliacaoHTML(visT)}
     ${(bancoSel && bancoSel !== '__todos' && bancoSel !== '__sem')
         ? saldoBancoHTML(bancoSel)
         : (bancoSel === '__sem'
