@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v510/08-629';
+const APP_VERSION = 'v511/08-630';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7144,25 +7144,35 @@ function renderCobranca() {
       <div class="card amber"><div class="c-label">A Vencer</div><div class="c-val">${aVencer.length}</div><div class="c-sub">${fmtVal(aVencer.reduce((s,b)=>s+b.valor,0))}</div></div>
     </div>
     ${(() => {
-      // PAINEL UNIFICADO: boletos do SISTEMA + FORA DO SISTEMA (avulsos), NÃO pagos, juntos e ordenados por vencimento
-      // (o que vence primeiro no topo). Pra você não precisar olhar em dois lugares e não perder vencimento.
-      const _sis = emitidos.filter(b => !boletoCobrancaStatus[b.key]?.pago).map(b => ({ t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pc: `${b.parcela}/${b.totalParcelas}` }));
-      const _av = boletosAvulsos.map((a, i) => ({ a, i })).filter(x => !x.a.dataPagamento && !x.a._acordoId).map(x => ({ t: 'av', ped: x.a.pedido || '', cli: x.a.cliente || '—', val: x.a.valorTitulo || 0, venc: x.a.vencimento, idx: x.i, cod: x.a._acordoCod }));
+      // PAINEL UNIFICADO: boletos do SISTEMA + FORA DO SISTEMA (avulsos), juntos e ordenados por vencimento (o que
+      // vence primeiro no topo), com STATUS (Pago/Atrasado/A Vencer). Respeita os filtros (Status/Empresa/Busca).
+      const _st = (venc, pago) => pago ? ['Pago', 'ok'] : (venc && new Date(venc) < today ? ['Atrasado', 'err'] : ['A Vencer', 'warn']);
+      const _sis = emitidos.map(b => ({ t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pc: `${b.parcela}/${b.totalParcelas}`, pago: !!boletoCobrancaStatus[b.key]?.pago, emp: empresaDoPed(b.pedido) || '' }));
+      const _av = boletosAvulsos.map((a, i) => ({ a, i })).filter(x => !x.a._acordoId).map(x => ({ t: 'av', ped: x.a.pedido || '', cli: x.a.cliente || '—', val: ((x.a.valorPago != null && x.a.valorPago > 0) ? x.a.valorPago : (x.a.valorTitulo || 0)), venc: x.a.vencimento, idx: x.i, cod: x.a._acordoCod, pago: !!x.a.dataPagamento, emp: x.a.empresa || '' }));
       let _all = [..._sis, ..._av];
+      if (fSt === 'pago') _all = _all.filter(r => r.pago);
+      else if (fSt === 'atrasado') _all = _all.filter(r => !r.pago && r.venc && new Date(r.venc) < today);
+      else if (fSt === 'avencer') _all = _all.filter(r => !r.pago && (!r.venc || new Date(r.venc) >= today));
+      if (fEmp) _all = _all.filter(r => r.emp === fEmp);
       if (fQ) _all = _all.filter(r => `${r.ped} ${r.cli} ${(r.val || 0).toFixed(2)} ${r.venc ? fmtDate(r.venc) : ''}`.toLowerCase().includes(fQ));
       _all.sort((a, b) => (a.venc ? new Date(a.venc).getTime() : 8.64e15) - (b.venc ? new Date(b.venc).getTime() : 8.64e15));
       if (!_all.length) return '';
-      const _tot = _all.reduce((s, r) => s + (r.val || 0), 0);
+      const _totAb = _all.filter(r => !r.pago).reduce((s, r) => s + (r.val || 0), 0);
       const open = _cobTodosAberto || !!fQ;
       return `<div style="margin:4px 0 14px">
-        <button class="btn ghost sm" style="font-size:12px;font-weight:700" onclick="_cobTodosAberto=!_cobTodosAberto;renderCobranca()">📅 Todos os vencimentos a receber — sistema + fora do sistema (${_all.length}) ${open ? '▾' : '▸'}</button>
-        <span style="font-size:11px;color:var(--muted);margin-left:6px">Total <strong>${fmtVal(_tot)}</strong> · <strong style="color:var(--amber)">em negrito</strong> vence em 5 dias ou menos</span>
-        ${open ? `<div class="table-wrap" style="margin-top:6px"><table><thead><tr><th>Vencimento</th><th>Cliente</th><th>Pedido</th><th>Origem</th><th style="text-align:right">Valor</th><th>Cobrar</th></tr></thead><tbody>
+        <button class="btn ghost sm" style="font-size:12px;font-weight:700" onclick="_cobTodosAberto=!_cobTodosAberto;renderCobranca()">📅 Todos os boletos por vencimento — sistema + fora do sistema (${_all.length}) ${open ? '▾' : '▸'}</button>
+        <span style="font-size:11px;color:var(--muted);margin-left:6px">A receber <strong>${fmtVal(_totAb)}</strong> · <strong style="color:var(--amber)">negrito</strong> vence em 5 dias</span>
+        ${open ? `<div class="table-wrap" style="margin-top:6px"><table><thead><tr><th style="width:28px"></th><th>Vencimento</th><th>Cliente</th><th>Pedido</th><th>Origem</th><th style="text-align:right">Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>
         ${_all.map(r => {
-          const atras = r.venc && new Date(r.venc) < today;
+          const st = _st(r.venc, r.pago);
+          const atras = !r.pago && r.venc && new Date(r.venc) < today;
+          const sel = (r.t === 'sis' && _cobSisSel.has(r.key)) || (r.t === 'av' && _cobAvSel.has(r.idx));
+          const chk = r.pago ? '' : (r.t === 'sis' ? `<input type="checkbox" style="width:15px;height:15px;cursor:pointer" ${_cobSisSel.has(r.key) ? 'checked' : ''} title="Marcar p/ cobrar junto ou fazer acordo" onchange="toggleCobSisSel('${r.key}',this.checked)">` : `<input type="checkbox" style="width:15px;height:15px;cursor:pointer" ${_cobAvSel.has(r.idx) ? 'checked' : ''} title="Marcar p/ cobrar junto ou fazer acordo" onchange="toggleCobAvSel(${r.idx},this.checked)">`);
           const origem = r.t === 'sis' ? '<span class="badge info" style="font-size:10px">sistema</span>' : `<span class="badge" style="font-size:10px;background:#fde9c8;color:#8a5a00">fora${r.cod ? ' 🤝' + r.cod : ''}</span>`;
-          const cob = r.t === 'sis' ? `cobrarBoletoWpp('${r.ped}','${r.key}')` : `cobrarAvulsoWpp(${r.idx})`;
-          return `<tr${atras ? ' style="background:#fff4f4"' : ''}><td>${r.venc ? _vencCobHTML(r.venc) : '—'}</td><td>${r.cli}</td><td>${r.ped ? ('#' + r.ped) : (r.pc || '—')}</td><td>${origem}</td><td style="text-align:right">${fmtVal(r.val)}</td><td><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="${cob}">📱 Cobrar</button></td></tr>`;
+          const acoes = r.pago ? '<span style="color:var(--muted);font-size:11px">—</span>'
+            : (r.t === 'sis' ? `<button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${r.ped}','${r.key}')">📱 Cobrar</button>`
+              : `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${r.idx})">📱 Cobrar</button><button class="btn ghost sm" onclick="baixarAvulso(${r.idx})" title="Marcar como recebido">✓ Recebi</button></div>`);
+          return `<tr${sel ? ' style="background:var(--green-bg)"' : (atras ? ' style="background:#fff4f4"' : '')}><td style="text-align:center">${chk}</td><td>${r.pago ? (r.venc ? fmtDate(r.venc) : '—') : (r.venc ? _vencCobHTML(r.venc) : '—')}</td><td>${r.cli}</td><td>${r.ped ? ('#' + r.ped) : (r.pc || '—')}</td><td>${origem}</td><td style="text-align:right">${fmtVal(r.val)}</td><td><span class="badge ${st[1]}">${st[0]}</span></td><td>${acoes}</td></tr>`;
         }).join('')}
       </tbody></table></div>` : ''}
       </div>`;
@@ -7188,8 +7198,9 @@ function renderCobranca() {
       <span style="color:var(--muted)">abre o WhatsApp um por vez (você confirma cada envio). 💡 A mensagem também é copiada — se o WhatsApp Desktop quebrar os emojis, cole (Ctrl+V).</span>
     </div>`; })()}
     ${(_cobAvSel.size + _cobSisSel.size) ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;background:#eefaf3;border:1px solid #bfe6cf;border-radius:8px;padding:8px 12px;font-size:12px">
-      <strong>${_cobAvSel.size + _cobSisSel.size} selecionado(s) p/ cobrar</strong>
+      <strong>${_cobAvSel.size + _cobSisSel.size} selecionado(s)</strong>
       <button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarSelecionados()">📱 Cobrar selecionados</button>
+      <button class="btn ok sm" onclick="abrirAcordo()" title="Renegociar os boletos marcados: multa + novas parcelas. Os originais saem da cobrança (em acordo).">🤝 Fazer acordo</button>
       <a href="#" onclick="_cobAvSel.clear();_cobSisSel.clear();renderCobranca();return false" style="color:var(--muted)">limpar seleção</a>
       <span style="color:var(--muted)">junta os do mesmo cliente numa mensagem só (avulsos + emitidos).</span>
     </div>` : ''}
