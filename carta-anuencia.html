@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carta de Anuência (modelo editável)</title>
+<style>
+  :root{
+    --bg:#f2f4f7; --card:#fff; --linha:#d8dee7; --txt:#1e2530; --suave:#5b6675;
+    --azul:#1f6feb; --azul2:#1857b8; --verde:#127c4a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:"Segoe UI",Arial,sans-serif;font-size:14px}
+  header{background:#12263f;color:#fff;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header .sub{font-size:12px;opacity:.8}
+  .wrap{display:flex;gap:18px;align-items:flex-start;padding:18px;flex-wrap:wrap}
+  .form{flex:0 0 430px;max-width:100%}
+  .box{background:var(--card);border:1px solid var(--linha);border-radius:8px;padding:14px;margin-bottom:14px}
+  .box h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--suave);margin:0 0 10px}
+  label{display:block;font-size:12px;color:var(--suave);margin:8px 0 3px}
+  input,select,textarea{width:100%;padding:7px 8px;border:1px solid var(--linha);border-radius:5px;font:inherit;background:#fff;color:var(--txt)}
+  textarea{min-height:80px;resize:vertical}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 10px}
+  .chk{display:flex;align-items:center;gap:7px;margin-top:10px;font-size:13px;color:var(--txt)}
+  .chk input{width:auto}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+  button{padding:9px 14px;border:0;border-radius:6px;background:var(--azul);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{background:var(--azul2)}
+  button.sec{background:#e6eaf0;color:#2b3542}
+  button.sec:hover{background:#d7dde6}
+  .dica{font-size:11.5px;color:var(--suave);margin-top:8px;line-height:1.5}
+
+  /* ---- folha A4 ---- */
+  .folha-area{flex:1 1 620px;min-width:320px}
+  .folha{background:#fff;width:21cm;max-width:100%;min-height:29.7cm;margin:0 auto;padding:2.5cm 2.2cm;
+         box-shadow:0 2px 14px rgba(0,0,0,.12);font-family:"Times New Roman",Georgia,serif;font-size:12pt;line-height:1.65;color:#000}
+  .folha .logo{text-align:center;margin-bottom:10px}
+  .folha .logo img{max-height:90px;max-width:60%}
+  .folha .timbre{text-align:center;font-size:10.5pt;line-height:1.35;border-bottom:1px solid #999;padding-bottom:8px;margin-bottom:26px}
+  .folha .timbre b{font-size:12pt}
+  .folha h1{text-align:center;font-size:14pt;letter-spacing:.09em;margin:0 0 26px}
+  .folha .dest{margin-bottom:22px;white-space:pre-line}
+  .folha p{margin:0 0 14px;text-align:justify;text-indent:1.2cm}
+  .folha p.semrec{text-indent:0}
+  .folha .quadro{border:1px solid #000;padding:10px 12px;margin:0 0 16px;font-size:11pt;line-height:1.5}
+  .folha .quadro div{display:flex;gap:6px}
+  .folha .quadro span:first-child{min-width:5.5cm;font-weight:bold}
+  .folha .local{margin:34px 0 46px;text-align:right;text-indent:0}
+  .folha .ass{margin-top:10px;text-align:center;line-height:1.4}
+  .folha .ass .linha{border-top:1px solid #000;width:9cm;margin:0 auto 5px}
+  .folha .test{margin-top:46px;font-size:11pt}
+  .folha .test .linha{border-top:1px solid #000;width:8cm;margin:26px 0 4px}
+  .folha .obs{margin-top:34px;font-size:10pt;color:#333;text-indent:0;text-align:left}
+
+  @media print{
+    body{background:#fff}
+    header,.form,.naoimprime{display:none !important}
+    .wrap{padding:0;display:block}
+    .folha{width:auto;min-height:0;box-shadow:none;margin:0;padding:1.6cm 1.8cm}
+    @page{size:A4;margin:0}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Carta de Anuência</h1>
+  <span class="sub">modelo editável, preencha ao lado e clique em Imprimir / Salvar PDF</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ FORMULÁRIO ============ -->
+  <div class="form">
+
+    <div class="box">
+      <h2>1. Tipo de carta</h2>
+      <select id="tipo">
+        <option value="protesto">Cancelamento de protesto (cartório)</option>
+        <option value="quitacao">Quitação de dívida e baixa em SPC/Serasa</option>
+        <option value="livre">Anuência / autorização (texto livre)</option>
+      </select>
+      <div class="dica">Escolha o tipo e o texto da carta muda sozinho. Os campos que não interessam ao tipo escolhido somem da folha.</div>
+    </div>
+
+    <div class="box">
+      <h2>2. Quem assina (credor)</h2>
+      <label>Razão social / nome</label>
+      <input id="crNome" placeholder="RK COMERCIO ...">
+      <label>CNPJ / CPF</label>
+      <input id="crDoc" placeholder="49.930.635/0001-87">
+      <label>Endereço completo</label>
+      <input id="crEnd" placeholder="Rua, nº, bairro, cidade/UF, CEP">
+      <div class="g2">
+        <div><label>Telefone</label><input id="crTel" placeholder="(11) 0000-0000"></div>
+        <div><label>E-mail</label><input id="crMail" placeholder="financeiro@..."></div>
+      </div>
+      <label>Logotipo (opcional)</label>
+      <input type="file" id="logoFile" accept="image/*">
+      <div class="chk"><input type="checkbox" id="usaTimbre" checked><label for="usaTimbre" style="margin:0">Mostrar cabeçalho com os dados da empresa</label></div>
+      <div class="btns" style="margin-top:12px">
+        <button class="sec" type="button" onclick="salvarEmpresa()">Salvar meus dados</button>
+        <button class="sec" type="button" onclick="limparLogo()">Tirar logo</button>
+      </div>
+      <div class="dica">"Salvar meus dados" guarda credor, logo e assinante neste computador, aí toda carta nova já vem preenchida.</div>
+    </div>
+
+    <div class="box">
+      <h2>3. Devedor (quem recebe a anuência)</h2>
+      <label>Nome / razão social</label>
+      <input id="dvNome">
+      <label>CNPJ / CPF</label>
+      <input id="dvDoc">
+      <label>Endereço (opcional)</label>
+      <input id="dvEnd">
+    </div>
+
+    <div class="box" id="boxTitulo">
+      <h2>4. Título / dívida</h2>
+      <div class="g2">
+        <div>
+          <label>Espécie</label>
+          <select id="tiEspecie">
+            <option>Duplicata Mercantil</option>
+            <option>Duplicata de Serviço</option>
+            <option>Nota Fiscal</option>
+            <option>Cheque</option>
+            <option>Nota Promissória</option>
+            <option>Contrato</option>
+            <option>Boleto</option>
+          </select>
+        </div>
+        <div><label>Número do título</label><input id="tiNum"></div>
+      </div>
+      <div class="g2">
+        <div><label>Valor (R$)</label><input id="tiValor" placeholder="1.234,56"></div>
+        <div><label>Vencimento</label><input type="date" id="tiVenc"></div>
+      </div>
+      <label>Data do pagamento / quitação</label>
+      <input type="date" id="tiPago">
+      <div class="chk"><input type="checkbox" id="mostraExtenso" checked><label for="mostraExtenso" style="margin:0">Escrever o valor por extenso</label></div>
+    </div>
+
+    <div class="box" id="boxCartorio">
+      <h2>5. Cartório e protesto</h2>
+      <label>Tabelionato</label>
+      <input id="ctNome" placeholder="1º Tabelião de Protesto de Letras e Títulos de São Paulo/SP">
+      <div class="g3">
+        <div><label>Protocolo</label><input id="ctProt"></div>
+        <div><label>Livro</label><input id="ctLivro"></div>
+        <div><label>Folha</label><input id="ctFolha"></div>
+      </div>
+      <label>Data do protesto</label>
+      <input type="date" id="ctData">
+      <label>Custas e emolumentos por conta de</label>
+      <select id="ctCustas">
+        <option value="devedor">Devedor</option>
+        <option value="credor">Credor (quem assina)</option>
+        <option value="">Não mencionar</option>
+      </select>
+    </div>
+
+    <div class="box" id="boxLivre" style="display:none">
+      <h2>4. Texto da anuência</h2>
+      <label>Objeto (o que está sendo autorizado)</label>
+      <textarea id="lvTexto" placeholder="Ex.: a rescisão do contrato de locação firmado em 10/01/2025, sem qualquer ônus ou penalidade para as partes."></textarea>
+      <div class="dica">Escreva no meio da frase: "declara ... e ANUI expressamente com <b>o seu texto aqui</b>."</div>
+    </div>
+
+    <div class="box">
+      <h2>6. Fecho e assinatura</h2>
+      <div class="g2">
+        <div><label>Cidade</label><input id="fcCidade" placeholder="São Paulo/SP"></div>
+        <div><label>Data da carta</label><input type="date" id="fcData"></div>
+      </div>
+      <label>Nome de quem assina</label>
+      <input id="fcAssNome">
+      <div class="g2">
+        <div><label>Cargo</label><input id="fcAssCargo" placeholder="Sócia administradora"></div>
+        <div><label>CPF</label><input id="fcAssCpf"></div>
+      </div>
+      <div class="chk"><input type="checkbox" id="fcTest"><label for="fcTest" style="margin:0">Incluir linhas para 2 testemunhas</label></div>
+      <div class="chk"><input type="checkbox" id="fcFirma" checked><label for="fcFirma" style="margin:0">Incluir a observação de firma reconhecida</label></div>
+    </div>
+
+    <div class="box">
+      <div class="btns">
+        <button type="button" onclick="window.print()">Imprimir / Salvar PDF</button>
+        <button class="sec" type="button" onclick="limparTudo()">Limpar campos</button>
+      </div>
+      <div class="dica">Na janela de impressão escolha "Salvar como PDF". Só a folha é impressa, este formulário não aparece.</div>
+    </div>
+  </div>
+
+  <!-- ============ FOLHA ============ -->
+  <div class="folha-area">
+    <div class="folha" id="folha"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- utilidades ---------- */
+const $ = id => document.getElementById(id);
+const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+
+function dataExt(v){                       // 2026-08-17 -> 17 de agosto de 2026
+  if(!v) return '';
+  const [a,m,d] = v.split('-').map(Number);
+  return d + ' de ' + MESES[m-1] + ' de ' + a;
+}
+function dataBr(v){
+  if(!v) return '';
+  const [a,m,d] = v.split('-');
+  return d+'/'+m+'/'+a;
+}
+function numero(v){                        // "1.234,56" -> 1234.56
+  if(!v) return 0;
+  return parseFloat(String(v).replace(/\./g,'').replace(',','.')) || 0;
+}
+function moeda(n){
+  return n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+/* valor por extenso em reais */
+function extenso(n){
+  n = Math.round(n*100)/100;
+  const reais = Math.floor(n), cent = Math.round((n-reais)*100);
+  let t = '';
+  // milhão/bilhão redondo pede "de reais" (um milhão DE reais)
+  if(reais > 0){
+    const de = (reais >= 1e6 && reais % 1e6 === 0) ? ' de' : '';
+    t = grupo(reais) + de + (reais===1 ? ' real' : ' reais');
+  }
+  if(cent > 0)  t += (t?' e ':'') + grupo(cent) + (cent===1 ? ' centavo' : ' centavos');
+  return t || 'zero real';
+}
+function grupo(n){
+  const U=['','um','dois','três','quatro','cinco','seis','sete','oito','nove','dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const D=['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  const C=['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+  function ate999(x){
+    if(x===0) return '';
+    if(x===100) return 'cem';
+    let s=[];
+    const c=Math.floor(x/100), r=x%100;
+    if(c) s.push(C[c]);
+    if(r<20){ if(r) s.push(U[r]); }
+    else{ const d=Math.floor(r/10), u=r%10; s.push(D[d] + (u?' e '+U[u]:'')); }
+    return s.join(' e ');
+  }
+  if(n===0) return 'zero';
+  const bi=Math.floor(n/1e9), mi=Math.floor(n%1e9/1e6), mil=Math.floor(n%1e6/1000), res=n%1000;
+  let p=[];
+  if(bi)  p.push(ate999(bi)  + (bi===1?' bilhão':' bilhões'));
+  if(mi)  p.push(ate999(mi)  + (mi===1?' milhão':' milhões'));
+  if(mil) p.push(mil===1?'mil':ate999(mil)+' mil');
+  if(res) p.push(ate999(res));
+  if(p.length===1) return p[0];
+  // "e" antes da última parte só quando ela é menor que 100 ou centena redonda
+  // (mil e duzentos está errado, o certo é mil duzentos e trinta e quatro)
+  const ultima = p.pop();
+  const liga = (res && (res<100 || res%100===0)) ? ' e ' : ' ';
+  return p.join(', ') + liga + ultima;
+}
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const vazio = s => !String(s||'').trim();
+const ou = (s,alt) => vazio(s) ? '<u>&nbsp;'+alt+'&nbsp;</u>' : esc(s);
+
+/* ---------- montagem da folha ---------- */
+let logoData = '';
+
+function render(){
+  const tipo = $('tipo').value;
+  $('boxTitulo').style.display   = tipo==='livre' ? 'none' : '';
+  $('boxCartorio').style.display = tipo==='protesto' ? '' : 'none';
+  $('boxLivre').style.display    = tipo==='livre' ? '' : 'none';
+
+  const crNome=$('crNome').value, crDoc=$('crDoc').value, crEnd=$('crEnd').value;
+  const dvNome=$('dvNome').value, dvDoc=$('dvDoc').value, dvEnd=$('dvEnd').value;
+  const val = numero($('tiValor').value);
+  const valTxt = 'R$ ' + (val ? moeda(val) : '__________')
+    + ($('mostraExtenso').checked && val ? ' (' + extenso(val) + ')' : '');
+
+  let h = '';
+
+  /* cabeçalho */
+  if(logoData) h += '<div class="logo"><img src="'+logoData+'"></div>';
+  if($('usaTimbre').checked && (!vazio(crNome) || !vazio(crEnd))){
+    const linha2 = [crDoc ? 'CNPJ '+esc(crDoc) : '', esc(crEnd)].filter(Boolean).join(' | ');
+    const linha3 = [$('crTel').value, $('crMail').value].filter(x=>!vazio(x)).map(esc).join(' | ');
+    h += '<div class="timbre"><b>'+esc(crNome)+'</b>'
+       + (linha2 ? '<br>'+linha2 : '')
+       + (linha3 ? '<br>'+linha3 : '') + '</div>';
+  }
+
+  h += '<h1>CARTA DE ANUÊNCIA</h1>';
+
+  /* destinatário */
+  if(tipo==='protesto'){
+    h += '<div class="dest">Ao<br><b>'+ou($('ctNome').value,'(tabelionato de protesto)')+'</b>'
+       + (vazio($('fcCidade').value)?'':'<br>'+esc($('fcCidade').value)) + '</div>';
+  }else if(tipo==='quitacao'){
+    h += '<div class="dest">Aos órgãos de proteção ao crédito<br><b>SPC, SERASA, CDL e congêneres</b></div>';
+  }
+
+  const idCred = '<b>'+ou(crNome,'(credor)')+'</b>, inscrita no CNPJ/CPF sob o nº <b>'+ou(crDoc,'________')+'</b>'
+    + (vazio(crEnd)?'':', com sede em '+esc(crEnd));
+  const idDev = '<b>'+ou(dvNome,'(devedor)')+'</b>, inscrito(a) no CNPJ/CPF sob o nº <b>'+ou(dvDoc,'________')+'</b>'
+    + (vazio(dvEnd)?'':', com endereço em '+esc(dvEnd));
+
+  if(tipo==='protesto'){
+    h += '<p>'+idCred+', na qualidade de credora e apresentante do título abaixo identificado, '
+       + 'DECLARA, para os devidos fins de direito, que recebeu integralmente de '+idDev+', o valor de '+valTxt
+       + (vazio($('tiPago').value)?'':', em '+dataBr($('tiPago').value))
+       + ', referente ao título a seguir descrito, nada mais tendo a reclamar a respeito desse débito.</p>';
+    h += quadroTitulo(true);
+    h += '<p>Diante da quitação acima, a credora dá ao devedor plena, geral, rasa e irrevogável quitação do referido título e '
+       + '<b>ANUI expressamente com o cancelamento do protesto</b>, autorizando o Sr. Tabelião a proceder à baixa definitiva do ato '
+       + 'independentemente de qualquer outra formalidade.</p>';
+    const custas = $('ctCustas').value;
+    if(custas) h += '<p>As custas e os emolumentos decorrentes do cancelamento correrão por conta do <b>'
+       + (custas==='devedor'?'devedor':'credor')+'</b>.</p>';
+    h += '<p>Por ser expressão da verdade, firmamos a presente para que produza seus efeitos legais.</p>';
+  }
+
+  if(tipo==='quitacao'){
+    h += '<p>'+idCred+', DECLARA, para os devidos fins de direito, que recebeu de '+idDev
+       + ', o valor de '+valTxt + (vazio($('tiPago').value)?'':', em '+dataBr($('tiPago').value))
+       + ', referente ao débito abaixo identificado, dando-lhe plena, geral, rasa e irrevogável quitação, '
+       + 'nada mais tendo a reclamar a qualquer título em relação a essa dívida.</p>';
+    h += quadroTitulo(false);
+    h += '<p>Em razão da quitação, a credora <b>ANUI e autoriza a baixa e a exclusão definitiva do registro</b> em nome do devedor '
+       + 'nos cadastros dos órgãos de proteção ao crédito (SPC, SERASA, CDL e congêneres), no prazo legal de 5 (cinco) dias úteis, '
+       + 'contados do recebimento desta.</p>';
+    h += '<p>Por ser expressão da verdade, firmamos a presente para que produza seus efeitos legais.</p>';
+  }
+
+  if(tipo==='livre'){
+    const obj = $('lvTexto').value;
+    h += '<p>'+idCred+', DECLARA, para os devidos fins de direito, que não possui qualquer oposição e '
+       + '<b>ANUI expressamente com '+ou(obj,'(descreva aqui o objeto da anuência)')+'</b>'
+       + (vazio(dvNome)?'':', em favor de '+idDev) + '.</p>';
+    h += '<p>A presente anuência é dada em caráter irrevogável e irretratável, nada tendo a signatária a reclamar, '
+       + 'a qualquer tempo ou título, com relação ao objeto acima.</p>';
+    h += '<p>Por ser expressão da verdade, firmamos a presente para que produza seus efeitos legais.</p>';
+  }
+
+  /* local e data */
+  const cid = vazio($('fcCidade').value) ? '____________' : esc($('fcCidade').value);
+  const dt  = vazio($('fcData').value) ? '____ de ______________ de ______' : dataExt($('fcData').value);
+  h += '<p class="local">'+cid+', '+dt+'.</p>';
+
+  /* assinatura */
+  h += '<div class="ass"><div class="linha"></div><b>'+ou($('fcAssNome').value,'(nome de quem assina)')+'</b>'
+     + (vazio($('fcAssCargo').value)?'':'<br>'+esc($('fcAssCargo').value))
+     + (vazio($('fcAssCpf').value)?'':'<br>CPF '+esc($('fcAssCpf').value))
+     + (vazio(crNome)?'':'<br>'+esc(crNome)) + '</div>';
+
+  /* testemunhas */
+  if($('fcTest').checked){
+    h += '<div class="test"><b>Testemunhas:</b>'
+       + '<div class="linha"></div>Nome:<br>CPF:'
+       + '<div class="linha"></div>Nome:<br>CPF:</div>';
+  }
+  if($('fcFirma').checked){
+    h += '<p class="obs">Observação: reconhecer firma da assinatura acima em cartório'
+       + (tipo==='protesto' ? ', conforme exigência do tabelionato de protesto.' : '.') + '</p>';
+  }
+
+  $('folha').innerHTML = h;
+}
+
+function quadroTitulo(protesto){
+  const linhas = [];
+  const add = (r,v) => { if(!vazio(v)) linhas.push('<div><span>'+r+'</span><span>'+esc(v)+'</span></div>'); };
+  add('Espécie do título:', $('tiEspecie').value);
+  add('Número:', $('tiNum').value);
+  const val = numero($('tiValor').value);
+  if(val) add('Valor:', 'R$ ' + moeda(val));
+  add('Vencimento:', dataBr($('tiVenc').value));
+  if(protesto){
+    add('Protocolo:', $('ctProt').value);
+    add('Livro / Folha:', [$('ctLivro').value,$('ctFolha').value].filter(x=>!vazio(x)).join(' / '));
+    add('Data do protesto:', dataBr($('ctData').value));
+    add('Tabelionato:', $('ctNome').value);
+  }
+  return linhas.length ? '<div class="quadro">'+linhas.join('')+'</div>' : '';
+}
+
+/* ---------- dados salvos ---------- */
+const CAMPOS_EMPRESA = ['crNome','crDoc','crEnd','crTel','crMail','fcCidade','fcAssNome','fcAssCargo','fcAssCpf'];
+function salvarEmpresa(){
+  const o = {logo: logoData};
+  CAMPOS_EMPRESA.forEach(c => o[c] = $(c).value);
+  localStorage.setItem('cartaAnuencia_empresa', JSON.stringify(o));
+  alert('Dados salvos neste computador. A próxima carta já abre preenchida.');
+}
+function carregarEmpresa(){
+  let o; try{ o = JSON.parse(localStorage.getItem('cartaAnuencia_empresa')||'{}'); }catch(e){ o={}; }
+  CAMPOS_EMPRESA.forEach(c => { if(o[c]) $(c).value = o[c]; });
+  if(o.logo) logoData = o.logo;
+}
+function limparLogo(){ logoData=''; $('logoFile').value=''; render(); }
+function limparTudo(){
+  if(!confirm('Limpar os campos do devedor, do título e do cartório? Seus dados salvos de empresa continuam.')) return;
+  ['dvNome','dvDoc','dvEnd','tiNum','tiValor','tiVenc','tiPago','ctNome','ctProt','ctLivro','ctFolha','ctData','lvTexto']
+    .forEach(c => $(c).value='');
+  render();
+}
+
+/* ---------- ligações ---------- */
+document.querySelectorAll('input,select,textarea').forEach(el=>{
+  el.addEventListener('input', render);
+  el.addEventListener('change', render);
+});
+$('logoFile').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = ev => { logoData = ev.target.result; render(); };
+  r.readAsDataURL(f);
+});
+$('tiValor').addEventListener('blur', e=>{
+  const n = numero(e.target.value);
+  if(n) { e.target.value = moeda(n); render(); }
+});
+
+/* padrões */
+carregarEmpresa();
+if(!$('crDoc').value) $('crDoc').value = '49.930.635/0001-87';
+$('fcData').value = new Date().toISOString().slice(0,10);
+render();
+</script>
+</body>
+</html>

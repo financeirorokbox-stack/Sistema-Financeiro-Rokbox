@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v521/08-640';
+const APP_VERSION = 'v522/08-641';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2195,16 +2195,35 @@ function dfToggleVal(field, value, checked) {
 }
 function dfClear() {
   // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
-  dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = [];
+  dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; dateFilter.de = ''; dateFilter.ate = '';
   saveData('dateFilters', dateFilters);
   if (_dfRenderFn) _dfRenderFn();
 }
-function dfAtivo() { return dateFilter.ano.length || dateFilter.mes.length || dateFilter.dia.length; }
+// Intervalo de datas (De/Até) — usado no Fluxo de Caixa. Guarda em dateFilter.de/.ate (ISO 'AAAA-MM-DD').
+function dfSetDe(v) { dateFilter.de = v || ''; saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn(); }
+function dfSetAte(v) { dateFilter.ate = v || ''; saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn(); }
+function dfClearRange() { dateFilter.de = ''; dateFilter.ate = ''; saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn(); }
+function dfRangePreset(tipo) {
+  const hoje = new Date(); const y = hoje.getFullYear(), m = hoje.getMonth();
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  let de = hoje, ate = hoje;
+  if (tipo === 'hojeFimMes') { de = hoje; ate = new Date(y, m + 1, 0); }
+  else if (tipo === 'esteMes') { de = new Date(y, m, 1); ate = new Date(y, m + 1, 0); }
+  else if (tipo === 'prox3') { de = hoje; ate = new Date(y, m + 3, 0); }
+  else if (tipo === 'ano') { de = new Date(y, 0, 1); ate = new Date(y, 11, 31); }
+  dateFilter.de = iso(de); dateFilter.ate = iso(ate);
+  dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; // o intervalo manda; limpa ano/mês/dia pra não conflitar
+  saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn();
+}
+function dfAtivo() { return dateFilter.ano.length || dateFilter.mes.length || dateFilter.dia.length || !!dateFilter.de || !!dateFilter.ate; }
 function passaData(date) {
   if (!dfAtivo()) return true;
   if (!date) return false;
   const d = date instanceof Date ? date : new Date(date);
   if (isNaN(d)) return false;
+  // Intervalo De/Até (Fluxo de Caixa): a data tem que estar dentro do período escolhido.
+  if (dateFilter.de) { const _dd = new Date(dateFilter.de + 'T00:00:00'); if (!isNaN(_dd) && d < _dd) return false; }
+  if (dateFilter.ate) { const _da = new Date(dateFilter.ate + 'T23:59:59'); if (!isNaN(_da) && d > _da) return false; }
   if (dateFilter.ano.length && !dateFilter.ano.includes(String(d.getFullYear()))) return false;
   if (dateFilter.mes.length && !dateFilter.mes.includes(String(d.getMonth() + 1).padStart(2, '0'))) return false;
   if (dateFilter.dia.length && !dateFilter.dia.includes(String(d.getDate()).padStart(2, '0'))) return false;
@@ -2950,7 +2969,7 @@ function limparFiltrosVendas() {
   saveData('vendasFilters', vendasFilters);
   renderVendas(); // render COMPLETO: redesenha busca + filtros + tabela (renderPedidosTable só refazia a tabela)
 }
-function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderFluxo(); }
+function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; dateFilter.de=''; dateFilter.ate=''; saveData('dateFilters', dateFilters); } renderFluxo(); }
 function limparFiltrosComissao() { const e=document.getElementById('com-vend'); if(e) e.value=''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderComissao(); }
 function setComissaoVendedor(vend, pctStr) {
   const pct = (parseFloat(String(pctStr).replace(',','.')) || 0) / 100;
@@ -3694,7 +3713,9 @@ function renderFluxo() {
   // saldo anterior segue o filtro mesmo que o período tenha poucos/nenhum lançamento. Se o filtro não
   // tiver ano, cai pra menor data dos movimentos que passam.
   let periodStart = null;
-  if (dfAtivo()) {
+  if (dfAtivo() && dateFilter.de) {
+    periodStart = new Date(dateFilter.de + 'T00:00:00'); // intervalo De/Até: o início do período é a data "De"
+  } else if (dfAtivo()) {
     const anoF = (dateFilter.ano && dateFilter.ano.length) ? Math.min(...dateFilter.ano.map(Number)) : null;
     const mesF = (dateFilter.mes && dateFilter.mes.length) ? Math.min(...dateFilter.mes.map(Number)) : 1;
     const diaF = (dateFilter.dia && dateFilter.dia.length) ? Math.min(...dateFilter.dia.map(Number)) : 1;
@@ -3764,8 +3785,20 @@ function renderFluxo() {
       acoes: `<span style="font-size:12px;color:var(--muted)">${dfAtivo()?'Período filtrado':'Todo o período'} · regime de caixa</span>`,
       campos: fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px">
+      <span style="font-weight:800;font-size:14px">📅 Ver de</span>
+      <input type="date" value="${dateFilter.de||''}" onchange="dfSetDe(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+      <span style="font-weight:800;font-size:14px">até</span>
+      <input type="date" value="${dateFilter.ate||''}" onchange="dfSetAte(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+      <span style="width:1px;height:26px;background:var(--border);margin:0 4px"></span>
+      <button class="btn ghost sm" onclick="dfRangePreset('hojeFimMes')" title="De hoje até o fim deste mês">Hoje → fim do mês</button>
+      <button class="btn ghost sm" onclick="dfRangePreset('esteMes')">Este mês</button>
+      <button class="btn ghost sm" onclick="dfRangePreset('prox3')">Próximos 3 meses</button>
+      <button class="btn ghost sm" onclick="dfRangePreset('ano')">Este ano</button>
+      ${(dateFilter.de||dateFilter.ate)?`<button class="btn ghost sm" style="color:var(--red)" onclick="dfClearRange()">✕ limpar período</button>`:''}
+    </div>
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Fluxo de Caixa</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas <strong>pagas</strong>) do período — regime de caixa. As <strong>🔮 previstas</strong> (contas em aberto, por vencimento) aparecem à parte, pra você projetar. Use o ⚙ Filtros para escolher mês/dia.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Entradas (recebimentos efetivos) e saídas (contas <strong>pagas</strong>) do período — regime de caixa. As <strong>🔮 previstas</strong> (contas em aberto, por vencimento) aparecem à parte, pra você projetar. Use o <strong>📅 Ver de … até</strong> acima para escolher o intervalo (ex.: de hoje até setembro).</div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
       <div class="section-title" style="margin:0">📊 Balancete — Receitas × Despesas por grupo (por empresa)</div>
       <button class="btn ghost sm" onclick="toggleDreTudo()">▸ Expandir subcategorias</button>
