@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v524/08-643';
+const APP_VERSION = 'v525/08-644';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3704,6 +3704,17 @@ function renderFluxo() {
   const totEnt = Object.values(ent).reduce((s,v)=>s+v,0);
   const totSai = Object.values(sai).reduce((s,v)=>s+v,0);
   const totSaiPrev = Object.values(saiPrev).reduce((s,v)=>s+v,0);
+  // PREVISTO A RECEBER — boletos (sistema + avulsos) NÃO pagos, por vencimento no período. É o que vai ENTRAR.
+  let totRecPrev = 0;
+  try {
+    getBoletosPorPedido().forEach(bp => getParcelas(bp).forEach(p => {
+      if (_stParcelaBoleto(p).recebido) return;       // já pago/renegociado não é previsto
+      if (!noPeriodo(p.vencimento)) return;
+      totRecPrev += (p.valor || 0);
+    }));
+  } catch (e) {}
+  (boletosAvulsos || []).forEach(a => { if (a.dataPagamento) return; if (!noPeriodo(a.vencimento)) return; totRecPrev += (a.valorTitulo || 0); });
+  totRecPrev = +totRecPrev.toFixed(2);
   const saldo = totEnt - totSai;
   // Barra comparativa entradas × saídas (visual do saldo)
   const maxES = Math.max(1, totEnt, totSai);
@@ -3758,7 +3769,13 @@ function renderFluxo() {
       if (t.data instanceof Date && !isNaN(t.data) && aposRef(t.data) && t.data < periodStart) netAntes += (t.valor || 0);
     });
   }
-  const saldoAnterior = baseInicial + netAntes;
+  // Saldo anterior em conta: se você preenche o saldo por banco/dia (saldo inicial do dia), usa a SOMA desses
+  // saldos na data inicial do período (o que você digitou, com carry-forward). Senão, usa o saldo do Cadastro
+  // + o movimento do banco antes do período.
+  const _temSaldoDia = saldoInicialDia && Object.keys(saldoInicialDia).length > 0;
+  const saldoAnterior = (periodStart && _temSaldoDia)
+    ? getSaldoInicialDia(_toDateInput(periodStart))
+    : (baseInicial + netAntes);
   const saldoFinal = saldoAnterior + (totEnt - totSai);
   window._dreExportData = { treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal }; // p/ exportarDRE
 
@@ -3836,9 +3853,10 @@ function renderFluxo() {
     <div class="cards-row" style="margin-bottom:16px">
       <div class="card green"><div class="c-label">⬆ Entradas</div><div class="c-val">${fmtVal(totEnt)}</div></div>
       <div class="card red"><div class="c-label">⬇ Saídas pagas</div><div class="c-val">${fmtVal(totSai)}</div></div>
+      <div class="card green"><div class="c-label">🔮 Previsto a receber (boletos)</div><div class="c-val">${fmtVal(totRecPrev)}</div><div class="c-sub">por vencimento</div></div>
       <div class="card amber"><div class="c-label">🔮 Previsto a pagar (em aberto)</div><div class="c-val">${fmtVal(totSaiPrev)}</div><div class="c-sub">por vencimento</div></div>
       <div class="card ${saldo>=0?'blue':'amber'}"><div class="c-label">= Saldo do período (realizado)</div><div class="c-val">${fmtVal(saldo)}</div></div>
-      <div class="card dark"><div class="c-label">= Saldo projetado (após previstas)</div><div class="c-val" style="color:${(saldoFinal-totSaiPrev)>=0?'#fff':'var(--red)'}">${fmtVal(saldoFinal - totSaiPrev)}</div><div class="c-sub">saldo final − previstas</div></div>
+      <div class="card dark"><div class="c-label">= Saldo projetado (após previstas)</div><div class="c-val" style="color:${(saldoFinal+totRecPrev-totSaiPrev)>=0?'#fff':'var(--red)'}">${fmtVal(saldoFinal + totRecPrev - totSaiPrev)}</div><div class="c-sub">final + a receber − a pagar</div></div>
     </div>
     ${graficoMensal}
     ${saldoBancarioDiarioHTML()}
