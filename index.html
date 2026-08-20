@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v523/08-642';
+const APP_VERSION = 'v524/08-643';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2214,25 +2214,27 @@ function dfRangePreset(tipo) {
   dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; // o intervalo manda; limpa ano/mês/dia pra não conflitar
   saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn();
 }
-// Seletores de mês+ano do intervalo (De = 1º dia do mês; Até = último dia do mês). Sem digitar, só escolher.
-function dfMesAno(qual) {
-  const mesEl = document.getElementById('df-' + qual + '-mes');
-  const anoEl = document.getElementById('df-' + qual + '-ano');
-  if (!mesEl || !anoEl) return;
-  const mes = +mesEl.value, ano = +anoEl.value;
+// Seletores de DIA + MÊS + ANO do intervalo (data exata). Sem digitar, só escolher em cada um.
+function dfDataSel(qual) {
+  const g = s => document.getElementById('df-' + qual + '-' + s);
+  const diaEl = g('dia'), mesEl = g('mes'), anoEl = g('ano');
+  if (!diaEl || !mesEl || !anoEl) return;
+  const D = +diaEl.value, M = +mesEl.value, A = +anoEl.value;
   const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  if (!mes || !ano) { if (qual === 'de') dateFilter.de = ''; else dateFilter.ate = ''; }
-  else if (qual === 'de') dateFilter.de = iso(new Date(ano, mes - 1, 1));
-  else dateFilter.ate = iso(new Date(ano, mes, 0)); // último dia do mês escolhido
+  if (!D || !M || !A) { if (qual === 'de') dateFilter.de = ''; else dateFilter.ate = ''; }
+  else { const val = iso(new Date(A, M - 1, D)); if (qual === 'de') dateFilter.de = val; else dateFilter.ate = val; }
   dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = [];
   saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn();
 }
-function dfMesAnoHTML(qual, d) {
-  const selMes = d ? d.getMonth() + 1 : 0, selAno = d ? d.getFullYear() : 0;
-  const st = 'padding:7px 8px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)';
-  const optsMes = '<option value="">mês</option>' + MESES.map((m, i) => `<option value="${i + 1}" ${selMes === i + 1 ? 'selected' : ''}>${m}</option>`).join('');
-  const optsAno = '<option value="">ano</option>' + [2024, 2025, 2026, 2027, 2028].map(a => `<option value="${a}" ${selAno === a ? 'selected' : ''}>${a}</option>`).join('');
-  return `<select id="df-${qual}-mes" onchange="dfMesAno('${qual}')" style="${st}">${optsMes}</select><select id="df-${qual}-ano" onchange="dfMesAno('${qual}')" style="${st}">${optsAno}</select>`;
+function dfDataHTML(qual, d) {
+  const selD = d ? d.getDate() : 0, selM = d ? d.getMonth() + 1 : 0, selA = d ? d.getFullYear() : 0;
+  const st = 'padding:7px 6px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface)';
+  const dias = '<option value="">dia</option>' + Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<option value="${n}" ${selD === n ? 'selected' : ''}>${String(n).padStart(2, '0')}</option>`).join('');
+  const meses = '<option value="">mês</option>' + MESES.map((m, i) => `<option value="${i + 1}" ${selM === i + 1 ? 'selected' : ''}>${m}</option>`).join('');
+  const anos = '<option value="">ano</option>' + [2024, 2025, 2026, 2027, 2028].map(a => `<option value="${a}" ${selA === a ? 'selected' : ''}>${a}</option>`).join('');
+  return `<select id="df-${qual}-dia" onchange="dfDataSel('${qual}')" style="${st}">${dias}</select>` +
+    `<select id="df-${qual}-mes" onchange="dfDataSel('${qual}')" style="${st}">${meses}</select>` +
+    `<select id="df-${qual}-ano" onchange="dfDataSel('${qual}')" style="${st}">${anos}</select>`;
 }
 function dfAtivo() { return dateFilter.ano.length || dateFilter.mes.length || dateFilter.dia.length || !!dateFilter.de || !!dateFilter.ate; }
 function passaData(date) {
@@ -3806,9 +3808,9 @@ function renderFluxo() {
     })}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px">
       <span style="font-weight:800;font-size:14px">📅 Ver de</span>
-      ${dfMesAnoHTML('de', dateFilter.de ? new Date(dateFilter.de + 'T12:00:00') : null)}
+      ${dfDataHTML('de', dateFilter.de ? new Date(dateFilter.de + 'T12:00:00') : null)}
       <span style="font-weight:800;font-size:14px">até</span>
-      ${dfMesAnoHTML('ate', dateFilter.ate ? new Date(dateFilter.ate + 'T12:00:00') : null)}
+      ${dfDataHTML('ate', dateFilter.ate ? new Date(dateFilter.ate + 'T12:00:00') : null)}
       <span style="width:1px;height:26px;background:var(--border);margin:0 4px"></span>
       <button class="btn ghost sm" onclick="dfRangePreset('esteMes')">Este mês</button>
       <button class="btn ghost sm" onclick="dfRangePreset('prox3')">Próximos 3 meses</button>
