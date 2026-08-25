@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v528/08-647';
+const APP_VERSION = 'v529/08-648';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2177,6 +2177,17 @@ function _dfRenderKeepScroll() {
   try { se.scrollTop = sy; se.scrollLeft = sx; } catch(e) {}
   window.scrollTo(sx, sy);
   requestAnimationFrame(() => { try { se.scrollTop = sy; } catch(e) {} window.scrollTo(sx, sy); });
+}
+// Re-render de QUALQUER tela preservando a posição do scroll (pra marcar flag/checkbox não fazer a tela "pular").
+function _renderKeepScroll(fn) {
+  if (typeof fn !== 'function') return;
+  const se = document.scrollingElement || document.documentElement || document.body;
+  const sx = window.scrollX || se.scrollLeft || 0;
+  const sy = window.scrollY || se.scrollTop || 0;
+  fn();
+  try { se.scrollTop = sy; se.scrollLeft = sx; } catch (e) {}
+  window.scrollTo(sx, sy);
+  requestAnimationFrame(() => { try { se.scrollTop = sy; } catch (e) {} window.scrollTo(sx, sy); });
 }
 // Abre/fecha o calendário de um campo. O estado fica em _dfOpen e o dropdown é renderizado
 // JÁ ABERTO pelo dateFilterHTML — assim sobrevive a qualquer re-render (não fecha ao marcar um dia).
@@ -6855,8 +6866,8 @@ function setAvulsoFone(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[
 // Nº do pedido de um boleto avulso (pra identificar). Re-sincroniza (o vínculo com recebimento usa o pedido).
 function setAvulsoPedido(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].pedido = String(val || '').trim(); saveData('boletosAvulsos', boletosAvulsos); try { syncBoletosToRecebimentos(); } catch (e) {} }
 function setObsAvulso(i, val) { if (!boletosAvulsos[i]) return; boletosAvulsos[i].obsCobranca = val; saveData('boletosAvulsos', boletosAvulsos); } // anotação livre (ex.: "vai pagar no pix")
-function toggleCobAvSel(i, on) { if (on) _cobAvSel.add(i); else _cobAvSel.delete(i); renderCobranca(); }
-function toggleCobSisSel(key, on) { if (on) _cobSisSel.add(key); else _cobSisSel.delete(key); renderCobranca(); }
+function toggleCobAvSel(i, on) { if (on) _cobAvSel.add(i); else _cobAvSel.delete(i); _renderKeepScroll(renderCobranca); }
+function toggleCobSisSel(key, on) { if (on) _cobSisSel.add(key); else _cobSisSel.delete(key); _renderKeepScroll(renderCobranca); }
 // Cobra de uma vez os boletos marcados (avulsos + emitidos pelo sistema) — agrupa por CLIENTE: 1 mensagem por cliente, com TODOS os boletos dele.
 function cobrarSelecionados() {
   const grupos = {}; // clienteKey -> { cliente, fone, itens[], avulsoIdx[], pedidos:Set, refs:Set }
