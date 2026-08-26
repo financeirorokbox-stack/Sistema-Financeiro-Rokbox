@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v540/08-659';
+const APP_VERSION = 'v541/08-660';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12739,7 +12739,7 @@ function feriasHTML() {
       <td style="text-align:center"><select class="inline-input" onchange="updateFeriaRH('${fe.id}','tirada',this.value)"><option value="nao" ${!fe.tirada ? 'selected' : ''}>Não</option><option value="sim" ${fe.tirada ? 'selected' : ''}>Sim</option></select></td>
       <td>${inD(fe.id, 'inicio', fe.inicio)}</td>
       <td>${inD(fe.id, 'fim', fe.fim)}</td>
-      <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:50px;text-align:center" value="${fe.diasUsados || ''}" placeholder="0" title="Dias de férias usados" onchange="updateFeriaRH('${fe.id}','diasUsados',this.value)"></td>
+      <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:50px;text-align:center" value="${fe.diasUsados || ''}" placeholder="0" title="Dias de férias usados (soma das saídas, se você registrar por partes)" onchange="updateFeriaRH('${fe.id}','diasUsados',this.value)"><div><button class="btn ghost sm" style="font-size:9px;padding:1px 5px;margin-top:2px" onclick="abrirSaidasFerias('${fe.id}')" title="Registrar as férias em partes (ex.: 15 dias + 15 dias). O sistema soma os dias e ajusta o saldo.">📅 saídas${(fe.saidas && fe.saidas.length) ? ' (' + fe.saidas.length + ')' : ''}</button></div></td>
       <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:50px;text-align:center" value="${fe.saldoDias != null ? fe.saldoDias : ''}" placeholder="0" title="Saldo de dias" onchange="updateFeriaRH('${fe.id}','saldoDias',this.value)"></td>
       <td style="text-align:center"><input type="checkbox" ${fe.noPapel ? 'checked' : ''} title="Marque se PAGOU as férias mas a pessoa NÃO folgou (saiu só no papel, continua trabalhando)" onchange="updateFeriaRH('${fe.id}','noPapel',this.checked)">${fe.noPapel ? '<div style="font-size:8px;color:#8a5a00;font-weight:800;line-height:1.1;margin-top:2px">pago,<br>não folgou</div>' : ''}</td>
       <td style="text-align:right;font-weight:700">${fmtVal(c.total)}<div style="font-size:9px;color:var(--muted)">${fmtVal(c.valor)} + 1/3 · ${c.dias} d${c.real ? '' : ' <span title="Você ainda não preencheu os dias usados — mostrando a férias cheia">(base)</span>'}</div></td>
@@ -12891,6 +12891,69 @@ function calcularLimitesFerias() {
   alert(n
     ? `🧮 Calculei a Data Limite de ${n} período(s) pela Admissão.\n\n⚠ É uma SUGESTÃO: confira com a contabilidade. Casos com falta/afastamento podem ter data diferente — é só ajustar na mão.`
     : `Nada pra calcular.\n\nEle preenche só os períodos que têm ADMISSÃO e estão SEM Data Limite (pra não sobrescrever o que veio do contador).${semAdm ? `\n${semAdm} período(s) estão sem Admissão.` : ''}\n\nPra recalcular um que já tem, apague a Data Limite dele e clique de novo.`);
+}
+// SAÍDAS de férias (fracionamento): registra cada pedaço (ex.: 15 dias + 15 dias). O total vai pro campo Dias do
+// período, e o início/fim do período viram o 1º início e o último fim. O saldo você controla no campo Saldo.
+function _feriasSaidaISO(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function _syncSaidasFerias(fe) {
+  const sd = (fe.saidas || []).filter(x => (+x.dias > 0) || x.inicio);
+  if (sd.length) {
+    fe.diasUsados = sd.reduce((s, x) => s + (+x.dias || 0), 0);
+    const inis = sd.map(x => x.inicio).filter(Boolean).sort();
+    const fins = sd.map(x => x.fim).filter(Boolean).sort();
+    if (inis.length) fe.inicio = inis[0];
+    if (fins.length) fe.fim = fins[fins.length - 1];
+  }
+  saveData('feriasRH', feriasRH);
+  try { _renderKeepScroll(renderRH); } catch (e) {}
+}
+function abrirSaidasFerias(id) {
+  const fe = feriasRH.find(x => x.id === id); if (!fe) return;
+  if (!Array.isArray(fe.saidas)) fe.saidas = [];
+  const old = document.getElementById('saidas-modal'); if (old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'saidas-modal';
+  ov.style = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML = `<div style="background:var(--surface);border-radius:12px;padding:20px;max-width:560px;width:92%;max-height:86vh;overflow:auto">
+    <div style="font-size:16px;font-weight:800;margin-bottom:2px">📅 Saídas de férias — ${(fe.funcNome || '(sem nome)').replace(/</g, '&lt;')}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Registre cada pedaço que a pessoa tira (ex.: 15 dias agora, 15 depois). O <strong>total de dias</strong> e o período (início/fim) são preenchidos sozinhos. O <strong>fim</strong> de cada saída = início + dias.</div>
+    <div id="saidas-lista"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+      <button class="btn primary sm" onclick="addSaidaFerias('${id}')">➕ Adicionar saída</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost" onclick="document.getElementById('saidas-modal').remove()">Fechar</button>
+    </div>
+  </div>`;
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+  _renderSaidasLista(id);
+}
+function _renderSaidasLista(id) {
+  const fe = feriasRH.find(x => x.id === id); if (!fe) return;
+  const box = document.getElementById('saidas-lista'); if (!box) return;
+  const _isoBR = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+  const tot = (fe.saidas || []).reduce((s, x) => s + (+x.dias || 0), 0);
+  box.innerHTML = ((fe.saidas && fe.saidas.length) ? fe.saidas.map((sd, i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:6px">
+      <span style="font-size:11px;color:var(--muted);width:52px">Saída ${i + 1}</span>
+      <label style="font-size:11px;color:var(--muted)">início</label>
+      <input class="inline-input" style="width:104px" value="${_isoBR(sd.inicio)}" placeholder="dd/mm/aaaa" onchange="updateSaidaFerias('${id}',${i},'inicio',this.value)">
+      <label style="font-size:11px;color:var(--muted)">dias</label>
+      <input class="inline-input" type="number" step="1" style="width:56px;text-align:center" value="${sd.dias || ''}" placeholder="0" onchange="updateSaidaFerias('${id}',${i},'dias',this.value)">
+      <span style="font-size:11px;color:var(--muted)">fim: <strong>${_isoBR(sd.fim) || '—'}</strong></span>
+      <button class="btn ghost sm" style="color:var(--red)" onclick="removerSaidaFerias('${id}',${i})" title="Remover esta saída">🗑</button>
+    </div>`).join('') : '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Nenhuma saída ainda. Clique ➕ Adicionar saída.</div>')
+    + `<div style="margin-top:10px;font-weight:800;font-size:13px">Total: ${tot} dia(s)</div>`;
+}
+function addSaidaFerias(id) { const fe = feriasRH.find(x => x.id === id); if (!fe) return; if (!Array.isArray(fe.saidas)) fe.saidas = []; fe.saidas.push({ inicio: '', fim: '', dias: 0 }); _syncSaidasFerias(fe); _renderSaidasLista(id); }
+function removerSaidaFerias(id, i) { const fe = feriasRH.find(x => x.id === id); if (!fe || !fe.saidas) return; fe.saidas.splice(i, 1); _syncSaidasFerias(fe); _renderSaidasLista(id); }
+function updateSaidaFerias(id, i, campo, val) {
+  const fe = feriasRH.find(x => x.id === id); if (!fe || !fe.saidas || !fe.saidas[i]) return;
+  const sd = fe.saidas[i];
+  if (campo === 'dias') sd.dias = parseInt(String(val).replace(/[^\d]/g, ''), 10) || 0;
+  else if (campo === 'inicio') { const d = parseDate(val); sd.inicio = (d && !isNaN(d)) ? _feriasSaidaISO(d) : ''; }
+  if (sd.inicio && +sd.dias > 0) { const di = new Date(sd.inicio + 'T12:00:00'); di.setDate(di.getDate() + (+sd.dias) - 1); sd.fim = _feriasSaidaISO(di); }
+  else sd.fim = '';
+  _syncSaidasFerias(fe); _renderSaidasLista(id);
 }
 function renderRH() {
   const el = document.getElementById('v-rh'); if (!el) return;
