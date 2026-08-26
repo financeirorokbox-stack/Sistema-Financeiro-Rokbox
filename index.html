@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v546/08-665';
+const APP_VERSION = 'v547/08-666';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1212,6 +1212,7 @@ let funcionariosRH = [];       // RH/folha: [{id,nome,funcao,empresa,salario,dia
 let folhaRH = {};              // folha mensal digitada (igual à planilha dela): { 'YYYY-MM': { funcId: {adiant,salLiq,comissao,dsr,ferias,vt,extras,extrasCat,descontos} } }
 let feriasRH = [];             // férias lançadas: [{id,funcId,funcNome,empresa,inicio,fim,dias,noPapel,salarioBase,valor,terco,total,enviadoCP}] (datas em texto AAAA-MM-DD)
 let _rhSub = 'folha';          // sub-aba do RH: 'folha' | 'ferias'
+let _ferBusca = '';            // busca da aba Férias (filtra as linhas por nome/empresa/cargo)
 let lojaFixes = {};
 let vendedorFixes = {}; // { pedidoId: vendedor } — vendedor preenchido na mão para pedidos sem vendedor
 let opMapping = {};
@@ -12728,7 +12729,7 @@ function feriasHTML() {
   });
   const linhas = rows.map(fe => {
     const c = _feriasCalc(fe);
-    return `<tr>
+    return `<tr data-fer="${esc(((fe.funcNome || '') + ' ' + (fe.empresa || '') + ' ' + (fe.cargo || '')).toLowerCase())}">
       <td><input class="inline-input" list="fer-nomes" style="width:150px" value="${esc(fe.funcNome)}" placeholder="nome" onchange="updateFeriaRH('${fe.id}','funcNome',this.value)"></td>
       <td><input class="inline-input" style="width:100px" value="${esc(fe.empresa)}" placeholder="empresa" onchange="updateFeriaRH('${fe.id}','empresa',this.value)"></td>
       <td><input class="inline-input" style="width:120px" value="${esc(fe.cargo)}" placeholder="cargo" onchange="updateFeriaRH('${fe.id}','cargo',this.value)"></td>
@@ -12762,6 +12763,7 @@ function feriasHTML() {
       <button class="btn primary sm" onclick="novoPeriodoFeriasRH()">➕ Novo período</button>
       <button class="btn ok sm" onclick="calcularLimitesFerias()" title="Calcula a Data Limite pela Admissão nos períodos que estão SEM Data Limite (sugestão; confere com a contabilidade). Não sobrescreve o que já tem.">🧮 Calcular Data Limite</button>
       <label class="btn ok sm" style="cursor:pointer" title="Importa a sua planilha de Controle de Férias (.xlsx) — traz todos os períodos de uma vez.">📄 Importar planilha<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarFeriasXlsx(this.files[0]);this.value=''"></label>
+      <input id="fer-busca" class="inline-input" value="${esc(_ferBusca || '')}" placeholder="🔍 Buscar funcionário" oninput="_ferBusca=this.value;_ferFiltrar()" style="width:210px">
       <span style="font-size:11px;color:var(--muted)">Valor = <strong>salário ÷ 30 × dias (folga + vendidos) + 1/3</strong>. <strong>Vend.</strong> = dias vendidos (abono, até 10). O <strong>📤 CP</strong> manda pro Contas a Pagar (categoria FÉRIAS).</span>
     </div>
     ${datalist}
@@ -12789,7 +12791,12 @@ function updateFeriaRH(id, campo, val) {
     const s = String(val).trim();
     if (!s) fe[campo] = '';
     else { const d = parseDate(s); if (d && !isNaN(d)) fe[campo] = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-    // Preencheu Início E Fim das férias → calcula os DIAS (fim − início + 1) e o SALDO sozinho.
+    // Preencheu o PERÍODO em que pode sair (Início Per. Limite + Data Limite) → a pessoa tem direito a 30 dias,
+    // então traz o SALDO (30 − o que já usou), se ainda não tiver saldo. Depois desconta conforme lança dias/saídas.
+    if ((campo === 'inicioPerLimite' || campo === 'dataLimite') && fe.inicioPerLimite && fe.dataLimite && fe.saldoDias == null) {
+      fe.saldoDias = Math.max(0, 30 - _feriasConsumido(fe));
+    }
+    // Preencheu Início E Fim das férias (as datas que a pessoa saiu) → calcula os DIAS (fim − início + 1) e o SALDO.
     if ((campo === 'inicio' || campo === 'fim') && fe.inicio && fe.fim) {
       const di = new Date(fe.inicio + 'T12:00:00'), df = new Date(fe.fim + 'T12:00:00');
       if (!isNaN(di) && !isNaN(df) && df >= di) {
@@ -12922,9 +12929,17 @@ function _renderRHKeepScroll() {
   const sl = tw ? tw.scrollLeft : 0;
   const sy = window.scrollY || (document.scrollingElement ? document.scrollingElement.scrollTop : 0) || 0;
   renderRH();
+  try { _ferFiltrar(); } catch (e) {}
   const restore = () => { const t = document.getElementById('fer-tablewrap'); if (t) t.scrollLeft = sl; window.scrollTo(0, sy); };
   restore();
   requestAnimationFrame(restore);
+}
+// Filtra as linhas da tabela de férias pelo texto buscado (sem re-render → não perde o foco enquanto digita).
+function _ferFiltrar() {
+  const q = (_ferBusca || '').toLowerCase().trim();
+  document.querySelectorAll('#fer-tablewrap tbody tr[data-fer]').forEach(tr => {
+    tr.style.display = (!q || (tr.getAttribute('data-fer') || '').includes(q)) ? '' : 'none';
+  });
 }
 // Resumo das saídas pra mostrar na observação: "15d 01/01→15/01 · 15d 01/03→15/03".
 function _feriasSaidasResumo(fe) {
