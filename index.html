@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v536/08-655';
+const APP_VERSION = 'v537/08-656';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12753,6 +12753,7 @@ function feriasHTML() {
     ${bannerVenc}
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       <button class="btn primary sm" onclick="novoPeriodoFeriasRH()">➕ Novo período</button>
+      <button class="btn ok sm" onclick="calcularLimitesFerias()" title="Calcula a Data Limite pela Admissão nos períodos que estão SEM Data Limite (sugestão; confere com a contabilidade). Não sobrescreve o que já tem.">🧮 Calcular Data Limite</button>
       <label class="btn ok sm" style="cursor:pointer" title="Importa a sua planilha de Controle de Férias (.xlsx) — traz todos os períodos de uma vez.">📄 Importar planilha<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarFeriasXlsx(this.files[0]);this.value=''"></label>
       <span style="font-size:11px;color:var(--muted)">Valor das férias = <strong>salário ÷ 30 × dias usados + 1/3</strong>. O <strong>📤 CP</strong> manda pro Contas a Pagar (categoria FÉRIAS).</span>
     </div>
@@ -12856,6 +12857,34 @@ function importarFeriasXlsx(file) {
     } catch (err) { alert('Não consegui ler a planilha: ' + err.message); }
   };
   rd.readAsBinaryString(file);
+}
+// Calcula a Data Limite das férias a partir da ADMISSÃO. Regra (padrão da planilha da Elaine, confere com Karen/
+// Elaine/Carlos): a cada 12 meses fecha um período aquisitivo; a Data Limite pra tirar é ~1 mês antes de completar
+// 24 meses do período (adm + 12N + 11 meses − 1 dia), pegando o PRÓXIMO limite a partir de hoje. Início Período
+// Limite = 1 mês antes da Data Limite. É SUGESTÃO — falta/afastamento pode mudar (aí ajusta na mão).
+function _limiteFerias(admISO) {
+  const adm = new Date(admISO + 'T12:00:00'); if (isNaN(adm)) return null;
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const hoje = new Date(); hoje.setHours(12, 0, 0, 0);
+  for (let N = 1; N <= 80; N++) {
+    const lim = new Date(adm); lim.setMonth(lim.getMonth() + 12 * N + 11); lim.setDate(lim.getDate() - 1);
+    if (lim >= hoje) { const ini = new Date(lim); ini.setMonth(ini.getMonth() - 1); return { inicioPerLimite: iso(ini), dataLimite: iso(lim) }; }
+  }
+  return null;
+}
+function calcularLimitesFerias() {
+  let n = 0, semAdm = 0;
+  feriasRH.forEach(fe => {
+    if (!fe.dataAdmissao) { if (!fe.dataLimite) semAdm++; return; }
+    if (fe.dataLimite) return; // NÃO sobrescreve o que já veio do contador
+    const r = _limiteFerias(fe.dataAdmissao);
+    if (r) { fe.dataLimite = r.dataLimite; if (!fe.inicioPerLimite) fe.inicioPerLimite = r.inicioPerLimite; n++; }
+  });
+  if (n) saveData('feriasRH', feriasRH);
+  renderRH();
+  alert(n
+    ? `🧮 Calculei a Data Limite de ${n} período(s) pela Admissão.\n\n⚠ É uma SUGESTÃO: confira com a contabilidade. Casos com falta/afastamento podem ter data diferente — é só ajustar na mão.`
+    : `Nada pra calcular.\n\nEle preenche só os períodos que têm ADMISSÃO e estão SEM Data Limite (pra não sobrescrever o que veio do contador).${semAdm ? `\n${semAdm} período(s) estão sem Admissão.` : ''}\n\nPra recalcular um que já tem, apague a Data Limite dele e clique de novo.`);
 }
 function renderRH() {
   const el = document.getElementById('v-rh'); if (!el) return;
