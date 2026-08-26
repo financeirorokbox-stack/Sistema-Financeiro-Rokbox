@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v532/08-651';
+const APP_VERSION = 'v533/08-652';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -585,7 +585,7 @@ async function deleteData(key) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -740,7 +740,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1207,6 +1207,8 @@ let devolucaoCredito = {};
 let creditosCliente = [];      // sobra de pagamento que virou crédito a favor da cliente: [{id,cliente,pedidoOrigem,valor,empresa,data,usadoEm}]
 let funcionariosRH = [];       // RH/folha: [{id,nome,funcao,empresa,salario,diaPag,categoria,pix,ativo}] — "Gerar folha" cria as contas a pagar do mês
 let folhaRH = {};              // folha mensal digitada (igual à planilha dela): { 'YYYY-MM': { funcId: {adiant,salLiq,comissao,dsr,ferias,vt,extras,extrasCat,descontos} } }
+let feriasRH = [];             // férias lançadas: [{id,funcId,funcNome,empresa,inicio,fim,dias,noPapel,salarioBase,valor,terco,total,enviadoCP}] (datas em texto AAAA-MM-DD)
+let _rhSub = 'folha';          // sub-aba do RH: 'folha' | 'ferias'
 let lojaFixes = {};
 let vendedorFixes = {}; // { pedidoId: vendedor } — vendedor preenchido na mão para pedidos sem vendedor
 let opMapping = {};
@@ -12680,6 +12682,106 @@ async function lerLiquidosRH(file) {
   renderRH();
   alert(`✓ Preenchi o Sal. líquido de ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}.${semCadastro.length ? `\n\n${semCadastro.length} não casaram (preencha na mão ou ajuste o nome no cadastro).` : ''}\n\nConfira na grade e clique 📤 Gerar folha.`);
 }
+// ── FÉRIAS (sub-aba do RH) ──────────────────────────────────────────────
+// Saldo de dias por funcionário (funcionariosRH[].saldoFerias). Lançar férias calcula salário ÷ 30 × dias + 1/3,
+// guarda em feriasRH e um botão manda pro Contas a Pagar (categoria FÉRIAS). Marcador "no papel" = saiu no papel
+// mas continua trabalhando. Usa _feriasKey (isolado do _folhaKey da folha, pra o "desfazer folha" não mexer).
+function feriasHTML() {
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  const ativos = funcionariosRH.filter(f => f.ativo !== false && (f.nome || '').trim());
+  const _d = s => { if (!s) return null; const x = new Date(s + 'T12:00:00'); return isNaN(x) ? null : x; };
+  const fmtP = s => { const d = _d(s); return d ? fmtDate(d) : '—'; };
+  const linhasFunc = ativos.map(f => `<tr>
+    <td><strong>${esc(f.nome)}</strong>${f.funcao ? `<div style="font-size:9px;color:var(--muted)">${esc(f.funcao)}</div>` : ''}</td>
+    <td>${esc(f.empresa || '')}</td>
+    <td style="text-align:right">${fmtVal(+f.salario || 0)}</td>
+    <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:60px;text-align:center" value="${f.saldoFerias != null ? f.saldoFerias : ''}" placeholder="0" title="Saldo de férias em DIAS" onchange="updateSaldoFeriasRH('${f.id}',this.value)"> dias</td>
+    <td style="text-align:center"><button class="btn primary sm" style="font-size:11px" onclick="lancarFeriasRH('${f.id}')">➕ Lançar férias</button></td>
+  </tr>`).join('') || '<tr><td colspan="5" style="color:var(--muted);padding:12px">Nenhum funcionário ativo. Cadastre na aba Folha.</td></tr>';
+  const lanc = feriasRH.slice().sort((a, b) => String(b.inicio || '').localeCompare(String(a.inicio || '')));
+  const linhasLanc = lanc.map(fe => `<tr>
+      <td><strong>${esc(fe.funcNome)}</strong></td>
+      <td>${esc(fe.empresa || '')}</td>
+      <td>${fmtP(fe.inicio)} a ${fmtP(fe.fim)}</td>
+      <td style="text-align:center">${fe.dias}</td>
+      <td style="text-align:center">${fe.noPapel ? '<span class="badge" style="background:#fff2d6;color:#8a5a00;font-size:10px" title="Saiu no papel mas continuou trabalhando">📄 no papel</span>' : '<span style="color:var(--muted);font-size:10px">saiu</span>'}</td>
+      <td style="text-align:right">${fmtVal(fe.valor)}</td>
+      <td style="text-align:right">${fmtVal(fe.terco)}</td>
+      <td style="text-align:right;font-weight:700">${fmtVal(fe.total)}</td>
+      <td style="text-align:center">${fe.enviadoCP ? '<span class="badge ok" style="font-size:10px">✓ no Contas a Pagar</span>' : `<button class="btn ok sm" style="font-size:11px" onclick="enviarFeriasCP('${fe.id}')">📤 Enviar ao Contas a Pagar</button>`}</td>
+      <td style="text-align:center"><button class="btn ghost sm" style="color:var(--red)" onclick="removerFeriasRH('${fe.id}')" title="Remover este lançamento">🗑</button></td>
+    </tr>`).join('');
+  const totLanc = lanc.reduce((s, fe) => s + (+fe.total || 0), 0);
+  return `
+    <div class="section-title" style="margin-top:0">🏖 Férias</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Controle o <strong>saldo de dias</strong> de cada funcionário e lance as férias. Cálculo: <strong>salário ÷ 30 × dias + 1/3</strong>. O marcador <strong>📄 no papel</strong> é pra quando a pessoa sai no papel mas continua trabalhando. Depois, <strong>📤 Enviar ao Contas a Pagar</strong> (categoria FÉRIAS, entra no Fluxo).</div>
+    <div class="section-title" style="font-size:13px">Saldo por funcionário</div>
+    <div class="table-wrap" style="max-width:780px"><table><thead><tr><th>Nome</th><th>Empresa</th><th style="text-align:right">Salário</th><th style="text-align:center">Saldo (dias)</th><th></th></tr></thead><tbody>
+    ${linhasFunc}
+    </tbody></table></div>
+    <div class="section-title" style="font-size:13px;margin-top:20px">Férias lançadas${lanc.length ? ` — total ${fmtVal(totLanc)}` : ''}</div>
+    ${lanc.length ? `<div class="table-wrap"><table><thead><tr><th>Nome</th><th>Empresa</th><th>Período</th><th style="text-align:center">Dias</th><th style="text-align:center">Tipo</th><th style="text-align:right">Férias</th><th style="text-align:right">+ 1/3</th><th style="text-align:right">Total</th><th>Contas a Pagar</th><th></th></tr></thead><tbody>
+    ${linhasLanc}
+    </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhuma férias lançada ainda. Use o botão ➕ Lançar férias acima.</div>'}
+  `;
+}
+function updateSaldoFeriasRH(fid, val) {
+  const f = funcionariosRH.find(x => x.id === fid); if (!f) return;
+  const n = parseInt(String(val).replace(/[^\d-]/g, ''), 10);
+  f.saldoFerias = isNaN(n) ? null : n;
+  saveData('funcionariosRH', funcionariosRH);
+}
+function lancarFeriasRH(fid) {
+  const f = funcionariosRH.find(x => x.id === fid); if (!f) return;
+  const iniStr = prompt(`🏖 Férias de ${f.nome}\n\nData de INÍCIO (dd/mm/aaaa):`, '');
+  if (iniStr === null) return;
+  const ini = parseDate(iniStr); if (!ini || isNaN(ini)) { alert('Data de início inválida. Use dd/mm/aaaa.'); return; }
+  const fimStr = prompt('Data de FIM (dd/mm/aaaa):', '');
+  if (fimStr === null) return;
+  const fim = parseDate(fimStr); if (!fim || isNaN(fim)) { alert('Data de fim inválida. Use dd/mm/aaaa.'); return; }
+  const dias = Math.round((fim - ini) / 86400000) + 1;
+  if (dias <= 0) { alert('A data de fim tem que ser igual ou depois do início.'); return; }
+  const sal = +f.salario || 0;
+  if (sal <= 0 && !confirm('Este funcionário está sem salário no cadastro. Lançar férias com valor 0 mesmo assim?')) return;
+  const valor = +((sal / 30) * dias).toFixed(2);
+  const terco = +(valor / 3).toFixed(2);
+  const total = +(valor + terco).toFixed(2);
+  const noPapel = confirm(`Férias de ${f.nome}: ${dias} dia(s).\nFérias ${fmtVal(valor)} + 1/3 ${fmtVal(terco)} = ${fmtVal(total)}.\n\nÉ "NO PAPEL" (sai no papel mas CONTINUA trabalhando)?\n\nOK = sim, no papel · Cancelar = saiu de verdade`);
+  const _iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  feriasRH.push({ id: 'fer_' + Date.now(), funcId: f.id, funcNome: f.nome, empresa: f.empresa || '', inicio: _iso(ini), fim: _iso(fim), dias, noPapel, salarioBase: sal, valor, terco, total, enviadoCP: false });
+  if (f.saldoFerias != null) { f.saldoFerias = Math.max(0, (+f.saldoFerias || 0) - dias); saveData('funcionariosRH', funcionariosRH); }
+  saveData('feriasRH', feriasRH);
+  renderRH();
+  alert(`✓ Férias lançada: ${f.nome}\n${dias} dia(s) · ${fmtVal(total)} (com 1/3)${noPapel ? '\n📄 No papel (continua trabalhando)' : ''}\n\nAgora clique 📤 Enviar ao Contas a Pagar quando quiser gerar o pagamento.`);
+}
+function removerFeriasRH(id) {
+  const fe = feriasRH.find(x => x.id === id); if (!fe) return;
+  if (!confirm(`Remover a férias de ${fe.funcNome} (${fmtVal(fe.total)})?` + (fe.enviadoCP ? '\n\nATENÇÃO: já foi enviada ao Contas a Pagar. Se precisar, remova a conta lá também.' : ''))) return;
+  feriasRH = feriasRH.filter(x => x.id !== id);
+  saveData('feriasRH', feriasRH);
+  renderRH();
+}
+function enviarFeriasCP(id) {
+  const fe = feriasRH.find(x => x.id === id); if (!fe) return;
+  if (fe.enviadoCP) { alert('Essa férias já foi enviada ao Contas a Pagar.'); return; }
+  if (!(fe.total > 0)) { alert('Valor zerado — nada a enviar.'); return; }
+  const key = 'feriasLanc|' + fe.id;
+  if (contasPagar.some(c => c._feriasKey === key)) { fe.enviadoCP = true; saveData('feriasRH', feriasRH); renderRH(); return; }
+  const venc = new Date(fe.inicio + 'T12:00:00'); // vence na data de início; ajuste no Contas a Pagar se precisar
+  const per = fmtDate(new Date(fe.inicio + 'T12:00:00')) + ' a ' + fmtDate(new Date(fe.fim + 'T12:00:00'));
+  contasPagar.push({
+    numero: '', rateio: [], dataPag: null, situacao: 'Em Aberto', pago: false, _feriasKey: key,
+    fornecedor: fe.funcNome, empresa: fe.empresa || '', competencia: (fe.inicio || '').slice(0, 7),
+    descricao: 'Férias ' + fe.funcNome + ' (' + per + ')', categoria: 'FÉRIAS',
+    observacao: 'Férias ' + fe.dias + ' dia(s): ' + fmtVal(fe.valor) + ' + 1/3 ' + fmtVal(fe.terco) + (fe.noPapel ? ' · no papel (continua trabalhando)' : ''),
+    vencimento: venc, valor: fe.total
+  });
+  fe.enviadoCP = true;
+  saveData('contasPagar', contasPagar);
+  saveData('feriasRH', feriasRH);
+  renderRH();
+  alert(`📤 Férias de ${fe.funcNome} enviada ao Contas a Pagar:\n${fmtVal(fe.total)} · categoria FÉRIAS · vence ${fmtDate(venc)}.\n\nAjuste a data de pagamento no Contas a Pagar se precisar.`);
+}
 function renderRH() {
   const el = document.getElementById('v-rh'); if (!el) return;
   const ativos = funcionariosRH.filter(f => f.ativo !== false);
@@ -12731,7 +12833,13 @@ function renderRH() {
     </tbody></table></div>` : `<div style="font-size:11px;color:var(--muted)">Nenhum. Clique ➕ pra lançar (ex.: Pedido 39624 — 170,80). Cada item <strong>abate do salário</strong> e, com o nº do pedido, ao Gerar ele é marcado <strong>RECEBIDO (Desconto em Folha)</strong> no Contas a Receber. Sem nº (ex.: Bolo), só abate.</div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:6px">💡 <strong>Comissão</strong>: vazio = puxa da aba 💸 Comissão (a linha de comissão NÃO é gerada aqui, pra não duplicar). <strong>DSR</strong> vem da contabilidade — o "est." é só pra confrontar. <strong>Descontos</strong> abatem do salário. Depois clique <strong>📤 Gerar</strong>: cria/atualiza as linhas no Contas a Pagar, cada campo com a categoria dele (Adiantamento dia 20; Salário, DSR, Férias, VT e Extras dia 05 do mês seguinte). O pagamento do dia 05 é UM por pessoa — concilie as linhas juntas no mesmo débito.</div>` : '';
   el.innerHTML = `
-    <div class="section-title" style="margin-top:0">👥 RH — Folha de pagamento</div>
+    <div class="section-title" style="margin-top:0">👥 RH</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+      <button class="btn ${_rhSub==='folha'?'primary':'ghost'} sm" onclick="_rhSub='folha';renderRH()">📋 Folha de pagamento</button>
+      <button class="btn ${_rhSub==='ferias'?'primary':'ghost'} sm" onclick="_rhSub='ferias';renderRH()">🏖 Férias</button>
+    </div>
+    ${_rhSub === 'ferias' ? feriasHTML() : `
+    <div class="section-title" style="margin-top:0">📋 Folha de pagamento</div>
     <div class="cards-row">
       <div class="card dark"><div class="c-label">Funcionários ativos</div><div class="c-val">${ativos.length}</div></div>
       <div class="card blue"><div class="c-label">Folha mensal (soma)</div><div class="c-val">${fmtVal(totFolha)}</div></div>
@@ -12770,6 +12878,7 @@ function renderRH() {
     ${confHTML}
     <div id="rh-recibos">${_recibosRhHTML()}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:10px">💡 Preencha a <strong>folha do mês</strong> na grade acima (igual à sua planilha) e clique <strong>📤 Gerar</strong>: cada campo vira uma linha no Contas a Pagar com a categoria dele, já com a 💠 PIX. Re-gerar <strong>atualiza</strong> os valores (não duplica). Esta aba só aparece pra <strong>admin</strong> (ou usuário com a permissão "rh") — os salários ficam reservados.</div>
+    `}
   `;
 }
 // ── Holerites: separar o "Recibo de Pagamento" por funcionário e enviar por WhatsApp ──
@@ -13773,7 +13882,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -13846,6 +13955,7 @@ function delCheckboxHeader(source) {
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='funcionariosRH') funcionariosRH = v || [];
+    else if (k==='feriasRH') feriasRH = v || [];
     else if (k==='folhaRH') folhaRH = v || {};
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
   }
