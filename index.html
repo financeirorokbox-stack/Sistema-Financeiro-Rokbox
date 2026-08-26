@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v530/08-649';
+const APP_VERSION = 'v531/08-650';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12003,7 +12003,7 @@ function renderCompras() {
   let vis = compras.slice();
   if (fSt) vis = vis.filter(c => (c.status || 'pendente') === fSt);
   if (fForn) vis = vis.filter(c => c.fornecedor === fForn);
-  if (fQ) vis = vis.filter(c => (c.insumo || '').toLowerCase().includes(fQ) || (c.fornecedor || '').toLowerCase().includes(fQ) || (c.colecao || '').toLowerCase().includes(fQ) || (c.categoria || '').toLowerCase().includes(fQ));
+  if (fQ) vis = vis.filter(c => (c.insumo || '').toLowerCase().includes(fQ) || (c.fornecedor || '').toLowerCase().includes(fQ) || (c.colecao || '').toLowerCase().includes(fQ) || (c.categoria || '').toLowerCase().includes(fQ) || String(c.nfNumero || '').toLowerCase().includes(fQ) || String(c._pedidoNum || '').toLowerCase().includes(fQ));
   const cnt = st => compras.filter(c => (c.status || 'pendente') === st).length;
   const somaVis = vis.reduce((s, c) => s + totalCompra(c), 0);
   const somaQtdVis = vis.reduce((s, c) => s + (+c.qtd || 0), 0);
@@ -12034,7 +12034,7 @@ function renderCompras() {
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <select class="inline-input" id="cmp-forn" onchange="renderCompras()"><option value="">Todos fornecedores</option>${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}" ${f === fForn ? 'selected' : ''}>${f}</option>`).join('')}</select>
-      <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="🔍 Buscar" oninput="debounceRender('renderCompras')" style="width:170px">
+      <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="🔍 Buscar (insumo, fornecedor, NF, pedido...)" oninput="debounceRender('renderCompras')" style="width:250px">
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
       <button class="btn ghost sm" id="cmp-excluir-sel" style="color:var(--red)" onclick="excluirComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Exclui de uma vez todos os itens marcados nos quadradinhos (uma confirmação só)">🗑 Excluir${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
