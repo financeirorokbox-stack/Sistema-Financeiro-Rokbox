@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v529/08-648';
+const APP_VERSION = 'v530/08-649';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2578,6 +2578,9 @@ function _renderContasImpl(el) {
       const concOk = results.ok.find(x => x.ped.id === ped.id);
       // Verifica forma salva manualmente
       const formaManual = formaManualMap[ped.id] || '';
+      // "Sem forma" de verdade = NADA determina a forma: sem recebimento/conciliação, sem forma manual e sem
+      // troca de forma (override). Se você colocou a forma na mão (ex.: Boleto Itaú), NÃO é mais "sem forma".
+      const semFormaVal = !(concOk || recs.length > 0 || formaManual || formaOverrideMap[ped.id]);
 
       let cat = '—', descricao = '—', detalhe = '';
       if (concOk) {
@@ -2611,13 +2614,13 @@ function _renderContasImpl(el) {
             const quitadoPorReceb = recebidoTot >= (ped.valor || 0) - 0.5;
             parcelas.forEach(parc => {
               const stP = quitadoPorReceb ? { recebido: true, detalhe: '✓ pago' } : _stParcelaBoleto(parc);
-              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento, key: parc.key }, cat, st: stP, venc: parc.vencimento, realIdx: -1, semForma: true });
+              linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento, key: parc.key }, cat, st: stP, venc: parc.vencimento, realIdx: -1, semForma: semFormaVal });
             });
             return; // já empurrou as parcelas — não empurra a linha agregada
           }
         }
       }
-      linhas.push({ ped, f: { pedido: ped.id, descricao, valor: ped.valor, vencimento: null }, cat, st, venc: null, realIdx: -1, semForma: true });
+      linhas.push({ ped, f: { pedido: ped.id, descricao, valor: ped.valor, vencimento: null }, cat, st, venc: null, realIdx: -1, semForma: semFormaVal });
     } else {
       formas.forEach(f => {
         // Trocar forma: override manual sobrepõe a categoria detectada
