@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v543/08-662';
+const APP_VERSION = 'v544/08-663';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12763,7 +12763,7 @@ function feriasHTML() {
       <span style="font-size:11px;color:var(--muted)">Valor das férias = <strong>salário ÷ 30 × dias usados + 1/3</strong>. O <strong>📤 CP</strong> manda pro Contas a Pagar (categoria FÉRIAS).</span>
     </div>
     ${datalist}
-    <div class="table-wrap"><table style="font-size:12px"><thead><tr>
+    <div class="table-wrap" id="fer-tablewrap"><table style="font-size:12px"><thead><tr>
       <th>Nome</th><th>Empresa</th><th>Cargo</th><th style="text-align:right">Salário</th><th>Admissão</th><th title="Início do período em que as férias podem ser tiradas">Início Per. Limite</th><th title="Prazo final pra tirar as férias (senão paga em dobro)">Data Limite</th><th title="Quanto falta pra vencer">⏰ Vence</th><th>Tirada?</th><th>Início</th><th>Fim</th><th title="Dias usados">Dias</th><th title="Saldo de dias">Saldo</th><th title="Marque se PAGOU as férias mas a pessoa NÃO folgou (continua trabalhando)">📄 Pago s/ folgar</th><th style="text-align:right">Valor +1/3</th><th>Observação</th><th>Ações</th>
     </tr></thead><tbody>
     ${linhas}
@@ -12790,7 +12790,7 @@ function updateFeriaRH(id, campo, val) {
   }
   else fe[campo] = val;
   saveData('feriasRH', feriasRH);
-  _renderKeepScroll(renderRH);
+  _renderRHKeepScroll();
 }
 function removerFeriasRH(id) {
   const fe = feriasRH.find(x => x.id === id); if (!fe) return;
@@ -12902,6 +12902,17 @@ function _feriasDireito(fe) {
   if (fe.saldoDias != null) return (+fe.saldoDias || 0) + (+fe.diasUsados || 0);
   return 30; // período completo dá 30 dias
 }
+// Re-render do RH preservando a rolagem VERTICAL da página E a HORIZONTAL da tabela de férias (que é larga).
+// Sem isto, ao editar um campo a tabela voltava pro começo (esquerda).
+function _renderRHKeepScroll() {
+  const tw = document.getElementById('fer-tablewrap');
+  const sl = tw ? tw.scrollLeft : 0;
+  const sy = window.scrollY || (document.scrollingElement ? document.scrollingElement.scrollTop : 0) || 0;
+  renderRH();
+  const restore = () => { const t = document.getElementById('fer-tablewrap'); if (t) t.scrollLeft = sl; window.scrollTo(0, sy); };
+  restore();
+  requestAnimationFrame(restore);
+}
 // Resumo das saídas pra mostrar na observação: "15d 01/01→15/01 · 15d 01/03→15/03".
 function _feriasSaidasResumo(fe) {
   const br = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : '?'; };
@@ -12919,7 +12930,7 @@ function _syncSaidasFerias(fe) {
   }
   fe.saldoDias = Math.max(0, direito - (+fe.diasUsados || 0));
   saveData('feriasRH', feriasRH);
-  try { _renderKeepScroll(renderRH); } catch (e) {}
+  try { _renderRHKeepScroll(); } catch (e) {}
 }
 function abrirSaidasFerias(id) {
   const fe = feriasRH.find(x => x.id === id); if (!fe) return;
