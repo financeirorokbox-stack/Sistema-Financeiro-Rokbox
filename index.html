@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v538/08-657';
+const APP_VERSION = 'v539/08-658';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12697,9 +12697,12 @@ function _feriasDiasAte(iso) {
   return Math.round((d - hoje) / 86400000);
 }
 function _feriasCalc(fe) {
-  const valor = +(((+fe.salarioBase || 0) / 30) * (+fe.diasUsados || 0)).toFixed(2);
+  // Valor = salário ÷ 30 × dias + 1/3. Dias: os USADOS se preenchidos; senão o SALDO; senão 30 (férias cheia).
+  // Assim mostra um valor mesmo antes de você preencher os dias (é uma projeção até você pôr os dias reais).
+  const dias = (+fe.diasUsados > 0) ? +fe.diasUsados : ((+fe.saldoDias > 0) ? +fe.saldoDias : 30);
+  const valor = +(((+fe.salarioBase || 0) / 30) * dias).toFixed(2);
   const terco = +(valor / 3).toFixed(2);
-  return { valor, terco, total: +(valor + terco).toFixed(2) };
+  return { valor, terco, total: +(valor + terco).toFixed(2), dias, real: (+fe.diasUsados > 0) };
 }
 function feriasVencendo() {
   return feriasRH.filter(fe => !fe.tirada && fe.dataLimite).map(fe => ({ fe, dias: _feriasDiasAte(fe.dataLimite) }))
@@ -12739,7 +12742,7 @@ function feriasHTML() {
       <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:50px;text-align:center" value="${fe.diasUsados || ''}" placeholder="0" title="Dias de férias usados" onchange="updateFeriaRH('${fe.id}','diasUsados',this.value)"></td>
       <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:50px;text-align:center" value="${fe.saldoDias != null ? fe.saldoDias : ''}" placeholder="0" title="Saldo de dias" onchange="updateFeriaRH('${fe.id}','saldoDias',this.value)"></td>
       <td style="text-align:center"><input type="checkbox" ${fe.noPapel ? 'checked' : ''} title="Saiu no papel mas continua trabalhando" onchange="updateFeriaRH('${fe.id}','noPapel',this.checked)"></td>
-      <td style="text-align:right;font-weight:700">${fmtVal(c.total)}<div style="font-size:9px;color:var(--muted)">${fmtVal(c.valor)} + 1/3</div></td>
+      <td style="text-align:right;font-weight:700">${fmtVal(c.total)}<div style="font-size:9px;color:var(--muted)">${fmtVal(c.valor)} + 1/3 · ${c.dias} d${c.real ? '' : ' <span title="Você ainda não preencheu os dias usados — mostrando a férias cheia">(base)</span>'}</div></td>
       <td style="text-align:center;white-space:nowrap">${fe.enviadoCP ? '<span class="badge ok" style="font-size:10px">✓ CP</span>' : `<button class="btn ok sm" style="font-size:10px" onclick="enviarFeriasCP('${fe.id}')" title="Enviar ao Contas a Pagar">📤 CP</button>`} <button class="btn ghost sm" style="color:var(--red);font-size:10px" onclick="removerFeriasRH('${fe.id}')" title="Remover">🗑</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="16" style="color:var(--muted);padding:14px">Nenhum período de férias ainda. Clique ➕ Novo período ou 📄 Importar planilha.</td></tr>';
@@ -12796,8 +12799,9 @@ function removerFeriasRH(id) {
 }
 function enviarFeriasCP(id) {
   const fe = feriasRH.find(x => x.id === id); if (!fe) return;
-  const c = _feriasCalc(fe);
-  if (!(c.total > 0)) { alert('Preencha o SALÁRIO e os DIAS usados pra calcular o valor das férias.'); return; }
+  if (!(+fe.diasUsados > 0)) { alert('Pra enviar ao Contas a Pagar, preencha os DIAS de férias usados (o valor a pagar é calculado por eles).'); return; }
+  const c = _feriasCalc(fe); // com dias usados > 0, o cálculo usa os dias reais (não a base de 30)
+  if (!(c.total > 0)) { alert('Preencha também o SALÁRIO do funcionário.'); return; }
   const key = 'feriasLanc|' + fe.id;
   if (contasPagar.some(x => x._feriasKey === key)) { fe.enviadoCP = true; saveData('feriasRH', feriasRH); renderRH(); alert('Essa férias já estava no Contas a Pagar.'); return; }
   const baseDia = fe.inicio || fe.dataLimite || '';
