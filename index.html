@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v544/08-663';
+const APP_VERSION = 'v545/08-664';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12787,6 +12787,15 @@ function updateFeriaRH(id, campo, val) {
     const s = String(val).trim();
     if (!s) fe[campo] = '';
     else { const d = parseDate(s); if (d && !isNaN(d)) fe[campo] = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    // Preencheu Início E Fim das férias → calcula os DIAS (fim − início + 1) e o SALDO sozinho.
+    if ((campo === 'inicio' || campo === 'fim') && fe.inicio && fe.fim) {
+      const di = new Date(fe.inicio + 'T12:00:00'), df = new Date(fe.fim + 'T12:00:00');
+      if (!isNaN(di) && !isNaN(df) && df >= di) {
+        const direito = _feriasDireito(fe);
+        fe.diasUsados = Math.round((df - di) / 86400000) + 1;
+        fe.saldoDias = Math.max(0, direito - fe.diasUsados);
+      }
+    }
   }
   else fe[campo] = val;
   saveData('feriasRH', feriasRH);
