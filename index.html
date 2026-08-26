@@ -363,6 +363,7 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-compras" onclick="setView('compras')">🛒 Compras</div>
   <div class="topnav-item" id="nav-rh" onclick="setView('rh')">👥 RH</div>
   <div class="topnav-item" id="nav-financeiro" onclick="setView('financeiro')">Financeiro</div>
+  <div class="topnav-item" id="nav-budget" onclick="setView('budget')">📐 Budget</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
   <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
 </div>
@@ -403,6 +404,7 @@ tr:hover td{background:#fafaf8}
 </div>
 <div id="v-compras" class="main" style="display:none"></div>
 <div id="v-rh" class="main" style="display:none"></div>
+<div id="v-budget" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
 </div><!-- /app -->
@@ -461,7 +463,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v547/08-666';
+const APP_VERSION = 'v548/08-667';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -585,7 +587,7 @@ async function deleteData(key) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -740,7 +742,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1211,6 +1213,7 @@ let creditosCliente = [];      // sobra de pagamento que virou crédito a favor 
 let funcionariosRH = [];       // RH/folha: [{id,nome,funcao,empresa,salario,diaPag,categoria,pix,ativo}] — "Gerar folha" cria as contas a pagar do mês
 let folhaRH = {};              // folha mensal digitada (igual à planilha dela): { 'YYYY-MM': { funcId: {adiant,salLiq,comissao,dsr,ferias,vt,extras,extrasCat,descontos} } }
 let feriasRH = [];             // férias lançadas: [{id,funcId,funcNome,empresa,inicio,fim,dias,noPapel,salarioBase,valor,terco,total,enviadoCP}] (datas em texto AAAA-MM-DD)
+let budgets = [];              // Budget/orçamento por peça: [{id,cliente,pedido,produto,qtd,precoVenda,desconto,custos:[{nome,valor}],vencPrev,obs,enviadoCR,enviadoCP}]
 let _rhSub = 'folha';          // sub-aba do RH: 'folha' | 'ferias'
 let _ferBusca = '';            // busca da aba Férias (filtra as linhas por nome/empresa/cargo)
 let lojaFixes = {};
@@ -1334,12 +1337,13 @@ function setView(v) {
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','compras','rh','financeiro','cadastro'].forEach(x => {
+  ['dashboard','vendas','compras','rh','budget','financeiro','cadastro'].forEach(x => {
     document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
   document.getElementById('v-vendas').style.display = v === 'vendas' ? 'block' : 'none';
   document.getElementById('v-compras').style.display = v === 'compras' ? 'block' : 'none';
+  const _vbg = document.getElementById('v-budget'); if (_vbg) _vbg.style.display = v === 'budget' ? 'block' : 'none';
   const _vrh = document.getElementById('v-rh'); if (_vrh) _vrh.style.display = v === 'rh' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
@@ -1349,6 +1353,7 @@ function setView(v) {
   if (v === 'vendas') _perf('Vendas', renderVendas);
   if (v === 'compras') _perf('Compras', renderCompras);
   if (v === 'rh') _perf('RH', renderRH);
+  if (v === 'budget') _perf('Budget', renderBudget);
   if (v === 'financeiro') {
     // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
     let s = currentSub === 'conc' ? 'contas' : currentSub;
@@ -12687,6 +12692,153 @@ async function lerLiquidosRH(file) {
   renderRH();
   alert(`✓ Preenchi o Sal. líquido de ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}.${semCadastro.length ? `\n\n${semCadastro.length} não casaram (preencha na mão ou ajuste o nome no cadastro).` : ''}\n\nConfira na grade e clique 📤 Gerar folha.`);
 }
+// ══ BUDGET (custo por peça + previsão) ══════════════════════════════════
+function _budCustoPeca(b) { return (b.custos || []).reduce((s, c) => s + (+c.valor || 0), 0); }
+function renderBudget() {
+  const el = document.getElementById('v-budget'); if (!el) return;
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  const m = v => fmtVal(+v || 0);
+  const cards = budgets.slice().reverse().map(b => {
+    const cp = _budCustoPeca(b), qtd = +b.qtd || 0, pv = +b.precoVenda || 0;
+    const custoTot = +(cp * qtd).toFixed(2);
+    const vendaTot = +(pv * qtd - (+b.desconto || 0)).toFixed(2);
+    const margemPeca = +(pv - cp).toFixed(2), margemTot = +(vendaTot - custoTot).toFixed(2);
+    const pct = pv > 0 ? (margemPeca / pv * 100) : 0;
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;background:var(--surface)">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input class="inline-input" style="width:190px" value="${esc(b.cliente)}" placeholder="Cliente" onchange="updBudget('${b.id}','cliente',this.value)">
+        <input class="inline-input" style="width:90px" value="${esc(b.pedido)}" placeholder="nº pedido" onchange="updBudget('${b.id}','pedido',this.value)">
+        <input class="inline-input" style="width:220px" value="${esc(b.produto)}" placeholder="Produto" onchange="updBudget('${b.id}','produto',this.value)">
+        <span style="flex:1"></span>
+        <button class="btn ghost sm" style="color:var(--red)" onclick="removeBudget('${b.id}')" title="Remover budget">🗑</button>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--muted)">Qtd <input class="inline-input" type="number" step="1" style="width:84px" value="${b.qtd || ''}" onchange="updBudget('${b.id}','qtd',this.value)"></label>
+        <label style="font-size:12px;color:var(--muted)">Preço venda/peça <input class="inline-input" type="number" step="0.01" style="width:100px" value="${b.precoVenda || ''}" onchange="updBudget('${b.id}','precoVenda',this.value)"></label>
+        <label style="font-size:12px;color:var(--muted)">Desconto (total) <input class="inline-input" type="number" step="0.01" style="width:92px" value="${b.desconto || ''}" onchange="updBudget('${b.id}','desconto',this.value)"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:16px">
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">Custo por peça</div>
+          ${(b.custos || []).map((c, i) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">
+            <input class="inline-input" style="width:160px" value="${esc(c.nome)}" placeholder="componente" onchange="updBudgetCusto('${b.id}',${i},'nome',this.value)">
+            <input class="inline-input" type="number" step="0.01" style="width:100px;text-align:right" value="${c.valor || ''}" placeholder="R$/peça" onchange="updBudgetCusto('${b.id}',${i},'valor',this.value)">
+            <button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeBudgetCusto('${b.id}',${i})">✕</button>
+          </div>`).join('')}
+          <button class="btn ghost sm" style="font-size:11px" onclick="addBudgetCusto('${b.id}')">➕ componente</button>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Custo/peça</span><strong>${m(cp)}</strong></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Venda/peça</span><strong>${m(pv)}</strong></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:${margemPeca >= 0 ? 'var(--green)' : 'var(--red)'}"><span>Margem/peça</span><strong>${m(margemPeca)} · ${pct.toFixed(0)}%</strong></div>
+          <div style="border-top:1px solid var(--border);margin:6px 0"></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Custo total (${qtd}×)</span><strong>${m(custoTot)}</strong></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Venda total</span><strong>${m(vendaTot)}</strong></div>
+          <div style="display:flex;justify-content:space-between;font-size:14px;color:${margemTot >= 0 ? 'var(--green)' : 'var(--red)'}"><span>Lucro total</span><strong>${m(margemTot)}</strong></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
+        <label style="font-size:12px;color:var(--muted)">Data prevista <input class="inline-input" type="date" style="width:140px" value="${b.vencPrev || ''}" onchange="updBudget('${b.id}','vencPrev',this.value)"></label>
+        <button class="btn ok sm" onclick="budgetPrevisaoReceber('${b.id}')" ${b.enviadoCR ? 'disabled' : ''}>${b.enviadoCR ? '✓ Receber previsto' : '📤 Previsão a Receber'}</button>
+        <button class="btn ok sm" onclick="budgetPrevisaoPagar('${b.id}')" ${b.enviadoCP ? 'disabled' : ''}>${b.enviadoCP ? '✓ Custos previstos' : '📤 Previsão a Pagar (custos)'}</button>
+        <input class="inline-input" style="flex:1;min-width:160px" value="${esc(b.obs)}" placeholder="observação" onchange="updBudget('${b.id}','obs',this.value)">
+      </div>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px">Nenhum budget ainda. Clique <strong>➕ Novo budget</strong> ou <strong>📄 Importar proposta</strong>.</div>';
+  el.innerHTML = `
+    <div class="section-title" style="margin-top:0">📐 Budget — custo por peça e previsão</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Monte o <strong>custo por peça</strong> (tecido, mão de obra, aviamentos, embalagem...) a partir da proposta, veja a <strong>margem</strong>, e mande como <strong>PREVISÃO</strong> pro Contas a Receber (a venda) e pro Contas a Pagar (os custos). A previsão entra no Fluxo de Caixa.</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn primary sm" onclick="novoBudget()">➕ Novo budget</button>
+      <label class="btn ok sm" style="cursor:pointer" title="Sobe a proposta (PDF) e traz cliente, pedido, produto, qtd e preço de venda.">📄 Importar proposta (PDF)<input type="file" accept=".pdf" style="display:none" onchange="importarBudgetPDF(this.files[0]);this.value=''"></label>
+    </div>
+    ${cards}
+  `;
+}
+function novoBudget() {
+  budgets.push({ id: 'bud_' + Date.now(), cliente: '', pedido: '', produto: '', qtd: 0, precoVenda: 0, desconto: 0, custos: [{ nome: 'Tecido', valor: 0 }, { nome: 'Mão de obra', valor: 0 }, { nome: 'Aviamentos', valor: 0 }, { nome: 'Embalagem', valor: 0 }], vencPrev: '', obs: '', enviadoCR: false, enviadoCP: false });
+  saveData('budgets', budgets); renderBudget();
+}
+function updBudget(id, campo, val) {
+  const b = budgets.find(x => x.id === id); if (!b) return;
+  if (['qtd', 'precoVenda', 'desconto'].includes(campo)) b[campo] = +String(val).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '') || +val || 0;
+  else b[campo] = val;
+  saveData('budgets', budgets);
+  _renderBudKeepScroll();
+}
+function updBudgetCusto(id, i, campo, val) {
+  const b = budgets.find(x => x.id === id); if (!b || !b.custos || !b.custos[i]) return;
+  if (campo === 'valor') b.custos[i].valor = +String(val).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '') || +val || 0;
+  else b.custos[i].nome = val;
+  saveData('budgets', budgets);
+  _renderBudKeepScroll();
+}
+function addBudgetCusto(id) { const b = budgets.find(x => x.id === id); if (!b) return; if (!b.custos) b.custos = []; b.custos.push({ nome: '', valor: 0 }); saveData('budgets', budgets); renderBudget(); }
+function removeBudgetCusto(id, i) { const b = budgets.find(x => x.id === id); if (!b || !b.custos) return; b.custos.splice(i, 1); saveData('budgets', budgets); renderBudget(); }
+function removeBudget(id) { const b = budgets.find(x => x.id === id); if (!b) return; if (!confirm('Remover este budget?')) return; budgets = budgets.filter(x => x.id !== id); saveData('budgets', budgets); renderBudget(); }
+// Re-render do Budget preservando a rolagem da página (pra editar campo não pular pro topo).
+function _renderBudKeepScroll() {
+  const sy = window.scrollY || (document.scrollingElement ? document.scrollingElement.scrollTop : 0) || 0;
+  renderBudget();
+  window.scrollTo(0, sy);
+  requestAnimationFrame(() => window.scrollTo(0, sy));
+}
+async function importarBudgetPDF(file) {
+  if (!file) return;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const linhas = await _pdfLinhas(bytes);
+    const texto = linhas.join('\n');
+    const b = { id: 'bud_' + Date.now(), cliente: '', pedido: '', produto: '', qtd: 0, precoVenda: 0, desconto: 0, custos: [{ nome: 'Tecido', valor: 0 }, { nome: 'Mão de obra', valor: 0 }, { nome: 'Aviamentos', valor: 0 }, { nome: 'Embalagem', valor: 0 }], vencPrev: '', obs: '', enviadoCR: false, enviadoCP: false };
+    // nº do pedido
+    let mm = texto.match(/N[úu]mero do pedido\s+(\d+)/i) || texto.match(/Pedido\s+(\d+)/i); if (mm) b.pedido = mm[1];
+    // cliente: linha depois de "Cliente"
+    const iCli = linhas.findIndex(l => /^cliente$/i.test(l.trim()));
+    if (iCli >= 0 && linhas[iCli + 1]) b.cliente = linhas[iCli + 1].trim();
+    else { const mc = texto.match(/Cliente\s+(.+)/i); if (mc) b.cliente = mc[1].trim(); }
+    // desconto e total
+    const md = texto.match(/Desconto\s*\n?\s*([\d.]+,\d{2})/i); if (md) b.desconto = _numBR(md[1]);
+    // item: "<desc> <qtd>,0000 <unit>,0000 <total>"
+    const mi = texto.match(/(.+?)\s+([\d.]+),\d{3,4}\s+([\d.]+),\d{3,4}\s+([\d.]+,\d{2})/);
+    if (mi) { b.produto = mi[1].replace(/^Descrição.*?total/i, '').trim(); b.qtd = _numBR(mi[2]); b.precoVenda = _numBR(mi[3]); }
+    budgets.push(b);
+    saveData('budgets', budgets);
+    setView('budget'); renderBudget();
+    alert(`✓ Proposta importada:\nCliente: ${b.cliente || '(preencher)'}\nPedido: ${b.pedido || '(preencher)'}\nProduto: ${b.produto || '(preencher)'}\nQtd: ${b.qtd || 0} · Preço: ${fmtVal(b.precoVenda)}\n\nConfira e ajuste o que precisar. Agora preencha os custos por peça.`);
+  } catch (e) { alert('Não consegui ler a proposta: ' + e.message + '\n\nVocê pode clicar ➕ Novo budget e preencher na mão.'); }
+}
+function _numBR(s) { s = String(s || '').trim(); if (!s) return 0; if (s.indexOf(',') >= 0) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0; return parseFloat(s) || 0; }
+function budgetPrevisaoReceber(id) {
+  const b = budgets.find(x => x.id === id); if (!b) return;
+  const qtd = +b.qtd || 0, pv = +b.precoVenda || 0;
+  const vendaTot = +(pv * qtd - (+b.desconto || 0)).toFixed(2);
+  if (!(vendaTot > 0)) { alert('Preencha a quantidade e o preço de venda.'); return; }
+  boletosAvulsos.push({ pedido: String(b.pedido || ''), cliente: b.cliente || '(cliente do budget)', valorTitulo: vendaTot, valorPago: 0, dataPagamento: null, vencimento: b.vencPrev ? new Date(b.vencPrev + 'T12:00:00') : null, fone: '', empresa: '', _budget: b.id, obsCobranca: 'Previsão (budget) ' + (b.produto || '') });
+  b.enviadoCR = true;
+  saveData('boletosAvulsos', boletosAvulsos); saveData('budgets', budgets);
+  try { syncBoletosToRecebimentos(); } catch (e) {}
+  renderBudget();
+  alert(`📤 Previsão a RECEBER criada: ${fmtVal(vendaTot)} (${b.cliente || 'cliente'}).\n\nAparece na Cobrança e no Fluxo (🔮 Previsto a receber). Quando o dinheiro entrar, você concilia normalmente.`);
+}
+function budgetPrevisaoPagar(id) {
+  const b = budgets.find(x => x.id === id); if (!b) return;
+  const qtd = +b.qtd || 0;
+  const venc = b.vencPrev ? new Date(b.vencPrev + 'T12:00:00') : null;
+  let n = 0;
+  (b.custos || []).forEach((c, i) => {
+    const total = +((+c.valor || 0) * qtd).toFixed(2);
+    if (!(total > 0)) return;
+    const key = 'budget|' + b.id + '|' + i;
+    if (contasPagar.some(x => x._budgetKey === key)) return;
+    contasPagar.push({ numero: '', rateio: [], dataPag: null, situacao: 'Em Aberto', pago: false, _budgetKey: key, fornecedor: (b.produto || 'Produção') + (b.pedido ? ' (ped ' + b.pedido + ')' : ''), empresa: '', competencia: (b.vencPrev || '').slice(0, 7), descricao: (c.nome || 'Custo') + ' — ' + (b.produto || '') + (b.pedido ? ' (ped ' + b.pedido + ')' : ''), categoria: (c.nome || 'PRODUÇÃO').toUpperCase(), observacao: 'Previsão (budget): ' + qtd + ' × ' + fmtVal(+c.valor || 0), vencimento: venc, valor: total });
+    n++;
+  });
+  if (!n) { alert('Nenhum custo pra lançar (preencha os componentes de custo e a quantidade).'); return; }
+  b.enviadoCP = true;
+  saveData('contasPagar', contasPagar); saveData('budgets', budgets);
+  renderBudget();
+  alert(`📤 Previsão a PAGAR criada: ${n} custo(s) no Contas a Pagar (em aberto).\n\nEntram no Fluxo como 🔮 Previsto a pagar. Ajuste as categorias/fornecedor no Contas a Pagar se precisar.`);
+}
 // ── FÉRIAS (sub-aba do RH) ──────────────────────────────────────────────
 // Tabela por PERÍODO (igual à planilha da Elaine): empresa, nome, salário, cargo, admissão, início período limite,
 // DATA LIMITE, tirada?, início/fim, dias usados, saldo. Avisa quando a Data Limite está vencendo. Calcula o valor
@@ -14109,7 +14261,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
   for (const k of keys) {
     const v = await loadData(k);
     if (!v) continue;
@@ -14183,6 +14335,7 @@ function delCheckboxHeader(source) {
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='funcionariosRH') funcionariosRH = v || [];
     else if (k==='feriasRH') feriasRH = v || [];
+    else if (k==='budgets') budgets = v || [];
     else if (k==='folhaRH') folhaRH = v || {};
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
   }
