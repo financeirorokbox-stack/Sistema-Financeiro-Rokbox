@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v535/08-654';
+const APP_VERSION = 'v536/08-655';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12715,7 +12715,8 @@ function feriasHTML() {
     if (d <= 60) return `<span style="color:#e08600;font-weight:700;font-size:11px">🟠 ${d} d</span>`;
     return `<span style="color:var(--green);font-size:11px">🟢 ${d} d</span>`;
   };
-  const inD = (id, campo, val) => `<input class="inline-input" type="date" style="width:132px" value="${val || ''}" onchange="updateFeriaRH('${id}','${campo}',this.value)">`;
+  const _isoBR = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+  const inD = (id, campo, val) => `<input class="inline-input" style="width:96px" value="${_isoBR(val)}" placeholder="dd/mm/aaaa" onchange="updateFeriaRH('${id}','${campo}',this.value)">`;
   const rows = feriasRH.slice().sort((a, b) => {
     const da = a.tirada ? '9' : (a.dataLimite || '8'), db = b.tirada ? '9' : (b.dataLimite || '8');
     return da.localeCompare(db);
@@ -12775,6 +12776,11 @@ function updateFeriaRH(id, campo, val) {
   else if (campo === 'salarioBase') fe.salarioBase = +String(val).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '') || +val || 0;
   else if (campo === 'diasUsados' || campo === 'saldoDias') { const n = parseInt(String(val).replace(/[^\d]/g, ''), 10); fe[campo] = isNaN(n) ? (campo === 'saldoDias' ? null : 0) : n; }
   else if (campo === 'funcNome') { fe.funcNome = val; const f = funcionariosRH.find(x => nomesBatem(x.nome, val)); if (f) { fe.funcId = f.id; if (!fe.empresa) fe.empresa = f.empresa || ''; if (!fe.cargo) fe.cargo = f.funcao || ''; if (!(+fe.salarioBase)) fe.salarioBase = +f.salario || 0; if (!fe.dataAdmissao && f.admissao) fe.dataAdmissao = f.admissao; } }
+  else if (['dataAdmissao', 'inicioPerLimite', 'dataLimite', 'inicio', 'fim'].includes(campo)) {
+    const s = String(val).trim();
+    if (!s) fe[campo] = '';
+    else { const d = parseDate(s); if (d && !isNaN(d)) fe[campo] = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  }
   else fe[campo] = val;
   saveData('feriasRH', feriasRH);
   _renderKeepScroll(renderRH);
