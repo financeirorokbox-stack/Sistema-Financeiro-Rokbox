@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v533/08-652';
+const APP_VERSION = 'v534/08-653';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1009,6 +1009,7 @@ async function resetCredentials() {
 }
 
 function enterApp() {
+  _appEntered = true;
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   applyPermissions();
@@ -1058,8 +1059,9 @@ function applyPermissions() {
     if (el) el.style.display = subAllowed(sub) ? 'block' : 'none';
   });
 
-  const first = firstAllowedView();
-  if (first) setView(first);
+  // Só vai pra primeira aba permitida se a aba ATUAL não for permitida. Antes, re-aplicar permissões
+  // (ex.: o init terminar de carregar) jogava a pessoa de volta pra primeira aba toda vez.
+  if (!viewAllowed(currentView)) { const first = firstAllowedView(); if (first) setView(first); }
 }
 
 function doLogout() {
@@ -1242,6 +1244,7 @@ let activeTab = 'ok';
 let buscaPersist = {}; // termos de pesquisa que sobrevivem à troca de tela (por campo)
 let tolValGlobal = 0.10;
 let currentView = 'vendas';
+let _appEntered = false; // já entrou no app (evita o init re-entrar depois do carregamento e jogar pra 1ª aba)
 let currentSub = 'contas';
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
@@ -13985,7 +13988,9 @@ function delCheckboxHeader(source) {
   let sessionUser = null;
   try { sessionUser = sessionStorage.getItem('pg_current_user'); } catch(e) {}
   const active = sessionUser && usuarios && usuarios.find(u => u.user === sessionUser);
-  if (active) {
+  if (_appEntered) {
+    // Já entrou pela tela de login enquanto os dados carregavam — NÃO re-entra (senão pulava pra 1ª aba).
+  } else if (active) {
     currentUser = active;
     enterApp();
   } else {
