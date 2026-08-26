@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v541/08-660';
+const APP_VERSION = 'v542/08-661';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12743,7 +12743,7 @@ function feriasHTML() {
       <td style="text-align:center"><input class="inline-input" type="number" step="1" style="width:50px;text-align:center" value="${fe.saldoDias != null ? fe.saldoDias : ''}" placeholder="0" title="Saldo de dias" onchange="updateFeriaRH('${fe.id}','saldoDias',this.value)"></td>
       <td style="text-align:center"><input type="checkbox" ${fe.noPapel ? 'checked' : ''} title="Marque se PAGOU as férias mas a pessoa NÃO folgou (saiu só no papel, continua trabalhando)" onchange="updateFeriaRH('${fe.id}','noPapel',this.checked)">${fe.noPapel ? '<div style="font-size:8px;color:#8a5a00;font-weight:800;line-height:1.1;margin-top:2px">pago,<br>não folgou</div>' : ''}</td>
       <td style="text-align:right;font-weight:700">${fmtVal(c.total)}<div style="font-size:9px;color:var(--muted)">${fmtVal(c.valor)} + 1/3 · ${c.dias} d${c.real ? '' : ' <span title="Você ainda não preencheu os dias usados — mostrando a férias cheia">(base)</span>'}</div></td>
-      <td><input class="inline-input" style="width:150px" value="${esc(fe.obs || '')}" placeholder="ex.: pago, não folgou" title="Anote o que aconteceu (ex.: pagou mas não folgou, vai folgar depois...)" onchange="updateFeriaRH('${fe.id}','obs',this.value)"></td>
+      <td>${(() => { const r = _feriasSaidasResumo(fe); return r ? `<div style="font-size:9px;color:#1b6ca8;margin-bottom:2px" title="Saídas registradas (automático)">📅 ${r}</div>` : ''; })()}<input class="inline-input" style="width:150px" value="${esc(fe.obs || '')}" placeholder="anotação livre" title="Sua anotação. As saídas aparecem acima automaticamente." onchange="updateFeriaRH('${fe.id}','obs',this.value)"></td>
       <td style="text-align:center;white-space:nowrap">${fe.enviadoCP ? '<span class="badge ok" style="font-size:10px">✓ CP</span>' : `<button class="btn ok sm" style="font-size:10px" onclick="enviarFeriasCP('${fe.id}')" title="Enviar ao Contas a Pagar">📤 CP</button>`} <button class="btn ghost sm" style="color:var(--red);font-size:10px" onclick="removerFeriasRH('${fe.id}')" title="Remover">🗑</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="17" style="color:var(--muted);padding:14px">Nenhum período de férias ainda. Clique ➕ Novo período ou 📄 Importar planilha.</td></tr>';
@@ -12780,7 +12780,8 @@ function updateFeriaRH(id, campo, val) {
   if (campo === 'tirada') fe.tirada = (val === 'sim');
   else if (campo === 'noPapel') fe.noPapel = !!val;
   else if (campo === 'salarioBase') fe.salarioBase = +String(val).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '') || +val || 0;
-  else if (campo === 'diasUsados' || campo === 'saldoDias') { const n = parseInt(String(val).replace(/[^\d]/g, ''), 10); fe[campo] = isNaN(n) ? (campo === 'saldoDias' ? null : 0) : n; }
+  else if (campo === 'diasUsados') { const direito = _feriasDireito(fe); const n = parseInt(String(val).replace(/[^\d]/g, ''), 10); fe.diasUsados = isNaN(n) ? 0 : n; fe.saldoDias = Math.max(0, direito - fe.diasUsados); }
+  else if (campo === 'saldoDias') { const n = parseInt(String(val).replace(/[^\d]/g, ''), 10); fe.saldoDias = isNaN(n) ? null : n; }
   else if (campo === 'funcNome') { fe.funcNome = val; const f = funcionariosRH.find(x => nomesBatem(x.nome, val)); if (f) { fe.funcId = f.id; if (!fe.empresa) fe.empresa = f.empresa || ''; if (!fe.cargo) fe.cargo = f.funcao || ''; if (!(+fe.salarioBase)) fe.salarioBase = +f.salario || 0; if (!fe.dataAdmissao && f.admissao) fe.dataAdmissao = f.admissao; } }
   else if (['dataAdmissao', 'inicioPerLimite', 'dataLimite', 'inicio', 'fim'].includes(campo)) {
     const s = String(val).trim();
@@ -12812,7 +12813,7 @@ function enviarFeriasCP(id) {
     numero: '', rateio: [], dataPag: null, situacao: 'Em Aberto', pago: false, _feriasKey: key,
     fornecedor: fe.funcNome, empresa: fe.empresa || '', competencia: (baseDia || '').slice(0, 7),
     descricao: 'Férias ' + fe.funcNome + ' (' + per + ')', categoria: 'FÉRIAS',
-    observacao: 'Férias ' + (fe.diasUsados || 0) + ' dia(s): ' + fmtVal(c.valor) + ' + 1/3 ' + fmtVal(c.terco) + (fe.noPapel ? ' · PAGO SEM FOLGAR (continua trabalhando)' : '') + (fe.obs ? ' · ' + fe.obs : ''),
+    observacao: 'Férias ' + (fe.diasUsados || 0) + ' dia(s): ' + fmtVal(c.valor) + ' + 1/3 ' + fmtVal(c.terco) + (fe.noPapel ? ' · PAGO SEM FOLGAR (continua trabalhando)' : '') + (_feriasSaidasResumo(fe) ? ' · saídas: ' + _feriasSaidasResumo(fe) : '') + (fe.obs ? ' · ' + fe.obs : ''),
     vencimento: venc, valor: c.total
   });
   fe.enviadoCP = true;
@@ -12895,7 +12896,19 @@ function calcularLimitesFerias() {
 // SAÍDAS de férias (fracionamento): registra cada pedaço (ex.: 15 dias + 15 dias). O total vai pro campo Dias do
 // período, e o início/fim do período viram o 1º início e o último fim. O saldo você controla no campo Saldo.
 function _feriasSaidaISO(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+// Dias de DIREITO do período = saldo + usados (na planilha da Elaine sempre dá 30; 0 pra quem não fechou o ano).
+// Como saldo = direito − usados, o saldo desconta sozinho conforme as saídas entram.
+function _feriasDireito(fe) {
+  if (fe.saldoDias != null) return (+fe.saldoDias || 0) + (+fe.diasUsados || 0);
+  return 30; // período completo dá 30 dias
+}
+// Resumo das saídas pra mostrar na observação: "15d 01/01→15/01 · 15d 01/03→15/03".
+function _feriasSaidasResumo(fe) {
+  const br = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : '?'; };
+  return (fe.saidas || []).filter(x => (+x.dias > 0) || x.inicio).map(x => `${x.dias || '?'}d ${br(x.inicio)}${x.fim ? '→' + br(x.fim) : ''}`).join(' · ');
+}
 function _syncSaidasFerias(fe) {
+  const direito = _feriasDireito(fe); // captura ANTES de mexer nos dias (senão o cálculo circula)
   const sd = (fe.saidas || []).filter(x => (+x.dias > 0) || x.inicio);
   if (sd.length) {
     fe.diasUsados = sd.reduce((s, x) => s + (+x.dias || 0), 0);
@@ -12904,6 +12917,7 @@ function _syncSaidasFerias(fe) {
     if (inis.length) fe.inicio = inis[0];
     if (fins.length) fe.fim = fins[fins.length - 1];
   }
+  fe.saldoDias = Math.max(0, direito - (+fe.diasUsados || 0));
   saveData('feriasRH', feriasRH);
   try { _renderKeepScroll(renderRH); } catch (e) {}
 }
