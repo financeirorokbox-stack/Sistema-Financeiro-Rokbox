@@ -461,7 +461,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v537/08-656';
+const APP_VERSION = 'v538/08-657';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1059,9 +1059,10 @@ function applyPermissions() {
     if (el) el.style.display = subAllowed(sub) ? 'block' : 'none';
   });
 
-  // Só vai pra primeira aba permitida se a aba ATUAL não for permitida. Antes, re-aplicar permissões
-  // (ex.: o init terminar de carregar) jogava a pessoa de volta pra primeira aba toda vez.
-  if (!viewAllowed(currentView)) { const first = firstAllowedView(); if (first) setView(first); }
+  // Abre na 1ª aba permitida (Dashboard é leve). O bug de "voltar pra 1ª aba ao clicar" já é evitado pela flag
+  // _appEntered (impede o init re-entrar depois do carregamento), então aqui pode renderizar a inicial normal.
+  const first = firstAllowedView();
+  if (first) setView(first);
 }
 
 function doLogout() {
