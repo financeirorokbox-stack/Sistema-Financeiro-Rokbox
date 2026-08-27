@@ -463,7 +463,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v549/08-668';
+const APP_VERSION = 'v550/08-669';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10733,8 +10733,11 @@ function renderBanco() {
                   const _mesKeyD = d => { const x = d instanceof Date ? d : new Date(d); return isNaN(x) ? '' : x.getFullYear() + '-' + (x.getMonth() + 1); };
                   const _debMes = (t.data instanceof Date && !isNaN(t.data)) ? _mesKeyD(t.data) : '';
                   let todas = todasFull, nOcultosMes = 0;
-                  if (_debSoMes && _debMes) {
-                    const f = todasFull.filter(x => _mesKeyD(x.c.vencimento) === _debMes || (x.c.dataPag && _mesKeyD(x.c.dataPag) === _debMes));
+                  if (_debSoMes && _debMes && t.data instanceof Date && !isNaN(t.data)) {
+                    // ATRASADAS + MÊS DE VIGÊNCIA: esconde só as contas claramente do mês QUE VEM (vencimento depois do
+                    // fim do mês do débito e não pagas até lá). Era o que fazia flegar/conciliar errado. "ver todas" abre.
+                    const fimMes = new Date(t.data.getFullYear(), t.data.getMonth() + 1, 0, 23, 59, 59);
+                    const f = todasFull.filter(x => _contaNaoFutura(x.c, fimMes));
                     nOcultosMes = todasFull.length - f.length;
                     todas = f;
                   }
@@ -10751,7 +10754,7 @@ function renderBanco() {
                       <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
                       <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
                       <button class="btn ghost sm" style="font-size:11px;margin-bottom:6px" onclick="cbMarcarCartao('${t.id}',${alvo})" title="Marca todas as contas que têm 'cartão' na observação — pra conciliar a fatura do cartão de uma vez">🔖 Marcar cartão</button>
-                      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${_debSoMes && _debMes ? `📅 Só do mês do débito${nOcultosMes ? ` · <a href="#" onclick="_debSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todas (+${nOcultosMes})</a>` : ''}` : `📅 Todos os meses · <a href="#" onclick="_debSoMes=true;renderBanco();return false" style="color:var(--accent)">só do mês</a>`}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${_debSoMes && _debMes ? `📅 Atrasadas + mês do débito${nOcultosMes ? ` · <a href="#" onclick="_debSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todas (+${nOcultosMes})</a>` : ''}` : `📅 Todos os meses (inclui mês que vem) · <a href="#" onclick="_debSoMes=true;renderBanco();return false" style="color:var(--accent)">atrasadas + mês</a>`}</div>
                       <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${contasPagar.length} conta(s) a pagar no total · ${livres.length} livre(s)${nUsadas?` · ${nUsadas} já em outro débito`:''}</div>
                       <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
                         ${todas.map(({c,d,paga,usada})=>{
@@ -11777,13 +11780,24 @@ function cbAtribuirBanco() {
 }
 // Concilia automaticamente débitos do banco selecionado que batem com exatamente uma Conta a Pagar pelo valor.
 // Núcleo: concilia débitos que batem com EXATAMENTE uma Conta a Pagar (mesmo valor). Retorna nº conciliado. Não renderiza nem alerta.
+// Uma conta NÃO é do "mês que vem" em relação a fimMes = fim do mês do débito: sem vencimento, ou vencimento
+// até fimMes, ou (vencimento futuro porém) paga até fimMes. Usado pra não flegar/conciliar conta do mês seguinte.
+function _contaNaoFutura(c, fimMes) {
+  if (!fimMes) return true;
+  const venc = c.vencimento instanceof Date ? c.vencimento : (c.vencimento ? new Date(c.vencimento) : null);
+  if (!venc || isNaN(venc)) return true;
+  if (venc <= fimMes) return true;
+  const dp = c.dataPag instanceof Date ? c.dataPag : (c.dataPag ? new Date(c.dataPag) : null);
+  return !!(dp && !isNaN(dp) && dp <= fimMes);
+}
 function _autoDebitosCore(matchBanco) {
   const usados = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usados.add(it.chave)));
   let n = 0;
   extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t) && !diaFechado(t.data, t.banco)).forEach(t => {
     const alvo = Math.abs(t.valor);
-    const cand = contasPagar.filter(c => !c.cancelado && !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02);
+    const fimMes = (t.data instanceof Date && !isNaN(t.data)) ? new Date(t.data.getFullYear(), t.data.getMonth() + 1, 0, 23, 59, 59) : null;
+    const cand = contasPagar.filter(c => !c.cancelado && !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02 && _contaNaoFutura(c, fimMes));
     if (cand.length === 1) {
       const c = cand[0];
       const setPago = !c.pago;
