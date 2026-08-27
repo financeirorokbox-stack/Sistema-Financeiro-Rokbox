@@ -463,7 +463,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v550/08-669';
+const APP_VERSION = 'v551/08-670';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1198,6 +1198,7 @@ let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI);
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let _repSoMes = true;          // na conciliação, a lista de recebimentos p/ flegar mostra só o MÊS do depósito (senão enche de valores repetidos)
 let _debSoMes = true;          // idem para a lista de CONTAS A PAGAR de um débito: mostra só as do MÊS do débito
+let _fluxoBalComAberto = false; // balancete do Fluxo: incluir as despesas EM ABERTO (contas a pagar não pagas)
 let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
 let freteManual = {};          // { pedidoId: valorFrete } — frete digitado na mão (Comissão), vale acima do que veio da planilha
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
@@ -3619,9 +3620,9 @@ function dreCompletoHTML(treeR, treeD, empCols, totEnt, totSai, saldoAnterior, s
     ${linha('💰 SALDO ANTERIOR EM CONTA', null, saldoAnterior, 'var(--accent)', 'var(--bg)')}
     ${linha('⬆ RECEITAS', empTotais(treeR), totEnt, 'var(--green)', 'var(--green-bg,#eafaf0)')}
     ${secao(treeR, totEnt, 'var(--green)', 'r')}
-    ${linha('⬇ DESPESAS', empTotais(treeD), totSai, 'var(--red)', 'var(--red-bg,#fdeaea)')}
+    ${linha('⬇ DESPESAS' + ((typeof _fluxoBalComAberto !== 'undefined' && _fluxoBalComAberto) ? ' (pago + em aberto)' : ''), empTotais(treeD), totSai, 'var(--red)', 'var(--red-bg,#fdeaea)')}
     ${secao(treeD, totSai, 'var(--red)', 'd')}
-    ${linha('🏦 SALDO FINAL EM CONTA', null, saldoFinal, saldoFinal >= 0 ? 'var(--accent)' : 'var(--red)', 'var(--bg)')}
+    ${linha((typeof _fluxoBalComAberto !== 'undefined' && _fluxoBalComAberto) ? '🏦 SALDO PROJETADO (após em aberto)' : '🏦 SALDO FINAL EM CONTA', null, saldoFinal, saldoFinal >= 0 ? 'var(--accent)' : 'var(--red)', 'var(--bg)')}
   </tbody></table></div>`;
 }
 // Exporta a DRE (mesma tabela empilhada da tela) para Excel, no formato do PDF de fechamento.
@@ -3759,6 +3760,8 @@ function renderFluxo() {
   recebimentosConsolidado.forEach(r => { if (r._estornoChave || !noPeriodo(r.data)) return; addNo(treeR, grupoReceitaGateway(r.gateway), SUB_REC[r.gateway] || r.gateway || 'Outros', _empRec(r), r.liq||0); });
   receitasAvulsas.forEach(r => { if (!noPeriodo(r.data)) return; addNo(treeR, 'Outras receitas', r.categoria || 'Outras', r.empresa || '(sem empresa)', r.valor||0); });
   contasPagar.forEach(c => { if (c.cancelado || !c.pago || !noPeriodo(c.dataPag||c.vencimento)) return; const cat = catContaPagar(c); const g = grupoDespesa(cat) || cat || 'Outras despesas'; if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
+  // Opção "Pago + Em Aberto" (só nas despesas): inclui as contas a pagar EM ABERTO (por vencimento) na árvore.
+  if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = grupoDespesa(cat) || cat || 'Outras despesas'; if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
   const empCols = [...empSet].sort((a,b)=> a==='(sem empresa)' ? 1 : b==='(sem empresa)' ? -1 : (a<b?-1:1));
 
   // ── SALDO ANTERIOR (antes do período) e SALDO FINAL ──
@@ -3803,7 +3806,10 @@ function renderFluxo() {
     ? getSaldoInicialDia(_toDateInput(periodStart))
     : (baseInicial + netAntes);
   const saldoFinal = saldoAnterior + (totEnt - totSai);
-  window._dreExportData = { treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal }; // p/ exportarDRE
+  // Balancete "Pago + Em Aberto": o total de despesas e o saldo consideram as em aberto (só afeta a tabela do balancete).
+  const totSaiBal = _fluxoBalComAberto ? +(totSai + totSaiPrev).toFixed(2) : totSai;
+  const saldoFinalBal = _fluxoBalComAberto ? +(saldoAnterior + totEnt - totSaiBal).toFixed(2) : saldoFinal;
+  window._dreExportData = { treeR, treeD, empCols, totEnt, totSai: totSaiBal, saldoAnterior, saldoFinal: saldoFinalBal }; // p/ exportarDRE
 
   // ── EVOLUÇÃO MENSAL (gráfico de barras por mês) — respeita só o filtro de ANO ──
   const anoOk = d => { if (!d) return false; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return false; return !dateFilter.ano.length || dateFilter.ano.includes(String(dt.getFullYear())); };
@@ -3881,9 +3887,10 @@ function renderFluxo() {
     <div style="display:flex;align-items:center;gap:12px;margin:8px 0;flex-wrap:wrap">
       <div class="section-title" style="margin:0">📊 Balancete — Receitas × Despesas por grupo (realizado)</div>
       <button class="btn ghost sm" onclick="toggleDreTudo()">▸ Expandir subcategorias</button>
+      <button class="btn ${_fluxoBalComAberto ? 'primary' : 'ghost'} sm" onclick="_fluxoBalComAberto=!_fluxoBalComAberto;renderFluxo()" title="Alterna as DESPESAS do balancete entre só PAGAS (realizado) e PAGAS + EM ABERTO (contas a pagar não pagas, por vencimento)">${_fluxoBalComAberto ? '✓ Pago + Em Aberto' : 'Só pago'}</button>
       <button class="btn ghost sm" onclick="exportarDRE()">📤 Exportar</button>
     </div>
-    ${dreCompletoHTML(treeR, treeD, empCols, totEnt, totSai, saldoAnterior, saldoFinal)}
+    ${dreCompletoHTML(treeR, treeD, empCols, totEnt, totSaiBal, saldoAnterior, saldoFinalBal)}
     <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:16px">
       <div><div class="f-label">${dfAtivo()?'Saldo anterior (antes do período)':'Saldo inicial'}</div><div style="font-weight:800;font-size:18px">${fmtVal(saldoAnterior)}</div></div>
       <div style="font-size:18px;color:var(--green)">+ ${fmtVal(totEnt)}</div>
