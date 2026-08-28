@@ -387,6 +387,7 @@ tr:hover td{background:#fafaf8}
     <div class="subnav-item" id="subr-boletos" onclick="setSubR('boletos')">🧾 Boletos a Emitir</div>
     <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança <span id="badge-cobranca" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:2px"></span></div>
     <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
+    <div class="subnav-item" id="subr-taxas" onclick="setSubR('taxas')">💠 Taxas</div>
   </div>
   <!-- Switch interno da aba "Recebimentos e Conciliação" (mostra uma de cada vez, sem rolar tudo) -->
   <div id="receb-conc-tabs" style="display:none;gap:8px;padding:8px 24px;border-bottom:1px solid var(--border)"></div>
@@ -396,6 +397,7 @@ tr:hover td{background:#fafaf8}
   <div id="v-boletos" class="main" style="display:none"></div>
   <div id="v-cobranca" class="main" style="display:none"></div>
   <div id="v-devolucao" class="main" style="display:none"></div>
+  <div id="v-taxas" class="main" style="display:none"></div>
   <div id="v-extrato" class="main" style="display:none"></div>
   <div id="v-conc" class="main" style="display:none"></div>
   <div id="v-banco" class="main" style="display:none"></div>
@@ -463,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v555/08-674';
+const APP_VERSION = 'v556/08-675';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1365,7 +1367,7 @@ function setView(v) {
 }
 
 // Abas principais do Financeiro (4). 'contas' é um GRUPO com sub-abas internas.
-const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao','conc'];
+const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao','taxas','conc'];
 let subReceber = 'contas';
 function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
@@ -1396,7 +1398,7 @@ function setSubR(r) {
     document.getElementById('subr-' + x)?.classList.toggle('active', x === r);
     const v = document.getElementById('v-' + x); if (v) v.style.display = x === r ? 'block' : 'none';
   });
-  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, conc: renderConc };
+  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, taxas: renderTaxasPP, conc: renderConc };
   if (renders[r]) _perf(r, renders[r]);
   // Aba unificada "Recebimentos e Conciliação": 2 botões no topo alternam entre a LISTA e a CONCILIAÇÃO.
   const tabsEl = document.getElementById('receb-conc-tabs');
@@ -12716,6 +12718,51 @@ async function lerLiquidosRH(file) {
   saveData('folhaRH', folhaRH);
   renderRH();
   alert(`✓ Preenchi o Sal. líquido de ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}.${semCadastro.length ? `\n\n${semCadastro.length} não casaram (preencha na mão ou ajuste o nome no cadastro).` : ''}\n\nConfira na grade e clique 📤 Gerar folha.`);
+}
+// ══ CONFERÊNCIA DE TAXA PAYPAL ══════════════════════════════════════════
+// Tabela de taxas do PayPal por parcela (% sobre o bruto, sem taxa fixa). Detecta a parcela pela taxa cobrada.
+const PAYPAL_TAXAS = { 1: 2.06, 2: 2.48, 3: 2.90, 4: 3.32, 5: 3.74, 6: 4.16, 7: 4.58, 8: 5.00, 9: 5.42, 10: 5.84, 11: 6.26, 12: 6.68 };
+function _ppDetecta(bruto, taxa) {
+  if (!(bruto > 0) || !(taxa > 0)) return { parc: null, pct: 0, bate: false, dif: 99 };
+  const pct = taxa / bruto * 100;
+  let best = null, bd = 999;
+  for (const n in PAYPAL_TAXAS) { const d = Math.abs(pct - PAYPAL_TAXAS[n]); if (d < bd) { bd = d; best = +n; } }
+  return { parc: best, pct, bate: bd <= 0.15, dif: bd };
+}
+function renderTaxasPP() {
+  const el = document.getElementById('v-taxas'); if (!el) return;
+  setDateFilterRender(renderTaxasPP);
+  const pp = recebimentosConsolidado.filter(r => r.gateway === 'PayPal' && !r._reembolso && r.bruto > 0 && r.taxa > 0 && (!dfAtivo() || passaData(r.data)));
+  const porParc = {}; let totBruto = 0, totTaxa = 0, nFora = 0;
+  const linhas = pp.map(r => { const d = _ppDetecta(r.bruto, r.taxa); const esp = d.parc ? +(r.bruto * PAYPAL_TAXAS[d.parc] / 100).toFixed(2) : 0; totBruto += r.bruto; totTaxa += r.taxa;
+    if (d.bate) { const p = porParc[d.parc] = porParc[d.parc] || { n: 0, bruto: 0, taxa: 0 }; p.n++; p.bruto += r.bruto; p.taxa += r.taxa; } else nFora++;
+    return { r, d, esp }; }).sort((a, b) => (a.d.bate ? 1 : 0) - (b.d.bate ? 1 : 0) || (b.r.data ? +new Date(b.r.data) : 0) - (a.r.data ? +new Date(a.r.data) : 0));
+  const resumo = Object.keys(porParc).sort((a, b) => a - b).map(n => `<tr><td><strong>${n}x</strong></td><td style="text-align:center">${PAYPAL_TAXAS[n]}%</td><td style="text-align:center">${porParc[n].n}</td><td style="text-align:right">${fmtVal(porParc[n].bruto)}</td><td style="text-align:right">${fmtVal(porParc[n].taxa)}</td></tr>`).join('');
+  const rows = linhas.map(({ r, d, esp }) => `<tr style="${d.bate ? '' : 'background:#fdecea'}">
+    <td style="white-space:nowrap">${r.data ? fmtDate(r.data) : '—'}</td>
+    <td>${(r.nome || '').slice(0, 22).replace(/</g, '&lt;')}</td>
+    <td>${r.nped || '—'}</td>
+    <td style="text-align:right">${fmtVal(r.bruto)}</td>
+    <td style="text-align:right">${fmtVal(r.taxa)}</td>
+    <td style="text-align:center">${d.pct.toFixed(2)}%</td>
+    <td style="text-align:center;font-weight:700">${d.bate ? d.parc + 'x' : '?'}</td>
+    <td style="text-align:right">${d.parc ? fmtVal(esp) : '—'}</td>
+    <td style="text-align:center">${d.bate ? '<span style="color:var(--green)">✅</span>' : `<span style="color:#c62828;font-weight:700" title="Taxa ${d.pct.toFixed(2)}% não bate com nenhuma parcela (mais perto: ${d.parc}x = ${PAYPAL_TAXAS[d.parc]}%)">🔴 conferir</span>`}</td>
+  </tr>`).join('') || '<tr><td colspan="9" style="color:var(--muted);padding:12px">Sem recebimentos PayPal no período.</td></tr>';
+  el.innerHTML = `
+    <div class="section-title" style="margin-top:0">💠 Conferência de taxa PayPal</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Descobre as <strong>parcelas</strong> pela taxa cobrada (compara com a tabela do PayPal) e confere se a <strong>taxa bate</strong>. As linhas <strong>🔴 fora da tabela</strong> vêm em cima, pra você conferir. Respeita o filtro de data.</div>
+    ${filtrosBar({ nAtivos: dfAtivo() ? 1 : 0, limpar: '', acoes: `<span style="font-size:12px;color:var(--muted)">${pp.length} recebimento(s) PayPal · ${nFora} fora da tabela</span>`, campos: fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`) })}
+    <div class="cards-row" style="margin-bottom:16px">
+      <div class="card blue"><div class="c-label">Bruto (PayPal)</div><div class="c-val">${fmtVal(totBruto)}</div></div>
+      <div class="card red"><div class="c-label">Taxa paga</div><div class="c-val">${fmtVal(totTaxa)}</div><div class="c-sub">${totBruto > 0 ? (totTaxa / totBruto * 100).toFixed(2) : '0'}% médio</div></div>
+      <div class="card ${nFora ? 'amber' : 'dark'}"><div class="c-label">Fora da tabela</div><div class="c-val">${nFora}</div><div class="c-sub">conferir</div></div>
+    </div>
+    <div class="section-title" style="font-size:13px">Resumo por parcela</div>
+    <div class="table-wrap" style="max-width:600px;margin-bottom:20px"><table><thead><tr><th>Parcela</th><th style="text-align:center">Taxa</th><th style="text-align:center">Qtd</th><th style="text-align:right">Bruto</th><th style="text-align:right">Taxa paga</th></tr></thead><tbody>${resumo || '<tr><td colspan="5" style="color:var(--muted)">—</td></tr>'}</tbody></table></div>
+    <div class="section-title" style="font-size:13px">Detalhe (🔴 fora da tabela em cima)</div>
+    <div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Data</th><th>Cliente</th><th>Pedido</th><th style="text-align:right">Bruto</th><th style="text-align:right">Taxa</th><th style="text-align:center">%</th><th style="text-align:center">Parcela</th><th style="text-align:right">Taxa esperada</th><th style="text-align:center">Bate?</th></tr></thead><tbody>${rows}</tbody></table></div>
+  `;
 }
 // ══ BUDGET (custo por peça + previsão) ══════════════════════════════════
 function _budCustoPeca(b) { return (b.custos || []).reduce((s, c) => s + (+c.valor || 0), 0); }
