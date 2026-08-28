@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v560/08-679';
+const APP_VERSION = 'v561/08-680';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -625,7 +625,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -780,7 +780,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1281,6 +1281,7 @@ let colecoes = []; // [{id,nome,subgrupo}] — coleções por subgrupo (CMV/CMV 
 let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,insumo,unidade,qtd,custoUnit,custoTotal,colecao,dataLimite,categoria,solicitante,empresa,status,condicaoId,nf,dataReceb,obs,_pedidoContas}]
 let comprasSel = new Set(); // seleção (transitória) p/ aprovar vários pedidos de uma vez
 let comprasDriveLidos = {}; // arquivos de pedido de fornecedor (PDF) já lidos da pasta "Pedidos de Compras" do Drive: {nomeArquivo: dataISO}
+let driveSyncLidos = {};    // arquivos já puxados no ☁ Sincronizar do Drive: {'mesId|tipo|nome': true} — pra trazer só os NOVOS (do dia)
 let divergenciasVendas = { sumidos: [], geradoEm: null, arquivo: '' }; // pedidos que estão no sistema mas NÃO vieram na última exportação de vendas (possível cancelamento/mudança de status) — só AVISA, nunca apaga sozinho
 let obsPedido = {}; // anotações livres por pedido (ex.: por que está nesse status) — { pedidoId: texto }. Só informativo, não mexe em cálculo.
 let _contasPagarUndo = null; // snapshot ANTES do último upload de Contas a Pagar (para desfazer)
@@ -7783,42 +7784,63 @@ function escolherGruposDrive(mesId, mesNome) {
   const rotulos = ['🛍 Vendas', '💳 Forma de Pagto', '💰 Recebimentos (PayPal/Braavo/Rede)', '📄 Boletos Pagos', '🏦 Extratos'];
   d.innerHTML = `
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">☁ ${mesNome}</div>
-    <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">O que você quer puxar? (clica só no que subiu de novo — fica bem mais rápido)</div>
+    <div style="font-size:12px;color:var(--muted,#777);margin-bottom:10px">O que você quer puxar? (clica só no que subiu de novo — fica bem mais rápido)</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:12px;cursor:pointer;background:var(--bg,#f3f3f3);padding:8px 10px;border-radius:8px">
+      <input type="checkbox" id="drive-so-novos" checked style="width:16px;height:16px;cursor:pointer">
+      <span><strong>Só os novos</strong> (os que ainda não sincronizei = os do dia). Desmarque pra puxar tudo de novo.</span>
+    </label>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${DRIVE_GRUPOS.map((g, i) => `<button class="btn ghost" style="width:100%;text-align:left" onclick="puxarMesDrive('${mesId}', ${JSON.stringify(mesNome).replace(/"/g, '&quot;')}, ${i})">${rotulos[i] || g.tipos.join(' / ')}</button>`).join('')}
       <button class="btn primary" style="width:100%" onclick="puxarMesDrive('${mesId}', ${JSON.stringify(mesNome).replace(/"/g, '&quot;')})">📦 Tudo de uma vez</button>
     </div>
     <button class="btn ghost sm" style="margin-top:14px;width:100%" onclick="document.getElementById('drive-modal').remove()">Cancelar</button>`;
 }
+function _driveKey(mesId, tipo, nome) { return mesId + '|' + (tipo || '') + '|' + (nome || ''); }
 async function puxarMesDrive(mesId, mesNome, grupoIdx) {
   const modal = document.getElementById('drive-modal');
+  // Lê a caixinha ANTES de trocar o conteúdo do modal pela mensagem de progresso.
+  const soNovos = (() => { const c = document.getElementById('drive-so-novos'); return c ? c.checked : true; })();
   const setMsg = (t) => { if (modal) { const d = modal.querySelector('div'); if (d) d.innerHTML = `<div style="font-size:15px;font-weight:700">⏳ ${t}</div><div style="font-size:12px;color:var(--muted,#777);margin-top:6px">${mesNome} · não feche a janela.</div>`; } };
   setMsg('Puxando do Drive…');
   try {
     const resumo = [];
+    let totalPulados = 0, novosMarcar = [];
     const grupos = (grupoIdx == null) ? DRIVE_GRUPOS : [DRIVE_GRUPOS[grupoIdx]];
     for (const g of grupos) {
       // Busca os arquivos de todas as subpastas deste grupo.
       let arquivos = [];
       for (const tipo of g.tipos) {
         const r = await _drivePasta('arquivos', { mes: mesId, tipo });
-        if (r.arquivos && r.arquivos.length) arquivos = arquivos.concat(r.arquivos);
+        if (r.arquivos && r.arquivos.length) arquivos = arquivos.concat(r.arquivos.map(a => ({ ...a, tipo: a.tipo || tipo })));
       }
       if (!arquivos.length) continue;
+      // Só os NOVOS (que ainda não foram sincronizados) — a menos que ela tenha desmarcado a caixinha.
+      let usar = arquivos;
+      if (soNovos) {
+        usar = arquivos.filter(a => !driveSyncLidos[_driveKey(mesId, a.tipo, a.nome)]);
+        totalPulados += arquivos.length - usar.length;
+      }
+      if (!usar.length) continue;
       setMsg(`Importando ${g.tipos.join(' / ')}…`);
       _navGrupo(g.nav); // abre a aba do input (precisa estar no DOM)
       await new Promise(r => setTimeout(r, 250));
-      if (_entregarAoInput(g.input, arquivos)) {
-        resumo.push(`${arquivos.length} arquivo(s) → ${g.tipos.join(' / ')}`);
+      if (_entregarAoInput(g.input, usar)) {
+        resumo.push(`${usar.length} arquivo(s) → ${g.tipos.join(' / ')}`);
+        usar.forEach(a => novosMarcar.push(_driveKey(mesId, a.tipo, a.nome))); // marca como lidos só após entregar
         await new Promise(r => setTimeout(r, 900)); // deixa o leitor (às vezes assíncrono) terminar
       }
     }
+    // Guarda o que foi puxado agora, pra não repetir nas próximas sincronizações.
+    if (novosMarcar.length) { novosMarcar.forEach(k => driveSyncLidos[k] = true); saveData('driveSyncLidos', driveSyncLidos); }
     // Termina na tela do que foi puxado (se foi um tipo só); senão volta pra Vendas
     if (grupoIdx != null) _navGrupo(grupos[0].nav); else setView('vendas');
     if (modal) modal.remove();
+    const rodape = `\n\nSó adiciona, não duplica.${totalPulados ? `\n(${totalPulados} arquivo(s) já sincronizado(s) foram pulados.)` : ''}`;
     alert(resumo.length
-      ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}\n\nSó adiciona, não duplica. (Contas a Pagar/Receber são saída, você exporta do sistema.)`
-      : `Nenhum arquivo encontrado em ${mesNome}${grupoIdx != null ? ' nessa pasta' : ''}.`);
+      ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}${rodape}`
+      : (soNovos && totalPulados
+          ? `Nada novo em ${mesNome} — os ${totalPulados} arquivo(s) desse mês já tinham sido sincronizados.\n\n(Pra puxar tudo de novo, desmarque "Só os novos".)`
+          : `Nenhum arquivo encontrado em ${mesNome}${grupoIdx != null ? ' nessa pasta' : ''}.`));
   } catch (e) {
     if (modal) modal.remove();
     alert('Erro ao puxar do Drive:\n' + e.message);
@@ -14458,7 +14480,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -14511,6 +14533,7 @@ function delCheckboxHeader(source) {
     else if (k==='receitaLinks') receitaLinks = v || {};
     else if (k==='recebOrfaoInfo') recebOrfaoInfo = v || {};
     else if (k==='comprasDriveLidos') comprasDriveLidos = v || {};
+    else if (k==='driveSyncLidos') driveSyncLidos = v || {};
     else if (k==='divergenciasVendas') divergenciasVendas = v || { sumidos: [], geradoEm: null, arquivo: '' };
     else if (k==='obsPedido') obsPedido = v || {};
     else if (k==='acordos') acordos = v || [];
