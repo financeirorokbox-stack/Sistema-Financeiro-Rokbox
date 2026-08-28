@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v558/08-677';
+const APP_VERSION = 'v559/08-678';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4913,12 +4913,13 @@ function removeRecorrencia(id) {
   renderPagar();
 }
 function gerarRecorrencias() {
-  let criadas = 0, jaExistiam = 0, semPeriodo = 0;
+  let criadas = 0, jaExistiam = 0, semPeriodo = 0, emFechado = 0;
   recorrencias.forEach(r => {
     if (!r.ativa) return;
     const meses = mesesEntre(r.mesIni, r.mesFim);
     if (!meses.length) { semPeriodo++; return; }
     meses.forEach(ym => {
+      if (mesesFechados.includes(ym)) { emFechado++; return; } // mês FECHADO: não recria conta (evita "voltar sozinho" o que você apagou)
       if (contasPagar.some(c => c._recorrenciaId === r.id && c._recMes === ym)) { jaExistiam++; return; }
       const [y, m] = ym.split('-').map(Number);
       const dia = Math.min(Math.max(1, +r.diaVenc || 1), _diasNoMes(y, m));
@@ -4933,7 +4934,7 @@ function gerarRecorrencias() {
   });
   saveData('contasPagar', contasPagar);
   renderPagar();
-  alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
+  alert(`✓ ${criadas} conta(s) gerada(s)${jaExistiam ? ` · ${jaExistiam} já existiam (não dupliquei)` : ''}${emFechado ? ` · ${emFechado} pulada(s) por mês fechado 🔒` : ''}${semPeriodo ? ` · ${semPeriodo} recorrência(s) sem período (preencha De/Até)` : ''}.`);
 }
 // Colunas mostráveis/ocultáveis da tabela de Contas a Pagar.
 const CP_COLS = [['vencimento','Vencimento'],['competencia','Competência'],['status','Status'],['empresa','Empresa'],['banco','Banco'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Liquidação'],['historico','Histórico']];
