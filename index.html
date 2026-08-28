@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v557/08-676';
+const APP_VERSION = 'v558/08-677';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -625,7 +625,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1227,8 +1227,10 @@ let receitaLinks = {};       // { extratoId: receitaId } — crédito do extrato
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
 let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
+let mesesFechados = [];        // ['YYYY-MM'] — MÊS fechado: trava TUDO daquele mês (nada muda nem apaga). Aproveita diaFechado/contaTravadaPorFechamento (admin reabre)
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
+let _mesFechoSel = '';         // mês escolhido na barra "Fechamento do mês" (YYYY-MM)
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
 let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). Usado no Relatório por banco (aprovação).
@@ -10592,6 +10594,7 @@ function renderBanco() {
       <div class="card ${entradas-saidas>=0?'blue':'amber'}"><div class="c-label">Saldo do período</div><div class="c-val">${fmtVal(entradas-saidas)}</div></div>
       <div class="card ${pendentes?'amber':'dark'}"><div class="c-label">Pendentes</div><div class="c-val">${pendentes}</div></div>
     </div>
+    ${fechamentoMesHTML()}
     ${_travaConciliacaoHTML(visT)}
     ${(bancoSel && bancoSel !== '__todos' && bancoSel !== '__sem')
         ? saldoBancoHTML(bancoSel)
@@ -10979,9 +10982,13 @@ function banksDoFechamento(dk) {
   // "Todos": todos os bancos que têm lançamento nesse dia
   return [...new Set(extratoBancario.filter(t => diaKey(t.data) === dk).map(t => t.banco || ''))];
 }
+// MÊS fechado ('YYYY-MM'): trava TUDO daquele mês (qualquer banco). Reaproveitado por diaFechado e contaTravadaPorFechamento.
+function mesKeyOf(date) { const k = diaKey(date); return k ? k.slice(0, 7) : null; }
+function mesEstaFechado(date) { const m = mesKeyOf(date); return !!m && mesesFechados.includes(m); }
 function diaFechado(date, banco) {
   const k = diaKey(date);
   if (!k) return false;
+  if (mesesFechados.includes(k.slice(0, 7))) return true; // MÊS fechado → trava o dia todo (qualquer banco)
   if (diasFechados.includes(k)) return true; // formato antigo: fechado para todos os bancos
   if (banco === undefined) return diasFechados.some(key => key.endsWith('|' + k)); // sem banco: fechado se QUALQUER banco do dia estiver
   return diasFechados.includes(fechKey(banco, k));
@@ -11040,6 +11047,69 @@ function reabrirDia(dk) {
   diasFechados = diasFechados.filter(k => !remover.has(k));
   saveData('diasFechados', diasFechados);
   renderBanco();
+}
+
+// ── FECHAR / REABRIR O MÊS INTEIRO ─────────────────────────────────────────
+// Fecha um mês (YYYY-MM): confere se a conciliação BATE e trava TUDO daquele mês
+// (nada muda nem apaga). É admin. Reaproveita diaFechado/contaTravadaPorFechamento.
+function mesLabel(mk) { const [a, m] = mk.split('-'); const nm = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][(+m) - 1] || m; return `${nm}/${a}`; }
+function fecharMes(mk) {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode fechar o mês.'); return; }
+  if (!/^\d{4}-\d{2}$/.test(mk || '')) { alert('Selecione um mês.'); return; }
+  if (mesesFechados.includes(mk)) { alert('Este mês já está fechado.'); return; }
+  // Confere se o mês inteiro BATE (mesmo teste da trava de conciliação, mas no mês todo, todos os bancos).
+  const doMes = extratoBancario.filter(t => mesKeyOf(t.data) === mk);
+  const tv = _travaConciliacao(doMes);
+  // Lançamentos do extrato sem categoria (viram Descrição) — bom conferir antes.
+  const semCat = doMes.filter(t => !String(categoriaLancamento(t)).trim());
+  let aviso = '';
+  if (!tv.ok) aviso += `⚠ Ainda há ${tv.credNC.length} crédito(s) (${fmtVal(tv.sCred)}) e ${tv.debNC.length} débito(s) (${fmtVal(tv.sDeb)}) NÃO conciliados no mês.\n`;
+  if (semCat.length) aviso += `⚠ ${semCat.length} lançamento(s) do mês estão SEM categoria.\n`;
+  const msg = `Fechar o mês de ${mesLabel(mk)}?\n\n`
+    + (aviso ? aviso + '\nRecomendo conciliar/categorizar antes. ' : '✅ A conciliação do mês bate (tudo conciliado). ')
+    + `\n\nDepois de fechado, NADA deste mês pode ser alterado nem excluído (em nenhuma tela). Você pode reabrir depois (admin).`
+    + (aviso ? '\n\nFechar MESMO ASSIM?' : '');
+  if (!confirm(msg)) return;
+  mesesFechados.push(mk);
+  saveData('mesesFechados', mesesFechados);
+  try { atualizarSaude(); } catch (e) {}
+  if (typeof renderBanco === 'function') renderBanco();
+}
+function reabrirMes(mk) {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode reabrir o mês.'); return; }
+  if (!mesesFechados.includes(mk)) return;
+  if (!confirm(`Reabrir o mês de ${mesLabel(mk)}? Voltará a permitir alterações e exclusões neste mês.`)) return;
+  mesesFechados = mesesFechados.filter(m => m !== mk);
+  saveData('mesesFechados', mesesFechados);
+  if (typeof renderBanco === 'function') renderBanco();
+}
+// Barra "Fechamento do mês" no topo da Conciliação: seletor de mês + status + botão fechar/reabrir.
+function fechamentoMesHTML() {
+  const meses = [...new Set(extratoBancario.map(t => mesKeyOf(t.data)).filter(Boolean))].sort();
+  if (!meses.length) return '';
+  // mês selecionado persiste; default = último mês fechável (o mais recente que ainda não fechou), senão o último.
+  if (!_mesFechoSel || !meses.includes(_mesFechoSel)) {
+    _mesFechoSel = meses.filter(m => !mesesFechados.includes(m)).slice(-1)[0] || meses.slice(-1)[0];
+  }
+  const mk = _mesFechoSel;
+  const fechado = mesesFechados.includes(mk);
+  const ehAdmin = !!(currentUser && currentUser.admin);
+  const doMes = extratoBancario.filter(t => mesKeyOf(t.data) === mk);
+  const tv = _travaConciliacao(doMes);
+  const opts = meses.map(m => `<option value="${m}" ${m === mk ? 'selected' : ''}>${mesLabel(m)}${mesesFechados.includes(m) ? ' 🔒' : ''}</option>`).join('');
+  const status = fechado
+    ? `<span class="badge neu" style="background:var(--amber);color:#222">🔒 ${mesLabel(mk)} fechado — nada deste mês pode ser alterado</span>`
+    : (tv.ok ? `<span style="color:var(--green);font-size:12px">✅ Conciliação de ${mesLabel(mk)} bate — pronto pra fechar</span>`
+             : `<span style="color:var(--amber);font-size:12px">⚠ ${mesLabel(mk)}: ${tv.credNC.length} créd. + ${tv.debNC.length} déb. não conciliados</span>`);
+  const btn = !ehAdmin ? ''
+    : fechado ? `<button class="btn ghost sm" onclick="reabrirMes('${mk}')">🔓 Reabrir mês</button>`
+              : `<button class="btn primary sm" onclick="fecharMes('${mk}')" title="Confere se bate e trava o mês inteiro: nada mais muda nem apaga">🔒 Fechar o mês</button>`;
+  return `<div class="filter-bar" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <strong style="font-size:13px">🗓️ Fechamento do mês:</strong>
+      <select onchange="_mesFechoSel=this.value;renderBanco()">${opts}</select>
+      ${status}
+      <span style="margin-left:auto">${btn}</span>
+    </div>`;
 }
 // Procura duplicidade: bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes.
 function verificarDuplicidadeBancos() {
@@ -11157,6 +11227,9 @@ function removerDuplicatasDoBanco() {
 // Uma Conta a Pagar está TRAVADA quando foi conciliada a um débito de extrato de um dia FECHADO.
 // Nesse caso ela não pode ser apagada nem substituída por re-upload (o fechamento é um cadeado).
 function contaTravadaPorFechamento(c) {
+  // MÊS fechado: a conta pertence ao mês pela data de pagamento (se paga) ou vencimento → travada.
+  const dRef = (c.pago && c.dataPag) ? c.dataPag : c.vencimento;
+  if (dRef && mesEstaFechado(dRef)) return true;
   const chave = chaveContaPagar(c);
   for (const [extId, link] of Object.entries(debitoLinks)) {
     if (!debLinkItens(link).some(it => it.chave === chave)) continue;
@@ -14378,7 +14451,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -14451,6 +14524,7 @@ function delCheckboxHeader(source) {
     else if (k==='baseOverride') baseOverride = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
+    else if (k==='mesesFechados') mesesFechados = v || [];
     else if (k==='funcionariosRH') funcionariosRH = v || [];
     else if (k==='feriasRH') feriasRH = v || [];
     else if (k==='budgets') budgets = v || [];
