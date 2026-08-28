@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v557/08-676';
+const APP_VERSION = 'v556/08-675';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -583,42 +583,6 @@ async function deleteData(key) {
   try {
     await sbFetch('DELETE', null, `?device_id=eq.${getDeviceId()}&chave=eq.${key}`);
   } catch(e) {}
-}
-
-// Carrega VÁRIAS chaves de uma vez, EM PARALELO (poucos requests grandes em vez de 1 por chave).
-// Deixa o F5 bem mais rápido. Mesmo comportamento do loadData: nuvem é a fonte da verdade, com
-// fallback pro localStorage por chave, e sobe o local pra nuvem se ela estiver online e vazia.
-async function loadDataBulk(keys) {
-  const CHUNK = 16;                 // fatias pra não pedir tudo num request gigante
-  const chunks = [];
-  for (let i = 0; i < keys.length; i += CHUNK) chunks.push(keys.slice(i, i + CHUNK));
-  const cloud = {};                 // chave -> valor (texto) que a nuvem devolveu
-  const reached = new Set();        // chaves cujo request respondeu (nuvem alcançável)
-  await Promise.all(chunks.map(async ch => {
-    try {
-      const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=in.(${ch.join(',')})&select=chave,valor`);
-      ch.forEach(k => reached.add(k));
-      if (Array.isArray(rows)) rows.forEach(r => { if (r && r.chave) cloud[r.chave] = r.valor; });
-    } catch(e) { console.warn('Supabase bulk (fatia) offline, usando localStorage:', e.message); }
-  }));
-  const out = {};
-  for (const k of keys) {
-    let val = null;
-    if (cloud[k] != null) {
-      try { val = JSON.parse(cloud[k]); } catch(e) { val = null; }
-      if (val !== null) { try { localStorage.setItem(LS_PREFIX + k, JSON.stringify(val)); } catch(e) {} out[k] = val; continue; }
-    }
-    try {
-      const local = localStorage.getItem(LS_PREFIX + k);
-      if (local !== null) {
-        val = JSON.parse(local);
-        if (reached.has(k) && !(k in cloud)) { saveData(k, val).catch(() => {}); } // nuvem online e sem essa chave: sobe em segundo plano
-        out[k] = val; continue;
-      }
-    } catch(e) {}
-    out[k] = null;
-  }
-  return out;
 }
 
 // Exportar/Importar todos os dados (backup)
@@ -14379,9 +14343,8 @@ function delCheckboxHeader(source) {
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
-  const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
-    const v = _bulk[k];
+    const v = await loadData(k);
     if (!v) continue;
     if (k==='pedidos') pedidos = v.map(p=>({...p,data:p.data?new Date(p.data):null}));
     else if (k==='contasPagar') contasPagar = v.map(c=>({...c,vencimento:c.vencimento?new Date(c.vencimento):null,dataPag:c.dataPag?new Date(c.dataPag):null}));
