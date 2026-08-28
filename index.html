@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v559/08-678';
+const APP_VERSION = 'v560/08-679';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14382,23 +14382,29 @@ const DATA_REGISTRO = {
 };
 async function executarExclusao() {
   if (!deleteSelection.size) return;
-  // Bloqueia exclusão de itens em dias FECHADOS.
-  let bloqueados = 0;
+  // Bloqueia exclusão de itens em MÊS fechado ou dia conciliado fechado.
+  let porMes = 0, porDia = 0;
   deleteSelection.forEach(key => {
     const [src, idx] = key.split(':');
     const arr = DELETE_SOURCES[src]?.getArr() || [];
     const item = arr[+idx];
+    const data = DATA_REGISTRO[src] ? DATA_REGISTRO[src](item) : null;
+    if (data && mesEstaFechado(data)) { porMes++; return; }        // travado pelo MÊS fechado
     let bloq;
     if (src === 'contasPagar') {
-      // Conta a pagar: só trava se estiver CONCILIADA a um débito de dia fechado (não pelo vencimento).
-      bloq = contaTravadaPorFechamento(item);
+      bloq = contaTravadaPorFechamento(item);                       // conciliada a um débito de dia fechado
     } else {
-      const data = DATA_REGISTRO[src] ? DATA_REGISTRO[src](item) : null;
       bloq = data && diaFechado(data, src === 'extrato' ? (item && item.banco) : undefined);
     }
-    if (bloq) bloqueados++;
+    if (bloq) porDia++;
   });
-  if (bloqueados) { alert(`🔒 ${bloqueados} registro(s) estão conciliados em dia(s) FECHADO(s) e não podem ser excluídos. Reabra o dia (admin) na Conciliação Bancária para excluir.`); return; }
+  if (porMes || porDia) {
+    let msg = '🔒 ';
+    if (porMes) msg += `${porMes} registro(s) pertencem a um MÊS FECHADO e não podem ser excluídos. Reabra o mês (🔓 Reabrir mês, admin) na Conciliação Bancária.`;
+    if (porMes && porDia) msg += '\n\n';
+    if (porDia) msg += `${porDia} registro(s) estão conciliados em dia(s) fechado(s). Reabra o dia (admin) na Conciliação Bancária.`;
+    alert(msg); return;
+  }
   if (!confirm(`Excluir ${deleteSelection.size} registro(s)? Esta ação não pode ser desfeita.`)) return;
 
   // Agrupa por fonte
