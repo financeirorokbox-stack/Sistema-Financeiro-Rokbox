@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v562/08-681';
+const APP_VERSION = 'v563/08-682';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1492,7 +1492,9 @@ function setupUpload(inputId, cardId, statusId, onLoad) {
         const st = document.getElementById(statusId);
         if (st) st.textContent = files.length > 1 ? `✓ ${i}/${files.length} — ${file.name}` : '✓ ' + file.name;
         if (card) card.classList.add('loaded');
-        onLoad({ csvRows, wb, file });
+        // Passa o contexto do lote pro handler (isLast/total). Sem isto, um handler que use "files"/"i"
+        // dava ReferenceError e QUEBRAVA a cadeia — só o 1º arquivo entrava e o resto era descartado.
+        onLoad({ csvRows, wb, file, isLast: i >= files.length, total: files.length, index: i });
         proximo(); // segue pro próximo só depois que este terminou (evita corrida nos dados)
       });
     };
@@ -1948,7 +1950,7 @@ function renderVendas() {
     <div id="vendas-table"></div>
   `;
 
-  setupUpload('file-pedidos', 'card-pedidos', 'status-pedidos', ({wb, file}) => {
+  setupUpload('file-pedidos', 'card-pedidos', 'status-pedidos', ({wb, file, isLast}) => {
     // Extrai empresa do nome do arquivo: Venda_Rokbox.xlsx → "Rokbox"
     // Remove sufixos do Windows: (1), (2) etc.
     const fn = (file.name || '').replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)\s*$/, '').trim();
@@ -2028,8 +2030,8 @@ function renderVendas() {
     renderPedidosTable();
     const totalArq = newPeds.reduce((s, p) => s + (p.valor || 0), 0);
     document.getElementById('status-pedidos').textContent = '✓ ' + newPeds.length + ' pedidos nesta planilha · ' + fmtVal(totalArq) + (empresa ? ' (' + empresa + ')' : '');
-    // Confirmação na hora + aviso de fantasmas (só quando a importação foi da tela de Vendas, não em cadeia)
-    if (files.length === 1 || i >= files.length) {
+    // Confirmação na hora + aviso de fantasmas (só no ÚLTIMO arquivo do lote, não a cada um)
+    if (isLast) {
       let msg = '✓ Importado: ' + newPeds.length + ' pedidos, total ' + fmtVal(totalArq) + (empresa ? ' (' + empresa + ')' : '') + '.';
       if (nSumidos > 0) msg += '\n\n⚠ ' + nSumidos + ' pedido(s) estão no sistema mas NÃO vieram nesta exportação (podem ter sido cancelados ou mudado de status). Veja o aviso na tela de Vendas para conferir.';
       alert(msg);
