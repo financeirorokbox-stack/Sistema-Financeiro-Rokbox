@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v563/08-682';
+const APP_VERSION = 'v564/08-683';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1231,6 +1231,7 @@ let mesesFechados = [];        // ['YYYY-MM'] — MÊS fechado: trava TUDO daque
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
 let bancoConcSel = '__todos';  // banco selecionado na Conciliação Bancária — PERSISTE ao trocar de tela
 let _mesFechoSel = '';         // mês escolhido na barra "Fechamento do mês" (YYYY-MM)
+let _vendasLote = [];          // resumo do lote de planilhas de Vendas subidas juntas (double-check no fim)
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
 let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). Usado no Relatório por banco (aprovação).
@@ -1484,17 +1485,28 @@ function setupUpload(inputId, cardId, statusId, onLoad) {
     if (!files.length) return;
     e.target.value = ''; // libera re-selecionar os mesmos arquivos depois
     let i = 0;
+    const erros = []; // REDE DE SEGURANÇA: arquivos que deram erro (avisa no fim, nunca descarta calado)
     const proximo = () => {
-      if (i >= files.length) return;
+      if (i >= files.length) {
+        if (erros.length) alert(`⚠ ATENÇÃO: ${erros.length} arquivo(s) deram ERRO na importação e podem NÃO ter entrado:\n\n• ${erros.join('\n• ')}\n\nConfira e suba de novo se precisar.`);
+        return;
+      }
       const file = files[i++];
       readSpreadsheetFile(file, ({ csvRows, wb }) => {
         const card = document.getElementById(cardId);
         const st = document.getElementById(statusId);
         if (st) st.textContent = files.length > 1 ? `✓ ${i}/${files.length} — ${file.name}` : '✓ ' + file.name;
         if (card) card.classList.add('loaded');
-        // Passa o contexto do lote pro handler (isLast/total). Sem isto, um handler que use "files"/"i"
-        // dava ReferenceError e QUEBRAVA a cadeia — só o 1º arquivo entrava e o resto era descartado.
-        onLoad({ csvRows, wb, file, isLast: i >= files.length, total: files.length, index: i });
+        // try/catch: se um arquivo (ou um bug no handler) falhar, NÃO quebra a cadeia — os outros
+        // continuam entrando e o erro é AVISADO no fim, em vez de sumir silenciosamente.
+        try {
+          // Passa o contexto do lote pro handler (isLast/total). Sem isto, um handler que use "files"/"i"
+          // dava ReferenceError e QUEBRAVA a cadeia — só o 1º arquivo entrava e o resto era descartado.
+          onLoad({ csvRows, wb, file, isLast: i >= files.length, total: files.length, index: i });
+        } catch (err) {
+          console.error('Erro ao importar ' + (file && file.name) + ':', err);
+          erros.push((file && file.name || 'arquivo') + ' — ' + (err && err.message || err));
+        }
         proximo(); // segue pro próximo só depois que este terminou (evita corrida nos dados)
       });
     };
@@ -1950,7 +1962,7 @@ function renderVendas() {
     <div id="vendas-table"></div>
   `;
 
-  setupUpload('file-pedidos', 'card-pedidos', 'status-pedidos', ({wb, file, isLast}) => {
+  setupUpload('file-pedidos', 'card-pedidos', 'status-pedidos', ({wb, file, isLast, index}) => {
     // Extrai empresa do nome do arquivo: Venda_Rokbox.xlsx → "Rokbox"
     // Remove sufixos do Windows: (1), (2) etc.
     const fn = (file.name || '').replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)\s*$/, '').trim();
@@ -2030,10 +2042,18 @@ function renderVendas() {
     renderPedidosTable();
     const totalArq = newPeds.reduce((s, p) => s + (p.valor || 0), 0);
     document.getElementById('status-pedidos').textContent = '✓ ' + newPeds.length + ' pedidos nesta planilha · ' + fmtVal(totalArq) + (empresa ? ' (' + empresa + ')' : '');
+    // DOUBLE-CHECK do lote: acumula cada arquivo (empresa, nº pedidos, total) pra mostrar tudo junto no fim.
+    if (index === 1) _vendasLote = [];
+    _vendasLote.push({ arq: file.name, empresa: empresa || '(sem empresa)', n: newPeds.length, total: totalArq, sumidos: nSumidos });
     // Confirmação na hora + aviso de fantasmas (só no ÚLTIMO arquivo do lote, não a cada um)
     if (isLast) {
-      let msg = '✓ Importado: ' + newPeds.length + ' pedidos, total ' + fmtVal(totalArq) + (empresa ? ' (' + empresa + ')' : '') + '.';
-      if (nSumidos > 0) msg += '\n\n⚠ ' + nSumidos + ' pedido(s) estão no sistema mas NÃO vieram nesta exportação (podem ter sido cancelados ou mudado de status). Veja o aviso na tela de Vendas para conferir.';
+      const gTotal = _vendasLote.reduce((s, x) => s + x.total, 0);
+      const gPeds = _vendasLote.reduce((s, x) => s + x.n, 0);
+      let msg = _vendasLote.length > 1
+        ? `✓ Importei ${_vendasLote.length} planilha(s):\n\n` + _vendasLote.map(x => `• ${x.empresa}: ${x.n} pedidos · ${fmtVal(x.total)}`).join('\n') + `\n\nTOTAL: ${gPeds} pedidos · ${fmtVal(gTotal)}.`
+        : `✓ Importado: ${gPeds} pedidos, total ${fmtVal(gTotal)}` + (_vendasLote[0] && _vendasLote[0].empresa !== '(sem empresa)' ? ` (${_vendasLote[0].empresa})` : '') + '.';
+      const totSumidos = _vendasLote.reduce((s, x) => s + (x.sumidos || 0), 0);
+      if (totSumidos > 0) msg += '\n\n⚠ ' + totSumidos + ' pedido(s) estão no sistema mas NÃO vieram nesta exportação (podem ter sido cancelados ou mudado de status). Veja o aviso na tela de Vendas para conferir.';
       alert(msg);
     }
   });
