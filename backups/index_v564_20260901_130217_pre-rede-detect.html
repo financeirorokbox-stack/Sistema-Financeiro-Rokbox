@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v565/08-684';
+const APP_VERSION = 'v564/08-683';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5729,13 +5729,11 @@ function isRedeFile(file, wb) {
   if (!wb) return false;
   const fn = (file && file.name || '').toLowerCase();
   try {
-    // Varre TODAS as abas: o relatório novo da Rede tem "capa" (resumo) na 1ª aba, e as colunas que
-    // identificam o Rede ficam em "pagamentos"/"recebidos". Olhar só a 1ª aba deixava passar batido.
-    const txt = wb.SheetNames.map(sn => {
-      try { return JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null }).slice(0, 4)); } catch (e) { return ''; }
-    }).join(' ').toLowerCase();
+    const sn = wb.SheetNames[0];
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
+    const txt = JSON.stringify(aoa.slice(0, 4)).toLowerCase();
     return txt.includes('valor mdr descontado') || txt.includes('valor líquido da parcela') || txt.includes('valor liquido da parcela')
-      || (fn.includes('rede') && (txt.includes('valor bruto da parcela') || txt.includes('extrato para simples confer')));
+      || (fn.includes('rede') && txt.includes('valor bruto da parcela'));
   } catch (e) { return false; }
 }
 // Lê o relatório da Rede e AGREGA por venda (mesmo nº de pedido Rede + NSU): soma as parcelas em 1 recebimento.
