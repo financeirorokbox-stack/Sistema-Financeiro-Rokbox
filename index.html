@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v565/08-684';
+const APP_VERSION = 'v566/08-685';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3420,9 +3420,30 @@ function renderComissao() {
   });
   baseGeral = +baseGeral.toFixed(2);
   const baseDoOutro = cfg => cfg.base === 'total' ? baseGeral : +((basePorSeg[cfg.base] || 0)).toFixed(2);
+  // Base de um pedido para comissão (mesma fórmula do laço acima) — usada nos pedidos EXTRAS dos "Outros".
+  const _basePedCom = p => {
+    const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
+    const devol = devolPorPed[String(p.id)] || 0;
+    const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
+    const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
+    const diferenca = diferencaDoPedido(p, emAberto);
+    return +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2);
+  };
   const outros = Object.keys(comissaoOutros).sort().map(nome => {
-    const cfg = outroCfg(nome); const baseUsada = baseDoOutro(cfg);
-    return { nome, pct: cfg.pct, base: cfg.base, baseUsada, comissao: +((cfg.pct/100) * baseUsada).toFixed(2) };
+    const cfg = outroCfg(nome); let baseUsada = baseDoOutro(cfg);
+    // Pedidos EXTRAS acrescentados na mão: soma a base deles (respeita o período; não duplica se já estão na base).
+    const extrasDet = (cfg.extras || []).map(pid => {
+      const p = pedidos.find(x => String(x.id) === String(pid));
+      if (!p) return { id: pid, base: 0, aviso: 'não encontrado' };
+      if (dfAtivo() && !passaData(p.data)) return { id: pid, base: 0, aviso: 'fora do período' };
+      const seg = getClassificacao(p).segmento || 'Sem segmento';
+      const jaNaBase = cfg.base === 'total' || seg === cfg.base;
+      const b = _basePedCom(p);
+      if (jaNaBase) return { id: pid, base: b, aviso: 'já está na base (não somei)' };
+      baseUsada = +(baseUsada + b).toFixed(2);
+      return { id: pid, base: b, nome: p.nome || '' };
+    });
+    return { nome, pct: cfg.pct, base: cfg.base, baseUsada, comissao: +((cfg.pct/100) * baseUsada).toFixed(2), extrasDet };
   });
   const totOutros = outros.reduce((s,o)=>s+o.comissao,0);
 
@@ -3505,7 +3526,13 @@ function renderComissao() {
     <div class="section-title" style="margin-top:28px">💼 Outros (% sobre uma base)</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Base = soma das bases <strong>automáticas</strong> dos pedidos do período (Total ou de um segmento) — <strong>não</strong> considera os ajustes manuais ✎ de base (que servem só p/ acertar a comissão de um vendedor pontual). Cadastre em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Comissão Outros</a>.</div>
     ${outros.length ? `<div class="table-wrap" style="max-width:760px"><table><thead><tr><th>Nome</th><th>Base</th><th style="text-align:right">%</th><th style="text-align:right">Base (R$)</th><th style="text-align:right">Comissão</th><th></th></tr></thead><tbody>
-      ${outros.map(o=>{ const okey='OUTRO§'+o.nome+'§'+comPeriodoInfo().key; const ofech=comissaoFechada[okey]; const ojs=o.nome.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); return `<tr><td><strong>${o.nome}</strong></td><td>${o.base==='total'?'Total da empresa':'Vendas '+o.base}</td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(o.baseUsada)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(ofech?ofech.total:o.comissao)}</td><td style="text-align:right">${ofech?`<span class="badge" style="background:var(--green);color:#fff;font-size:9px">✓ folha</span> <button class="btn ghost sm" style="color:var(--amber)" onclick="reabrirComissaoVendedor('${ojs}')" title="Tira da Folha e reabre">↩</button>`:`<button class="btn primary sm" style="font-size:11px" onclick="fecharOutroFolha('${ojs}',${o.comissao})" title="Lança na Folha (RH) do funcionário">→ Folha</button>`}</td></tr>`; }).join('')}
+      ${outros.map(o=>{ const okey='OUTRO§'+o.nome+'§'+comPeriodoInfo().key; const ofech=comissaoFechada[okey]; const ojs=o.nome.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); const idSafe=o.nome.replace(/[^a-zA-Z0-9]/g,'_'); const somaExtras=(o.extrasDet||[]).filter(e=>!e.aviso).reduce((s,e)=>s+e.base,0);
+        return `<tr><td><strong>${o.nome}</strong></td><td>${o.base==='total'?'Total da empresa':'Vendas '+o.base}${somaExtras?` <span style="font-size:10px;color:var(--accent)">+ extras</span>`:''}</td><td style="text-align:right">${o.pct.toFixed(2)}%</td><td style="text-align:right;color:var(--muted)">${fmtVal(o.baseUsada)}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(ofech?ofech.total:o.comissao)}</td><td style="text-align:right">${ofech?`<span class="badge" style="background:var(--green);color:#fff;font-size:9px">✓ folha</span> <button class="btn ghost sm" style="color:var(--amber)" onclick="reabrirComissaoVendedor('${ojs}')" title="Tira da Folha e reabre">↩</button>`:`<button class="btn primary sm" style="font-size:11px" onclick="fecharOutroFolha('${ojs}',${o.comissao})" title="Lança na Folha (RH) do funcionário">→ Folha</button>`}</td></tr>
+        <tr><td colspan="6" style="padding:4px 10px 12px;background:rgba(0,0,0,.015)">
+          <span style="font-size:11px;color:var(--muted)">➕ Pedidos acrescentados à base:</span>
+          ${(o.extrasDet||[]).length ? (o.extrasDet.map(e=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;margin:0 4px">#${e.id}${e.nome?(' '+String(e.nome).slice(0,14)):''} · ${fmtVal(e.base)}${e.aviso?` <span style="color:var(--amber)">(${e.aviso})</span>`:''} <a href="#" onclick="removeComissaoExtra('${ojs}','${String(e.id).replace(/'/g,"\\'")}');return false" style="color:var(--red);text-decoration:none;font-weight:700">✕</a></span>`).join('')) : '<span style="font-size:11px;color:var(--muted)"> nenhum</span>'}
+          <span style="margin-left:8px"><input class="inline-input" id="outro-extra-${idSafe}" placeholder="nº do pedido" style="width:110px" onkeydown="if(event.key==='Enter'){addComissaoExtra('${ojs}');}"> <button class="btn ghost sm" style="font-size:11px" onclick="addComissaoExtra('${ojs}')">+ Adicionar pedido</button></span>
+        </td></tr>`; }).join('')}
       <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="4">Total outros</td><td style="text-align:right;color:var(--green)">${fmtVal(totOutros)}</td><td></td></tr>
     </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted)">Nenhum cadastrado em Cadastro → Comissão Outros.</div>'}
 
@@ -3589,7 +3616,10 @@ function exportarComissao() {
   baseGeral = +baseGeral.toFixed(2);
   aoa.push([]); aoa.push(['OUTROS (% sobre uma base)']);
   aoa.push(['Nome','Base','%','Base (R$)','Comissão']);
-  Object.keys(comissaoOutros).sort().forEach(nome=>{ const cfg=outroCfg(nome); const bu = cfg.base==='total'?baseGeral:+((basePorSeg[cfg.base]||0)).toFixed(2); aoa.push([nome, cfg.base==='total'?'Total':('Vendas '+cfg.base), cfg.pct, bu, +((cfg.pct/100)*bu).toFixed(2)]); });
+  const _basePedComE = p => { const fr=freteDoPedido(p), od=p.outrasDespesas||0, dv=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=Math.max(0,+((p.valor||0)-rec).toFixed(2)); const dif=diferencaDoPedido(p,ab); return +((p.valor||0)-fr-dv-od-dif).toFixed(2); };
+  Object.keys(comissaoOutros).sort().forEach(nome=>{ const cfg=outroCfg(nome); let bu = cfg.base==='total'?baseGeral:+((basePorSeg[cfg.base]||0)).toFixed(2);
+    (cfg.extras||[]).forEach(pid=>{ const p=pedidos.find(x=>String(x.id)===String(pid)); if(!p) return; if(dfAtivo()&&!passaData(p.data)) return; const seg=getClassificacao(p).segmento||'Sem segmento'; if(cfg.base==='total'||seg===cfg.base) return; bu=+(bu+_basePedComE(p)).toFixed(2); });
+    aoa.push([nome, cfg.base==='total'?'Total':('Vendas '+cfg.base), cfg.pct, bu, +((cfg.pct/100)*bu).toFixed(2)]); });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Comissão');
@@ -14158,12 +14188,33 @@ function updateLC(loja, field, value) {
   lojaCadastro[loja][field] = value;
   saveData('lojaCadastro', lojaCadastro);
 }
-// Comissão "Outros": { nome: { pct, base } } onde base = 'total' ou um segmento. (Compat: número antigo = {pct, base:'total'}.)
+// Comissão "Outros": { nome: { pct, base, extras } } onde base = 'total' ou um segmento; extras = nº de pedidos
+// acrescentados na mão à base dessa pessoa. (Compat: número antigo = {pct, base:'total'}.)
 function outroCfg(nome) {
   const v = comissaoOutros[nome];
-  if (v == null) return { pct: 0, base: 'total' };
-  if (typeof v === 'number') return { pct: v, base: 'total' };
-  return { pct: v.pct || 0, base: v.base || 'total' };
+  if (v == null) return { pct: 0, base: 'total', extras: [] };
+  if (typeof v === 'number') return { pct: v, base: 'total', extras: [] };
+  return { pct: v.pct || 0, base: v.base || 'total', extras: Array.isArray(v.extras) ? v.extras : [] };
+}
+// Acrescenta/remove um PEDIDO específico à base de comissão de um "Outro" (ex.: Isabella).
+function addComissaoExtra(nome) {
+  const inp = document.getElementById('outro-extra-' + nome.replace(/[^a-zA-Z0-9]/g, '_'));
+  const pid = (inp && inp.value || '').trim().replace(/^#/, '');
+  if (!pid) return;
+  const cfg = outroCfg(nome);
+  if (!pedidos.find(p => String(p.id) === pid)) { alert('Pedido #' + pid + ' não encontrado no sistema.'); return; }
+  if (cfg.extras.map(String).includes(pid)) { alert('Pedido #' + pid + ' já está na lista da ' + nome + '.'); return; }
+  cfg.extras = [...cfg.extras, pid];
+  comissaoOutros[nome] = cfg;
+  saveData('comissaoOutros', comissaoOutros);
+  renderComissao();
+}
+function removeComissaoExtra(nome, pedidoId) {
+  const cfg = outroCfg(nome);
+  cfg.extras = cfg.extras.filter(x => String(x) !== String(pedidoId));
+  comissaoOutros[nome] = cfg;
+  saveData('comissaoOutros', comissaoOutros);
+  renderComissao();
 }
 function segmentosCadastro() {
   return [...new Set(Object.values(lojaCadastro).map(c => c && c.segmento).filter(Boolean))].sort();
