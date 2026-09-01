@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v562/08-681';
+const APP_VERSION = 'v561/08-680';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7723,8 +7723,8 @@ const DRIVE_PASTA_TOKEN = 'RK-financeiro-2026';
 // Grupos: cada um manda um conjunto de subpastas do Drive pro <input> que já sabe lê-las.
 // nav = [view, sub, subR] — aba onde o input vive (o input precisa estar renderizado no DOM).
 const DRIVE_GRUPOS = [
-  { input: 'file-pedidos',  nav: ['vendas'],                     tipos: ['Vendas'], snapshot: true },
-  { input: 'file-forma',    nav: ['vendas'],                     tipos: ['Forma de Pagto'], snapshot: true },
+  { input: 'file-pedidos',  nav: ['vendas'],                     tipos: ['Vendas'] },
+  { input: 'file-forma',    nav: ['vendas'],                     tipos: ['Forma de Pagto'] },
   { input: 'file-cr2',      nav: ['financeiro', 'contas', 'receb'],    tipos: ['Paypal', 'BraavoPay', 'Rede'] },
   { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] },
   { input: 'file-ext',      nav: ['financeiro', 'extrato'],            tipos: ['Extratos'] }
@@ -7796,15 +7796,6 @@ function escolherGruposDrive(mesId, mesNome) {
     <button class="btn ghost sm" style="margin-top:14px;width:100%" onclick="document.getElementById('drive-modal').remove()">Cancelar</button>`;
 }
 function _driveKey(mesId, tipo, nome) { return mesId + '|' + (tipo || '') + '|' + (nome || ''); }
-// Nome base (sem extensão e sem o " (N)" que o navegador põe em downloads repetidos) e o número da versão.
-function _baseNomeDrive(nome) { return String(nome || '').replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase(); }
-function _numVersaoDrive(nome) { const m = String(nome || '').replace(/\.[^.]+$/, '').match(/\((\d+)\)\s*$/); return m ? +m[1] : 0; }
-// Snapshot (Vendas, Forma): mantém só a versão MAIS NOVA de cada nome base (Rokbox (5) vence Rokbox, (1)...(4)).
-function _apenasVersaoMaisNova(arquivos) {
-  const best = {};
-  arquivos.forEach(a => { const b = _baseNomeDrive(a.nome), n = _numVersaoDrive(a.nome); if (!best[b] || n > best[b]._n) { a._n = n; best[b] = a; } });
-  return Object.values(best);
-}
 async function puxarMesDrive(mesId, mesNome, grupoIdx) {
   const modal = document.getElementById('drive-modal');
   // Lê a caixinha ANTES de trocar o conteúdo do modal pela mensagem de progresso.
@@ -7823,15 +7814,9 @@ async function puxarMesDrive(mesId, mesNome, grupoIdx) {
         if (r.arquivos && r.arquivos.length) arquivos = arquivos.concat(r.arquivos.map(a => ({ ...a, tipo: a.tipo || tipo })));
       }
       if (!arquivos.length) continue;
+      // Só os NOVOS (que ainda não foram sincronizados) — a menos que ela tenha desmarcado a caixinha.
       let usar = arquivos;
-      if (g.snapshot) {
-        // Vendas/Forma: re-exportação COMPLETA. Usa SÓ a versão mais nova de cada empresa (ignora as antigas
-        // acumuladas na pasta) e SEMPRE importa (a "última planilha manda" cuida de atualizar, não duplica).
-        const antes = arquivos.length;
-        usar = _apenasVersaoMaisNova(arquivos);
-        totalPulados += antes - usar.length;
-      } else if (soNovos) {
-        // Extrato/PayPal/etc: cada arquivo é um dado novo → traz só os que ainda não foram sincronizados.
+      if (soNovos) {
         usar = arquivos.filter(a => !driveSyncLidos[_driveKey(mesId, a.tipo, a.nome)]);
         totalPulados += arquivos.length - usar.length;
       }
@@ -7850,7 +7835,7 @@ async function puxarMesDrive(mesId, mesNome, grupoIdx) {
     // Termina na tela do que foi puxado (se foi um tipo só); senão volta pra Vendas
     if (grupoIdx != null) _navGrupo(grupos[0].nav); else setView('vendas');
     if (modal) modal.remove();
-    const rodape = `\n\nSó adiciona, não duplica.${totalPulados ? `\n(${totalPulados} arquivo(s) antigo(s)/já sincronizado(s) foram pulados — nas Vendas uso só a versão mais nova.)` : ''}`;
+    const rodape = `\n\nSó adiciona, não duplica.${totalPulados ? `\n(${totalPulados} arquivo(s) já sincronizado(s) foram pulados.)` : ''}`;
     alert(resumo.length
       ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}${rodape}`
       : (soNovos && totalPulados
