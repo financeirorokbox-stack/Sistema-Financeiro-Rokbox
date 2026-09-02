@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v566/08-685';
+const APP_VERSION = 'v567/08-686';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7069,6 +7069,29 @@ function baixarAvulso(i) {
   syncBoletosToRecebimentos();
   renderCobranca();
 }
+// Marca um boleto DO SISTEMA como recebido na mão (ex.: cliente pagou por PIX/dinheiro em vez do boleto).
+// Igual ao "✓ Recebi" dos avulsos/acordo. Carimba boletoCobrancaStatus (o que o Contas a Receber usa),
+// então NÃO duplica com um PIX conciliado (a linha de boleto conta pela parcela, não pelo recebimento).
+function baixarBoletoSis(ped, key, valorParc) {
+  const vStr = prompt(`Boleto do pedido #${ped} — quanto CAIU no banco?\n\n(Parcela ${fmtVal(+valorParc || 0)}. Se pagou por PIX/dinheiro com multa/juros, ponha o valor que você recebeu.)`, (+valorParc || 0).toFixed(2));
+  if (vStr === null) return;
+  const v = _parseValorBR(vStr, +valorParc || 0);
+  const dStr = prompt('Data que caiu no banco (dd/mm/aaaa):', new Date().toLocaleDateString('pt-BR'));
+  if (dStr === null) return;
+  let data = new Date();
+  const m = String(dStr).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) { let a = +m[3]; if (a < 100) a += 2000; const dd = new Date(a, +m[2] - 1, +m[1], 12, 0, 0); if (!isNaN(dd)) data = dd; }
+  boletoCobrancaStatus[key] = Object.assign({}, boletoCobrancaStatus[key], { pago: true, dataPagamento: data, valorPago: v });
+  saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+  renderCobranca();
+}
+function desfazerBoletoSis(key) {
+  if (!(boletoCobrancaStatus[key] && boletoCobrancaStatus[key].pago)) { alert('Este boleto foi baixado por um recebimento/relatório do Itaú, não pela marcação manual. Desfaça pelo recebimento correspondente.'); return; }
+  if (!confirm('Desfazer o "recebido" deste boleto? Ele volta a aparecer como a cobrar.')) return;
+  delete boletoCobrancaStatus[key];
+  saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+  renderCobranca();
+}
 function isBoletoRecebidoFile(file, wb) {
   const fn = file.name.toLowerCase();
   if (fn.includes('boleto') || fn.includes('cobran')) return true;
@@ -7438,8 +7461,8 @@ function renderCobranca() {
             : (r.t === 'av' ? `<input class="inline-input" type="date" style="width:130px;font-size:11px" value="${r.dpag ? _toDateInput(r.dpag) : ''}" title="Data que o PIX caiu no banco" onchange="setAvulsoRecebido(${r.idx},'dataPagamento',this.value)">` : (r.dpag ? fmtDate(r.dpag) : '—'));
           let acoes;
           if (r.t === 'sis') {
-            acoes = r.pago ? '<span style="color:var(--muted);font-size:11px">—</span>'
-              : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${r.ped}','${r.key}')">📱 ${r.avis ? 'Cobrar de novo' : 'Cobrar'}</button>${r.avis ? ` <a href="#" onclick="desmarcarAvisadoBoleto('${r.ped}');return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<a href="#" onclick="if(confirm('Desmarcar este boleto como emitido?')){delete boletoStatus['${r.key}'];saveData('boletoStatus',boletoStatus);renderCobranca()}return false" title="Desmarcar emitido" style="text-decoration:none;color:var(--muted);font-size:12px">🗑</a></div>`;
+            acoes = r.pago ? `<a href="#" onclick="desfazerBoletoSis('${r.key}');return false" title="Desfazer recebido" style="text-decoration:none;color:var(--amber);font-size:11px">↩ desfazer</a>`
+              : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${r.ped}','${r.key}')">📱 ${r.avis ? 'Cobrar de novo' : 'Cobrar'}</button>${r.avis ? ` <a href="#" onclick="desmarcarAvisadoBoleto('${r.ped}');return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<button class="btn ghost sm" onclick="baixarBoletoSis('${r.ped}','${r.key}',${r.val || 0})" title="Marcar como recebido (cliente pagou por PIX/dinheiro/outro)">✓ Recebi</button><a href="#" onclick="if(confirm('Desmarcar este boleto como emitido?')){delete boletoStatus['${r.key}'];saveData('boletoStatus',boletoStatus);renderCobranca()}return false" title="Desmarcar emitido" style="text-decoration:none;color:var(--muted);font-size:12px">🗑</a></div>`;
           } else {
             acoes = r.pago
               ? `<button class="btn ghost sm" onclick="removerBoletoAvulso(${r.idx})" title="Remover">🗑</button>`
