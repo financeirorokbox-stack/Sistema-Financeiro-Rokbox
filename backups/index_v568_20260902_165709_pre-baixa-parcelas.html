@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v569/08-688';
+const APP_VERSION = 'v568/08-687';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4817,72 +4817,22 @@ function catContaPagar(c) {
 // volta "Atrasada") sem marcar contas duplicadas a mais. Idempotente.
 function aplicarBaixaConciliada() {
   let mudou = false;
-  // ATRIBUIÇÃO por chave: cada DÉBITO conciliado pega UMA conta (a de vencimento mais próximo do débito),
-  // sem repetir conta. Assim, um número REPETIDO em várias parcelas (ex.: boleto EXCIM #122154 de ago/set/out/nov)
-  // NÃO faz o load "avançar" e marcar as parcelas FUTURAS por engano — só marca tantas quantas há débitos.
-  const datasPorChave = {}; // chave -> [data do débito]
   Object.entries(debitoLinks).forEach(([extId, l]) => {
     const t = extratoBancario.find(x => x.id === extId);
-    debLinkItens(l).forEach(it => { if (it.criada) return; (datasPorChave[it.chave] = datasPorChave[it.chave] || []).push(t ? t.data : null); });
-  });
-  Object.entries(datasPorChave).forEach(([chave, datas]) => {
-    const contasChave = contasPagar.filter(x => chaveContaPagar(x) === chave);
-    const usados = new Set();
-    datas.forEach(dData => {
-      let bestIdx = -1, bestDist = Infinity;
-      contasChave.forEach((c, i) => {
-        if (usados.has(i)) return;
-        const dist = (c.vencimento && dData) ? Math.abs(new Date(c.vencimento) - new Date(dData)) : Infinity;
-        if (dist < bestDist) { bestDist = dist; bestIdx = i; }
-      });
-      if (bestIdx < 0) return;
-      usados.add(bestIdx);
-      const c = contasChave[bestIdx];
-      if (c && !c.pago) { c.pago = true; if (!c.dataPag && dData) c.dataPag = dData; mudou = true; }
+    debLinkItens(l).forEach(it => {
+      if (it.criada) return; // conta criada na conciliação já nasce paga
+      // Pega UMA conta com essa chave que ainda NÃO está paga (1 por vínculo → não marca as duplicadas a mais).
+      // Se houver VÁRIAS com o mesmo número (parcelas), prefere a de vencimento MAIS PRÓXIMO do débito
+      // (evita marcar a parcela errada como paga).
+      const cands = contasPagar.filter(x => chaveContaPagar(x) === it.chave && !x.pago);
+      const distDeb = x => (x.vencimento && t && t.data) ? Math.abs(new Date(x.vencimento) - new Date(t.data)) : Infinity;
+      cands.sort((a, b) => distDeb(a) - distDeb(b));
+      const c = cands[0];
+      if (c) { c.pago = true; if (!c.dataPag && t) c.dataPag = t.data; mudou = true; }
     });
   });
   if (mudou) saveData('contasPagar', contasPagar);
   return mudou;
-}
-// Desfaz as parcelas FUTURAS marcadas como pagas por engano (bug do número repetido): para cada número,
-// só devem estar pagas tantas quantas há DÉBITOS conciliados; o excesso (parcelas que NÃO têm débito,
-// marcadas com a data de outra) é revertido. Nunca mexe em mês fechado. Mostra o que vai fazer e confirma.
-function corrigirParcelasMarcadasEngano() {
-  const datasPorChave = {};
-  Object.entries(debitoLinks).forEach(([extId, l]) => {
-    const t = extratoBancario.find(x => x.id === extId);
-    debLinkItens(l).forEach(it => { if (it.criada) return; (datasPorChave[it.chave] = datasPorChave[it.chave] || []).push(t ? t.data : null); });
-  });
-  const reverter = [];
-  // Só olha números que se REPETEM (parcelas) e que estão com mais pagas do que débitos.
-  const porChave = {};
-  contasPagar.forEach((c, i) => { const k = chaveContaPagar(c); if (!String(c.numero || '').trim()) return; (porChave[k] = porChave[k] || []).push(i); });
-  Object.entries(porChave).forEach(([chave, idxs]) => {
-    if (idxs.length < 2) return; // não repete → não é o caso
-    const nDeb = (datasPorChave[chave] || []).length; // quantos débitos conciliados existem p/ essa chave
-    const pagasIdx = idxs.filter(i => contasPagar[i].pago);
-    if (pagasIdx.length <= nDeb) return; // não há excesso
-    // Mantém pagas as nDeb mais próximas dos débitos; reverte o restante (as sem débito).
-    const datas = datasPorChave[chave] || [];
-    const manter = new Set();
-    const usados = new Set();
-    datas.forEach(dData => {
-      let bestI = -1, bestDist = Infinity;
-      pagasIdx.forEach(i => { if (usados.has(i)) return; const c = contasPagar[i]; const dist = (c.vencimento && dData) ? Math.abs(new Date(c.vencimento) - new Date(dData)) : Infinity; if (dist < bestDist) { bestDist = dist; bestI = i; } });
-      if (bestI >= 0) { usados.add(bestI); manter.add(bestI); }
-    });
-    pagasIdx.forEach(i => { if (!manter.has(i)) reverter.push(i); });
-  });
-  // Tira mês fechado da jogada.
-  const bloqueados = reverter.filter(i => { const c = contasPagar[i]; const d = (c.pago && c.dataPag) ? c.dataPag : c.vencimento; return d && mesEstaFechado(d); });
-  const alvos = reverter.filter(i => !bloqueados.includes(i));
-  if (!alvos.length) { alert('✓ Nenhuma parcela marcada por engano encontrada.' + (bloqueados.length ? `\n\n🔒 ${bloqueados.length} estão em mês fechado e foram ignoradas.` : '')); return; }
-  const lista = alvos.slice(0, 20).map(i => { const c = contasPagar[i]; return `• #${c.numero} ${c.fornecedor || ''} — venc ${c.vencimento ? fmtDate(c.vencimento) : '?'} · ${fmtVal(c.valor)}`; }).join('\n');
-  if (!confirm(`Encontrei ${alvos.length} parcela(s) FUTURA(s) marcadas como PAGAS por engano (número repetido, sem débito no banco):\n\n${lista}${alvos.length > 20 ? `\n… e mais ${alvos.length - 20}` : ''}\n\nVou marcá-las de volta como EM ABERTO (não apago nada, só tiro o "pago"). Confirmar?`)) return;
-  alvos.forEach(i => { contasPagar[i].pago = false; contasPagar[i].dataPag = null; });
-  saveData('contasPagar', contasPagar);
-  try { renderPagar(); } catch (e) {}
-  alert(`✓ ${alvos.length} parcela(s) voltaram para EM ABERTO.` + (bloqueados.length ? `\n\n🔒 ${bloqueados.length} em mês fechado não foram tocadas.` : ''));
 }
 // data → 'AAAA-MM-DD' (para <input type=date>), sem escorregar de dia por fuso.
 function _toDateInput(d) { if (!d) return ''; const dt = d instanceof Date ? d : new Date(d); if (isNaN(dt)) return ''; return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0'); }
@@ -5400,7 +5350,6 @@ function renderPagar() {
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel (modelo FCX Despesas)">📤 Exportar</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
-      <button class="btn ghost sm" style="color:var(--amber)" onclick="corrigirParcelasMarcadasEngano()" title="Desfaz parcelas FUTURAS marcadas como pagas por engano (número repetido sem débito no banco) — volta pra Em Aberto">🔧 Corrigir pagas por engano</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
