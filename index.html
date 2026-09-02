@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v567/08-686';
+const APP_VERSION = 'v568/08-687';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7083,13 +7083,16 @@ function baixarBoletoSis(ped, key, valorParc) {
   if (m) { let a = +m[3]; if (a < 100) a += 2000; const dd = new Date(a, +m[2] - 1, +m[1], 12, 0, 0); if (!isNaN(dd)) data = dd; }
   boletoCobrancaStatus[key] = Object.assign({}, boletoCobrancaStatus[key], { pago: true, dataPagamento: data, valorPago: v });
   saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+  try { syncBoletosToRecebimentos(); } catch (e) {} // gera o recebimento "Boleto Itaú" (é assim que aparece na conciliação)
   renderCobranca();
+  alert(`✓ Boleto do #${ped} marcado como recebido (${fmtVal(v)}).\n\nNa Conciliação Bancária, no crédito do banco, escolha o gateway "Boleto Itaú" (ou o botão Escolher) e vincule este recebimento.`);
 }
 function desfazerBoletoSis(key) {
   if (!(boletoCobrancaStatus[key] && boletoCobrancaStatus[key].pago)) { alert('Este boleto foi baixado por um recebimento/relatório do Itaú, não pela marcação manual. Desfaça pelo recebimento correspondente.'); return; }
   if (!confirm('Desfazer o "recebido" deste boleto? Ele volta a aparecer como a cobrar.')) return;
   delete boletoCobrancaStatus[key];
   saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+  try { syncBoletosToRecebimentos(); } catch (e) {} // tira o recebimento "Boleto Itaú" que tinha sido gerado
   renderCobranca();
 }
 function isBoletoRecebidoFile(file, wb) {
