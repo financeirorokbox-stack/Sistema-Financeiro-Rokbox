@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v584/08-703';
+const APP_VERSION = 'v585/08-704';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12786,6 +12786,7 @@ function abrirLancarRomaneio() {
       <div style="flex:2;min-width:160px"><label style="font-size:11px;color:var(--muted)">Fornecedor</label><input id="rom-forn" class="inline-input" list="rom-forn-list" placeholder="ex.: ILMA" style="width:100%"><datalist id="rom-forn-list">${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}">`).join('')}</datalist></div>
       <div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--muted)">Entrega</label><input id="rom-entrega" type="date" class="inline-input" style="width:100%"></div>
       <div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--muted)">Empresa (opcional)</label><input id="rom-empresa" class="inline-input" list="rom-emp-list" placeholder="${(empresasCadastro[0] || '')}" style="width:100%"><datalist id="rom-emp-list">${(empresasCadastro || []).map(e => `<option value="${String(e).replace(/"/g, '&quot;')}">`).join('')}</datalist></div>
+      <div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--muted)">Coleção</label><input id="rom-colecao" class="inline-input" list="rom-col-list" placeholder="ex.: Verão 26" style="width:100%"><datalist id="rom-col-list">${colecoes.map(cc => `<option value="${(cc.nome || '').replace(/"/g, '&quot;')}">${(cc.subgrupo || '').replace(/"/g, '&quot;')}</option>`).join('')}${[...new Set(compras.map(c => c.colecao).filter(Boolean))].filter(n => !colecoes.some(cc => cc.nome === n)).map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist></div>
     </div>
     <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--muted)">
       <th style="padding:4px">Descrição</th><th style="padding:4px">Referência</th><th style="padding:4px;width:70px">Qtd</th><th style="padding:4px;width:95px">Valor un.</th><th style="width:30px"></th>
@@ -12815,6 +12816,7 @@ function salvarRomaneio() {
   const entregaISO = document.getElementById('rom-entrega')?.value || '';
   const entregaBR = entregaISO ? entregaISO.split('-').reverse().join('/') : '';
   const empresa = (document.getElementById('rom-empresa')?.value || '').trim();
+  const colecao = (document.getElementById('rom-colecao')?.value || '').trim();
   const linhas = [...document.querySelectorAll('#rom-linhas tr')].map(tr => ({
     desc: (tr.querySelector('.rom-desc')?.value || '').trim(),
     ref: (tr.querySelector('.rom-ref')?.value || '').trim(),
@@ -12827,7 +12829,7 @@ function salvarRomaneio() {
       id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'),
       fornecedor: forn, insumo: l.desc + (l.ref ? ' (' + l.ref + ')' : ''), unidade: 'un',
       qtd: l.qtd, custoUnit: l.val, custoTotal: +((l.qtd || 0) * (l.val || 0)).toFixed(2), frete: 0,
-      colecao: '', dataLimite: entregaBR, dataFatur: entregaISO, categoria: '', solicitante: '', empresa, status: 'pendente'
+      colecao, dataLimite: entregaBR, dataFatur: entregaISO, categoria: '', solicitante: '', empresa, status: 'pendente'
     });
   });
   saveData('compras', compras);
