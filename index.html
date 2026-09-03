@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v579/08-698';
+const APP_VERSION = 'v580/08-699';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1240,6 +1240,7 @@ let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário 
 let _repSoMes = true;          // na conciliação, a lista de recebimentos p/ flegar mostra só o MÊS do depósito (senão enche de valores repetidos)
 let _debSoMes = true;          // idem para a lista de CONTAS A PAGAR de um débito: mostra só as do MÊS do débito
 let _fluxoBalComAberto = false; // balancete do Fluxo: incluir as despesas EM ABERTO (contas a pagar não pagas)
+let _crXconcAberto = false;     // tabela "CR × Conciliação (dia a dia)" no Fluxo aberta/fechada
 let _saldoDiarioAberto = false; // seção "Saldo bancário diário" começa RECOLHIDA
 let freteManual = {};          // { pedidoId: valorFrete } — frete digitado na mão (Comissão), vale acima do que veio da planilha
 let comissaoVendedor = {};     // { vendedor: percentualDecimal } — % de comissão por vendedor (ex.: 0.02 = 2%)
@@ -4005,6 +4006,7 @@ function renderFluxo() {
       ${baseInicial===0 ? `<div style="font-size:11px;color:var(--amber);max-width:220px">💡 Cadastre o <strong>saldo inicial</strong> dos bancos (Cadastro → Bancos) para o saldo ficar absoluto.</div>` : ''}
     </div>
     ${graficoMensal}
+    ${crVsConciliacaoHTML()}
     ${saldoBancarioDiarioHTML()}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:20px;margin-top:20px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px"><span>Entradas</span><span>${fmtVal(totEnt)}</span></div>
@@ -11519,6 +11521,39 @@ function saldoFinalDia(banco, dk) {
   return (cfg.valor || 0) + mov;
 }
 // ── Saldo bancário diário (Fluxo de Caixa): tabela dia a dia por banco, com saldo real p/ conferir ──
+// Tabela dia a dia: Contas a Receber (recebimentos pela DATA DO BANCO) × Conciliação (créditos do extrato).
+// Respeita o filtro de período. Dia divergente = recebimento sem crédito no banco (não conciliado) ou lag de repasse.
+function crVsConciliacaoHTML() {
+  const cr = {}, banco = {};
+  recebimentosConsolidado.forEach(r => {
+    if (r._estornoChave) return;
+    const bd = dataRepasseBanco(r) || r.data;
+    if (!bd || (dfAtivo() && !passaData(bd))) return;
+    const d = _toDateInput(bd); if (!d) return;
+    cr[d] = (cr[d] || 0) + (r.liq || 0);
+  });
+  extratoBancario.forEach(t => {
+    if (!((t.valor || 0) > 0)) return;
+    if (dfAtivo() && !passaData(t.data)) return;
+    const d = _toDateInput(t.data); if (!d) return;
+    banco[d] = (banco[d] || 0) + t.valor;
+  });
+  const dias = [...new Set([...Object.keys(cr), ...Object.keys(banco)])].sort();
+  let tCR = 0, tB = 0, nDif = 0;
+  const rows = dias.map(d => {
+    const c = cr[d] || 0, b = banco[d] || 0, dif = +(c - b).toFixed(2); tCR += c; tB += b;
+    const ok = Math.abs(dif) <= 0.5; if (!ok) nDif++;
+    return `<tr style="${ok ? '' : 'background:#fff4f4'}"><td>${fmtDate(new Date(d + 'T00:00:00'))}</td><td style="text-align:right">${fmtVal(c)}</td><td style="text-align:right">${fmtVal(b)}</td><td style="text-align:right;font-weight:700;color:${ok ? 'var(--green)' : 'var(--amber)'}">${ok ? '✓' : fmtVal(dif)}</td></tr>`;
+  }).join('');
+  const difTot = +(tCR - tB).toFixed(2);
+  const okTot = Math.abs(difTot) <= 0.5;
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin:20px 0">
+    <button class="btn ghost sm" style="font-weight:700;font-size:13px" onclick="_crXconcAberto=!_crXconcAberto;renderFluxo()">📅 Contas a Receber × Conciliação (dia a dia) ${_crXconcAberto ? '▾' : '▸'}</button>
+    <span style="font-size:11px;color:${okTot ? 'var(--green)' : 'var(--amber)'};margin-left:8px;font-weight:700">${okTot ? '✓ bate no total' : `${nDif} dia(s) divergem · diferença total ${fmtVal(difTot)}`}</span>
+    ${_crXconcAberto ? `<div class="table-wrap" style="margin-top:10px;max-width:660px"><table><thead><tr><th>Dia</th><th style="text-align:right">Contas a Receber</th><th style="text-align:right">Conciliação (banco)</th><th style="text-align:right">Diferença</th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="color:var(--muted)">Sem dados no período (filtre um mês no topo).</td></tr>'}<tr style="border-top:2px solid var(--border);font-weight:700"><td>TOTAL</td><td style="text-align:right">${fmtVal(tCR)}</td><td style="text-align:right">${fmtVal(tB)}</td><td style="text-align:right;color:${okTot ? 'var(--green)' : 'var(--amber)'}">${fmtVal(difTot)}</td></tr></tbody></table></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">CR = recebimentos pela <strong>data do banco</strong> (repasse). Dia em <span style="color:var(--amber)">vermelho</span> = recebimento sem crédito no banco (falta conciliar) ou repasse que caiu em outro dia. Diferença no fim do mês costuma ser repasse que caiu no mês seguinte.</div>` : ''}
+  </div>`;
+}
 function saldoBancarioDiarioHTML() {
   const bancos = [...new Set(extratoBancario.map(t => t.banco || '').filter(Boolean))].sort();
   if (!bancos.length) return `<div style="margin-top:28px;font-size:12px;color:var(--muted)">🏦 <strong>Saldo bancário diário</strong> — carregue extratos OFX (aba Extrato) com o banco nomeado para acompanhar o saldo do dia.</div>`;
