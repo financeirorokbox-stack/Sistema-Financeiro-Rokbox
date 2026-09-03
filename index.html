@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v581/08-700';
+const APP_VERSION = 'v582/08-701';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11076,18 +11076,22 @@ function renderBanco() {
       <th>Entrou no banco?</th><th>Diferença</th>
     </tr></thead><tbody>
     ${Object.entries(porGw).sort((a,b)=>b[1].liq-a[1].liq).map(([gw, d]) => {
-      const depositoBanco = semVinculo
-        .filter(t => (t.memo||'').toLowerCase().includes(gw.toLowerCase().split(' ')[0].toLowerCase()))
-        .reduce((s,t)=>s+t.valor,0);
+      // Palavras que o BANCO usa pra cada operadora (o Braavo cai como "iFood"; Desconto em Folha NÃO entra no banco).
+      const _k = gw.toLowerCase();
+      const kws = _k.includes('braavo') ? ['braavo', 'ifood']
+        : (_k.includes('folha') || _k.includes('desconto') || _k.includes('dinheiro')) ? null
+        : [_k.split(' ')[0]];
+      const depositoBanco = kws ? semVinculo.filter(t => { const m = (t.memo || '').toLowerCase(); return kws.some(kw => m.includes(kw)); }).reduce((s,t)=>s+t.valor,0) : 0;
       const diff = depositoBanco - d.liq;
-      const diffStr = depositoBanco === 0 ? '<span style="color:var(--muted)">não identificado</span>'
+      const diffStr = !kws ? '<span style="color:var(--muted)">não é banco</span>'
+        : depositoBanco === 0 ? '<span style="color:var(--muted)">não identificado</span>'
         : `<span style="color:${Math.abs(diff)<=1?'var(--green)':Math.abs(diff)<=50?'var(--amber)':'var(--red)'}">${diff>=0?'+':''}${fmtVal(diff)}</span>`;
       return `<tr>
         <td><strong>${gw}</strong><div style="font-size:10px;color:var(--muted)">${d.n} transações</div></td>
         <td>${fmtVal(d.bruto)}</td>
         <td style="color:var(--red)">${fmtVal(d.taxa)}</td>
         <td><strong>${fmtVal(d.liq)}</strong></td>
-        <td>${depositoBanco>0?fmtVal(depositoBanco):'<span class="badge neu">não encontrado</span>'}</td>
+        <td>${!kws ? '<span class="badge neu" title="Desconto na folha do funcionário — não é um crédito no banco">não entra no banco</span>' : (depositoBanco>0?fmtVal(depositoBanco):'<span class="badge neu">não encontrado</span>')}</td>
         <td>${diffStr}</td>
       </tr>`;
     }).join('')}
