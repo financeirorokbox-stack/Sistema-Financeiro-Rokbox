@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v575/08-694';
+const APP_VERSION = 'v574/08-693';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3769,69 +3769,58 @@ function renderFluxo() {
   // PayPal/Braavo cai dias depois da venda, e é a data do repasse que vale no fluxo.
   // Assim o Fluxo fecha BATENDO com o banco (vira o balancete realizado do mês).
   // A visão por competência (data da venda) continua no DRE.
-  // ── BALANCETE REALIZADO = 100% DO BANCO (extrato). Receitas = CRÉDITOS, Despesas = DÉBITOS, ambos
-  //    categorizados pela conciliação. Assim Receitas − Despesas = movimento do banco e o SALDO FINAL
-  //    FECHA AO CENTAVO com a Conciliação Bancária (pedido da Elaine — igual os exports de CR/CP). ──
-  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito'};
-  const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
-  const _empExtrato = t => { const b = (t.banco || '').toLowerCase(); if (/rokbox/.test(b)) return 'ROKBOX'; if (/rk/.test(b)) return 'RK'; return '(sem empresa)'; };
-  const treeR = {}, treeD = {}, empSet = new Set();
-  const addNo = (tree, g, sub, emp, v) => {
-    empSet.add(emp);
-    const G = tree[g] = tree[g] || { tot:0, emp:{}, sub:{} };
-    G.tot += v; G.emp[emp] = (G.emp[emp]||0) + v;
-    const S = G.sub[sub] = G.sub[sub] || { tot:0, emp:{} };
-    S.tot += v; S.emp[emp] = (S.emp[emp]||0) + v;
-  };
-  // RECEITAS = CRÉDITOS do banco no período, por grupo/subgrupo da conciliação.
   const ent = {};
   extratoBancario.forEach(t => {
-    if (!((t.valor || 0) > 0) || !noPeriodo(t.data)) return;
-    let grupo, sub;
-    if (receitaLinks[t.id]) { const ra = receitasAvulsas.find(r => r._extratoId === t.id); const cat = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros'; sub = cat; }
-    else { const gw = categoriaLancamento(t); grupo = gw ? grupoReceitaGateway(gw) : 'Não conciliado'; sub = gw ? (SUB_REC[gw] || gw) : 'Crédito não conciliado'; }
-    ent[grupo] = (ent[grupo] || 0) + t.valor;
-    addNo(treeR, grupo, sub, _empExtrato(t), t.valor);
-  });
-  // DESPESAS = DÉBITOS do banco no período, categorizados pela(s) conta(s) vinculada(s). Débito sem conta = "Não conciliado".
-  const sai = {};
-  extratoBancario.forEach(t => {
-    if (!((t.valor || 0) < 0) || !noPeriodo(t.data)) return;
-    const link = debitoLinks[t.id];
-    const emp0 = _empExtrato(t);
-    if (link && debLinkItens(link).length) {
-      const itens = debLinkItens(link);
-      let distribuido = 0;
-      itens.forEach(it => {
-        const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
-        const cat = conta ? catContaPagar(conta) : (it.fornecedor || 'Outras despesas');
-        const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
-        const emp = (conta && conta.empresa) || emp0;
-        const val = it.valor || 0;
-        sai[g] = (sai[g] || 0) + val; addNo(treeD, g, cat, emp, val); distribuido += val;
-      });
-      const cr = +((link.credito) || 0);
-      if (cr > 0.005) { sai['CRÉDITO CARTÃO'] = (sai['CRÉDITO CARTÃO'] || 0) - cr; addNo(treeD, 'CRÉDITO CARTÃO', 'Crédito cartão', emp0, -cr); distribuido -= cr; }
-      const resid = +(Math.abs(t.valor || 0) - distribuido).toFixed(2); // juros/ajuste do débito p/ fechar com o banco
-      if (Math.abs(resid) > 0.005) { sai['JUROS / AJUSTE'] = (sai['JUROS / AJUSTE'] || 0) + resid; addNo(treeD, 'JUROS / AJUSTE', 'Juros/ajuste do débito', emp0, resid); }
+    if (!((t.valor || 0) > 0)) return;
+    if (!noPeriodo(t.data)) return;
+    let g;
+    if (receitaLinks[t.id]) {
+      const ra = receitasAvulsas.find(r => r._extratoId === t.id);
+      g = (ra && ra.categoria) || 'Outras receitas';
     } else {
-      const val = Math.abs(t.valor || 0);
-      sai['Não conciliado'] = (sai['Não conciliado'] || 0) + val; addNo(treeD, 'Não conciliado', 'Débito não conciliado', emp0, val);
+      const gw = categoriaLancamento(t);
+      g = gw ? grupoReceitaGateway(gw) : 'Sem categoria';
     }
+    ent[g] = (ent[g] || 0) + t.valor;
   });
-  // SAÍDAS PREVISTAS — contas a pagar EM ABERTO (por vencimento), por grupo. Projeção, NÃO é banco.
+  // ESTORNO só NÃO é saída de caixa quando NÃO saiu do banco: o estorno descontado do repasse do
+  // gateway (a entrada já chega líquida) não vira débito próprio, então contá-lo seria contar duas
+  // vezes. MAS o estorno que você pagou de verdade (PIX na mão, conciliado a um débito do banco) É
+  // dinheiro que saiu e TEM que contar. Regra: pula o estorno só se ele NÃO está conciliado no banco.
   const _chavesDeb = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(i => { if (i.chave) _chavesDeb.add(i.chave); }));
   const _estornoForaDoCaixa = c => (c._origemEstorno || String(catContaPagar(c) || '').toUpperCase() === 'ESTORNO') && !_chavesDeb.has(chaveContaPagar(c));
+  // SAÍDAS — contas a pagar PAGAS, por grupo de despesa (usa dataPag; se faltar, vencimento)
+  const sai = {};
+  contasPagar.forEach(c => {
+    if (!c.pago || c.cancelado) return;
+    if (!noPeriodo(c.dataPag || c.vencimento)) return;
+    if (_estornoForaDoCaixa(c)) return;
+    const cat = catContaPagar(c);
+    const g = grupoDespesa(cat) || cat || 'Outras despesas';
+    sai[g] = (sai[g] || 0) + (c.valor || 0);
+  });
+  // CRÉDITO DE CARTÃO — quando a fatura foi conciliada abatendo um crédito da empresa
+  // (debitoLinks[id].credito), esse crédito ENTRA COMO SAÍDA NEGATIVA na data do débito,
+  // igual ao export do Contas a Pagar. Sem isto o Fluxo mostrava a despesa cheia e não
+  // batia com o Contas a Pagar / banco (fatura no banco = despesas − crédito).
+  Object.entries(debitoLinks).forEach(([extId, l]) => {
+    const cr = +((l && l.credito) || 0);
+    if (cr <= 0.005) return;
+    const t = extratoBancario.find(x => x.id === extId);
+    if (!t || !noPeriodo(t.data)) return;
+    sai['CRÉDITO CARTÃO'] = (sai['CRÉDITO CARTÃO'] || 0) - cr;
+  });
+  // SAÍDAS PREVISTAS — contas a pagar EM ABERTO (por vencimento), por grupo. É a projeção.
   const saiPrev = {};
   contasPagar.forEach(c => {
-    if (c.pago || c.cancelado || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return;
+    if (c.pago || c.cancelado) return;
+    if (!noPeriodo(c.vencimento)) return;
+    if (_estornoForaDoCaixa(c)) return; // mesmo critério das pagas
     const cat = catContaPagar(c);
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     saiPrev[g] = (saiPrev[g] || 0) + (c.valor || 0);
   });
-  // Opção "Pago + Em Aberto" (só nas despesas): inclui as contas a pagar EM ABERTO na árvore (projeção sobre o realizado do banco).
-  if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
   const totEnt = Object.values(ent).reduce((s,v)=>s+v,0);
   const totSai = Object.values(sai).reduce((s,v)=>s+v,0);
   const totSaiPrev = Object.values(saiPrev).reduce((s,v)=>s+v,0);
@@ -3847,7 +3836,29 @@ function renderFluxo() {
   (boletosAvulsos || []).forEach(a => { if (a.dataPagamento) return; if (!noPeriodo(a.vencimento)) return; totRecPrev += (a.valorTitulo || 0); });
   totRecPrev = +totRecPrev.toFixed(2);
   const saldo = totEnt - totSai;
+  // Barra comparativa entradas × saídas (visual do saldo)
   const maxES = Math.max(1, totEnt, totSai);
+
+  // ── DRE detalhada: árvore grupo→subgrupo→empresa (mesmo período do filtro) ──
+  // Subgrupos iguais à planilha "Categoria Receitas" da Elaine: CC PayPal/CC Rede sob Cartão de Crédito; Braavo Pay e Depósito (PIX/Transf) sob Depósito.
+  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito'};
+  const _empRec = r => { const id = r.nped ? String(r.nped).split(',')[0].trim() : ''; const ped = id ? pedidos.find(p => String(p.id) === id) : null; return (ped && ped.empresa) || '(sem empresa)'; };
+  // Balancete: cria a CATEGORIA (grupo) "PRODUTO ACABADO" com as subcategorias PRODUTO ACABADO e SACOLAS/EMBALAGENS/
+  // CABIDES (cada uma numa linha, separadas). Só na exibição, não muda as contas.
+  const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
+  const treeR = {}, treeD = {}, empSet = new Set();
+  const addNo = (tree, g, sub, emp, v) => {
+    empSet.add(emp);
+    const G = tree[g] = tree[g] || { tot:0, emp:{}, sub:{} };
+    G.tot += v; G.emp[emp] = (G.emp[emp]||0) + v;
+    const S = G.sub[sub] = G.sub[sub] || { tot:0, emp:{} };
+    S.tot += v; S.emp[emp] = (S.emp[emp]||0) + v;
+  };
+  recebimentosConsolidado.forEach(r => { if (r._estornoChave || !noPeriodo(r.data)) return; addNo(treeR, grupoReceitaGateway(r.gateway), SUB_REC[r.gateway] || r.gateway || 'Outros', _empRec(r), r.liq||0); });
+  receitasAvulsas.forEach(r => { if (!noPeriodo(r.data)) return; addNo(treeR, 'Outros', r.categoria || 'Outras receitas', r.empresa || '(sem empresa)', r.valor||0); });
+  contasPagar.forEach(c => { if (c.cancelado || !c.pago || !noPeriodo(c.dataPag||c.vencimento)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
+  // Opção "Pago + Em Aberto" (só nas despesas): inclui as contas a pagar EM ABERTO (por vencimento) na árvore.
+  if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
   const empCols = [...empSet].sort((a,b)=> a==='(sem empresa)' ? 1 : b==='(sem empresa)' ? -1 : (a<b?-1:1));
 
   // ── SALDO ANTERIOR (antes do período) e SALDO FINAL ──
