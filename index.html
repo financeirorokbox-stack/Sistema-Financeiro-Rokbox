@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v587/09-706';
+const APP_VERSION = 'v588/09-707';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13703,7 +13703,17 @@ function renderRH() {
   const _mF = _folhaDo(mesAtual);
   const vtDe = _mF._vtDe || (mesAtual + '-01');
   const vtAte = _mF._vtAte || (mesAtual + '-' + String(new Date(+mesAtual.slice(0, 4), +mesAtual.slice(5, 7), 0).getDate()).padStart(2, '0'));
+  const _pend = _folhaPendencias(mesAtual);
+  const _pendHTML = _pend.length ? `
+    <div style="border:1px solid var(--amber);background:rgba(245,158,11,.10);border-radius:10px;padding:12px 14px;margin:18px 0 0">
+      <div style="font-weight:700;color:var(--amber);margin-bottom:6px">⚠ ${_pend.length} valor(es) da grade ainda NÃO estão no Contas a Pagar</div>
+      <div style="font-size:12px;color:var(--text);margin-bottom:9px;line-height:1.6">${_pend.map(p => `• <strong>${esc(p.nome)}</strong> — ${p.campo}: ${p.tipo === 'falta' ? ('<span style="color:var(--amber)">falta gerar ' + fmtVal(p.para) + '</span>') : (fmtVal(p.de) + ' → <strong>' + fmtVal(p.para) + '</strong>')}`).join('<br>')}</div>
+      <button class="btn primary sm" onclick="gerarFolhaMes('demais')" title="Cria/atualiza Salário, Comissão, DSR, Férias, VT e Extras (dia 05). Não mexe no que já está pago.">📤 Gerar salário e o resto</button>
+      <button class="btn ok sm" style="margin-left:6px" onclick="gerarFolhaMes('adiant')" title="Cria/atualiza só o Adiantamento (dia 20).">💵 Gerar adiantamento</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:7px">Sempre que você edita um valor na grade (ou lê o holerite), clique em Gerar de novo pra o Contas a Pagar ficar igual. As linhas já pagas não são tocadas.</div>
+    </div>` : '';
   const confHTML = ativos.length ? `
+    ${_pendHTML}
     <div class="section-title" style="margin-top:22px">📋 Folha de ${mesAtual.split('-').reverse().join('/')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— Adiantamento vence 20/${mesAtual.slice(5)}; o resto, 05/${mesSeg.slice(5)} · Feriados: <input type="number" min="0" max="10" value="${_rhFeriados}" style="width:44px" onchange="_rhFeriados=+this.value||0;renderRH()" title="Usado no DSR estimado e nos dias úteis do VT"> · Período do VT: <input type="date" value="${vtDe}" style="width:126px" onchange="setVtPeriodoRH('${mesAtual}','de',this.value)"> a <input type="date" value="${vtAte}" style="width:126px" onchange="setVtPeriodoRH('${mesAtual}','ate',this.value)"> <button class="btn primary sm" style="font-size:11px" onclick="preencherFolhaAuto()" title="Preenche sozinho: Adiantamento = % Adto × salário do cadastro; VT = VT/dia × dias úteis presenciais do período (úteis − feriados − home office semanal). Sobrescreve só esses 2 campos.">⚡ Preencher automático</button></span></div>
     <div class="table-wrap"><table><thead><tr>
       <th>Nome</th><th style="text-align:right">Adiant. (dia 20)</th><th style="text-align:right">Sal. líquido</th><th style="text-align:right">Descontos −</th><th style="text-align:right">Comissão</th><th style="text-align:right">DSR</th><th style="text-align:right">Férias</th><th style="text-align:right">VT</th><th style="text-align:right">Extras</th><th>Categ. extras</th><th style="text-align:right">TOTAL (dia 05)</th>
@@ -13914,6 +13924,36 @@ function removerHoleriteRH(i) {
 let _rhFeriados = 0; // feriados no mês (só pro DSR estimado)
 function _folhaDo(mes) { if (!folhaRH[mes]) folhaRH[mes] = {}; return folhaRH[mes]; }
 function _fRow(mes, id) { const m = _folhaDo(mes); if (!m[id]) m[id] = { adiant: 0, salLiq: 0, comissao: null, dsr: 0, ferias: 0, vt: 0, extras: 0, extrasCat: '', descontos: 0 }; return m[id]; }
+// Conferência: o que está DIGITADO na grade da folha e ainda NÃO está igual no Contas a Pagar (falta clicar 📤 Gerar).
+// Pega o caso "editei o VT/salário depois de gerar e esqueci de gerar de novo". Não conta linhas já PAGAS/canceladas (não dá pra mudar).
+function _folhaPendencias(mes) {
+  const ativos = funcionariosRH.filter(f => f.ativo !== false && (f.nome || '').trim());
+  const pedDesc = _folhaDo(mes)._pedidosDesc || [];
+  const descPedDe = fid => pedDesc.filter(d => d.funcId === fid).reduce((s, d) => s + (+d.valor || 0), 0);
+  const rotulo = { A: 'Adiantamento', S: 'Salário', Com: 'Comissão', D: 'DSR', F: 'Férias', V: 'VT', X: 'Extras' };
+  const pend = [];
+  ativos.forEach(f => {
+    const r = _fRow(mes, f.id);
+    const com = (r.comissao != null) ? +r.comissao : comissaoMesRH(f.nome, mes);
+    const esperado = {
+      A: +(+r.adiant || 0).toFixed(2),
+      S: +(((+r.salLiq || 0) - (+r.descontos || 0) - descPedDe(f.id))).toFixed(2),
+      Com: +((+com) || 0).toFixed(2),
+      D: +(+r.dsr || 0).toFixed(2),
+      F: +(+r.ferias || 0).toFixed(2),
+      V: +(+r.vt || 0).toFixed(2),
+      X: +(+r.extras || 0).toFixed(2)
+    };
+    Object.keys(esperado).forEach(k => {
+      const val = esperado[k];
+      const conta = contasPagar.find(c => c._folhaKey === ('folha' + k + '|' + f.id + '|' + mes));
+      if (conta && (conta.pago || conta.cancelado)) return; // travada
+      if (!conta) { if (val > 0.005) pend.push({ nome: f.nome, campo: rotulo[k], tipo: 'falta', para: val }); }
+      else if (Math.abs((+conta.valor || 0) - val) > 0.02) pend.push({ nome: f.nome, campo: rotulo[k], tipo: 'mudou', de: +conta.valor || 0, para: val });
+    });
+  });
+  return pend;
+}
 function _mesSeguinte(mes) { const [a, m] = String(mes).split('-').map(Number); return m === 12 ? (a + 1) + '-01' : a + '-' + String(m + 1).padStart(2, '0'); }
 // Comissão da pessoa no mês: soma das linhas COMISSÃO (aba Comissão) com vencimento no mês da folha ou no seguinte.
 function comissaoMesRH(nome, mes) {
