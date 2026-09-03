@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v570/08-689';
+const APP_VERSION = 'v571/08-690';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1585,7 +1585,7 @@ function grupoReceita(descricao) {
   if (!d) return '';
   if (d.includes('boleto pagseguro')) return 'Cartão de Crédito';
   if (d.includes('pagseguro pix') || d.includes('pagseguro - pix')) return 'Cartão de Crédito';
-  if (d.includes('braavo')) return 'BraavoPay';
+  if (d.includes('braavo')) return 'Depósito';
   if (d.includes('boleto')) return 'Boleto';
   if (d.includes('dinheiro')) return 'Dinheiro';
   if (d.includes('debito') || d.includes('débito')) return 'Cartão de Débito';
@@ -3632,7 +3632,7 @@ function grupoReceitaGateway(gw) {
     case 'Boleto Itaú': return 'Boleto';
     case 'PayPal': return 'Cartão de Crédito';
     case 'Rede': return 'Cartão de Crédito';
-    case 'BraavoPay': return 'BraavoPay';
+    case 'BraavoPay': return 'Depósito';
     case 'PIX (Extrato)': return 'Depósito';
     case 'Transferência Bancária': return 'Depósito';
     default: return gw || 'Outros';
