@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v582/08-701';
+const APP_VERSION = 'v583/08-702';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11069,29 +11069,28 @@ function renderBanco() {
     <!-- Comparativo por operadora (mantido) -->
     <div class="section-title" style="margin-top:8px">Comparativo: Planilhas × Banco (operadoras)</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
-      Compare o total líquido das planilhas com o que entrou no banco. A diferença pode ser timing de repasse ou taxa.
+      "Entrou no banco" = o que já foi <strong>conciliado</strong> (repasse vinculado) dessa operadora. A diferença = o que ainda <strong>falta conciliar</strong> (repasse que caiu em outro mês, ou crédito ainda não vinculado). Conforme você concilia, a diferença zera.
     </div>
     <div class="table-wrap" style="margin-bottom:24px"><table><thead><tr>
       <th>Gateway / Operadora</th><th>Planilha — Bruto</th><th>Planilha — Taxas</th><th>Planilha — Líquido</th>
       <th>Entrou no banco?</th><th>Diferença</th>
     </tr></thead><tbody>
     ${Object.entries(porGw).sort((a,b)=>b[1].liq-a[1].liq).map(([gw, d]) => {
-      // Palavras que o BANCO usa pra cada operadora (o Braavo cai como "iFood"; Desconto em Folha NÃO entra no banco).
       const _k = gw.toLowerCase();
-      const kws = _k.includes('braavo') ? ['braavo', 'ifood']
-        : (_k.includes('folha') || _k.includes('desconto') || _k.includes('dinheiro')) ? null
-        : [_k.split(' ')[0]];
-      const depositoBanco = kws ? semVinculo.filter(t => { const m = (t.memo || '').toLowerCase(); return kws.some(kw => m.includes(kw)); }).reduce((s,t)=>s+t.valor,0) : 0;
-      const diff = depositoBanco - d.liq;
-      const diffStr = !kws ? '<span style="color:var(--muted)">não é banco</span>'
-        : depositoBanco === 0 ? '<span style="color:var(--muted)">não identificado</span>'
+      const naoBanco = _k.includes('folha') || _k.includes('desconto') || _k.includes('dinheiro');
+      // "Entrou no banco" = créditos do banco CONCILIADOS a essa operadora (repasse vinculado). É o número REAL,
+      // não a palavra do memo (que erra: boleto pago por PIX vira "PIX", Braavo vira "iFood").
+      const depositoBanco = naoBanco ? 0 : Object.entries(repasseLinks).reduce((s, [e, l]) => { if (l.gateway !== gw) return s; const t = extratoBancario.find(x => x.id === e); return s + (t ? (t.valor || 0) : 0); }, 0);
+      const diff = depositoBanco - d.liq; // negativo = planilha maior = ainda falta conciliar esse tanto no banco
+      const diffStr = naoBanco ? '<span style="color:var(--muted)">—</span>'
+        : depositoBanco === 0 ? '<span style="color:var(--muted)">nada conciliado ainda</span>'
         : `<span style="color:${Math.abs(diff)<=1?'var(--green)':Math.abs(diff)<=50?'var(--amber)':'var(--red)'}">${diff>=0?'+':''}${fmtVal(diff)}</span>`;
       return `<tr>
         <td><strong>${gw}</strong><div style="font-size:10px;color:var(--muted)">${d.n} transações</div></td>
         <td>${fmtVal(d.bruto)}</td>
         <td style="color:var(--red)">${fmtVal(d.taxa)}</td>
         <td><strong>${fmtVal(d.liq)}</strong></td>
-        <td>${!kws ? '<span class="badge neu" title="Desconto na folha do funcionário — não é um crédito no banco">não entra no banco</span>' : (depositoBanco>0?fmtVal(depositoBanco):'<span class="badge neu">não encontrado</span>')}</td>
+        <td>${naoBanco ? '<span class="badge neu" title="Desconto na folha do funcionário — não é um crédito no banco">não entra no banco</span>' : (depositoBanco>0?fmtVal(depositoBanco):'<span class="badge neu">falta conciliar</span>')}</td>
         <td>${diffStr}</td>
       </tr>`;
     }).join('')}
