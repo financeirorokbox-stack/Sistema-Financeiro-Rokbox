@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v586/09-705';
+const APP_VERSION = 'v587/09-706';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8093,6 +8093,55 @@ async function _pdfLinhasPorPagina(bytes) {
   try { doc.destroy(); } catch (e) {}
   return paginas;
 }
+// Igual ao anterior, mas mantém a posição X de cada token (p/ separar as colunas Vencimentos × Descontos do holerite).
+// Devolve: [ paginas ] → cada página é [ linhas ] → cada linha é [ {s, x} ] (ordenada da esquerda p/ direita).
+async function _pdfPaginasTokens(bytes) {
+  const pdfjs = await _pdfjsReady();
+  const doc = await pdfjs.getDocument({ data: bytes }).promise;
+  const paginas = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const tc = await page.getTextContent();
+    const its = tc.items.filter(it => (it.str || '').trim() !== '').map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str.trim() }));
+    its.sort((a, b) => (Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x));
+    let atual = null, yAtual = null; const linhas = [];
+    its.forEach(it => { if (yAtual === null || Math.abs(it.y - yAtual) > 3) { if (atual) linhas.push(atual); atual = []; yAtual = it.y; } atual.push({ s: it.s, x: it.x }); });
+    if (atual && atual.length) linhas.push(atual);
+    paginas.push(linhas);
+  }
+  try { doc.destroy(); } catch (e) {}
+  return paginas;
+}
+// Lê UMA página do Recibo com as colunas separadas por X e devolve o detalhe pra folha (regra da Elaine, validada com o recibo real):
+//  • salLiq   = TODOS os vencimentos MENOS comissão e DSR (salário + férias + pró-labore + outros)
+//  • comissao = "COMISSOES" · dsr = "REFLEXO COMISSOES DSR"
+//  • descontos= TODOS os descontos (INSS + IRRF + adiantamentos + outros)  ·  adiant = a parte "ADIANTAMENTO"
+//  • liquido  = "Valor Líquido" do recibo (conferência: salLiq − descontos + comissao + dsr = liquido)
+const _isDinheiroRH = s => /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s) || /^\d+,\d{2}$/.test(s);
+function _lerReciboDetalhe(linhasTok) {
+  const texto = linhasTok.map(ln => ln.map(t => t.s).join(' '));
+  const base = _lerReciboPagina(texto.map(l => l.replace(/\s+/g, ' ').trim())); // reaproveita nome/código/líquido (robusto)
+  const iCol = texto.findIndex(l => /refer[êe]ncia/i.test(l) && /vencimentos/i.test(l) && /descontos/i.test(l));
+  if (iCol < 0) return { codigo: base.codigo, nome: base.nome, salLiq: 0, comissao: 0, dsr: 0, descontos: 0, adiant: 0, liquido: base.liquido, _semDetalhe: true };
+  let Xref = 291, Xven = 370, Xdes = 454;
+  linhasTok[iCol].forEach(t => { if (/refer/i.test(t.s)) Xref = t.x; if (/vencimentos/i.test(t.s)) Xven = t.x; if (/descontos/i.test(t.s)) Xdes = t.x; });
+  const col = x => [[Xref, 'ref'], [Xven, 'ven'], [Xdes, 'des']].map(c => [Math.abs(x - c[0]), c[1]]).sort((a, b) => a[0] - b[0])[0][1];
+  const iFim = texto.findIndex((l, i) => i > iCol && /(total de vencimentos|declaro ter recebido)/i.test(l));
+  let salBaseFer = 0, com = 0, dsr = 0, inss = 0, irrf = 0, adiant = 0, desOutros = 0;
+  for (let i = iCol + 1; i < (iFim < 0 ? linhasTok.length : iFim); i++) {
+    const desc = texto[i].replace(/^\d+\s+/, '').toUpperCase();
+    let ven = 0, des = 0;
+    linhasTok[i].forEach(t => { if (_isDinheiroRH(t.s)) { const c = col(t.x); if (c === 'ven') ven += _numBling(t.s); else if (c === 'des') des += _numBling(t.s); } });
+    if (/COMISS/.test(desc) && /DSR/.test(desc)) dsr += ven;
+    else if (/COMISS/.test(desc)) com += ven;
+    else salBaseFer += ven; // salário + férias + pró-labore + qualquer outro vencimento
+    if (/ADIANT/.test(desc)) adiant += des;
+    else if (/I\.?N\.?S\.?S/.test(desc)) inss += des;
+    else if (/IRRF/.test(desc)) irrf += des;
+    else desOutros += des;
+  }
+  return { codigo: base.codigo, nome: base.nome, salLiq: +salBaseFer.toFixed(2), comissao: +com.toFixed(2), dsr: +dsr.toFixed(2), descontos: +(inss + irrf + adiant + desOutros).toFixed(2), adiant: +adiant.toFixed(2), liquido: base.liquido };
+}
 // Carrega o pdf-lib (escrever/partir PDF) sob demanda — só quando for separar holerites.
 let _pdfLibPromise = null;
 function _pdfLibReady() {
@@ -13034,21 +13083,22 @@ function _lerReciboPagina(linhas) {
   if (!liquido) { const iT = linhas.findIndex(l => /total de vencimentos/i.test(l)); if (iT >= 0 && linhas[iT + 1]) { const vv = linhas[iT + 1].match(/([\d.]+,\d{2})\s+([\d.]+,\d{2})/); if (vv) liquido = +(_numBling(vv[1]) - _numBling(vv[2])).toFixed(2); } }
   return { codigo, nome, liquido };
 }
-// Lê o "Recibo de Pagamento" (holerite, 1 página por funcionário, 2 vias) só pra pegar os líquidos e preencher a folha. Mesmo formato de retorno do Relatório de Líquidos.
-function _parseRecibosParaLiquidos(paginas) {
-  if (!paginas || !paginas.length) return null;
+// Lê o "Recibo de Pagamento" (holerite, 1 página por funcionário, 2 vias) e devolve o DETALHE de cada um
+// (salário líquido, comissão, DSR, descontos, adiantamento) pra preencher a folha inteira. Recebe as páginas COM tokens (x).
+function _parseRecibosParaLiquidos(paginasTok) {
+  if (!paginasTok || !paginasTok.length) return null;
   const emps = [], vistos = new Set();
-  paginas.forEach(linhas => {
-    const r = _lerReciboPagina(linhas);
+  paginasTok.forEach(linhasTok => {
+    const r = _lerReciboDetalhe(linhasTok);
     if (!r.nome) return;
     const key = r.codigo || r.nome.toLowerCase();
     if (vistos.has(key)) return; // 2ª via do mesmo funcionário
     vistos.add(key);
-    emps.push({ codigo: r.codigo, nome: r.nome, liquido: r.liquido });
+    emps.push(r);
   });
   if (!emps.length) return null;
-  const competencia = paginas.map(_compReciboPag).find(Boolean) || '';
-  const total = +emps.reduce((s, e) => s + e.liquido, 0).toFixed(2);
+  const competencia = paginasTok.map(lt => _compReciboPag(lt.map(ln => ln.map(t => t.s).join(' ')))).find(Boolean) || '';
+  const total = +emps.reduce((s, e) => s + (e.liquido || 0), 0).toFixed(2);
   return { empresa: '', competencia, empregados: emps, total, _fonte: 'recibo' };
 }
 // Lê o "Relatório de Líquidos" do contador (PDF): fornecedor, competência e cada empregado + líquido.
@@ -13073,28 +13123,46 @@ async function lerLiquidosRH(file) {
   if (!file) return;
   let rel;
   try {
-    // 1) Tenta o "Relatório de Líquidos" (lista Código · Nome · CPF · Valor).
+    // 1) Tenta o "Relatório de Líquidos" (lista Código · Nome · CPF · Valor) — só tem 1 líquido por pessoa.
     rel = _parseRelatorioLiquidos(await _pdfLinhas(new Uint8Array(await file.arrayBuffer())));
-    // 2) Se não for, tenta o "Recibo de Pagamento" (holerite, 1 página por funcionário) — pega o líquido de cada um.
-    if (!rel || !rel.empregados.length) rel = _parseRecibosParaLiquidos(await _pdfLinhasPorPagina(new Uint8Array(await file.arrayBuffer())));
+    // 2) Se não for, tenta o "Recibo de Pagamento" (holerite) — traz o DETALHE (salário, comissão, DSR, descontos, adiantamento).
+    if (!rel || !rel.empregados.length) rel = _parseRecibosParaLiquidos(await _pdfPaginasTokens(new Uint8Array(await file.arrayBuffer())));
   }
   catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); return; }
   if (!rel || !rel.empregados.length) { alert('Não reconheci esse PDF.\n\nSobe o "Relatório de Líquidos" (lista Código · Nome · CPF · Valor) OU o "Recibo de Pagamento" do contador (holerite de todos). Se for outro, me mande que eu ensino.'); return; }
   const mes = rel.competencia || _rhMes || new Date().toISOString().slice(0, 7);
+  const mmLbl = mes.split('-').reverse().join('/');
+  const detalhado = rel._fonte === 'recibo';
   const casados = [], semCadastro = [];
   rel.empregados.forEach(e => {
     const f = funcionariosRH.find(x => nomesBatem(x.nome, e.nome));
     if (f) casados.push({ f, e }); else semCadastro.push(e);
   });
-  if (!casados.length) { alert('Li ' + rel.empregados.length + ' líquido(s), mas nenhum bateu com os funcionários cadastrados no RH (pelo nome).\n\nConfira se os nomes do cadastro são parecidos com os do contador.'); return; }
-  const resumo = casados.map(c => `• ${c.f.nome}: ${fmtVal(c.e.liquido)}`).join('\n');
-  const extra = semCadastro.length ? `\n\n⚠ Não achei no cadastro (não preenchi):\n${semCadastro.map(e => '• ' + e.nome + ' (' + fmtVal(e.liquido) + ')').join('\n')}` : '';
-  if (!confirm(`📄 Relatório de Líquidos${rel.empresa ? ' — ' + rel.empresa : ''}\nCompetência ${mes.split('-').reverse().join('/')} · total ${fmtVal(rel.total)}\n\nPreencher o "Sal. líquido" destes ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}?\n\n${resumo}${extra}\n\n(Sobrescreve só o Sal. líquido deste mês; o resto fica como está.)`)) return;
-  casados.forEach(c => { _fRow(mes, c.f.id).salLiq = c.e.liquido; });
+  if (!casados.length) { alert('Li ' + rel.empregados.length + ' funcionário(s) no PDF, mas nenhum bateu com o cadastro do RH (pelo nome).\n\nConfira se os nomes do cadastro são parecidos com os do contador.'); return; }
+  // Conferência (regra da Elaine: mostrar sempre o que vai entrar). No recibo, confere se salário−descontos+comissão+DSR = líquido do holerite.
+  const _fecha = e => !e.liquido || Math.abs(((e.salLiq || 0) - (e.descontos || 0) + (e.comissao || 0) + (e.dsr || 0)) - e.liquido) < 0.02;
+  let resumo;
+  if (detalhado) {
+    resumo = casados.map(c => { const e = c.e; const dia05 = +((e.salLiq || 0) - (e.descontos || 0) + (e.comissao || 0) + (e.dsr || 0)).toFixed(2);
+      return `• ${c.f.nome}\n    Salário ${fmtVal(e.salLiq)} · Comissão ${fmtVal(e.comissao)} · DSR ${fmtVal(e.dsr)} · Descontos ${fmtVal(e.descontos)}${(e.adiant > 0) ? ` · Adiant. ${fmtVal(e.adiant)}` : ''}\n    → líquido dia 05 = ${fmtVal(dia05)} ${_fecha(e) ? '✓ bate com o holerite' : '⚠ NÃO bate (holerite ' + fmtVal(e.liquido) + ')'}`; }).join('\n');
+  } else {
+    resumo = casados.map(c => `• ${c.f.nome}: ${fmtVal(c.e.liquido)}`).join('\n');
+  }
+  const nFora = detalhado ? casados.filter(c => !_fecha(c.e)).length : 0;
+  const aviso = nFora ? `\n\n⚠ ${nFora} funcionário(s) NÃO fecharam com o líquido do holerite — confira na grade antes de gerar.` : '';
+  const extra = semCadastro.length ? `\n\n⚠ Não achei no cadastro (não preenchi):\n${semCadastro.map(e => '• ' + e.nome + ' (' + fmtVal(e.liquido || 0) + ')').join('\n')}` : '';
+  const titulo = detalhado ? '📄 Recibo de Pagamento (holerites)' : ('📄 Relatório de Líquidos' + (rel.empresa ? ' — ' + rel.empresa : ''));
+  const oQue = detalhado ? 'Preencher Salário líquido, Comissão, DSR, Descontos e Adiantamento' : 'Preencher o "Sal. líquido"';
+  if (!confirm(`${titulo}\nCompetência ${mmLbl}\n\n${oQue} destes ${casados.length} funcionário(s) na folha de ${mmLbl}?\n\n${resumo}${aviso}${extra}\n\n(Sobrescreve só estes campos deste mês; o resto fica como está.)`)) return;
+  casados.forEach(c => {
+    const r = _fRow(mes, c.f.id), e = c.e;
+    r.salLiq = detalhado ? (e.salLiq || 0) : (e.liquido || 0);
+    if (detalhado) { r.comissao = e.comissao || 0; r.dsr = e.dsr || 0; r.descontos = e.descontos || 0; r.adiant = e.adiant || 0; }
+  });
   _rhMes = mes;
   saveData('folhaRH', folhaRH);
   renderRH();
-  alert(`✓ Preenchi o Sal. líquido de ${casados.length} funcionário(s) na folha de ${mes.split('-').reverse().join('/')}.${semCadastro.length ? `\n\n${semCadastro.length} não casaram (preencha na mão ou ajuste o nome no cadastro).` : ''}\n\nConfira na grade e clique 📤 Gerar folha.`);
+  alert(`✓ Preenchi ${detalhado ? 'a folha (salário, comissão, DSR, descontos e adiantamento)' : 'o Sal. líquido'} de ${casados.length} funcionário(s) em ${mmLbl}.${semCadastro.length ? `\n\n${semCadastro.length} não casaram (preencha na mão ou ajuste o nome no cadastro).` : ''}${nFora ? `\n\n⚠ ${nFora} não fecharam com o holerite — dê uma conferida.` : ''}\n\nConfira na grade e clique 📤 Gerar folha.`);
 }
 // ══ CONFERÊNCIA DE TAXA PAYPAL ══════════════════════════════════════════
 // Tabela de taxas do PayPal por parcela (% sobre o bruto, sem taxa fixa). Detecta a parcela pela taxa cobrada.
