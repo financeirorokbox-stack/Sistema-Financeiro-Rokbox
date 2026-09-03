@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v577/08-696';
+const APP_VERSION = 'v578/08-697';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3807,10 +3807,13 @@ function renderFluxo() {
       itens.forEach(it => {
         const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
         const cat = conta ? catContaPagar(conta) : (it.fornecedor || 'Outras despesas');
-        const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
+        // Estorno pago (débito no banco) vai pra uma linha própria "ESTORNOS" (o cliente vira subgrupo), pra ver o total que saiu do caixa.
+        const ehEstorno = conta && (conta._origemEstorno || /estorno/i.test(cat) || /estorno/i.test(conta.descricao || '') || /estorno/i.test(conta.fornecedor || ''));
+        const g = ehEstorno ? 'ESTORNOS' : _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
+        const sub = ehEstorno ? ((conta && conta.fornecedor) || 'Estorno') : cat;
         const emp = _normEmp((conta && conta.empresa) || t.banco);
         const val = it.valor || 0;
-        sai[g] = (sai[g] || 0) + val; addNo(treeD, g, cat, emp, val); distribuido += val;
+        sai[g] = (sai[g] || 0) + val; addNo(treeD, g, sub, emp, val); distribuido += val;
       });
       const cr = +((link.credito) || 0);
       if (cr > 0.005) { sai['CRÉDITO CARTÃO'] = (sai['CRÉDITO CARTÃO'] || 0) - cr; addNo(treeD, 'CRÉDITO CARTÃO', 'Crédito cartão', emp0, -cr); distribuido -= cr; }
