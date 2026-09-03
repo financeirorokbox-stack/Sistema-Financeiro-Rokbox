@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v575/08-694';
+const APP_VERSION = 'v576/08-695';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3812,8 +3812,8 @@ function renderFluxo() {
       });
       const cr = +((link.credito) || 0);
       if (cr > 0.005) { sai['CRÉDITO CARTÃO'] = (sai['CRÉDITO CARTÃO'] || 0) - cr; addNo(treeD, 'CRÉDITO CARTÃO', 'Crédito cartão', emp0, -cr); distribuido -= cr; }
-      const resid = +(Math.abs(t.valor || 0) - distribuido).toFixed(2); // juros/ajuste do débito p/ fechar com o banco
-      if (Math.abs(resid) > 0.005) { sai['JUROS / AJUSTE'] = (sai['JUROS / AJUSTE'] || 0) + resid; addNo(treeD, 'JUROS / AJUSTE', 'Juros/ajuste do débito', emp0, resid); }
+      const resid = +(Math.abs(t.valor || 0) - distribuido).toFixed(2); // fecha com o banco: pequeno = juros/multa; GRANDE = conciliação errada (conta a mais/errada no débito)
+      if (Math.abs(resid) > 0.005) { sai['AJUSTE (conciliação a conferir)'] = (sai['AJUSTE (conciliação a conferir)'] || 0) + resid; addNo(treeD, 'AJUSTE (conciliação a conferir)', (Math.abs(resid) > 5 ? '⚠ débito ≠ soma das contas vinculadas' : 'juros/multa/centavos'), emp0, resid); }
     } else {
       const val = Math.abs(t.valor || 0);
       sai['Não conciliado'] = (sai['Não conciliado'] || 0) + val; addNo(treeD, 'Não conciliado', 'Débito não conciliado', emp0, val);
