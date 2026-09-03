@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v572/08-691';
+const APP_VERSION = 'v573/08-692';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3899,9 +3899,12 @@ function renderFluxo() {
   // saldos na data inicial do período (o que você digitou, com carry-forward). Senão, usa o saldo do Cadastro
   // + o movimento do banco antes do período.
   const _temSaldoDia = saldoInicialDia && Object.keys(saldoInicialDia).length > 0;
-  const saldoAnterior = (periodStart && _temSaldoDia)
-    ? getSaldoInicialDia(_toDateInput(periodStart))
-    : (baseInicial + netAntes);
+  // Saldo ANTERIOR do balancete = saldo do BANCO no fim do mês anterior (base do Cadastro + movimento do
+  // extrato até o início do período). Bate com a Conciliação Bancária e NÃO depende de você digitar o saldo
+  // do dia. Só cai no saldo digitado (saldoInicialDia) se não houver base de banco (Cadastro sem saldo + sem extrato).
+  const _bancoAntes = +(baseInicial + netAntes).toFixed(2);
+  const _saldoDiaIni = (periodStart && _temSaldoDia) ? getSaldoInicialDia(_toDateInput(periodStart)) : 0;
+  const saldoAnterior = _bancoAntes !== 0 ? _bancoAntes : _saldoDiaIni;
   const saldoFinal = saldoAnterior + (totEnt - totSai);
   // Balancete "Pago + Em Aberto": o total de despesas e o saldo consideram as em aberto (só afeta a tabela do balancete).
   const totSaiBal = _fluxoBalComAberto ? +(totSai + totSaiPrev).toFixed(2) : totSai;
