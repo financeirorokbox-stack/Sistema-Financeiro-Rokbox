@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v578/08-697';
+const APP_VERSION = 'v579/08-698';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3835,6 +3835,10 @@ function renderFluxo() {
     const g = grupoDespesa(cat) || cat || 'Outras despesas';
     saiPrev[g] = (saiPrev[g] || 0) + (c.valor || 0);
   });
+  // ESTORNOS de PayPal (abatidos do repasse, já na receita líquida) — INFORMATIVO: mostra que existiram, sem contar em dobro.
+  let _estornoInfo = 0, _estornoInfoN = 0;
+  contasPagar.forEach(c => { if (c.cancelado) return; if (!noPeriodo(c.vencimento || c.dataPag)) return; if (_estornoForaDoCaixa(c)) { _estornoInfo += (c.valor || 0); _estornoInfoN++; } });
+  _estornoInfo = +_estornoInfo.toFixed(2);
   // Opção "Pago + Em Aberto" (só nas despesas): inclui as contas a pagar EM ABERTO na árvore (projeção sobre o realizado do banco).
   if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, _normEmp(rt.empresa), rt.valor||0)); else addNo(treeD, g, cat, _normEmp(c.empresa), c.valor||0); });
   const totEnt = Object.values(ent).reduce((s,v)=>s+v,0);
@@ -3997,6 +4001,7 @@ function renderFluxo() {
       <div style="font-size:18px;color:var(--muted)">=</div>
       <div style="border-left:3px solid var(--accent);padding-left:14px"><div class="f-label">Saldo final (contábil)</div><div style="font-weight:800;font-size:22px;color:${saldoFinal>=0?'var(--accent)':'var(--red)'}">${fmtVal(saldoFinal)}</div></div>
       ${(() => { const dif = +(saldoFinal - saldoFinalBanco).toFixed(2); const ok = Math.abs(dif) <= 0.5; return `<div style="border-left:3px solid ${ok?'var(--green)':'var(--amber)'};padding-left:14px"><div class="f-label">🏦 Saldo final pelo BANCO</div><div style="font-weight:800;font-size:22px;color:${saldoFinalBanco>=0?'var(--text)':'var(--red)'}">${fmtVal(saldoFinalBanco)}</div><div style="font-size:11px;color:${ok?'var(--green)':'var(--amber)'};font-weight:700">${ok?'✓ bate com o banco':'⚠ diferença '+fmtVal(dif)}</div></div>`; })()}
+      ${_estornoInfo > 0.005 ? `<div style="border-left:3px solid var(--amber);padding-left:14px"><div class="f-label">↩️ Estornos PayPal (${_estornoInfoN})</div><div style="font-weight:800;font-size:18px;color:var(--amber)">${fmtVal(_estornoInfo)}</div><div style="font-size:10px;color:var(--muted);max-width:190px">informativo: já descontado da receita (o PayPal repassa líquido). Não é saída de caixa nova.</div></div>` : ''}
       ${baseInicial===0 ? `<div style="font-size:11px;color:var(--amber);max-width:220px">💡 Cadastre o <strong>saldo inicial</strong> dos bancos (Cadastro → Bancos) para o saldo ficar absoluto.</div>` : ''}
     </div>
     ${graficoMensal}
