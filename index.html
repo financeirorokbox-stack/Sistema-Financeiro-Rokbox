@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v573/08-692';
+const APP_VERSION = 'v574/08-693';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3906,6 +3906,11 @@ function renderFluxo() {
   const _saldoDiaIni = (periodStart && _temSaldoDia) ? getSaldoInicialDia(_toDateInput(periodStart)) : 0;
   const saldoAnterior = _bancoAntes !== 0 ? _bancoAntes : _saldoDiaIni;
   const saldoFinal = saldoAnterior + (totEnt - totSai);
+  // CONFERÊNCIA COM O BANCO: saldo final pelo EXTRATO = saldo anterior + movimento do banco DENTRO do período.
+  // Se bater com o saldo final contábil (receitas − despesas), está tudo conciliado; a diferença mostra o que falta.
+  let _netPeriodo = 0;
+  extratoBancario.forEach(t => { if (t.data instanceof Date && !isNaN(t.data) && aposRef(t.data) && noPeriodo(t.data)) _netPeriodo += (t.valor || 0); });
+  const saldoFinalBanco = +(saldoAnterior + _netPeriodo).toFixed(2);
   // Balancete "Pago + Em Aberto": o total de despesas e o saldo consideram as em aberto (só afeta a tabela do balancete).
   const totSaiBal = _fluxoBalComAberto ? +(totSai + totSaiPrev).toFixed(2) : totSai;
   const saldoFinalBal = _fluxoBalComAberto ? +(saldoAnterior + totEnt - totSaiBal).toFixed(2) : saldoFinal;
@@ -3996,7 +4001,8 @@ function renderFluxo() {
       <div style="font-size:18px;color:var(--green)">+ ${fmtVal(totEnt)}</div>
       <div style="font-size:18px;color:var(--red)">− ${fmtVal(totSai)}</div>
       <div style="font-size:18px;color:var(--muted)">=</div>
-      <div style="border-left:3px solid var(--accent);padding-left:14px"><div class="f-label">Saldo final</div><div style="font-weight:800;font-size:22px;color:${saldoFinal>=0?'var(--accent)':'var(--red)'}">${fmtVal(saldoFinal)}</div></div>
+      <div style="border-left:3px solid var(--accent);padding-left:14px"><div class="f-label">Saldo final (contábil)</div><div style="font-weight:800;font-size:22px;color:${saldoFinal>=0?'var(--accent)':'var(--red)'}">${fmtVal(saldoFinal)}</div></div>
+      ${(() => { const dif = +(saldoFinal - saldoFinalBanco).toFixed(2); const ok = Math.abs(dif) <= 0.5; return `<div style="border-left:3px solid ${ok?'var(--green)':'var(--amber)'};padding-left:14px"><div class="f-label">🏦 Saldo final pelo BANCO</div><div style="font-weight:800;font-size:22px;color:${saldoFinalBanco>=0?'var(--text)':'var(--red)'}">${fmtVal(saldoFinalBanco)}</div><div style="font-size:11px;color:${ok?'var(--green)':'var(--amber)'};font-weight:700">${ok?'✓ bate com o banco':'⚠ diferença '+fmtVal(dif)}</div></div>`; })()}
       ${baseInicial===0 ? `<div style="font-size:11px;color:var(--amber);max-width:220px">💡 Cadastre o <strong>saldo inicial</strong> dos bancos (Cadastro → Bancos) para o saldo ficar absoluto.</div>` : ''}
     </div>
     ${graficoMensal}
