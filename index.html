@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v569/08-688';
+const APP_VERSION = 'v570/08-689';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4829,9 +4829,14 @@ function aplicarBaixaConciliada() {
     const contasChave = contasPagar.filter(x => chaveContaPagar(x) === chave);
     const usados = new Set();
     datas.forEach(dData => {
+      // REGRA (Elaine): conciliação AUTOMÁTICA só dentro do mês de vigência — nunca marca parcela FUTURA
+      // (venc depois do mês do débito). Fora disso, só na baixa MANUAL. Fim do mês do débito:
+      const _dd = dData ? new Date(dData) : null;
+      const fimMes = (_dd && !isNaN(_dd)) ? new Date(_dd.getFullYear(), _dd.getMonth() + 1, 0, 23, 59, 59) : null;
       let bestIdx = -1, bestDist = Infinity;
       contasChave.forEach((c, i) => {
         if (usados.has(i)) return;
+        if (!_contaNaoFutura(c, fimMes)) return; // pula parcela futura (só manual conta pra frente)
         const dist = (c.vencimento && dData) ? Math.abs(new Date(c.vencimento) - new Date(dData)) : Infinity;
         if (dist < bestDist) { bestDist = dist; bestIdx = i; }
       });
