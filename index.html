@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v571/08-690';
+const APP_VERSION = 'v572/08-691';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3840,7 +3840,8 @@ function renderFluxo() {
   const maxES = Math.max(1, totEnt, totSai);
 
   // ── DRE detalhada: árvore grupo→subgrupo→empresa (mesmo período do filtro) ──
-  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','BraavoPay':'Braavo Pay','PIX (Extrato)':'PIX','Transferência Bancária':'Transferência'};
+  // Subgrupos iguais à planilha "Categoria Receitas" da Elaine: CC PayPal/CC Rede sob Cartão de Crédito; Braavo Pay e Depósito (PIX/Transf) sob Depósito.
+  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito'};
   const _empRec = r => { const id = r.nped ? String(r.nped).split(',')[0].trim() : ''; const ped = id ? pedidos.find(p => String(p.id) === id) : null; return (ped && ped.empresa) || '(sem empresa)'; };
   // Balancete: cria a CATEGORIA (grupo) "PRODUTO ACABADO" com as subcategorias PRODUTO ACABADO e SACOLAS/EMBALAGENS/
   // CABIDES (cada uma numa linha, separadas). Só na exibição, não muda as contas.
@@ -3854,7 +3855,7 @@ function renderFluxo() {
     S.tot += v; S.emp[emp] = (S.emp[emp]||0) + v;
   };
   recebimentosConsolidado.forEach(r => { if (r._estornoChave || !noPeriodo(r.data)) return; addNo(treeR, grupoReceitaGateway(r.gateway), SUB_REC[r.gateway] || r.gateway || 'Outros', _empRec(r), r.liq||0); });
-  receitasAvulsas.forEach(r => { if (!noPeriodo(r.data)) return; addNo(treeR, 'Outras receitas', r.categoria || 'Outras', r.empresa || '(sem empresa)', r.valor||0); });
+  receitasAvulsas.forEach(r => { if (!noPeriodo(r.data)) return; addNo(treeR, 'Outros', r.categoria || 'Outras receitas', r.empresa || '(sem empresa)', r.valor||0); });
   contasPagar.forEach(c => { if (c.cancelado || !c.pago || !noPeriodo(c.dataPag||c.vencimento)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
   // Opção "Pago + Em Aberto" (só nas despesas): inclui as contas a pagar EM ABERTO (por vencimento) na árvore.
   if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
@@ -4772,11 +4773,14 @@ const CATEGORIAS_DESPESA = {
 };
 // Categorias de RECEITA avulsa (rendimentos da conta, etc.) — usadas no box "Receita nova" da
 // conciliação bancária. Lista provisória; o usuário vai enviar a lista fixa definitiva.
+// Categorias do grupo OUTROS da planilha "Categoria Receitas" da Elaine (+ estorno/rendimentos que ela usa).
 const CATEGORIAS_RECEITA = [
+  'EMPRÉSTIMO ENTRADA',
+  'APORTE SÓCIO',
+  'JUROS',
+  'ENTRADA PL',
   'RENDIMENTOS / APLICAÇÃO',
-  'JUROS RECEBIDOS',
   'ESTORNO / REEMBOLSO',
-  'TRANSFERÊNCIA ENTRE CONTAS',
   'OUTRAS RECEITAS'
 ];
 function optionsCategoriasReceitaHTML(sel) {
