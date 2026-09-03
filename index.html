@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v576/08-695';
+const APP_VERSION = 'v577/08-696';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3774,7 +3774,9 @@ function renderFluxo() {
   //    FECHA AO CENTAVO com a Conciliação Bancária (pedido da Elaine — igual os exports de CR/CP). ──
   const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito'};
   const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
-  const _empExtrato = t => { const b = (t.banco || '').toLowerCase(); if (/rokbox/.test(b)) return 'ROKBOX'; if (/rk/.test(b)) return 'RK'; return '(sem empresa)'; };
+  // Normaliza o nome da empresa pra NÃO duplicar coluna (ex.: "Rk"/"RK" e "Rokbox"/"ROKBOX" viram 1 só).
+  const _normEmp = e => { const s = String(e || '').toLowerCase(); if (/rokbox/.test(s)) return 'ROKBOX'; if (/rk/.test(s)) return 'RK'; return (e && String(e).trim()) || '(sem empresa)'; };
+  const _empExtrato = t => _normEmp(t.banco);
   const treeR = {}, treeD = {}, empSet = new Set();
   const addNo = (tree, g, sub, emp, v) => {
     empSet.add(emp);
@@ -3806,7 +3808,7 @@ function renderFluxo() {
         const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
         const cat = conta ? catContaPagar(conta) : (it.fornecedor || 'Outras despesas');
         const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
-        const emp = (conta && conta.empresa) || emp0;
+        const emp = _normEmp((conta && conta.empresa) || t.banco);
         const val = it.valor || 0;
         sai[g] = (sai[g] || 0) + val; addNo(treeD, g, cat, emp, val); distribuido += val;
       });
@@ -3831,7 +3833,7 @@ function renderFluxo() {
     saiPrev[g] = (saiPrev[g] || 0) + (c.valor || 0);
   });
   // Opção "Pago + Em Aberto" (só nas despesas): inclui as contas a pagar EM ABERTO na árvore (projeção sobre o realizado do banco).
-  if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, rt.empresa || '(sem empresa)', rt.valor||0)); else addNo(treeD, g, cat, c.empresa || '(sem empresa)', c.valor||0); });
+  if (_fluxoBalComAberto) contasPagar.forEach(c => { if (c.cancelado || c.pago || !noPeriodo(c.vencimento) || _estornoForaDoCaixa(c)) return; const cat = catContaPagar(c); const g = _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas'); if (c.rateio && c.rateio.length) c.rateio.forEach(rt => addNo(treeD, g, cat, _normEmp(rt.empresa), rt.valor||0)); else addNo(treeD, g, cat, _normEmp(c.empresa), c.valor||0); });
   const totEnt = Object.values(ent).reduce((s,v)=>s+v,0);
   const totSai = Object.values(sai).reduce((s,v)=>s+v,0);
   const totSaiPrev = Object.values(saiPrev).reduce((s,v)=>s+v,0);
