@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v584/08-703';
+const APP_VERSION = 'v583/08-702';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5604,7 +5604,7 @@ function renderPagar() {
     let empresa = getEmpresasList().find(e => fn.includes(e.toLowerCase())) || '';
     if (!empresa) empresa = (prompt('Qual empresa é este relatório de Contas a Pagar?\nEmpresas: ' + (getEmpresasList().join(', ') || '(cadastre em Cadastro → Empresas)'), getEmpresasList()[0] || '') || '').trim();
     novas.forEach(c => { c.empresa = empresa; });
-    const chaveC = chaveContaPagar; // identidade nova (número+vencimento+empresa): não descarta conta de mês novo com nº repetido
+    const chaveC = c => c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : (c.vencimento||''), (c.valor||0).toFixed(2)].join('|');
     const antes = contasPagar.filter(c => (c.empresa||'') === empresa).length;
     // Por padrão ADICIONA (mescla) — nunca apaga sem o usuário escolher. Só pergunta se já há contas dessa empresa.
     let modo = 'add';
@@ -8558,42 +8558,8 @@ function semanaDe(date) {
   return [ini, fim];
 }
 // Chave estável de uma Conta a Pagar (mesma lógica do re-upload), para vincular débitos do extrato.
-// Identidade ÚNICA de uma conta a pagar. Inclui VENCIMENTO e EMPRESA além do número, pra que:
-//  - o MESMO número repetido em vários meses (ex.: EXCIM #122154 de ago/set/out/nov) NÃO colida;
-//  - a MESMA tarifa em RK e ROKBOX não colida (o débito de uma empresa não marca a da outra).
-// Assim, um débito do banco só concilia/baixa a conta certa (número + vencimento + empresa), acabando
-// com o "baixou 3" e o cadeado nas parcelas futuras. Os vínculos antigos são migrados por _migrarChavesCP().
-function _vencISOconta(c) { return c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : (c.vencimento || ''); }
 function chaveContaPagar(c) {
-  const venc = _vencISOconta(c), emp = (c.empresa || '').trim();
-  return c.numero ? [c.numero, venc, emp].join('§') : [c.fornecedor, venc, (c.valor||0).toFixed(2), emp].join('|');
-}
-// Chave no formato ANTIGO (só número, ou fornecedor|venc|valor) — usada só pra MIGRAR os vínculos existentes.
-function _chaveContaPagarLegacy(c) {
-  return c.numero || [c.fornecedor, _vencISOconta(c), (c.valor||0).toFixed(2)].join('|');
-}
-// Migra debitoLinks: item.chave no formato ANTIGO -> formato NOVO, apontando pra MESMA conta que o débito
-// já conciliava (a de vencimento mais próximo do débito). Idempotente (pula o que já está no formato novo).
-// NÃO apaga nada: só reescreve a chave e guarda a antiga em _chaveLegacy. Órfãos ficam como estão.
-function _migrarChavesCP() {
-  let mig = 0;
-  Object.entries(debitoLinks).forEach(([extId, l]) => {
-    const t = extratoBancario.find(x => x.id === extId);
-    debLinkItens(l).forEach(it => {
-      if (!it.chave) return;
-      const jaNovo = it.chave.includes('§') || it.chave.split('|').length >= 4; // já migrado
-      if (jaNovo) return;
-      const cands = contasPagar.filter(c => !c.cancelado && _chaveContaPagarLegacy(c) === it.chave);
-      if (!cands.length) return; // órfão: deixa como está (🔧 Reparar vínculos cuida)
-      const dist = c => (c.vencimento && t && t.data) ? Math.abs(new Date(c.vencimento) - new Date(t.data)) : Infinity;
-      cands.sort((a, b) => dist(a) - dist(b));
-      it._chaveLegacy = it.chave;
-      it.chave = chaveContaPagar(cands[0]);
-      mig++;
-    });
-  });
-  if (mig) saveData('debitoLinks', debitoLinks);
-  return mig;
+  return c.numero || [c.fornecedor, c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0,10) : (c.vencimento||''), (c.valor||0).toFixed(2)].join('|');
 }
 function linkExtrato(id) {
   const sel = document.getElementById('ex-sel-' + id);
@@ -14786,7 +14752,6 @@ function delCheckboxHeader(source) {
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
   initLojaCadastro();
   try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
-  try { const m = _migrarChavesCP(); if (m) console.log('[identidade CP] ' + m + ' vínculo(s) migrado(s) p/ número+vencimento+empresa'); } catch(e) {} // ANTES do aplicarBaixaConciliada: migra os vínculos p/ a identidade nova
   try { aplicarBaixaConciliada(); } catch(e) {} // re-marca pagas as contas conciliadas (caso planilha re-importada tenha voltado "Atrasada")
   try { syncExtratoToRecebimentos(); } catch(e) {} // reconstrói os PIX do extrato a partir dos vínculos salvos (corrige PIX que sumia no reload)
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
