@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v585/08-704';
+const APP_VERSION = 'v586/09-705';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13013,6 +13013,44 @@ function removeColecao(id) {
 // RH — FOLHA DE PAGAMENTO (gera as contas do mês no Contas a Pagar)
 // ════════════════════════════════════════════════════════════════════
 let _rhMes = ''; // mês escolhido na aba RH (sobrevive ao re-render da tela)
+// PT: nome do mês -> número (competência do Recibo de Pagamento, ex.: "Agosto de 2026").
+const _MESES_PT = { janeiro: '01', fevereiro: '02', 'março': '03', marco: '03', abril: '04', maio: '05', junho: '06', julho: '07', agosto: '08', setembro: '09', outubro: '10', novembro: '11', dezembro: '12' };
+function _compReciboPag(linhas) {
+  const l = (linhas || []).find(x => /(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+20\d{2}/i.test(x)) || '';
+  const m = l.match(/(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+(20\d{2})/i);
+  return m ? (m[2] + '-' + _MESES_PT[m[1].toLowerCase()]) : '';
+}
+// Lê UMA página do "Recibo de Pagamento" e devolve {codigo, nome, liquido}. Usado pra separar holerites E pra preencher o Sal. líquido.
+function _lerReciboPagina(linhas) {
+  let codigo = '', nome = '';
+  const iHead = linhas.findIndex(l => /nome do funcion/i.test(l));
+  // Linha após "Nome do Funcionário": "45 ANA JULIA PALOCO PORFIRIO 521110 1 1" (código · nome · CBO ...)
+  if (iHead >= 0 && linhas[iHead + 1]) { const m = linhas[iHead + 1].match(/^(\d{1,5})\s+(.+?)\s+\d{4,6}\b/); if (m) { codigo = m[1]; nome = m[2].trim(); } }
+  // Líquido = valor rotulado "Valor Líquido" (vem antes do campo Data ____/____). SEM âncora ^ (a linha começa com caractere invisível do PDF).
+  let liquido = 0;
+  const liqM = (linhas.find(l => /[\d.]+,\d{2}\s+_+\//.test(l)) || '').match(/([\d.]+,\d{2})/);
+  if (liqM) liquido = _numBling(liqM[1]);
+  // Reserva: Total de Vencimentos − Total de Descontos (linha "2.585,16 1.005,67" logo após o rótulo).
+  if (!liquido) { const iT = linhas.findIndex(l => /total de vencimentos/i.test(l)); if (iT >= 0 && linhas[iT + 1]) { const vv = linhas[iT + 1].match(/([\d.]+,\d{2})\s+([\d.]+,\d{2})/); if (vv) liquido = +(_numBling(vv[1]) - _numBling(vv[2])).toFixed(2); } }
+  return { codigo, nome, liquido };
+}
+// Lê o "Recibo de Pagamento" (holerite, 1 página por funcionário, 2 vias) só pra pegar os líquidos e preencher a folha. Mesmo formato de retorno do Relatório de Líquidos.
+function _parseRecibosParaLiquidos(paginas) {
+  if (!paginas || !paginas.length) return null;
+  const emps = [], vistos = new Set();
+  paginas.forEach(linhas => {
+    const r = _lerReciboPagina(linhas);
+    if (!r.nome) return;
+    const key = r.codigo || r.nome.toLowerCase();
+    if (vistos.has(key)) return; // 2ª via do mesmo funcionário
+    vistos.add(key);
+    emps.push({ codigo: r.codigo, nome: r.nome, liquido: r.liquido });
+  });
+  if (!emps.length) return null;
+  const competencia = paginas.map(_compReciboPag).find(Boolean) || '';
+  const total = +emps.reduce((s, e) => s + e.liquido, 0).toFixed(2);
+  return { empresa: '', competencia, empregados: emps, total, _fonte: 'recibo' };
+}
 // Lê o "Relatório de Líquidos" do contador (PDF): fornecedor, competência e cada empregado + líquido.
 function _parseRelatorioLiquidos(linhas) {
   const compM = (linhas.find(l => /compet[êe]ncia/i.test(l)) || '').match(/(\d{2})\/(\d{4})/);
@@ -13034,9 +13072,14 @@ function _parseRelatorioLiquidos(linhas) {
 async function lerLiquidosRH(file) {
   if (!file) return;
   let rel;
-  try { rel = _parseRelatorioLiquidos(await _pdfLinhas(new Uint8Array(await file.arrayBuffer()))); }
+  try {
+    // 1) Tenta o "Relatório de Líquidos" (lista Código · Nome · CPF · Valor).
+    rel = _parseRelatorioLiquidos(await _pdfLinhas(new Uint8Array(await file.arrayBuffer())));
+    // 2) Se não for, tenta o "Recibo de Pagamento" (holerite, 1 página por funcionário) — pega o líquido de cada um.
+    if (!rel || !rel.empregados.length) rel = _parseRecibosParaLiquidos(await _pdfLinhasPorPagina(new Uint8Array(await file.arrayBuffer())));
+  }
   catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); return; }
-  if (!rel || !rel.empregados.length) { alert('Não reconheci esse PDF como o "Relatório de Líquidos" do contador.\n\nÉ o arquivo com a lista Código · Nome · CPF · Valor. Se for outro, me mande que eu ensino.'); return; }
+  if (!rel || !rel.empregados.length) { alert('Não reconheci esse PDF.\n\nSobe o "Relatório de Líquidos" (lista Código · Nome · CPF · Valor) OU o "Recibo de Pagamento" do contador (holerite de todos). Se for outro, me mande que eu ensino.'); return; }
   const mes = rel.competencia || _rhMes || new Date().toISOString().slice(0, 7);
   const casados = [], semCadastro = [];
   rel.empregados.forEach(e => {
@@ -13640,7 +13683,7 @@ function renderRH() {
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 14px">
       <button class="btn primary sm" onclick="addFuncionarioRH()">➕ Funcionário</button>
-      <label class="btn ok sm" style="cursor:pointer" title="Sobe o 'Relatório de Líquidos' do contador (PDF) e preenche o Sal. líquido de cada funcionário na folha do mês, batendo pelo nome.">📄 Ler líquidos do contador<input type="file" accept=".pdf" style="display:none" onchange="lerLiquidosRH(this.files[0]);this.value=''"></label>
+      <label class="btn ok sm" style="cursor:pointer" title="Sobe o PDF do contador (o 'Relatório de Líquidos' com a lista CPF·Valor OU o 'Recibo de Pagamento' com os holerites) e preenche o Sal. líquido de cada funcionário na folha do mês, batendo pelo nome.">📄 Ler líquidos do contador<input type="file" accept=".pdf" style="display:none" onchange="lerLiquidosRH(this.files[0]);this.value=''"></label>
       <label class="btn ok sm" style="cursor:pointer" title="Sobe o 'Recibo de Pagamento' do contador (PDF com todos): separa o holerite de cada funcionário pra você baixar e enviar por WhatsApp.">📎 Separar holerites<input type="file" accept=".pdf" style="display:none" onchange="lerRecibosRH(this.files[0]);this.value=''"></label>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="month" id="rh-mes" class="inline-input" value="${mesAtual}" style="width:150px" onchange="_rhMes=this.value;renderRH()">
@@ -13721,11 +13764,7 @@ async function lerRecibosRH(file) {
   // Descobre o funcionário de cada página (linha após "Nome do Funcionário") e agrupa páginas seguidas.
   const grupos = []; // {codigo, nome, liquido, pags:[]}
   paginas.forEach((linhas, idx) => {
-    let codigo = '', nome = '';
-    const iHead = linhas.findIndex(l => /nome do funcion/i.test(l));
-    if (iHead >= 0 && linhas[iHead + 1]) { const m = linhas[iHead + 1].match(/^(\d{1,5})\s+(.+?)\s+\d{5,6}/); if (m) { codigo = m[1]; nome = m[2].trim(); } }
-    const liqM = (linhas.find(l => /[\d.]+,\d{2}\s+_+\//.test(l)) || '').match(/([\d.]+,\d{2})/); // líquido = valor seguido do campo Data (____/____/___). SEM âncora ^ (a linha começa com um caractere invisível do PDF, senão lia 0)
-    const liquido = liqM ? _numBling(liqM[1]) : 0;
+    const { codigo, nome, liquido } = _lerReciboPagina(linhas);
     const ult = grupos[grupos.length - 1];
     if (ult && codigo && ult.codigo === codigo) { ult.pags.push(idx); if (!ult.liquido && liquido) ult.liquido = liquido; }
     else grupos.push({ codigo, nome: nome || ('Funcionário ' + (idx + 1)), liquido, pags: [idx] });
