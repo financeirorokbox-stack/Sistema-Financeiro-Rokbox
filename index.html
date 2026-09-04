@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v588/09-707';
+const APP_VERSION = 'v589/09-708';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4502,12 +4502,15 @@ async function _syncPowerBI() {
   // CP: todas as contas, com data_liquidacao = data do débito no banco (dataLiquidacaoConta) → bate com a Conciliação.
   const cpFlat = contasPagar.map(c => {
     const canc = (c.situacao === 'Cancelado') || !!c.cancelado;
+    // Situação padronizada (a mesma palavra que a Elaine usa): Pago / Em Aberto / Cancelado, baseada no que ESTÁ pago
+    // (o campo cru c.situacao é inconsistente: "Em aberto"/"Atrasada"/"Vencendo hoje" mesmo em contas já pagas).
+    const sit = canc ? 'Cancelado' : (c.pago ? 'Pago' : 'Em Aberto');
     return {
       uid: c._uid || null, numero: c.numero || null, fornecedor: c.fornecedor || '', descricao: c.descricao || '',
-      categoria: c.categoria || '', empresa: c.empresa || '', valor: +(+c.valor || 0).toFixed(2),
+      // Categoria igual ao sistema: o campo categoria, ou a DESCRIÇÃO quando está vazio (catContaPagar), pra não vir null.
+      categoria: catContaPagar(c) || '', empresa: c.empresa || '', valor: +(+c.valor || 0).toFixed(2),
       vencimento: dISO(c.vencimento), data_pagamento: dISO(c.dataPag), data_liquidacao: dISO(dataLiquidacaoConta(c)),
-      situacao: c.situacao || '', pago: !!c.pago, cancelado: canc,
-      status: canc ? 'Cancelado' : (c.pago ? 'Liquidado' : 'Em aberto')
+      situacao: sit, pago: !!c.pago, cancelado: canc, status: sit
     };
   });
   await saveData('flatCR', crFlat);
