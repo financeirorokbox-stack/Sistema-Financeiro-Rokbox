@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v590/09-709';
+const APP_VERSION = 'v591/09-710';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8298,9 +8298,44 @@ function _parseRomaneioFaccao(linhas) {
   const somaItens = +itens.reduce((s, it) => s + it.total, 0).toFixed(2);
   return { formato: 'Romaneio Facção', fornecedor, cnpj: '', numero: '', data: dataRef, itens, parcelas: [], somaItens, frete: 0, total: somaItens };
 }
-// Tenta todos os leitores conhecidos (Bling, Romaneio, Romaneio Facção; novos fornecedores entram aqui).
+// Romaneio de OFICINA em GRADE: "ROMANEIO" + "OFICINA - Nome" + colunas Descrição · Referência · (Demanda) PP P M G GG · Total · Valor · Valor Total · Entrega.
+// Cada item: "<desc> <REFERÊNCIA> <grade...> <TOTAL> R$ <unit> R$ <total> [dd/mm]". A última qtd da sequência é o TOTAL; as anteriores são a grade por tamanho.
+function _parseRomaneioOficina(linhas) {
+  const texto = linhas.join('\n');
+  if (!/romaneio/i.test(texto) || !/refer[êe]ncia/i.test(texto)) return null;
+  // Fornecedor: nome depois de "OFICINA -"; se não achar, tenta casar com um fornecedor cadastrado.
+  let fornecedor = '';
+  const fl = linhas.find(l => /oficina\s*[-:]/i.test(l));
+  if (fl) { const m = fl.match(/oficina\s*[-:]\s*(.+?)(?:\s+data de envio|\s*$)/i); if (m) fornecedor = m[1].trim(); }
+  if (!fornecedor) fornecedor = (fornecedoresCompras.find(f => f.nome && _normTxt(texto).includes(_normTxt(f.nome))) || {}).nome || '';
+  const dm = texto.match(/data de envio:?\s*(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?/i);
+  const anoRef = (dm && dm[3]) ? (dm[3].length === 2 ? '20' + dm[3] : dm[3]) : String(new Date().getFullYear());
+  const dataEnvio = dm ? `${dm[1].padStart(2, '0')}/${dm[2].padStart(2, '0')}/${anoRef}` : '';
+  const reIt = /^(.+?)\s+([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)+)\s+((?:\d+\s+)+)R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)(?:\s+(\d{1,2}[\/.]\d{1,2}(?:[\/.]\d{2,4})?))?\s*$/i;
+  const itens = [];
+  linhas.forEach(l => {
+    if (/refer[êe]ncia|^romaneio|oficina|data de envio/i.test(l)) return;
+    const m = l.match(reIt);
+    if (!m) return;
+    const nums = m[3].trim().split(/\s+/).map(Number);
+    const qtd = nums[nums.length - 1];
+    const grade = nums.length > 1 ? nums.slice(0, -1) : [];
+    if (!(qtd > 0)) return;
+    let entrega = m[6] || '';
+    if (entrega) { const e = entrega.split(/[\/.]/); entrega = `${(e[0] || '').padStart(2, '0')}/${(e[1] || '').padStart(2, '0')}/${e[2] ? (e[2].length === 2 ? '20' + e[2] : e[2]) : anoRef}`; }
+    itens.push({
+      codigo: m[2], un: 'pç', qtd, precoUn: _numBling(m[4]), descPct: 0, total: _numBling(m[5]),
+      desc: m[1].trim() + (grade.length ? ' (grade ' + grade.join('/') + ')' : ''),
+      _data: entrega || dataEnvio
+    });
+  });
+  if (!itens.length) return null;
+  const somaItens = +itens.reduce((s, it) => s + it.total, 0).toFixed(2);
+  return { formato: 'Romaneio Oficina', fornecedor, cnpj: '', numero: '', data: itens[0]._data || dataEnvio, itens, parcelas: [], somaItens, frete: 0, total: somaItens };
+}
+// Tenta todos os leitores conhecidos (Bling, Romaneio, Romaneio Facção, Romaneio Oficina; novos fornecedores entram aqui).
 function _parsePedidoFornecedor(linhas) {
-  return _parsePropostaBling(linhas) || _parseRomaneio(linhas) || _parseRomaneioFaccao(linhas);
+  return _parsePropostaBling(linhas) || _parseRomaneio(linhas) || _parseRomaneioFaccao(linhas) || _parseRomaneioOficina(linhas);
 }
 // Botão ☁ na aba Compras: puxa os PDFs da pasta e importa os novos.
 async function sincronizarPedidosCompras() {
@@ -12451,6 +12486,7 @@ function renderCompras() {
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
+      <button class="btn ok sm" onclick="escolherRomaneioPDF()" title="Sobe o PDF do romaneio/pedido (grade por tamanho, ex.: oficina). Você escolhe o arquivo, confere os itens e marca o que quer lançar.">📄 Importar PDF</button>
       <button class="btn ok sm" onclick="document.getElementById('file-compras')?.click()" title="Sobe uma planilha (.xlsx) de requisição/romaneio: Fornecedor · Insumo · Qtde · Custo un. — importa direto.">📄 Importar planilha</button>
       <button class="btn primary sm" onclick="novaCompra()">➕ Nova compra</button>
     </div>
@@ -12888,6 +12924,88 @@ function salvarRomaneio() {
   try { setCmpTab('pendente'); } catch (e) { renderCompras(); }
   const tot = linhas.reduce((s, l) => s + (l.qtd || 0) * (l.val || 0), 0);
   alert('✓ Romaneio lançado: ' + linhas.length + ' item(ns) de "' + forn + '", total ' + fmtVal(tot) + '.\n\nEntraram como Pendentes. Confira, aprove e gere o pedido pra criar as parcelas no Contas a Pagar.');
+}
+// ── Importar romaneio/pedido em PDF (grade por tamanho) com tela de conferência (escolhe o arquivo e marca os itens) ──
+let _romaneioPDF = null; // pedido lido do PDF, aguardando a confirmação da Elaine
+function escolherRomaneioPDF() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.pdf';
+  inp.onchange = () => { if (inp.files && inp.files[0]) lerRomaneioPDF(inp.files[0]); };
+  inp.click();
+}
+async function lerRomaneioPDF(file) {
+  if (!file) return;
+  let prop;
+  try { prop = _parsePedidoFornecedor(await _pdfLinhas(new Uint8Array(await file.arrayBuffer()))); }
+  catch (e) { alert('Não consegui ler o PDF:\n' + (e && e.message || e)); return; }
+  if (!prop || !prop.itens || !prop.itens.length) { alert('Não reconheci esse PDF como um romaneio/pedido.\n\nEle deve ter "ROMANEIO" e uma tabela com Descrição · Referência · tamanhos · Valor. Se for outro modelo, me manda que eu ensino a ler.'); return; }
+  _romaneioPDF = prop;
+  _abrirPreviewRomaneioPDF();
+}
+function _abrirPreviewRomaneioPDF() {
+  const p = _romaneioPDF; if (!p) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const old = document.getElementById('romaneio-pdf-modal'); if (old) old.remove();
+  const dm = (p.data || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  const dataISO = dm ? `${dm[3].length === 2 ? '20' + dm[3] : dm[3]}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}` : '';
+  const empresas = (typeof empresasCadastro !== 'undefined' && empresasCadastro) ? empresasCadastro : [];
+  const linhas = p.itens.map((it, i) => `<tr>
+    <td style="text-align:center"><input type="checkbox" class="rpdf-sel" data-i="${i}" checked></td>
+    <td style="max-width:300px">${esc(it.desc)}${it.codigo ? `<div style="font-size:10px;color:var(--muted)">${esc(it.codigo)}</div>` : ''}</td>
+    <td style="text-align:right">${it.qtd}</td>
+    <td style="text-align:right">${fmtVal(it.precoUn)}</td>
+    <td style="text-align:right;font-weight:700">${fmtVal(it.total)}</td>
+  </tr>`).join('');
+  const ov = document.createElement('div');
+  ov.id = 'romaneio-pdf-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:720px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px">
+    <div style="font-size:16px;font-weight:800;margin-bottom:2px">📄 Romaneio lido${p.fornecedor ? ' — ' + esc(p.fornecedor) : ''}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">${esc(p.formato || 'Romaneio')} · ${p.itens.length} item(ns) · total ${fmtVal(p.somaItens)}. Confira, ajuste o cabeçalho e marque o que quer lançar.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <label style="font-size:12px">Fornecedor<br><input id="rpdf-forn" class="inline-input" style="width:180px" value="${esc(p.fornecedor || '')}"></label>
+      <label style="font-size:12px">Empresa<br><select id="rpdf-emp" class="inline-input" style="width:120px"><option value="">—</option>${empresas.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select></label>
+      <label style="font-size:12px">Coleção<br><input id="rpdf-col" class="inline-input" style="width:130px" list="cmp-col-list" placeholder="Coleção/PL"></label>
+      <label style="font-size:12px">Entrega<br><input type="date" id="rpdf-ent" class="inline-input" style="width:150px" value="${dataISO}"></label>
+    </div>
+    <div class="table-wrap" style="max-height:40vh;overflow:auto"><table><thead><tr>
+      <th style="text-align:center"><input type="checkbox" id="rpdf-all" checked title="Marcar/desmarcar todos"></th><th>Item</th><th style="text-align:right">Qtd</th><th style="text-align:right">Custo un.</th><th style="text-align:right">Total</th>
+    </tr></thead><tbody>${linhas}</tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn ghost" onclick="document.getElementById('romaneio-pdf-modal').remove()">Cancelar</button>
+      <button class="btn primary" onclick="salvarRomaneioPDF()">Lançar selecionados em Compras</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  const all = document.getElementById('rpdf-all');
+  if (all) all.onchange = () => document.querySelectorAll('.rpdf-sel').forEach(c => { c.checked = all.checked; });
+}
+function salvarRomaneioPDF() {
+  const p = _romaneioPDF; if (!p) return;
+  const forn = (document.getElementById('rpdf-forn')?.value || '').trim();
+  const empresa = (document.getElementById('rpdf-emp')?.value || '').trim();
+  const colecao = (document.getElementById('rpdf-col')?.value || '').trim();
+  const entregaISO = document.getElementById('rpdf-ent')?.value || '';
+  const entregaBR = entregaISO ? entregaISO.split('-').reverse().join('/') : (p.data || '');
+  const sel = [...document.querySelectorAll('.rpdf-sel')].filter(c => c.checked).map(c => +c.getAttribute('data-i'));
+  if (!sel.length) { alert('Marque ao menos um item pra lançar.'); return; }
+  if (!forn) { alert('Informe o fornecedor.'); return; }
+  let tot = 0;
+  sel.forEach(i => {
+    const it = p.itens[i]; if (!it) return;
+    const custoTotal = +((it.qtd || 0) * (it.precoUn || 0)).toFixed(2); tot += custoTotal;
+    compras.push({
+      id: 'cmp_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), dataSolic: new Date().toLocaleDateString('pt-BR'),
+      fornecedor: forn, insumo: it.desc + (it.codigo ? ' [' + it.codigo + ']' : ''), unidade: it.un || 'pç',
+      qtd: it.qtd, custoUnit: it.precoUn, custoTotal, frete: 0,
+      colecao, dataLimite: entregaBR, dataFatur: entregaISO, categoria: '', solicitante: '', empresa, status: 'pendente'
+    });
+  });
+  saveData('compras', compras);
+  document.getElementById('romaneio-pdf-modal')?.remove();
+  _romaneioPDF = null;
+  try { setCmpTab('pendente'); } catch (e) { renderCompras(); }
+  alert('✓ Romaneio lançado: ' + sel.length + ' item(ns) de "' + forn + '", total ' + fmtVal(tot) + '.\n\nEntraram como Pendentes. Confira, aprove e gere o pedido pra criar as parcelas no Contas a Pagar.');
 }
 function updateCompra(id, field, value) {
   const c = compras.find(x => x.id === id); if (!c) return;
