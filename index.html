@@ -325,7 +325,7 @@ tr:hover td{background:#fafaf8}
     </label>
     <button class="btn ghost sm" onclick="exportarBackup()" title="Exportar backup">💾 Backup</button>
     <button class="btn ghost sm" onclick="abrirAutoBackups()" title="Backups automáticos (o sistema salva 1 por dia sozinho — restaure qualquer dia)">🕘</button>
-    <button class="btn ghost sm" onclick="_syncPowerBI().then(function(r){alert('☁ Power BI atualizado!\n\nCR: '+r.cr+' linhas · CP: '+r.cp+' linhas gravadas no banco.\n\nAgora é só clicar Atualizar no Power BI que os números batem com a Conciliação.');}).catch(function(e){alert('Não consegui atualizar o Power BI: '+(e&&e.message||e));});" title="Grava no Supabase o CR e o CP já calculados (todos os meses) pra o Power BI ler. Não altera nada do sistema. Depois clique Atualizar no Power BI.">☁ Power BI</button>
+    <button class="btn ghost sm" onclick="_syncPowerBI().then(function(r){alert('☁ Power BI atualizado!\n\nCR: '+r.cr+' · CP: '+r.cp+' · Vendas: '+(r.vendas||0)+' linhas gravadas no banco.\n\nAgora é só clicar Atualizar no Power BI que os números batem com a Conciliação.');}).catch(function(e){alert('Não consegui atualizar o Power BI: '+(e&&e.message||e));});" title="Grava no Supabase o CR e o CP já calculados (todos os meses) pra o Power BI ler. Não altera nada do sistema. Depois clique Atualizar no Power BI.">☁ Power BI</button>
     <button class="btn ghost sm" id="btn-zerar" style="display:none;color:var(--red)" onclick="zerarSistema()" title="Apagar TODOS os dados e começar do zero (admin)">🧨 Zerar</button>
     <button class="btn ghost sm" onclick="doLogout()">Sair</button>
   </div>
@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v592/09-711';
+const APP_VERSION = 'v593/09-712';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4514,7 +4514,26 @@ async function _syncPowerBI() {
   });
   await saveData('flatCR', crFlat);
   await saveData('flatCP', cpFlat);
-  return { cr: crFlat.length, cp: cpFlat.length };
+  // VENDAS: 1 linha por pedido, JÁ com a operação (Venda/Troca/Amostra…) e a DEVOLUÇÃO abatida por pedido
+  // (a mesma conta da tela de Vendas: devolução vai pro pedido do crédito, com teto no valor do pedido, só Venda+Troca).
+  const _devPorPed = (() => { try { return devolPorPedidoMap().porPed || {}; } catch (e) { return {}; } })();
+  const _ehVT = p => { const op = (getClassificacao(p).operacao || '').toLowerCase(); return op === 'venda' || op === 'troca'; };
+  const vendasFlat = pedidos.map(p => {
+    const cls = getClassificacao(p);
+    const devAbat = _ehVT(p) ? +(_devPorPed[String(p.id)] || 0).toFixed(2) : 0; // zera fora de Venda+Troca → soma bate com o Faturamento Real da tela
+    return {
+      pedido: String(p.id || ''), cliente: p.nome || '', loja: p.loja || '', empresa: p.empresa || '',
+      vendedor: p.vendedor || '', situacao: p.situacao || '', operacao: cls.operacao || '', segmento: cls.segmento || '',
+      data: dISO(p.data), data_saida: dISO(p.dataSaida), data_fechamento: dISO(p.dataFechamento),
+      valor: +(+p.valor || 0).toFixed(2), frete: +(freteDoPedido(p) || 0).toFixed(2),
+      desconto: +(+p.desconto || 0).toFixed(2), outras_despesas: +(+p.outrasDespesas || 0).toFixed(2),
+      devolucao_abatida: devAbat,
+      tem_nf: p.temNF || '', numero_doc: p.numeroDoc || '', cidade: p.cidade || '', uf: p.uf || '',
+      qtd_itens: Array.isArray(p.linhas) ? p.linhas.length : 0
+    };
+  });
+  await saveData('flatVendas', vendasFlat);
+  return { cr: crFlat.length, cp: cpFlat.length, vendas: vendasFlat.length };
 }
 // Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
 // (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
