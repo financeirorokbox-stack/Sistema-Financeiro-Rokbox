@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v594/09-713';
+const APP_VERSION = 'v595/09-714';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3896,13 +3896,16 @@ function renderFluxo() {
   // saldos na data inicial do período (o que você digitou, com carry-forward). Senão, usa o saldo do Cadastro
   // + o movimento do banco antes do período.
   const _temSaldoDia = saldoInicialDia && Object.keys(saldoInicialDia).length > 0;
-  // Saldo ANTERIOR do balancete: PRIORIZA o saldo que a Elaine DIGITA por dia no Contas a Pagar (saldoInicialDia),
-  // que é o saldo REAL do banco (fonte única, também lida pelo Power BI). Só cai no cálculo por extrato
-  // (Cadastro + movimento do banco antes do período) quando não há saldo digitado pra data. Assim o Fluxo do
-  // sistema e o Power BI usam EXATAMENTE o mesmo saldo, alimentado num lugar só.
+  // Saldo ANTERIOR do balancete:
+  //  • MÊS FECHADO (jun/jul/ago...): mantém o cálculo por extrato (Cadastro + movimento do banco), que já BATE
+  //    e não pode ser mexido — os saldos digitados antigos estavam errados, então NÃO os usamos nos meses fechados.
+  //  • MÊS ABERTO (set/2026 em diante): PRIORIZA o saldo REAL que a Elaine DIGITA por dia no Contas a Pagar
+  //    (saldoInicialDia) — a mesma fonte que o Power BI lê. Assim, daqui pra frente, sistema e Power BI usam
+  //    o mesmo saldo, alimentado num lugar só.
   const _bancoAntes = +(baseInicial + netAntes).toFixed(2);
-  const _saldoDiaIni = (periodStart && _temSaldoDia) ? getSaldoInicialDia(_toDateInput(periodStart)) : 0;
-  const saldoAnterior = (_temSaldoDia && _saldoDiaIni) ? _saldoDiaIni : _bancoAntes;
+  const _periodoFechado = periodStart ? mesEstaFechado(periodStart) : false;
+  const _saldoDiaIni = (periodStart && _temSaldoDia && !_periodoFechado) ? getSaldoInicialDia(_toDateInput(periodStart)) : 0;
+  const saldoAnterior = (!_periodoFechado && _temSaldoDia && _saldoDiaIni) ? _saldoDiaIni : _bancoAntes;
   const saldoFinal = saldoAnterior + (totEnt - totSai);
   // CONFERÊNCIA COM O BANCO: saldo final pelo EXTRATO = saldo anterior + movimento do banco DENTRO do período.
   // Se bater com o saldo final contábil (receitas − despesas), está tudo conciliado; a diferença mostra o que falta.
