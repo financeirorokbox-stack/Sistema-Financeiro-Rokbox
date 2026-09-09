@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v593/09-712';
+const APP_VERSION = 'v594/09-713';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3896,12 +3896,13 @@ function renderFluxo() {
   // saldos na data inicial do período (o que você digitou, com carry-forward). Senão, usa o saldo do Cadastro
   // + o movimento do banco antes do período.
   const _temSaldoDia = saldoInicialDia && Object.keys(saldoInicialDia).length > 0;
-  // Saldo ANTERIOR do balancete = saldo do BANCO no fim do mês anterior (base do Cadastro + movimento do
-  // extrato até o início do período). Bate com a Conciliação Bancária e NÃO depende de você digitar o saldo
-  // do dia. Só cai no saldo digitado (saldoInicialDia) se não houver base de banco (Cadastro sem saldo + sem extrato).
+  // Saldo ANTERIOR do balancete: PRIORIZA o saldo que a Elaine DIGITA por dia no Contas a Pagar (saldoInicialDia),
+  // que é o saldo REAL do banco (fonte única, também lida pelo Power BI). Só cai no cálculo por extrato
+  // (Cadastro + movimento do banco antes do período) quando não há saldo digitado pra data. Assim o Fluxo do
+  // sistema e o Power BI usam EXATAMENTE o mesmo saldo, alimentado num lugar só.
   const _bancoAntes = +(baseInicial + netAntes).toFixed(2);
   const _saldoDiaIni = (periodStart && _temSaldoDia) ? getSaldoInicialDia(_toDateInput(periodStart)) : 0;
-  const saldoAnterior = _bancoAntes !== 0 ? _bancoAntes : _saldoDiaIni;
+  const saldoAnterior = (_temSaldoDia && _saldoDiaIni) ? _saldoDiaIni : _bancoAntes;
   const saldoFinal = saldoAnterior + (totEnt - totSai);
   // CONFERÊNCIA COM O BANCO: saldo final pelo EXTRATO = saldo anterior + movimento do banco DENTRO do período.
   // Se bater com o saldo final contábil (receitas − despesas), está tudo conciliado; a diferença mostra o que falta.
