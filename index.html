@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v595/09-714';
+const APP_VERSION = 'v596/09-715';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11657,12 +11657,25 @@ function saldoTodosBancosHTML() {
     </div>`;
 }
 // Saldo final ACUMULADO de um banco até o fim de um dia (para o cabeçalho de cada dia).
+// RE-ANCORA no saldo REAL que a Elaine digita (saldoInicialDia = saldo no INÍCIO do dia): pega o mais recente
+// informado ATÉ dk e soma o extrato daquele dia em diante. Assim que ela digita um saldo, o cálculo "reancora"
+// no valor real (fonte única com o Contas a Pagar, o Balancete e o Power BI). Sem saldo digitado, usa o
+// Cadastro (saldosIniciais) + extrato — comportamento antigo, que mantém os meses fechados batendo.
 function saldoFinalDia(banco, dk) {
+  const endDay = new Date(dk + 'T23:59:59');
+  // Saldo real digitado mais recente (início de um dia) até dk, para este banco.
+  const datasReais = Object.keys(saldoInicialDia).filter(d => d <= dk && saldoInicialDia[d] && typeof saldoInicialDia[d] === 'object' && saldoInicialDia[d][banco] != null).sort();
+  if (datasReais.length) {
+    const dr = datasReais[datasReais.length - 1];
+    const base = +saldoInicialDia[dr][banco] || 0; // saldo no INÍCIO do dia dr
+    const ini = new Date(dr + 'T00:00:00');        // soma o extrato de dr em diante (movimentos do próprio dr contam)
+    const mov = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data >= ini && t.data <= endDay).reduce((s, t) => s + (t.valor || 0), 0);
+    return +(base + mov).toFixed(2);
+  }
   const cfg = saldosIniciais[banco] || { valor: 0, data: '2025-05-31' };
   const dRef = new Date((cfg.data || '2025-05-31') + 'T23:59:59');
-  const endDay = new Date(dk + 'T23:59:59');
   const mov = extratoBancario.filter(t => (t.banco || '') === banco && t.data instanceof Date && !isNaN(t.data) && t.data > dRef && t.data <= endDay).reduce((s, t) => s + (t.valor || 0), 0);
-  return (cfg.valor || 0) + mov;
+  return +((cfg.valor || 0) + mov).toFixed(2);
 }
 // ── Saldo bancário diário (Fluxo de Caixa): tabela dia a dia por banco, com saldo real p/ conferir ──
 function saldoBancarioDiarioHTML() {
