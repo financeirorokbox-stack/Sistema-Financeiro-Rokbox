@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v596/09-715';
+const APP_VERSION = 'v597/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5252,10 +5252,15 @@ function relatorioContasPorBanco() {
   let body = '';
   bancos.forEach(b => {
     const arr = grupos[b]; const sub = arr.reduce((s, c) => s + (c.valor || 0), 0);
-    body += `<h2>🏦 ${esc(b)} <span class="cnt">${arr.length} conta(s) · ${fmtVal(sub)}</span></h2>
+    // Saldo REAL do banco no dia (o que a Elaine digita) − as contas desse banco = sobra. Vermelho se não cobre.
+    const saldoB = getSaldoInicialDiaBanco(repData, b);
+    const sobraB = +(saldoB - sub).toFixed(2);
+    const corB = sobraB < 0 ? '#b3261e' : '#1b7a3d';
+    body += `<h2>🏦 ${esc(b)} <span class="cnt">${arr.length} conta(s) · a pagar ${fmtVal(sub)}</span></h2>
     <table><thead><tr><th>Vencimento</th><th>Fornecedor</th><th>Categoria</th><th>Histórico</th><th>Empresa</th><th class="r">Valor</th></tr></thead><tbody>
     ${arr.map(c => `<tr><td>${fmtD(c.vencimento)}</td><td>${esc(c.fornecedor || '—')}</td><td>${esc(catContaPagar(c) || '—')}</td><td>${esc(c.observacao || '')}</td><td>${esc(c.empresa || '')}</td><td class="r">${fmtVal(c.valor || 0)}</td></tr>`).join('')}
-    <tr class="sub"><td colspan="5">Subtotal — ${esc(b)}</td><td class="r">${fmtVal(sub)}</td></tr></tbody></table>`;
+    <tr class="sub"><td colspan="5">Subtotal a pagar — ${esc(b)}</td><td class="r">${fmtVal(sub)}</td></tr></tbody></table>
+    <div class="bsaldo">Saldo inicial <b>${fmtVal(saldoB)}</b> &nbsp;−&nbsp; a pagar <b>${fmtVal(sub)}</b> &nbsp;=&nbsp; <b style="color:${corB}">Sobra ${fmtVal(sobraB)}</b>${sobraB < 0 ? ' &nbsp;⚠️ não cobre as contas do dia' : ''}${saldoB === 0 ? ' &nbsp;<span style="color:#b3261e">(sem saldo digitado p/ este banco)</span>' : ''}</div>`;
   });
   const filtroTxt = `Status: ${fSt === 'aberto' ? 'Em Aberto' : fSt === 'pago' ? 'Pago' : 'Todos'} · Data por: ${fDataPor === 'liquidacao' ? 'Liquidação' : 'Vencimento'} · ${dfAtivo() ? 'período filtrado' : 'todo o período'}`;
   const repData = saldoDiaDataAtual();
@@ -5263,7 +5268,7 @@ function relatorioContasPorBanco() {
   const saldoIni = getSaldoInicialDia(repData);
   const saldoFinal = +(saldoIni - totalGeral).toFixed(2);
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Contas a Pagar por Banco</title>
-    <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222;margin:24px;font-size:13px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #333;padding-bottom:3px}.cnt{font-size:12px;font-weight:400;color:#666}.meta{color:#666;font-size:12px;margin-bottom:8px}table{border-collapse:collapse;width:100%;margin-bottom:4px}th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}th{background:#f2f2f2;font-size:12px}.r{text-align:right}.sub{font-weight:700;background:#fafafa}.tot{margin-top:22px;font-size:17px;border-top:3px solid #333;padding-top:8px}.noprint button{padding:8px 16px;font-size:14px;cursor:pointer;margin-top:16px}@media print{.noprint{display:none}}</style></head><body>
+    <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222;margin:24px;font-size:13px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #333;padding-bottom:3px}.cnt{font-size:12px;font-weight:400;color:#666}.meta{color:#666;font-size:12px;margin-bottom:8px}table{border-collapse:collapse;width:100%;margin-bottom:4px}th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}th{background:#f2f2f2;font-size:12px}.r{text-align:right}.sub{font-weight:700;background:#fafafa}.bsaldo{font-size:13.5px;background:#f4f7ff;border:1px solid #dfe6ff;border-radius:7px;padding:7px 11px;margin:0 0 6px}.tot{margin-top:22px;font-size:17px;border-top:3px solid #333;padding-top:8px}.noprint button{padding:8px 16px;font-size:14px;cursor:pointer;margin-top:16px}@media print{.noprint{display:none}}</style></head><body>
     <h1>Contas a Pagar — por Banco</h1>
     <div class="meta">${esc(filtroTxt)} · ${vis.length} conta(s) · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
     <div style="background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 14px;margin:6px 0 14px;font-size:14px"><strong>🏦 Saldo inicial (todos os bancos) em ${repDataBR}:</strong> ${fmtVal(saldoIni)}</div>
