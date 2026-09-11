@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v598/09-716';
+const APP_VERSION = 'v599/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -11609,6 +11609,17 @@ function removerDuplicatasDoBanco() {
 }
 // Uma Conta a Pagar está TRAVADA quando foi conciliada a um débito de extrato de um dia FECHADO.
 // Nesse caso ela não pode ser apagada nem substituída por re-upload (o fechamento é um cadeado).
+// A conta a pagar está CONCILIADA (ligada a um débito do banco) ou veio direto do extrato?
+// Usado pra liberar a exclusão de título EM ABERTO em mês fechado só quando ele NÃO faz parte do que fechou.
+function _contaPagarConciliada(c) {
+  if (!c) return false;
+  if (c._origemExtrato) return true; // nasceu de um débito do banco → é real/conciliado
+  const chave = chaveContaPagar(c);
+  for (const link of Object.values(debitoLinks)) {
+    if (debLinkItens(link).some(it => it.chave === chave)) return true;
+  }
+  return false;
+}
 function contaTravadaPorFechamento(c) {
   // MÊS fechado: a conta pertence ao mês pela data de pagamento (se paga) ou vencimento → travada.
   const dRef = (c.pago && c.dataPag) ? c.dataPag : c.vencimento;
@@ -14982,12 +14993,17 @@ const DATA_REGISTRO = {
 async function executarExclusao() {
   if (!deleteSelection.size) return;
   // Bloqueia exclusão de itens em MÊS fechado ou dia conciliado fechado.
-  let porMes = 0, porDia = 0;
+  // EXCEÇÃO: conta a pagar EM ABERTO (não paga e não conciliada) de um mês fechado PODE ser excluída —
+  // o fechamento é sobre o que foi PAGO/conciliado, então um título em aberto não faz parte dele.
+  let porMes = 0, porDia = 0, abertoMesFechado = 0;
   deleteSelection.forEach(key => {
     const [src, idx] = key.split(':');
     const arr = DELETE_SOURCES[src]?.getArr() || [];
     const item = arr[+idx];
     const data = DATA_REGISTRO[src] ? DATA_REGISTRO[src](item) : null;
+    if (src === 'contasPagar' && item && !item.pago && !_contaPagarConciliada(item) && data && mesEstaFechado(data)) {
+      abertoMesFechado++; return;                                   // título em aberto de mês fechado → liberado
+    }
     if (data && mesEstaFechado(data)) { porMes++; return; }        // travado pelo MÊS fechado
     let bloq;
     if (src === 'contasPagar') {
@@ -15004,7 +15020,9 @@ async function executarExclusao() {
     if (porDia) msg += `${porDia} registro(s) estão conciliados em dia(s) fechado(s). Reabra o dia (admin) na Conciliação Bancária.`;
     alert(msg); return;
   }
-  if (!confirm(`Excluir ${deleteSelection.size} registro(s)? Esta ação não pode ser desfeita.`)) return;
+  let msgConf = `Excluir ${deleteSelection.size} registro(s)? Esta ação não pode ser desfeita.`;
+  if (abertoMesFechado) msgConf += `\n\n⚠ ${abertoMesFechado} é(são) título(s) EM ABERTO de um mês já fechado. Como não foram pagos nem conciliados, dá pra excluir sem mexer no que fechou.`;
+  if (!confirm(msgConf)) return;
 
   // Agrupa por fonte
   const bySource = {};
