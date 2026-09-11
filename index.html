@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v597/09-716';
+const APP_VERSION = 'v598/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5457,7 +5457,7 @@ function renderPagar() {
         ${_diaFilt
           ? `<span class="badge neu" style="background:var(--accent);color:#fff" title="A caixa segue o dia que você filtrou em Data">📅 ${_sd.split('-').reverse().join('/')} (do filtro)</span>`
           : `<input type="date" class="inline-input" value="${_sd}" onchange="setSaldoDiaData(this.value)" style="width:130px" title="Dia do saldo">`}
-        <span style="color:var(--muted)">${_diaFilt?'a caixa segue o dia filtrado. ':''}digite o saldo real de cada banco; em branco, mostra em cinza a sugestão (saldo do dia anterior − contas).</span>
+        <span style="color:var(--muted)">${_diaFilt?'a caixa segue o dia filtrado. ':''}quando você importa o extrato (OFX), o sistema já preenche isto sozinho com o saldo real do banco. Se estiver em branco, digite; em cinza é só uma sugestão (saldo de ontem − contas).</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         ${_bs.map(b=>{ const exp=saldoInicialDiaBancoValor(_sd,b); const carry=getSaldoInicialDiaBanco(_sd,b); const eb=b.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); return `<label style="display:inline-flex;align-items:center;gap:4px">🏦 ${b} <input class="inline-input" style="width:95px;text-align:right" value="${exp!=null?exp.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="${carry?fmtVal(carry).replace('R$ ',''):'0,00'}" onchange="setSaldoInicialDiaBanco('${eb}',this.value)"></label>`; }).join('')}
@@ -8620,6 +8620,41 @@ function parseOFX(text) {
   });
   return out;
 }
+// Lê o SALDO REAL do banco no OFX (tag <LEDGERBAL>): o saldo que o próprio banco reporta no fim do extrato.
+// Retorna { valor, data } ou null. A data (DTASOF) às vezes vem zerada (ex.: Bradesco 00000000) -> data:null.
+function parseOFXSaldoFinal(text) {
+  const bloco = (text.match(/<LEDGERBAL>[\s\S]*?(?:<\/LEDGERBAL>|<AVAILBAL>|<\/BANKACCTFROM>|$)/i) || [])[0] || text;
+  const gb = tag => { const m = bloco.match(new RegExp('<' + tag + '>([^<\\r\\n]*)', 'i')); return m ? m[1].trim() : null; };
+  const bal = gb('BALAMT');
+  if (bal == null || bal === '') return null;
+  const dRaw = (gb('DTASOF') || '').slice(0, 8);
+  const data = /^\d{8}$/.test(dRaw) && dRaw !== '00000000' ? parseOFXDate(dRaw) : null;
+  return { valor: num(bal), data };
+}
+// Preenche SOZINHO o "saldo inicial do dia" (Contas a Pagar) a partir do saldo real do extrato (LEDGERBAL).
+// Saldo no FIM do dia D = saldo no INÍCIO do dia D+1. Regras de segurança:
+//  - só mês ABERTO (nunca toca em mês fechado);
+//  - nunca sobrescreve um valor que a Elaine digitou: se divergir, AVISA (conferência contra duplicado/faltante);
+//  - se houver lançamento com data DEPOIS do saldo reportado, o LEDGERBAL está defasado -> não arrisca.
+function aplicarSaldoExtratoNoDia(banco, saldoInfo, novas) {
+  if (!banco || !saldoInfo || saldoInfo.valor == null) return null;
+  let maxT = 0; (novas || []).forEach(t => { const g = t.data && t.data.getTime ? t.data.getTime() : 0; if (g > maxT) maxT = g; });
+  const maxDia = maxT ? _toDateInput(new Date(maxT)) : '';
+  let dRef = saldoInfo.data;
+  if (dRef) { if (maxDia && _toDateInput(dRef) < maxDia) return { pulou: 'defasado' }; }
+  else { if (!maxT) return null; dRef = new Date(maxT); }
+  const prox = new Date(dRef.getFullYear(), dRef.getMonth(), dRef.getDate() + 1);
+  const dk = _toDateInput(prox);
+  if (mesEstaFechado(dk)) return { pulou: 'fechado', dk };
+  const atual = saldoInicialDiaBancoValor(dk, banco); // valor EXPLÍCITO já digitado (ou null)
+  const novoVal = +(+saldoInfo.valor).toFixed(2);
+  if (atual != null && Math.abs(atual - novoVal) > 0.01) return { divergiu: true, dk, digitado: atual, extrato: novoVal };
+  if (atual != null) return { igual: true, dk };
+  if (!saldoInicialDia[dk] || typeof saldoInicialDia[dk] !== 'object') saldoInicialDia[dk] = {};
+  saldoInicialDia[dk][banco] = novoVal;
+  saveData('saldoInicialDia', saldoInicialDia);
+  return { preencheu: true, dk, valor: novoVal };
+}
 // Identifica a conta bancária do arquivo OFX (BANKID + ACCTID), para mapear ao banco cadastrado.
 function parseOFXConta(text) {
   const g = tag => { const m = text.match(new RegExp('<' + tag + '>([^<\\r\\n]*)', 'i')); return m ? m[1].trim() : ''; };
@@ -9102,6 +9137,7 @@ function renderExtrato() {
     reader.onload = ev => {
       const raw = String(ev.target.result || '');
       const novas = parseOFX(raw);
+      const saldoFinalInfo = parseOFXSaldoFinal(raw); // saldo REAL do banco (LEDGERBAL) p/ preencher o saldo do dia sozinho
       // Diagnóstico: se não leu nada, mostra o porquê e o início do arquivo (pra eu ajustar o parser).
       if (!novas.length) {
         const temTrn = /<STMTTRN/i.test(raw);
@@ -9166,6 +9202,16 @@ function renderExtrato() {
       // Quanto ainda sobrou pendente NESTE banco (pra avisar o que precisa de atenção manual).
       const concil = t => t.valor >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
       const pend = extratoBancario.filter(t => (t.banco||'') === banco && !concil(t)).length;
+      // Saldo do dia AUTOMÁTICO: pega o saldo real do extrato (LEDGERBAL) e preenche o saldo inicial do dia seguinte.
+      const sldRes = aplicarSaldoExtratoNoDia(banco, saldoFinalInfo, novas);
+      let sldLinha = '';
+      if (sldRes) {
+        const brc = k => k.split('-').reverse().join('/');
+        if (sldRes.preencheu) { sldLinha = `\n\n💰 Saldo do banco: peguei do extrato e preenchi sozinho o saldo inicial de ${brc(sldRes.dk)} (${banco}) = ${fmtVal(sldRes.valor)}. Já vale no Contas a Pagar, Fluxo e Power BI, você não precisa digitar.`; renderPagar(); }
+        else if (sldRes.divergiu) sldLinha = `\n\n⚠ Saldo do banco (${banco}): o extrato fecha ${fmtVal(sldRes.extrato)} em ${brc(sldRes.dk)}, mas você já tinha digitado ${fmtVal(sldRes.digitado)}. Não mexi no seu valor. Vale conferir: pode ter lançamento duplicado ou faltando.`;
+        else if (sldRes.igual) sldLinha = `\n\n💰 Saldo do banco (${banco}): o extrato confere com o que você já tinha em ${brc(sldRes.dk)}. ✓`;
+        else if (sldRes.pulou === 'defasado') sldLinha = `\n\n💰 Saldo do banco: o extrato tem lançamento mais recente que o saldo reportado, então não preenchi sozinho pra não errar. Confira na mão se precisar.`;
+      }
       renderExtrato();
       const stEl = document.getElementById('status-ext');
       if (stEl) stEl.textContent = '✓ ' + extratoBancario.length + ' lançamentos (+' + add + ' novos)';
@@ -9174,7 +9220,7 @@ function renderExtrato() {
         ? `\n\n⚡ Conciliado automaticamente: ${auto.debitos} débito(s) + ${auto.repasses} repasse(s).`
         : `\n\n⚡ Nada bateu automático (valores sem correspondência única).`;
       alert(`✓ Extrato "${file.name}" lido!\nBanco: ${banco || '(sem banco)'}\nTransações no arquivo: ${novas.length} (${cred} créditos, ${deb} débitos)\nNovas adicionadas: ${add}${add < novas.length ? ' (o resto já existia)' : ''}` +
-        autoLinha +
+        autoLinha + sldLinha +
         `\n📌 Faltam ${pend} lançamento(s) de ${banco} pra conciliar manualmente (Conciliação Bancária).`);
     };
     reader.readAsText(file,'UTF-8');
