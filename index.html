@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v603/09-716';
+const APP_VERSION = 'v604/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2820,6 +2820,19 @@ function _renderContasImpl(el) {
       f: { pedido: a.pedido || ('AV' + ai), valor: a.valorTitulo || 0, descricao: 'Boleto Itaú', vencimento: a.vencimento || null },
       cat: 'Boleto Itaú', st: { recebido: !!a.dataPagamento }, venc: a.vencimento || null, realIdx: -1, semForma: false, _avulso: true, _avIdx: ai
     });
+  });
+
+  // PAGO tem que ter FORMA: algumas linhas viram "recebido" nos passos acima (pedido quitado pela conciliação,
+  // crédito de devolução, diferença aceita) mas ficaram com a categoria vazia ('—') e apareciam como "sem forma"
+  // mesmo estando pagas. Aqui, toda linha PAGA sem categoria puxa a forma de onde o dinheiro veio: o gateway do
+  // recebimento do pedido; se foi crédito de devolução, marca "Crédito Cliente"; senão, "Conciliado".
+  linhas.forEach(l => {
+    if (!l.st || !l.st.recebido || l.cat !== '—') return;
+    const recsP = getRecebimentosDoPedido(l.ped) || [];
+    const gw = (recsP.find(r => r && r.gateway) || {}).gateway;
+    if (gw) { l.cat = gw; l.semForma = false; return; }
+    if (/cr[ée]dito de devolu/i.test(l.st.detalhe || '')) { l.cat = 'Crédito Cliente'; l.semForma = false; return; }
+    l.cat = 'Conciliado'; l.semForma = false;
   });
 
   _linhasCR = linhas; // guarda para a exportação (modelo Contas a Receber)
