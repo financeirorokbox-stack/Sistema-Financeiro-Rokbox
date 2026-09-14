@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v601/09-716';
+const APP_VERSION = 'v602/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8641,9 +8641,12 @@ function aplicarSaldoExtratoNoDia(banco, saldoInfo, novas) {
   if (!banco || !saldoInfo || saldoInfo.valor == null) return null;
   let maxT = 0; (novas || []).forEach(t => { const g = t.data && t.data.getTime ? t.data.getTime() : 0; if (g > maxT) maxT = g; });
   const maxDia = maxT ? _toDateInput(new Date(maxT)) : '';
-  let dRef = saldoInfo.data;
-  if (dRef) { if (maxDia && _toDateInput(dRef) < maxDia) return { pulou: 'defasado' }; }
-  else { if (!maxT) return null; dRef = new Date(maxT); }
+  // SÓ preenche sozinho quando o banco informa a DATA do saldo no OFX (DTASOF válido).
+  // Bancos que não datam o saldo (ex.: Bradesco, DTASOF 00000000) NÃO entram: sem a data não dá pra
+  // saber a que dia o saldo pertence, e chutar pela última transação erra (ela digita esses na mão).
+  const dRef = saldoInfo.data;
+  if (!dRef) return { pulou: 'sem-data' };
+  if (maxDia && _toDateInput(dRef) < maxDia) return { pulou: 'defasado' };
   const novoVal = +(+saldoInfo.valor).toFixed(2);
   const res = {};
   // (A) Coluna "Saldo real (banco)" da conferência dia a dia (Fluxo): preenche o dia D (fim do extrato)
@@ -9227,6 +9230,7 @@ function renderExtrato() {
         else if (sldRes.divergiu) sldLinha = `\n\n⚠ Saldo do banco (${banco}): o extrato fecha ${fmtVal(sldRes.extrato)} em ${brc(sldRes.dk)}, mas você já tinha digitado ${fmtVal(sldRes.digitado)}. Não mexi no seu valor. Vale conferir: pode ter lançamento duplicado ou faltando.`;
         else if (sldRes.igual) sldLinha = `\n\n💰 Saldo do banco (${banco}): o extrato confere com o que você já tinha em ${brc(sldRes.dk)}. ✓`;
         else if (sldRes.pulou === 'defasado') sldLinha = `\n\n💰 Saldo do banco: o extrato tem lançamento mais recente que o saldo reportado, então não preenchi sozinho pra não errar. Confira na mão se precisar.`;
+        else if (sldRes.pulou === 'sem-data') sldLinha = `\n\n💰 Saldo do banco (${banco}): esse banco não informa a data do saldo no extrato, então não preenchi sozinho pra não colocar no dia errado. Digite o saldo do ${banco} na mão em Contas a Pagar ou no Fluxo.`;
         if (sldRes.realDk) { sldLinha += `\n   ↳ Também preenchi a coluna "Saldo real (banco)" de ${brc(sldRes.realDk)} no Fluxo → Saldo bancário diário (${fmtVal(sldRes.realVal)}), pra você ver a diferença bater na hora.`; if (typeof currentSub !== 'undefined' && currentSub === 'fluxo') { try { renderFluxo(); } catch (e) {} } }
       }
       renderExtrato();
