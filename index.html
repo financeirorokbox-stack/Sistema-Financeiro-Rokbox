@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v602/09-716';
+const APP_VERSION = 'v603/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2855,7 +2855,10 @@ function _renderContasImpl(el) {
   if (fEmp) vis = vis.filter(l => (l.ped.empresa||'') === fEmp);
   if (fSt === 'aberto') vis = vis.filter(l => !l.st.recebido);
   if (fSt === 'pago')   vis = vis.filter(l =>  l.st.recebido);
-  if (fSt === 'semforma') vis = vis.filter(l => l.semForma);
+  // "Sem forma" no filtro = as MESMAS linhas que mostram a etiqueta cinza "sem forma" na tela (categoria vazia).
+  // Antes usava l.semForma, que marcava tb os recebimentos ÓRFÃOS (já recebidos, com gateway) — esses tinham
+  // categoria preenchida, então apareciam no filtro sem forma sem mostrar a etiqueta. Agora bate com a tela.
+  if (fSt === 'semforma') vis = vis.filter(l => l.cat === '—');
   if (fConc === 'sim') vis = vis.filter(l => pedidosConcBanco.has(String(l.f.pedido)));
   if (fConc === 'nao') vis = vis.filter(l => !pedidosConcBanco.has(String(l.f.pedido)));
   if (fQ)  vis = vis.filter(l => String(l.f.pedido).includes(fQ) || (l.ped.nome||'').toLowerCase().includes(fQ));
