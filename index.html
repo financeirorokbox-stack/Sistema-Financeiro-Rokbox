@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v600/09-716';
+const APP_VERSION = 'v601/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8644,17 +8644,32 @@ function aplicarSaldoExtratoNoDia(banco, saldoInfo, novas) {
   let dRef = saldoInfo.data;
   if (dRef) { if (maxDia && _toDateInput(dRef) < maxDia) return { pulou: 'defasado' }; }
   else { if (!maxT) return null; dRef = new Date(maxT); }
+  const novoVal = +(+saldoInfo.valor).toFixed(2);
+  const res = {};
+  // (A) Coluna "Saldo real (banco)" da conferência dia a dia (Fluxo): preenche o dia D (fim do extrato)
+  //     com o saldo real do banco, se o mês estiver aberto e o campo ainda estiver vazio (não sobrescreve o que ela digitou).
+  const dkReal = _toDateInput(dRef);
+  if (!mesEstaFechado(dkReal)) {
+    const kReal = banco + '|' + dkReal;
+    const jaReal = saldosDiarios[kReal];
+    if (jaReal === undefined || jaReal === null || jaReal === '') {
+      saldosDiarios[kReal] = novoVal;
+      saveData('saldosDiarios', saldosDiarios);
+      res.realDk = dkReal; res.realVal = novoVal;
+    }
+  }
+  // (B) Saldo inicial do dia SEGUINTE (re-ancora Contas a Pagar, Fluxo, Balancete e Power BI).
   const prox = new Date(dRef.getFullYear(), dRef.getMonth(), dRef.getDate() + 1);
   const dk = _toDateInput(prox);
-  if (mesEstaFechado(dk)) return { pulou: 'fechado', dk };
+  if (mesEstaFechado(dk)) { res.pulou = 'fechado'; res.dk = dk; return res; }
   const atual = saldoInicialDiaBancoValor(dk, banco); // valor EXPLÍCITO já digitado (ou null)
-  const novoVal = +(+saldoInfo.valor).toFixed(2);
-  if (atual != null && Math.abs(atual - novoVal) > 0.01) return { divergiu: true, dk, digitado: atual, extrato: novoVal };
-  if (atual != null) return { igual: true, dk };
+  if (atual != null && Math.abs(atual - novoVal) > 0.01) { res.divergiu = true; res.dk = dk; res.digitado = atual; res.extrato = novoVal; return res; }
+  if (atual != null) { res.igual = true; res.dk = dk; return res; }
   if (!saldoInicialDia[dk] || typeof saldoInicialDia[dk] !== 'object') saldoInicialDia[dk] = {};
   saldoInicialDia[dk][banco] = novoVal;
   saveData('saldoInicialDia', saldoInicialDia);
-  return { preencheu: true, dk, valor: novoVal };
+  res.preencheu = true; res.dk = dk; res.valor = novoVal;
+  return res;
 }
 // Identifica a conta bancária do arquivo OFX (BANKID + ACCTID), para mapear ao banco cadastrado.
 function parseOFXConta(text) {
@@ -9212,6 +9227,7 @@ function renderExtrato() {
         else if (sldRes.divergiu) sldLinha = `\n\n⚠ Saldo do banco (${banco}): o extrato fecha ${fmtVal(sldRes.extrato)} em ${brc(sldRes.dk)}, mas você já tinha digitado ${fmtVal(sldRes.digitado)}. Não mexi no seu valor. Vale conferir: pode ter lançamento duplicado ou faltando.`;
         else if (sldRes.igual) sldLinha = `\n\n💰 Saldo do banco (${banco}): o extrato confere com o que você já tinha em ${brc(sldRes.dk)}. ✓`;
         else if (sldRes.pulou === 'defasado') sldLinha = `\n\n💰 Saldo do banco: o extrato tem lançamento mais recente que o saldo reportado, então não preenchi sozinho pra não errar. Confira na mão se precisar.`;
+        if (sldRes.realDk) { sldLinha += `\n   ↳ Também preenchi a coluna "Saldo real (banco)" de ${brc(sldRes.realDk)} no Fluxo → Saldo bancário diário (${fmtVal(sldRes.realVal)}), pra você ver a diferença bater na hora.`; if (typeof currentSub !== 'undefined' && currentSub === 'fluxo') { try { renderFluxo(); } catch (e) {} } }
       }
       renderExtrato();
       const stEl = document.getElementById('status-ext');
@@ -11800,7 +11816,7 @@ function saldoBancarioDiarioHTML() {
           ${seletor}
           <span style="font-size:11px;color:var(--muted)">Saldo inicial em ${fmtDate(dRef)}: <strong>${fmtVal(cfg.valor||0)}</strong> · <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">editar</a></span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Digite o <strong>Saldo real</strong> que o banco mostra no fim de cada dia; o sistema confere contra o calculado. Verde = bate.</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">O <strong>Saldo real</strong> vem sozinho do extrato (o saldo que o banco reporta no fim do arquivo) no dia correspondente; você também pode digitar à mão em qualquer dia. O sistema confere contra o calculado. Verde = bate.</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
