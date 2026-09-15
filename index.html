@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v605/09-716';
+const APP_VERSION = 'v606/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -625,7 +625,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','crFechado','cpFechado'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1235,6 +1235,11 @@ let _vendasLote = [];          // resumo do lote de planilhas de Vendas subidas 
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
 let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). Usado no Relatório por banco (aprovação).
+// CONGELAMENTO de mês fechado: { 'YYYY-MM': [linhas no formato do flat] } — a VERDADE oficial da Elaine (planilha de fechamento).
+// Quando existe, o Power BI (flatCR/flatCP) e a exportação usam ESTAS linhas pros meses fechados, em vez de recalcular ao vivo
+// (o recálculo drifava: recebimentos mudavam de data/vínculo após o fechamento). Só mês ABERTO segue vivo. Ver _syncPowerBI.
+let crFechado = {};            // recebimentos oficiais congelados por mês fechado
+let cpFechado = {};            // contas pagas oficiais congeladas por mês fechado
 let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI); vazio = hoje
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let _repSoMes = true;          // na conciliação, a lista de recebimentos p/ flegar mostra só o MÊS do depósito (senão enche de valores repetidos)
@@ -4512,14 +4517,14 @@ async function _syncPowerBI() {
   // filtro). Não mexe na tela que a usuária está vendo. Depois monta as linhas com a mesma lógica da exportação.
   try { _renderContasImpl(document.createElement('div')); } catch (e) {}
   const aoa = _crRowsAOA(true);
-  const crFlat = aoa.slice(1).map(r => ({
+  let crFlat = aoa.slice(1).map(r => ({
     data_liquidacao: dISO(r[0]), vencimento: dISO(r[1]), pedido: r[2] || null, cliente: r[3] || '',
     situacao: r[4] || '', competencia: r[5] || '', valor_bruto: +(+r[6] || 0).toFixed(2),
     recebido_liquido: +(+r[10] || 0).toFixed(2), taxa: +(+r[12] || 0).toFixed(2), descricao: r[13] || '',
     canal_pagamento: r[15] || '', empresa: r[20] || ''
   }));
   // CP: todas as contas, com data_liquidacao = data do débito no banco (dataLiquidacaoConta) → bate com a Conciliação.
-  const cpFlat = contasPagar.map(c => {
+  let cpFlat = contasPagar.map(c => {
     const canc = (c.situacao === 'Cancelado') || !!c.cancelado;
     // Situação padronizada (a mesma palavra que a Elaine usa): Pago / Em Aberto / Cancelado, baseada no que ESTÁ pago
     // (o campo cru c.situacao é inconsistente: "Em aberto"/"Atrasada"/"Vencendo hoje" mesmo em contas já pagas).
@@ -4532,6 +4537,19 @@ async function _syncPowerBI() {
       situacao: sit, pago: !!c.pago, cancelado: canc, status: sit
     };
   });
+  // ── CONGELAMENTO: mês fechado vem da PLANILHA oficial da Elaine (crFechado/cpFechado), não do recálculo. ──
+  // Tira as linhas REALIZADAS (com data de liquidação) dos meses congelados e põe as linhas oficiais no lugar.
+  // Mês aberto e linhas em aberto (sem data de liquidação) seguem vivas. Assim o Power BI não drifa no passado.
+  const _mesCR = Object.keys(crFechado || {});
+  if (_mesCR.length) {
+    crFlat = crFlat.filter(r => !(r.data_liquidacao && _mesCR.includes(String(r.data_liquidacao).slice(0, 7))));
+    _mesCR.forEach(m => (crFechado[m] || []).forEach(r => crFlat.push(r)));
+  }
+  const _mesCP = Object.keys(cpFechado || {});
+  if (_mesCP.length) {
+    cpFlat = cpFlat.filter(r => !(r.data_liquidacao && _mesCP.includes(String(r.data_liquidacao).slice(0, 7))));
+    _mesCP.forEach(m => (cpFechado[m] || []).forEach(r => cpFlat.push(r)));
+  }
   await saveData('flatCR', crFlat);
   await saveData('flatCP', cpFlat);
   // VENDAS: 1 linha por pedido, JÁ com a operação (Venda/Troca/Amostra…) e a DEVOLUÇÃO abatida por pedido
@@ -15140,7 +15158,7 @@ function delCheckboxHeader(source) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','crFechado','cpFechado'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -15201,6 +15219,8 @@ function delCheckboxHeader(source) {
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
+    else if (k==='crFechado') crFechado = v || {};
+    else if (k==='cpFechado') cpFechado = v || {};
     else if (k==='creditosCliente') creditosCliente = v || [];
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
