@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v604/09-716';
+const APP_VERSION = 'v605/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5270,6 +5270,31 @@ function relatorioContasPorBanco() {
   const repDataBR = repData.split('-').reverse().join('/');
   const saldoIni = getSaldoInicialDia(repData);
   const saldoFinal = +(saldoIni - totalGeral).toFixed(2);
+  // ── ENTRADAS PREVISTAS DO DIA do relatório (boletos a receber vencendo hoje + créditos já no extrato hoje) ──
+  // O saldo inicial é o começo do dia (não inclui os créditos de hoje), então somar as entradas do dia não dobra.
+  const _boletosDia = (typeof getBoletosDaForma === 'function' ? getBoletosDaForma() : [])
+    .filter(b => boletoStatus[b.key] && !(typeof sistemaAcordo !== 'undefined' && sistemaAcordo[b.key]) && !(boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) && b.vencimento && _toDateInput(b.vencimento) === repData)
+    .map(b => ({ cliente: b.cliente || '', pedido: b.pedido || '', parcela: (b.totalParcelas > 1 ? `${b.parcela}/${b.totalParcelas}` : ''), valor: +b.valor || 0 }));
+  const _avulsosDia = (boletosAvulsos || [])
+    .filter(a => !a.dataPagamento && a.vencimento && _toDateInput(a.vencimento) === repData)
+    .map(a => ({ cliente: a.cliente || '(avulso Itaú)', pedido: a.pedido || '', parcela: '', valor: +a.valorTitulo || 0 }));
+  const boletosDia = _boletosDia.concat(_avulsosDia);
+  const creditosDia = (extratoBancario || [])
+    .filter(t => (t.valor || 0) > 0 && t.data && _toDateInput(t.data) === repData)
+    .map(t => ({ banco: (t.banco || '(sem banco)'), memo: t.memo || '', valor: +t.valor || 0 }));
+  const totBoletos = +boletosDia.reduce((s, b) => s + b.valor, 0).toFixed(2);
+  const totCreditos = +creditosDia.reduce((s, c) => s + c.valor, 0).toFixed(2);
+  const totalEntradas = +(totBoletos + totCreditos).toFixed(2);
+  const saldoProjetado = +(saldoIni + totalEntradas - totalGeral).toFixed(2);
+  const entradasHTML = (boletosDia.length || creditosDia.length) ? `
+    <h2>📥 Entradas previstas em ${repDataBR} <span class="cnt">total ${fmtVal(totalEntradas)}</span></h2>
+    ${boletosDia.length ? `<table><thead><tr><th>Boleto a receber (vence hoje)</th><th>Pedido</th><th>Cliente</th><th class="r">Valor</th></tr></thead><tbody>
+      ${boletosDia.map(b => `<tr><td>Boleto${b.parcela ? ' ' + b.parcela : ''}</td><td>${esc(b.pedido)}</td><td>${esc(b.cliente)}</td><td class="r">${fmtVal(b.valor)}</td></tr>`).join('')}
+      <tr class="sub"><td colspan="3">Subtotal boletos a receber</td><td class="r">${fmtVal(totBoletos)}</td></tr></tbody></table>` : ''}
+    ${creditosDia.length ? `<table><thead><tr><th>Crédito já no extrato (hoje)</th><th>Banco</th><th class="r">Valor</th></tr></thead><tbody>
+      ${creditosDia.map(c => `<tr><td>${esc(c.memo || 'Crédito')}</td><td>${esc(c.banco)}</td><td class="r">${fmtVal(c.valor)}</td></tr>`).join('')}
+      <tr class="sub"><td colspan="2">Subtotal créditos no extrato</td><td class="r">${fmtVal(totCreditos)}</td></tr></tbody></table>` : ''}` :
+    `<h2>📥 Entradas previstas em ${repDataBR}</h2><div class="bsaldo">Nenhuma entrada prevista para este dia (nenhum boleto vencendo hoje nem crédito já no extrato).</div>`;
   let body = '';
   bancos.forEach(b => {
     const arr = grupos[b]; const sub = arr.reduce((s, c) => s + (c.valor || 0), 0);
@@ -5290,10 +5315,13 @@ function relatorioContasPorBanco() {
     <div class="meta">${esc(filtroTxt)} · ${vis.length} conta(s) · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
     <div style="background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 14px;margin:6px 0 14px;font-size:14px"><strong>🏦 Saldo inicial (todos os bancos) em ${repDataBR}:</strong> ${fmtVal(saldoIni)}</div>
     ${body}
+    ${entradasHTML}
     <div class="tot" style="border-top:3px solid #333;margin-top:22px;padding-top:10px">
       <div>🏦 Saldo inicial (todos os bancos) em ${repDataBR}: <strong>${fmtVal(saldoIni)}</strong></div>
+      <div style="color:#1b7a3d">+ Entradas previstas do dia: <strong>${fmtVal(totalEntradas)}</strong></div>
       <div style="color:#b3261e">− Total a pagar: <strong>${fmtVal(totalGeral)}</strong></div>
-      <div style="font-size:19px;margin-top:4px;border-top:1px solid #999;padding-top:6px">= Saldo final: <strong style="color:${saldoFinal < 0 ? '#b3261e' : '#1b7a3d'}">${fmtVal(saldoFinal)}</strong></div>
+      <div style="font-size:19px;margin-top:4px;border-top:1px solid #999;padding-top:6px">= Saldo projetado (com entradas): <strong style="color:${saldoProjetado < 0 ? '#b3261e' : '#1b7a3d'}">${fmtVal(saldoProjetado)}</strong></div>
+      <div style="font-size:12px;color:#666;margin-top:4px">(só saldo − a pagar, sem as entradas: ${fmtVal(saldoFinal)})</div>
     </div>
     <div class="noprint"><button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button></div>
   </body></html>`;
