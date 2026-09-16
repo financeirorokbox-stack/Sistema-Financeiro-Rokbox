@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v611/09-716';
+const APP_VERSION = 'v612/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12649,8 +12649,52 @@ function _fmtDataCell(v) {
   if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 86400 * 1000)); return isNaN(d) ? String(v) : d.toLocaleDateString('pt-BR'); }
   return String(v).trim();
 }
+// Dashboard "Custo por Coleção" (aba própria dentro de Compras, separada dos pedidos/conferência).
+// Junta TODAS as compras (menos rejeitadas), por coleção e por categoria: cartões + barras + matriz Coleção × Categoria.
+function renderComprasColecoes(el) {
+  const cnt = st => compras.filter(c => (c.status || 'pendente') === st).length;
+  const _esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const _q = q => (+q || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+  const tabBar = `<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+    ${[['', 'Todos'], ['pendente', '🕐 Pendentes'], ['aprovado', '✅ Aprovados'], ['pedido', '📦 Pedidos'], ['recebido', '📄 Conferidos'], ['rejeitado', '❌ Rejeitados']].map(([s, lbl]) => `<button class="btn ghost sm" onclick="setCmpTab('${s}')">${lbl}${s ? ` (${cnt(s)})` : ''}</button>`).join('')}
+    <span style="width:1px;height:22px;background:var(--border);margin:0 4px"></span>
+    <button class="btn primary sm" onclick="setCmpTab('__col')">💰 Custo por Coleção</button>
+  </div>`;
+  const base = compras.filter(c => (c.status || 'pendente') !== 'rejeitado');
+  const mat = {}, colTot = {}, catTot = {}, colQtd = {}, colN = {}; let grand = 0;
+  base.forEach(c => {
+    const col = (c.colecao || '').trim() || '(sem coleção)';
+    const cat = (c.categoria || '').trim() || '(sem categoria)';
+    const v = totalCompra(c);
+    (mat[col] = mat[col] || {})[cat] = (mat[col][cat] || 0) + v;
+    colTot[col] = (colTot[col] || 0) + v; catTot[cat] = (catTot[cat] || 0) + v; grand += v;
+    colQtd[col] = (colQtd[col] || 0) + (+c.qtd || 0); colN[col] = (colN[col] || 0) + 1;
+  });
+  const cols = Object.keys(colTot).sort((a, b) => colTot[b] - colTot[a]);
+  const catsOrd = Object.keys(catTot).sort((a, b) => catTot[b] - catTot[a]);
+  const maxCol = cols.length ? colTot[cols[0]] : 0;
+  const cardsHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)"><div style="font-size:12px;color:var(--muted)">Gasto total</div><div style="font-size:22px;font-weight:800">${fmtVal(grand)}</div></div>
+    <div style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)"><div style="font-size:12px;color:var(--muted)">Coleções</div><div style="font-size:22px;font-weight:800">${cols.length}</div></div>
+    <div style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)"><div style="font-size:12px;color:var(--muted)">Itens</div><div style="font-size:22px;font-weight:800">${base.length}</div></div>
+  </div>`;
+  const barsHTML = cols.length ? `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:16px;background:var(--surface)">
+    <div style="font-weight:700;margin-bottom:10px">Gasto por coleção</div>
+    ${cols.map(col => `<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="font-weight:600">${_esc(col)}</span><span style="font-weight:700">${fmtVal(colTot[col])} <span style="color:var(--muted);font-weight:400">· ${colN[col]} itens · qtd ${_q(colQtd[col])}</span></span></div><div style="background:var(--bg);border-radius:5px;height:16px;overflow:hidden"><div style="width:${maxCol ? (colTot[col] / maxCol * 100) : 0}%;height:100%;background:var(--accent);border-radius:5px"></div></div></div>`).join('')}
+  </div>` : '';
+  const matHTML = cols.length ? `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)">
+    <div style="font-weight:700;margin-bottom:8px">Coleção × Categoria</div>
+    <div class="table-wrap"><table style="font-size:12px;white-space:nowrap"><thead><tr><th>Coleção/PL</th>${catsOrd.map(cat => `<th style="text-align:right">${_esc(cat)}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Qtd</th></tr></thead><tbody>
+    ${cols.map(col => `<tr><td style="font-weight:600">${_esc(col)}</td>${catsOrd.map(cat => `<td style="text-align:right">${mat[col][cat] ? fmtVal(mat[col][cat]) : '<span style=\'color:var(--muted)\'>—</span>'}</td>`).join('')}<td style="text-align:right;font-weight:700">${fmtVal(colTot[col])}</td><td style="text-align:right">${_q(colQtd[col])}</td></tr>`).join('')}
+    <tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg)"><td>Total</td>${catsOrd.map(cat => `<td style="text-align:right">${fmtVal(catTot[cat] || 0)}</td>`).join('')}<td style="text-align:right">${fmtVal(grand)}</td><td></td></tr>
+    </tbody></table></div></div>` : '<div style="color:var(--muted);padding:20px 0">Sem compras pra mostrar ainda. Suba os pedidos de compra e o custo por coleção aparece aqui.</div>';
+  el.innerHTML = tabBar
+    + `<div style="font-size:12px;color:var(--muted);margin-bottom:14px">💰 Custo por coleção (todas as etapas, menos as rejeitadas). Pra corrigir a coleção de um item, vá na aba da etapa dele e edite a coluna Coleção.</div>`
+    + cardsHTML + barsHTML + matHTML;
+}
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
+  if (cmpTab === '__col') { renderComprasColecoes(el); return; } // aba "Custo por Coleção" (dashboard) tem render próprio
   // Guarda a posição da rolagem (vertical e da tabela) pra tela NÃO pular quando re-renderiza
   const _sy = window.scrollY, _sl = el.querySelector('.table-wrap')?.scrollLeft || 0;
   const fSt = cmpTab;
@@ -12665,11 +12709,6 @@ function renderCompras() {
   const somaVis = vis.reduce((s, c) => s + totalCompra(c), 0);
   const somaQtdVis = vis.reduce((s, c) => s + (+c.qtd || 0), 0);
   const _fmtQtd = q => (+q || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
-  // 💰 Gasto por Coleção/PL: soma o que está VISÍVEL (segue a aba + filtros atuais). Ajuda a custear a coleção enquanto sobe.
-  const _escTxt = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const gastoCol = {};
-  vis.forEach(c => { const col = (c.colecao || '').trim() || '(sem coleção)'; const g = gastoCol[col] = gastoCol[col] || { total: 0, qtd: 0, n: 0, cats: {} }; g.total += totalCompra(c); g.qtd += (+c.qtd || 0); g.n++; const cat = (c.categoria || '').trim() || '(sem categoria)'; g.cats[cat] = (g.cats[cat] || 0) + totalCompra(c); });
-  const colsOrd = Object.keys(gastoCol).sort((a, b) => gastoCol[b].total - gastoCol[a].total);
   // Aprovados agrupados por fornecedor → viram Pedido (gera parcelas no Contas a Pagar).
   const aprovForn = {};
   compras.filter(c => (c.status || '') === 'aprovado').forEach(c => { const f = c.fornecedor || '(sem fornecedor)'; (aprovForn[f] = aprovForn[f] || []).push(c); });
@@ -12688,6 +12727,8 @@ function renderCompras() {
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px;border-bottom:2px solid var(--border);padding-bottom:8px">
       ${[['', 'Todos'], ['pendente', '🕐 Pendentes'], ['aprovado', '✅ Aprovados'], ['pedido', '📦 Pedidos'], ['recebido', '📄 Conferidos'], ['rejeitado', '❌ Rejeitados']].map(([s, lbl]) =>
         `<button class="btn ${fSt === s ? 'primary' : 'ghost'} sm" onclick="setCmpTab('${s}')">${lbl}${s ? ` (${cnt(s)})` : ''}</button>`).join('')}
+      <span style="width:1px;height:22px;background:var(--border);margin:0 4px"></span>
+      <button class="btn ${fSt === '__col' ? 'primary' : 'ghost'} sm" onclick="setCmpTab('__col')" title="Dashboard de custo por coleção, separado por categoria">💰 Custo por Coleção</button>
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
@@ -12704,13 +12745,6 @@ function renderCompras() {
       <button class="btn ghost sm" style="color:var(--red)" onclick="desfazerUltimaImportacaoCompras()" title="Remove de uma vez TODOS os itens da última planilha importada (só os pendentes dessa importação).">↩ Desfazer última importação</button>
       <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) + ' · qtd ' + _fmtQtd([...comprasSel].reduce((s, id) => { const c = compras.find(x => x.id === id); return s + (c ? +c.qtd || 0 : 0); }, 0)) : ''}</span>
     </div>
-    ${colsOrd.length ? `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;background:var(--surface)">
-      <div style="font-weight:700;margin-bottom:6px">💰 Gasto por Coleção/PL <span style="font-size:11px;color:var(--muted);font-weight:400">(${fSt ? 'aba ' + fSt : 'todas as etapas'}${fForn ? ' · ' + _escTxt(fForn) : ''}${fQ ? ' · filtrado' : ''})</span></div>
-      <div class="table-wrap"><table style="font-size:12px;white-space:nowrap"><thead><tr><th>Coleção/PL</th><th style="text-align:right">Qtd</th><th style="text-align:right">Itens</th><th style="text-align:right">Gasto</th><th>Por categoria</th></tr></thead><tbody>
-      ${colsOrd.map(col => { const g = gastoCol[col]; const catsTxt = Object.keys(g.cats).sort((a, b) => g.cats[b] - g.cats[a]).map(k => `${_escTxt(k)} ${fmtVal(g.cats[k])}`).join(' · '); return `<tr><td style="font-weight:600">${_escTxt(col)}</td><td style="text-align:right">${_fmtQtd(g.qtd)}</td><td style="text-align:right">${g.n}</td><td style="text-align:right;font-weight:700">${fmtVal(g.total)}</td><td style="font-size:11px;color:var(--muted)">${catsTxt}</td></tr>`; }).join('')}
-      <tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td style="text-align:right">${_fmtQtd(somaQtdVis)}</td><td style="text-align:right">${vis.length}</td><td style="text-align:right">${fmtVal(somaVis)}</td><td></td></tr>
-      </tbody></table></div>
-    </div>` : ''}
     ${fornsAprov.length && (fSt === '' || fSt === 'aprovado') ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;background:var(--surface)">
       <div style="font-weight:700;margin-bottom:8px">📦 Fazer pedido — itens aprovados por fornecedor</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Escolha a <strong>condição de pagamento</strong> e a <strong>Data de Faturamento</strong> (o prazo conta a partir dela) → gera as parcelas <strong>em aberto</strong> no Contas a Pagar (previstas no Fluxo).</div>
