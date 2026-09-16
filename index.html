@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v607/09-716';
+const APP_VERSION = 'v608/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5304,13 +5304,15 @@ function relatorioContasPorBanco() {
   const totCreditos = +creditosDia.reduce((s, c) => s + c.valor, 0).toFixed(2);
   const totalEntradas = +(totBoletos + totCreditos).toFixed(2);
   const saldoProjetado = +(saldoIni + totalEntradas - totalGeral).toFixed(2);
-  // Boletos a RECEBER A VENCER (próximos dias, ainda não pagos): o pipeline de entradas futuras. Informativo,
-  // NÃO soma no saldo de hoje (é dinheiro que entra nos próximos dias), só mostra o que está por vir.
+  // Boletos a RECEBER A VENCER (ainda não pagos): o pipeline de entradas futuras. Informativo, NÃO soma no saldo de
+  // hoje (é dinheiro dos próximos dias). Respeita o FILTRO DE DATA: com filtro ativo, só os boletos cujo vencimento
+  // cai no período filtrado; sem filtro, os de vencimento futuro (> dia do relatório).
+  const _vencVale = v => dfAtivo() ? passaData(v) : (_toDateInput(v) > repData);
   const _boletosVencer = (typeof getBoletosDaForma === 'function' ? getBoletosDaForma() : [])
-    .filter(b => boletoStatus[b.key] && !(typeof sistemaAcordo !== 'undefined' && sistemaAcordo[b.key]) && !(boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) && b.vencimento && _toDateInput(b.vencimento) > repData)
+    .filter(b => boletoStatus[b.key] && !(typeof sistemaAcordo !== 'undefined' && sistemaAcordo[b.key]) && !(boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) && b.vencimento && _vencVale(b.vencimento))
     .map(b => ({ cliente: b.cliente || '', pedido: b.pedido || '', parcela: (b.totalParcelas > 1 ? `${b.parcela}/${b.totalParcelas}` : ''), valor: +b.valor || 0, venc: b.vencimento }));
   const _avulsosVencer = (boletosAvulsos || [])
-    .filter(a => !a.dataPagamento && a.vencimento && _toDateInput(a.vencimento) > repData)
+    .filter(a => !a.dataPagamento && a.vencimento && _vencVale(a.vencimento))
     .map(a => ({ cliente: a.cliente || '(avulso Itaú)', pedido: a.pedido || '', parcela: '', valor: +a.valorTitulo || 0, venc: a.vencimento }));
   const boletosVencer = _boletosVencer.concat(_avulsosVencer).sort((a, b) => _toDateInput(a.venc).localeCompare(_toDateInput(b.venc)));
   const totVencer = +boletosVencer.reduce((s, b) => s + b.valor, 0).toFixed(2);
@@ -5324,7 +5326,7 @@ function relatorioContasPorBanco() {
       <tr class="sub"><td colspan="2">Subtotal créditos no extrato</td><td class="r">${fmtVal(totCreditos)}</td></tr></tbody></table>` : ''}` :
     `<h2>📥 Entradas previstas em ${repDataBR}</h2><div class="bsaldo">Nenhuma entrada prevista para este dia (nenhum boleto vencendo hoje nem crédito já no extrato).</div>`;
   const boletosVencerHTML = boletosVencer.length ? `
-    <h2>📅 Boletos a vencer — a receber nos próximos dias <span class="cnt">total ${fmtVal(totVencer)}</span></h2>
+    <h2>📅 Boletos a vencer — a receber ${dfAtivo() ? 'no período filtrado' : 'nos próximos dias'} <span class="cnt">total ${fmtVal(totVencer)}</span></h2>
     <table><thead><tr><th>Vencimento</th><th>Pedido</th><th>Cliente</th><th class="r">Valor</th></tr></thead><tbody>
       ${boletosVencer.map(b => `<tr><td>${fmtD(b.venc)}</td><td>${esc(b.pedido)}</td><td>${esc(b.cliente)}${b.parcela ? ' (' + b.parcela + ')' : ''}</td><td class="r">${fmtVal(b.valor)}</td></tr>`).join('')}
       <tr class="sub"><td colspan="3">Subtotal boletos a vencer</td><td class="r">${fmtVal(totVencer)}</td></tr></tbody></table>` : '';
