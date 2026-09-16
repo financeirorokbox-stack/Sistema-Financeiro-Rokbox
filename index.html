@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v614/09-716';
+const APP_VERSION = 'v615/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1286,6 +1286,7 @@ let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa
 let colecoes = []; // [{id,nome,subgrupo}] — coleções por subgrupo (CMV/CMV PL/CMV WL), base do rateio 4 níveis e do Budget
 let compras = []; // requisições/itens de compra: [{id,dataSolic,fornecedor,insumo,unidade,qtd,custoUnit,custoTotal,colecao,dataLimite,categoria,solicitante,empresa,status,condicaoId,nf,dataReceb,obs,_pedidoContas}]
 let comprasSel = new Set(); // seleção (transitória) p/ aprovar vários pedidos de uma vez
+let _colSel = ''; // coleção selecionada no dashboard "Custo por Coleção" (abre o detalhe dela)
 let comprasDriveLidos = {}; // arquivos de pedido de fornecedor (PDF) já lidos da pasta "Pedidos de Compras" do Drive: {nomeArquivo: dataISO}
 let driveSyncLidos = {};    // arquivos já puxados no ☁ Sincronizar do Drive: {'mesId|tipo|nome': true} — pra trazer só os NOVOS (do dia)
 let divergenciasVendas = { sumidos: [], geradoEm: null, arquivo: '' }; // pedidos que estão no sistema mas NÃO vieram na última exportação de vendas (possível cancelamento/mudança de status) — só AVISA, nunca apaga sozinho
@@ -12627,6 +12628,7 @@ let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcult
 // Aba (etapa do fluxo) selecionada em Compras — lembrada no aparelho
 let cmpTab = (() => { try { return localStorage.getItem('cmpTab') || ''; } catch (e) { return ''; } })();
 function setCmpTab(s) { cmpTab = s; try { localStorage.setItem('cmpTab', s); } catch (e) {} renderCompras(); }
+function selColCompra(col) { _colSel = (_colSel === col ? '' : col); renderCompras(); } // clica na coleção do dashboard → abre/fecha o detalhe dela
 function toggleCmpCol(key) {
   if (cmpColsOcultas.includes(key)) cmpColsOcultas = cmpColsOcultas.filter(k => k !== key);
   else cmpColsOcultas.push(key);
@@ -12678,19 +12680,28 @@ function renderComprasColecoes(el) {
     <div style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)"><div style="font-size:12px;color:var(--muted)">Coleções</div><div style="font-size:22px;font-weight:800">${cols.length}</div></div>
     <div style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)"><div style="font-size:12px;color:var(--muted)">Itens</div><div style="font-size:22px;font-weight:800">${base.length}</div></div>
   </div>`;
+  const _colAttr = c => String(c).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const barsHTML = cols.length ? `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:16px;background:var(--surface)">
-    <div style="font-weight:700;margin-bottom:10px">Gasto por coleção</div>
-    ${cols.map(col => `<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="font-weight:600">${_esc(col)}</span><span style="font-weight:700">${fmtVal(colTot[col])} <span style="color:var(--muted);font-weight:400">· ${colN[col]} itens</span></span></div><div style="background:var(--bg);border-radius:5px;height:16px;overflow:hidden"><div style="width:${maxCol ? (colTot[col] / maxCol * 100) : 0}%;height:100%;background:var(--accent);border-radius:5px"></div></div></div>`).join('')}
+    <div style="font-weight:700;margin-bottom:10px">Gasto por coleção <span style="font-size:11px;color:var(--muted);font-weight:400">(clique numa coleção pra ver o detalhe)</span></div>
+    ${cols.map(col => `<div onclick="selColCompra('${_colAttr(col)}')" style="margin-bottom:6px;cursor:pointer;padding:5px 7px;border-radius:7px;${_colSel === col ? 'background:var(--surface-2);outline:2px solid var(--accent)' : ''}" title="Clique pra ver o detalhe"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="font-weight:600">${_colSel === col ? '▾ ' : '▸ '}${_esc(col)}</span><span style="font-weight:700">${fmtVal(colTot[col])} <span style="color:var(--muted);font-weight:400">· ${colN[col]} itens</span></span></div><div style="background:var(--bg);border-radius:5px;height:16px;overflow:hidden"><div style="width:${maxCol ? (colTot[col] / maxCol * 100) : 0}%;height:100%;background:var(--accent);border-radius:5px"></div></div></div>`).join('')}
   </div>` : '';
-  const matHTML = cols.length ? `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--surface)">
-    <div style="font-weight:700;margin-bottom:8px">Coleção × Categoria</div>
-    <div class="table-wrap"><table style="font-size:12px;white-space:nowrap"><thead><tr><th>Coleção/PL</th>${catsOrd.map(cat => `<th style="text-align:right">${_esc(cat)}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
-    ${cols.map(col => `<tr><td style="font-weight:600">${_esc(col)}</td>${catsOrd.map(cat => `<td style="text-align:right">${mat[col][cat] ? fmtVal(mat[col][cat]) : '<span style=\'color:var(--muted)\'>—</span>'}</td>`).join('')}<td style="text-align:right;font-weight:700">${fmtVal(colTot[col])}</td></tr>`).join('')}
-    <tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg)"><td>Total</td>${catsOrd.map(cat => `<td style="text-align:right">${fmtVal(catTot[cat] || 0)}</td>`).join('')}<td style="text-align:right">${fmtVal(grand)}</td></tr>
-    </tbody></table></div></div>` : '<div style="color:var(--muted);padding:20px 0">Sem compras pra mostrar ainda. Suba os pedidos de compra e o custo por coleção aparece aqui.</div>';
+  const detailHTML = !cols.length ? '<div style="color:var(--muted);padding:20px 0">Sem compras pra mostrar ainda. Suba os pedidos de compra e o custo por coleção aparece aqui.</div>'
+    : (!_colSel ? '<div style="color:var(--muted);font-size:12px;padding:8px 0">👆 Clique numa coleção acima pra abrir a tabelinha só com os itens dela.</div>'
+    : (() => {
+        const g = mat[_colSel] || {};
+        const catsSel = Object.keys(g).sort((a, b) => g[b] - g[a]);
+        const itens = base.filter(c => (((c.colecao || '').trim()) || '(sem coleção)') === _colSel).sort((a, b) => totalCompra(b) - totalCompra(a));
+        return `<div style="border:1px solid var(--accent);border-radius:10px;padding:12px 14px;background:var(--surface)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px"><div style="font-weight:700">📁 ${_esc(_colSel)} <span style="color:var(--muted);font-weight:400;font-size:12px">· ${fmtVal(colTot[_colSel])} · ${itens.length} itens</span></div><button class="btn ghost sm" onclick="selColCompra('')">✕ fechar</button></div>
+        <div style="margin-bottom:10px">${catsSel.map(cat => `<span style="display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:3px 10px;margin:2px 5px 2px 0;font-size:12px">${_esc(cat)}: <strong>${fmtVal(g[cat])}</strong></span>`).join('')}</div>
+        <div class="table-wrap"><table style="font-size:12px;white-space:nowrap"><thead><tr><th>Fornecedor</th><th>Insumo</th><th>Categoria</th><th style="text-align:right">Qtd</th><th>Un</th><th style="text-align:right">Valor</th><th>Status</th></tr></thead><tbody>
+        ${itens.map(c => `<tr><td>${_esc(c.fornecedor || '—')}</td><td>${_esc(c.insumo || '—')}</td><td>${_esc(c.categoria || '—')}</td><td style="text-align:right">${_q(c.qtd)}</td><td>${_esc(c.unidade || '')}</td><td style="text-align:right;font-weight:600">${fmtVal(totalCompra(c))}</td><td style="font-size:11px;color:var(--muted)">${_esc((COMPRA_ST[c.status || 'pendente'] || ['', ''])[0] || '')}</td></tr>`).join('')}
+        <tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="5">Total</td><td style="text-align:right">${fmtVal(colTot[_colSel])}</td><td></td></tr>
+        </tbody></table></div></div>`;
+      })());
   el.innerHTML = tabBar
-    + `<div style="font-size:12px;color:var(--muted);margin-bottom:14px">💰 Custo por coleção (todas as etapas, menos as rejeitadas). Pra corrigir a coleção de um item, vá na aba da etapa dele e edite a coluna Coleção.</div>`
-    + cardsHTML + barsHTML + matHTML;
+    + `<div style="font-size:12px;color:var(--muted);margin-bottom:14px">💰 Custo por coleção (todas as etapas, menos as rejeitadas). Pra corrigir a coleção/categoria de um item, vá na aba da etapa dele e edite a coluna.</div>`
+    + cardsHTML + barsHTML + detailHTML;
 }
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
