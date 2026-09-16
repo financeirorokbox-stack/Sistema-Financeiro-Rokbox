@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v608/09-716';
+const APP_VERSION = 'v609/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5340,7 +5340,7 @@ function relatorioContasPorBanco() {
     const corB = sobraB < 0 ? '#b3261e' : '#1b7a3d';
     body += `<h2>🏦 ${esc(b)} <span class="cnt">${arr.length} conta(s) · a pagar ${fmtVal(sub)}</span></h2>
     <table><thead><tr><th>Vencimento</th><th>Fornecedor</th><th>Categoria</th><th>Histórico</th><th>Empresa</th><th class="r">Valor</th></tr></thead><tbody>
-    ${arr.map(c => `<tr><td>${fmtD(c.vencimento)}</td><td>${esc(c.fornecedor || '—')}</td><td>${esc(catContaPagar(c) || '—')}</td><td>${esc(c.observacao || '')}</td><td>${esc(c.empresa || '')}</td><td class="r">${fmtVal(c.valor || 0)}</td></tr>`).join('')}
+    ${arr.map(c => `<tr><td>${fmtD(c.vencimento)}</td><td>${esc(c.fornecedor || '—')}</td><td>${esc(catContaPagar(c) || '—')}</td><td>${esc((c.observacao || '').replace(/Coleção Coleção/g, 'Coleção'))}</td><td>${esc(c.empresa || '')}</td><td class="r">${fmtVal(c.valor || 0)}</td></tr>`).join('')}
     <tr class="sub"><td colspan="5">Subtotal a pagar — ${esc(b)}</td><td class="r">${fmtVal(sub)}</td></tr></tbody></table>
     <div class="bsaldo">Saldo inicial <b>${fmtVal(saldoB)}</b> &nbsp;−&nbsp; a pagar <b>${fmtVal(sub)}</b> &nbsp;=&nbsp; <b style="color:${corB}">Sobra ${fmtVal(sobraB)}</b>${sobraB < 0 ? ' &nbsp;⚠️ não cobre as contas do dia' : ''}${saldoB === 0 ? ' &nbsp;<span style="color:#b3261e">(sem saldo digitado p/ este banco)</span>' : ''}</div>`;
   });
@@ -13290,7 +13290,7 @@ function gerarPedidoCompra(fornecedor, i) {
 // Próximo nº de pedido de compra (maior existente + 1; começa em 1)
 function proxNumPedidoCompra() { const nums = compras.map(c => parseInt(c._pedidoNum, 10)).filter(n => !isNaN(n)); return (nums.length ? Math.max(...nums) : 0) + 1; }
 function descricaoPedidoCompra(numPed, colecoes, k, n) { return `Pedido #${numPed}` + (colecoes ? ' — ' + colecoes : '') + (n > 1 ? ` (parc. ${k + 1}/${n})` : ''); }
-function obsPedidoCompra(numPed, nItens, colecoes, obsPed) { return `🛒 Pedido #${numPed} (${nItens} ${nItens === 1 ? 'item' : 'itens'})` + (colecoes ? ` · Coleção ${colecoes}` : '') + (obsPed ? ' — ' + obsPed : ''); }
+function obsPedidoCompra(numPed, nItens, colecoes, obsPed) { return `🛒 Pedido #${numPed} (${nItens} ${nItens === 1 ? 'item' : 'itens'})` + (colecoes ? ` · ${colecoes}` : '') + (obsPed ? ' — ' + obsPed : ''); }
 function removerCompra(id) { const c = compras.find(x => x.id === id); if (!c) return; if (!confirm('Remover esta compra?')) return; compras = compras.filter(x => x.id !== id); saveData('compras', compras); renderCompras(); }
 // ── Condições de Pagamento (prazos p/ Compras → viram parcelas) ──
 // Modelo: {id, nome, dias:[28,56,84]} — os dias contam a partir da Data de Faturamento.
