@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v606/09-716';
+const APP_VERSION = 'v607/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5304,7 +5304,17 @@ function relatorioContasPorBanco() {
   const totCreditos = +creditosDia.reduce((s, c) => s + c.valor, 0).toFixed(2);
   const totalEntradas = +(totBoletos + totCreditos).toFixed(2);
   const saldoProjetado = +(saldoIni + totalEntradas - totalGeral).toFixed(2);
-  const entradasHTML = (boletosDia.length || creditosDia.length) ? `
+  // Boletos a RECEBER A VENCER (próximos dias, ainda não pagos): o pipeline de entradas futuras. Informativo,
+  // NÃO soma no saldo de hoje (é dinheiro que entra nos próximos dias), só mostra o que está por vir.
+  const _boletosVencer = (typeof getBoletosDaForma === 'function' ? getBoletosDaForma() : [])
+    .filter(b => boletoStatus[b.key] && !(typeof sistemaAcordo !== 'undefined' && sistemaAcordo[b.key]) && !(boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) && b.vencimento && _toDateInput(b.vencimento) > repData)
+    .map(b => ({ cliente: b.cliente || '', pedido: b.pedido || '', parcela: (b.totalParcelas > 1 ? `${b.parcela}/${b.totalParcelas}` : ''), valor: +b.valor || 0, venc: b.vencimento }));
+  const _avulsosVencer = (boletosAvulsos || [])
+    .filter(a => !a.dataPagamento && a.vencimento && _toDateInput(a.vencimento) > repData)
+    .map(a => ({ cliente: a.cliente || '(avulso Itaú)', pedido: a.pedido || '', parcela: '', valor: +a.valorTitulo || 0, venc: a.vencimento }));
+  const boletosVencer = _boletosVencer.concat(_avulsosVencer).sort((a, b) => _toDateInput(a.venc).localeCompare(_toDateInput(b.venc)));
+  const totVencer = +boletosVencer.reduce((s, b) => s + b.valor, 0).toFixed(2);
+  const entradasDiaHTML = (boletosDia.length || creditosDia.length) ? `
     <h2>📥 Entradas previstas em ${repDataBR} <span class="cnt">total ${fmtVal(totalEntradas)}</span></h2>
     ${boletosDia.length ? `<table><thead><tr><th>Boleto a receber (vence hoje)</th><th>Pedido</th><th>Cliente</th><th class="r">Valor</th></tr></thead><tbody>
       ${boletosDia.map(b => `<tr><td>Boleto${b.parcela ? ' ' + b.parcela : ''}</td><td>${esc(b.pedido)}</td><td>${esc(b.cliente)}</td><td class="r">${fmtVal(b.valor)}</td></tr>`).join('')}
@@ -5313,6 +5323,12 @@ function relatorioContasPorBanco() {
       ${creditosDia.map(c => `<tr><td>${esc(c.memo || 'Crédito')}</td><td>${esc(c.banco)}</td><td class="r">${fmtVal(c.valor)}</td></tr>`).join('')}
       <tr class="sub"><td colspan="2">Subtotal créditos no extrato</td><td class="r">${fmtVal(totCreditos)}</td></tr></tbody></table>` : ''}` :
     `<h2>📥 Entradas previstas em ${repDataBR}</h2><div class="bsaldo">Nenhuma entrada prevista para este dia (nenhum boleto vencendo hoje nem crédito já no extrato).</div>`;
+  const boletosVencerHTML = boletosVencer.length ? `
+    <h2>📅 Boletos a vencer — a receber nos próximos dias <span class="cnt">total ${fmtVal(totVencer)}</span></h2>
+    <table><thead><tr><th>Vencimento</th><th>Pedido</th><th>Cliente</th><th class="r">Valor</th></tr></thead><tbody>
+      ${boletosVencer.map(b => `<tr><td>${fmtD(b.venc)}</td><td>${esc(b.pedido)}</td><td>${esc(b.cliente)}${b.parcela ? ' (' + b.parcela + ')' : ''}</td><td class="r">${fmtVal(b.valor)}</td></tr>`).join('')}
+      <tr class="sub"><td colspan="3">Subtotal boletos a vencer</td><td class="r">${fmtVal(totVencer)}</td></tr></tbody></table>` : '';
+  const entradasHTML = entradasDiaHTML + boletosVencerHTML;
   let body = '';
   bancos.forEach(b => {
     const arr = grupos[b]; const sub = arr.reduce((s, c) => s + (c.valor || 0), 0);
@@ -5340,6 +5356,7 @@ function relatorioContasPorBanco() {
       <div style="color:#b3261e">− Total a pagar: <strong>${fmtVal(totalGeral)}</strong></div>
       <div style="font-size:19px;margin-top:4px;border-top:1px solid #999;padding-top:6px">= Saldo projetado (com entradas): <strong style="color:${saldoProjetado < 0 ? '#b3261e' : '#1b7a3d'}">${fmtVal(saldoProjetado)}</strong></div>
       <div style="font-size:12px;color:#666;margin-top:4px">(só saldo − a pagar, sem as entradas: ${fmtVal(saldoFinal)})</div>
+      ${boletosVencer.length ? `<div style="font-size:13px;color:#1b7a3d;margin-top:8px;border-top:1px dashed #bbb;padding-top:6px">📅 Ainda a receber (boletos a vencer): <strong>${fmtVal(totVencer)}</strong> <span style="color:#666">— não entra no saldo de hoje, é o que pinga nos próximos dias.</span></div>` : ''}
     </div>
     <div class="noprint"><button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button></div>
   </body></html>`;
