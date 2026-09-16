@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v610/09-716';
+const APP_VERSION = 'v611/09-716';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12761,7 +12761,7 @@ function renderCompras() {
       <td class="cmpcol-desc" style="text-align:right">${ro ? fmtVal(c.desconto || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.desconto || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','desconto',this.value)" title="Desconto do item — subtrai do total">`}</td>
       <td class="cmpcol-totalg" style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
       <td class="cmpcol-datafat">${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:118px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
-      <td class="cmpcol-colecao">${ro ? (c.colecao || '—') : `<input class="inline-input" style="width:110px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value)">`}</td>
+      <td class="cmpcol-colecao"><input class="inline-input" style="width:110px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value);renderCompras()" title="A coleção pode ser editada em qualquer etapa (inclusive conferido), pra o gasto por coleção ficar certo"></td>
       <td class="cmpcol-cat">${ro ? (c.categoria || '—') : `<input class="inline-input" style="width:105px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value)">`}</td>
       <td class="cmpcol-solic">${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:90px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
       <td class="cmpcol-status"><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
