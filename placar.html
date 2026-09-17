@@ -8,74 +8,70 @@
   :root{
     --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029;
     --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353;
-    --gold:#ffd76a; --blue:#7cc4ff; --pink:#ff9ecb; --amber:#ffb347;
+    --gold:#ffd76a; --blue:#7cc4ff; --blue2:#2b9be0; --amber:#ffb347;
     --shadow:0 8px 30px rgba(0,0,0,.35);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-  body{min-height:100vh;padding:clamp(14px,2.2vw,34px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
+  body{min-height:100vh;padding:clamp(12px,2vw,30px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
   .wrap{max-width:1700px;margin:0 auto}
-  /* header */
-  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:clamp(14px,1.8vw,26px)}
-  .brand{display:flex;align-items:center;gap:14px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:clamp(12px,1.5vw,22px)}
   .logo{font-weight:800;font-size:clamp(22px,2.4vw,38px);letter-spacing:.5px}
   .logo b{color:var(--lime)}
   .sub{color:var(--muted);font-size:clamp(12px,1vw,15px);margin-top:2px}
+  .ctrl{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
   .live{display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-size:clamp(12px,1vw,15px);color:var(--muted)}
   .dot{width:10px;height:10px;border-radius:50%;background:var(--lime2);box-shadow:0 0 0 0 rgba(57,211,83,.6);animation:pulse 1.8s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(57,211,83,.55)}70%{box-shadow:0 0 0 12px rgba(57,211,83,0)}100%{box-shadow:0 0 0 0 rgba(57,211,83,0)}}
   .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px}
   .seg button{background:none;border:0;color:var(--muted);font-weight:700;font-size:clamp(12px,1vw,15px);padding:7px 18px;border-radius:999px;cursor:pointer;transition:.15s}
   .seg button.on{background:var(--lime);color:#08130b}
-  /* top cards */
-  .tops{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:clamp(10px,1.2vw,18px);margin-bottom:clamp(12px,1.5vw,22px)}
-  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:20px;padding:clamp(16px,1.8vw,28px);box-shadow:var(--shadow)}
-  .card .lab{color:var(--muted);font-size:clamp(12px,1vw,15px);font-weight:700;text-transform:uppercase;letter-spacing:1px}
-  .big{font-size:clamp(30px,4.6vw,72px);font-weight:800;line-height:1.02;margin-top:8px;color:var(--lime)}
-  .big.small{font-size:clamp(26px,3.4vw,52px);color:var(--txt)}
-  .cardrow{display:flex;gap:24px;flex-wrap:wrap;margin-top:10px}
-  .kv .k{color:var(--muted);font-size:clamp(11px,.9vw,14px)}
-  .kv .v{font-size:clamp(18px,1.7vw,26px);font-weight:700}
-  /* rankings */
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.2vw,18px)}
-  h2{font-size:clamp(15px,1.3vw,20px);margin-bottom:14px;display:flex;align-items:center;gap:10px}
-  h2 .pill{font-size:11px;color:#08130b;background:var(--gold);border-radius:999px;padding:2px 9px;font-weight:800}
-  .rank{display:flex;flex-direction:column;gap:clamp(9px,1vw,14px)}
-  .row{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:12px}
-  .pos{font-weight:800;color:var(--muted);font-size:clamp(14px,1.2vw,19px);text-align:center}
+  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:20px;padding:clamp(15px,1.6vw,26px);box-shadow:var(--shadow)}
+  /* colunas de segmento */
+  .segs{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.2vw,18px)}
+  .col-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:14px}
+  .col-name{font-size:clamp(17px,1.6vw,26px);font-weight:800;display:flex;align-items:center;gap:9px}
+  .col-tot{font-size:clamp(24px,3vw,46px);font-weight:800;line-height:1;color:var(--lime)}
+  .seg-atacado .col-tot{color:var(--blue)}
+  .seg-atacado .col-name .badge{background:var(--blue)}
+  .badge{width:12px;height:12px;border-radius:4px;background:var(--lime)}
+  .subrow{display:flex;gap:clamp(14px,2vw,30px);flex-wrap:wrap;margin-bottom:16px}
+  .kv .k{color:var(--muted);font-size:clamp(11px,.85vw,13px)}
+  .kv .v{font-size:clamp(17px,1.5vw,24px);font-weight:800}
+  h3{font-size:clamp(12px,1vw,15px);color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px}
+  .rank{display:flex;flex-direction:column;gap:clamp(8px,.9vw,12px)}
+  .row{display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px}
+  .pos{font-weight:800;color:var(--muted);font-size:clamp(13px,1.1vw,17px);text-align:center}
   .row:nth-child(1) .pos{color:var(--gold)}
   .bar-wrap{min-width:0}
-  .bar-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px}
-  .nm{font-weight:700;font-size:clamp(14px,1.25vw,20px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .qt{color:var(--muted);font-size:clamp(11px,.9vw,14px)}
-  .val{font-weight:800;font-size:clamp(15px,1.35vw,21px);white-space:nowrap}
-  .bar{height:clamp(8px,.7vw,11px);background:#0d1712;border-radius:999px;overflow:hidden}
-  .bar > i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .8s cubic-bezier(.22,1,.36,1)}
-  .row:nth-child(2) .bar>i{background:linear-gradient(90deg,#2b9be0,var(--blue))}
-  .row:nth-child(3) .bar>i{background:linear-gradient(90deg,#d98a2b,var(--amber))}
-  /* status strip */
-  .status{margin-top:clamp(12px,1.5vw,22px)}
+  .bar-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px}
+  .nm{font-weight:700;font-size:clamp(13px,1.1vw,18px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .val{font-weight:800;font-size:clamp(13px,1.15vw,19px);white-space:nowrap}
+  .qt{color:var(--muted);font-size:clamp(10px,.85vw,13px);white-space:nowrap}
+  .bar{height:clamp(7px,.6vw,10px);background:#0d1712;border-radius:999px;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .8s cubic-bezier(.22,1,.36,1)}
+  .seg-atacado .bar>i{background:linear-gradient(90deg,var(--blue2),var(--blue))}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .status{margin-top:clamp(12px,1.4vw,20px)}
+  .status h2{font-size:clamp(14px,1.2vw,19px);margin-bottom:12px}
+  .status h2 span{color:var(--muted);font-weight:400;font-size:.8em}
   .chips{display:flex;flex-wrap:wrap;gap:10px}
-  .chip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 15px;display:flex;align-items:center;gap:10px}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 14px;display:flex;align-items:center;gap:9px}
   .chip .cn{font-size:clamp(12px,1vw,15px);color:var(--muted)}
-  .chip .cc{font-weight:800;font-size:clamp(15px,1.3vw,20px)}
+  .chip .cc{font-weight:800;font-size:clamp(14px,1.2vw,19px)}
   .chip .cd{width:9px;height:9px;border-radius:50%}
-  .foot{margin-top:18px;color:var(--muted);font-size:clamp(11px,.85vw,13px);text-align:center}
-  @media(max-width:900px){.tops{grid-template-columns:1fr 1fr}.tops .card:first-child{grid-column:1/-1}.grid2{grid-template-columns:1fr}}
-  @media(max-width:560px){.tops{grid-template-columns:1fr}}
-  .loading{opacity:.5}
+  .foot{margin-top:16px;color:var(--muted);font-size:clamp(11px,.85vw,13px);text-align:center}
+  @media(max-width:820px){.segs{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">
-      <div>
-        <div class="logo">ROK<b>BOX</b> · Placar</div>
-        <div class="sub" id="sub">carregando vendas…</div>
-      </div>
+    <div>
+      <div class="logo">ROK<b>BOX</b> · Placar</div>
+      <div class="sub" id="sub">carregando vendas…</div>
     </div>
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div class="ctrl">
       <div class="seg" id="seg">
         <button data-p="hoje" class="on">Hoje</button>
         <button data-p="mes">Mês</button>
@@ -84,41 +80,42 @@
     </div>
   </header>
 
-  <section class="tops">
-    <div class="card">
-      <div class="lab" id="lab-total">Vendas de hoje</div>
-      <div class="big" id="v-total">R$ 0,00</div>
-      <div class="cardrow">
-        <div class="kv"><div class="k">Pedidos</div><div class="v" id="v-qtd">0</div></div>
-        <div class="kv"><div class="k">Peças</div><div class="v" id="v-pecas">0</div></div>
-        <div class="kv"><div class="k">Ticket médio</div><div class="v" id="v-ticket">R$ 0,00</div></div>
+  <section class="segs">
+    <div class="card seg-varejo" id="col-Varejo">
+      <div class="col-head">
+        <div class="col-name"><span class="badge"></span>🛍️ Varejo</div>
+        <div class="col-tot" id="Varejo-tot">R$ 0,00</div>
       </div>
+      <div class="subrow">
+        <div class="kv"><div class="k">Pedidos</div><div class="v" id="Varejo-qtd">0</div></div>
+        <div class="kv"><div class="k">Peças</div><div class="v" id="Varejo-pecas">0</div></div>
+        <div class="kv"><div class="k">Ticket médio</div><div class="v" id="Varejo-ticket">R$ 0,00</div></div>
+      </div>
+      <h3>Ranking vendedores</h3>
+      <div class="rank" id="Varejo-rank-v"></div>
+      <h3>Ranking lojas</h3>
+      <div class="rank" id="Varejo-rank-l"></div>
     </div>
-    <div class="card">
-      <div class="lab">🏆 Top vendedor</div>
-      <div class="big small" id="top-vend">—</div>
-      <div class="cardrow"><div class="kv"><div class="k" id="top-vend-sub">—</div></div></div>
-    </div>
-    <div class="card">
-      <div class="lab">🏬 Top loja</div>
-      <div class="big small" id="top-loja">—</div>
-      <div class="cardrow"><div class="kv"><div class="k" id="top-loja-sub">—</div></div></div>
+
+    <div class="card seg-atacado" id="col-Atacado">
+      <div class="col-head">
+        <div class="col-name"><span class="badge"></span>📦 Atacado</div>
+        <div class="col-tot" id="Atacado-tot">R$ 0,00</div>
+      </div>
+      <div class="subrow">
+        <div class="kv"><div class="k">Pedidos</div><div class="v" id="Atacado-qtd">0</div></div>
+        <div class="kv"><div class="k">Peças</div><div class="v" id="Atacado-pecas">0</div></div>
+        <div class="kv"><div class="k">Ticket médio</div><div class="v" id="Atacado-ticket">R$ 0,00</div></div>
+      </div>
+      <h3>Ranking vendedores</h3>
+      <div class="rank" id="Atacado-rank-v"></div>
+      <h3>Ranking lojas</h3>
+      <div class="rank" id="Atacado-rank-l"></div>
     </div>
   </section>
 
-  <section class="grid2">
-    <div class="card">
-      <h2>Ranking por vendedor <span class="pill" id="pill-v">—</span></h2>
-      <div class="rank" id="rank-vend"></div>
-    </div>
-    <div class="card">
-      <h2>Ranking por loja <span class="pill" id="pill-l">—</span></h2>
-      <div class="rank" id="rank-loja"></div>
-    </div>
-  </section>
-
-  <section class="status card" style="margin-top:16px">
-    <h2>Situação dos pedidos <span style="color:var(--muted);font-weight:400;font-size:.8em">(todos os status do mês)</span></h2>
+  <section class="status card">
+    <h2>Situação dos pedidos <span>(todos os status do mês)</span></h2>
     <div class="chips" id="chips"></div>
   </section>
 
@@ -130,10 +127,11 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
-const OCULTAR = new Set(['Atualização de estoque','Correios']); // status que nao aparecem na faixa (por enqto)
-// Lojas de operação "Amostra" (não são venda) — ficam de fora do placar; mantém só Venda e Troca
+const OCULTAR = new Set(['Atualização de estoque','Correios']);
 const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário']);
+const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
 const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
+const segDe = loja => ATACADO.has(loja) ? 'Atacado' : 'Varejo';
 const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf = n => (n||0).toLocaleString('pt-BR');
 let periodo = 'hoje';
@@ -149,79 +147,74 @@ async function carregar(){
     render();
   }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
 }
-
 function agrupa(regs, campo){
   const m={};
   regs.forEach(x=>{const k=x[campo]||'(sem)'; m[k]=m[k]||{n:0,v:0}; m[k].n++; m[k].v+=x.valor;});
   return Object.entries(m).map(([k,o])=>({nome:k,...o})).sort((a,b)=>b.v-a.v);
 }
-function barras(el, arr){
-  const max = arr.length?arr[0].v:1;
-  el.innerHTML = arr.slice(0,6).map((x,i)=>`
+function barras(el, arr, max){
+  el.innerHTML = arr.slice(0,5).map((x,i)=>`
     <div class="row">
       <div class="pos">${i+1}</div>
       <div class="bar-wrap">
         <div class="bar-top"><span class="nm">${x.nome}</span><span class="val">${brl(x.v)}</span></div>
-        <div class="bar"><i style="width:${Math.max(3,x.v/max*100)}%"></i></div>
+        <div class="bar"><i style="width:${Math.max(3,x.v/(max||1)*100)}%"></i></div>
       </div>
       <div class="qt">${x.n} ped</div>
-    </div>`).join('') || '<div class="qt">sem vendas no período</div>';
+    </div>`).join('') || '<div class="empty">sem vendas no período</div>';
 }
-
+function preencheSeg(S, regs){
+  const tot = regs.reduce((s,x)=>s+x.valor,0), q = regs.length;
+  const pcs = regs.reduce((s,x)=>s+(x.pecas||0),0);
+  document.getElementById(S+'-tot').textContent = brl(tot);
+  document.getElementById(S+'-qtd').textContent = nf(q);
+  document.getElementById(S+'-pecas').textContent = nf(pcs);
+  document.getElementById(S+'-ticket').textContent = brl(q?tot/q:0);
+  const rv = agrupa(regs,'vendedor'), rl = agrupa(regs,'loja');
+  const maxv = rv.length?rv[0].v:1, maxl = rl.length?rl[0].v:1;
+  barras(document.getElementById(S+'-rank-v'), rv, maxv);
+  barras(document.getElementById(S+'-rank-l'), rl, maxl);
+}
 function render(){
   if(!dados){return;}
   const hj = hojeISO();
-  const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja)); // só Venda e Troca (sem Amostra)
-  // rótulos bonitos p/ cadastro incompleto na Bling (some sozinho quando preencherem loja/vendedor lá)
+  const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
   regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
   const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
   const base = periodo==='hoje' ? vendasMes.filter(x=>x.data===hj) : vendasMes;
 
-  // total
-  const tot = base.reduce((s,x)=>s+x.valor,0), q = base.length;
-  const pcs = base.reduce((s,x)=>s+(x.pecas||0),0);
-  document.getElementById('lab-total').textContent = periodo==='hoje'?'Vendas de hoje':'Vendas do mês';
-  document.getElementById('v-total').textContent = brl(tot);
-  document.getElementById('v-qtd').textContent = nf(q);
-  document.getElementById('v-pecas').textContent = nf(pcs);
-  document.getElementById('v-ticket').textContent = brl(q?tot/q:0);
+  preencheSeg('Varejo', base.filter(x=>segDe(x.loja)==='Varejo'));
+  preencheSeg('Atacado', base.filter(x=>segDe(x.loja)==='Atacado'));
 
-  // rankings
-  const rv = agrupa(base,'vendedor'), rl = agrupa(base,'loja');
-  barras(document.getElementById('rank-vend'), rv);
-  barras(document.getElementById('rank-loja'), rl);
-  document.getElementById('pill-v').textContent = periodo==='hoje'?'hoje':'mês';
-  document.getElementById('pill-l').textContent = periodo==='hoje'?'hoje':'mês';
-
-  // top cards
-  if(rv[0]){document.getElementById('top-vend').textContent=rv[0].nome;document.getElementById('top-vend-sub').textContent=brl(rv[0].v)+' · '+rv[0].n+' pedidos';}
-  else{document.getElementById('top-vend').textContent='—';document.getElementById('top-vend-sub').textContent='sem vendas';}
-  if(rl[0]){document.getElementById('top-loja').textContent=rl[0].nome;document.getElementById('top-loja-sub').textContent=brl(rl[0].v)+' · '+rl[0].n+' pedidos';}
-  else{document.getElementById('top-loja').textContent='—';document.getElementById('top-loja-sub').textContent='sem vendas';}
-
-  // status (sempre do mês) — oculta os que ela não quer ver por enquanto
+  // status (todos, sem os ocultos)
   const st = agrupa(regsMes.filter(x=>!OCULTAR.has(x.situacao)),'situacao');
   document.getElementById('chips').innerHTML = st.map(x=>`
     <div class="chip"><span class="cd" style="background:${STCOR[x.nome]||'#8fa89a'}"></span>
     <span class="cn">${x.nome}</span><span class="cc">${x.n}</span></div>`).join('');
 
-  // header
   const mesNome = new Date((dados.mes||hj)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}`;
+  const totMes = vendasMes.reduce((s,x)=>s+x.valor,0);
+  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome} · ${periodo==='hoje'?'vendo HOJE':'vendo o MÊS'}`;
   const upd = dados.atualizado? new Date(dados.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('foot').textContent = `Rokbox · Placar ao vivo · dados de ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês`;
+  document.getElementById('foot').textContent = `Rokbox · Placar ao vivo · ${mesNome} · ${brl(totMes)} no mês (Varejo + Atacado)`;
 }
-
+function setPeriodo(p){
+  periodo=p;
+  [...document.querySelectorAll('#seg button')].forEach(x=>x.classList.toggle('on',x.dataset.p===p));
+  render();
+}
+// Alterna sozinho Hoje/Mês a cada 15s (pra TV, que não tem clique). No celular, tocar reinicia o ciclo.
+let autoTimer;
+function startAuto(){ clearInterval(autoTimer); autoTimer=setInterval(()=>setPeriodo(periodo==='hoje'?'mes':'hoje'), 15000); }
 document.getElementById('seg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b)return;
-  periodo=b.dataset.p;
-  [...document.querySelectorAll('#seg button')].forEach(x=>x.classList.toggle('on',x===b));
-  render();
+  setPeriodo(b.dataset.p);
+  startAuto();
 });
-
 carregar();
-setInterval(carregar, 60000); // atualiza a cada 60s
+startAuto();
+setInterval(carregar, 60000);
 </script>
 </body>
 </html>
