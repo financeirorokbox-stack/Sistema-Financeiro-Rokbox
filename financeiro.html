@@ -118,7 +118,7 @@ const VENDA=new Set(['Verificado','Em separação','Atendido','Checkout parcial'
 function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
 function tentar(){
   const v=document.getElementById('gpass').value||'';
-  if(djb2(v)===HASH_FIN){ try{localStorage.setItem('rk_gate_fin','1')}catch(e){} abrir(); }
+  if(djb2(v)===HASH_FIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1');}catch(e){} abrir(); } // diretor libera os DOIS paineis
   else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
 function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
@@ -132,7 +132,7 @@ function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMo
 
 async function carregar(){
   try{
-    const [sid,cr,cp,rico]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('blingVendasRico')]);
+    const [sid,cr,cp,pedidos,lc,dev]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes')]);
     const mes=mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
     const dias=Object.keys(sid||{}).sort();
@@ -159,11 +159,18 @@ async function carregar(){
     const res=crMes-cpMes;
     const rEl=document.getElementById('resultado'); rEl.textContent=brl(res); rEl.style.color=res>=0?'var(--lime)':'var(--red)';
     document.getElementById('res-detalhe').textContent=`Recebido ${brl(crMes)} − Pago ${brl(cpMes)}`;
-    // ── faturamento (vendas do mês, do placar) ──
-    let fat=0,qv=0;
-    if(rico&&rico.registros){ const v=rico.registros.filter(x=>!AMOSTRA.has(x.loja)&&VENDA.has(x.situacao)); fat=v.reduce((s,x)=>s+(+x.valor||0),0); qv=v.length; }
+    // ── FATURAMENTO REAL do mês (igual à página de Vendas: pedidos de operação Venda+Troca,
+    //     tirando 'cancelado' e 'em aberto', menos as devoluções creditadas nesses pedidos) ──
+    const NAOAP=['cancelado','em aberto'];
+    const opDe=l=>(lc&&lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
+    const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+    const devPorPed={};
+    (dev||[]).forEach(d=>{ (String(d.pedidoCredito||'').match(/\d{3,6}/g)||[]).forEach(pc=>{ devPorPed[pc]=(devPorPed[pc]||0)+(+d.valorPago||0); }); });
+    let baseVT=0,devAbat=0,qv=0;
+    (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes)return; if(!ehVT(p))return; baseVT+=(+p.valor||0); qv++; devAbat+=Math.min(devPorPed[String(p.id)]||0,+p.valor||0); });
+    const fat=+(baseVT-devAbat).toFixed(2);
     document.getElementById('faturamento').textContent=brl(fat);
-    document.getElementById('fat-detalhe').textContent=`${qv} vendas (Bling) · atualiza 9h e 16h`;
+    document.getElementById('fat-detalhe').textContent=`${qv} pedidos (Venda+Troca)${devAbat>0?' − '+brl(devAbat)+' devol.':''} · igual à página de Vendas`;
     // header
     const mesNome=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
     document.getElementById('sub').textContent=mesNome;

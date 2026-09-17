@@ -243,7 +243,7 @@ document.getElementById('seg').addEventListener('click',e=>{
 });
 // ── cadeado do painel de Vendas (senha) ──
 function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); startAuto(); setInterval(carregar, 60000); }
-function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; if(h===4164806659){ try{localStorage.setItem('rk_gate_vendas','1')}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } }
+function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; if(h===4164806659||h===2684388475){ try{localStorage.setItem('rk_gate_vendas','1')}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // aceita senha de Vendas OU a do diretor
 (function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
 </script>
 </body>
