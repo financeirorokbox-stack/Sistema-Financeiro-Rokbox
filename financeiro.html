@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Financeiro Rokbox</title>
+<style>
+  :root{
+    --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029;
+    --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353;
+    --gold:#ffd76a; --blue:#7cc4ff; --amber:#ffb347; --red:#e5534b; --pink:#ff9ecb;
+    --shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;padding:clamp(14px,2.2vw,34px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
+  .wrap{max-width:1500px;margin:0 auto}
+  /* gate */
+  #gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
+  .gbox{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:var(--shadow)}
+  .gbox .lock{font-size:40px;margin-bottom:8px}
+  .gbox h1{font-size:20px;margin-bottom:4px}
+  .gbox p{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .gbox input{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:#0d1712;color:var(--txt);font-size:16px;text-align:center;letter-spacing:2px}
+  .gbox button{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:var(--lime);color:#08130b;font-weight:800;font-size:15px;cursor:pointer}
+  .gerr{color:var(--red);font-size:13px;margin-top:10px;min-height:16px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:clamp(14px,1.8vw,24px)}
+  .logo{font-weight:800;font-size:clamp(22px,2.4vw,36px)}
+  .logo b{color:var(--lime)}
+  .sub{color:var(--muted);font-size:clamp(12px,1vw,15px);margin-top:3px;text-transform:capitalize}
+  .top-actions{display:flex;gap:10px;align-items:center}
+  .lnk{color:var(--muted);font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+  h2{font-size:clamp(14px,1.2vw,19px);margin:clamp(14px,1.6vw,24px) 0 12px;display:flex;align-items:center;gap:9px}
+  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:18px;padding:clamp(15px,1.7vw,24px);box-shadow:var(--shadow)}
+  .lab{color:var(--muted);font-size:clamp(11px,.9vw,14px);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
+  .big{font-size:clamp(24px,3vw,44px);font-weight:800;line-height:1.05;margin-top:6px}
+  .grid-banks{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:clamp(10px,1.2vw,16px)}
+  .bank .nm{font-size:clamp(12px,1vw,15px);color:var(--muted);font-weight:700}
+  .bank .v{font-size:clamp(19px,1.8vw,28px);font-weight:800;margin-top:4px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.2vw,18px)}
+  .kv{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line)}
+  .kv:last-child{border-bottom:0}
+  .kv .k{color:var(--muted);font-size:clamp(12px,1vw,15px)}
+  .kv .n{font-weight:800;font-size:clamp(15px,1.4vw,21px)}
+  .total-geral{grid-column:1/-1;background:linear-gradient(180deg,#16241c,var(--bg2));border-color:#2c5e42}
+  .foot{margin-top:20px;color:var(--muted);font-size:clamp(10px,.85vw,13px);text-align:center}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gbox">
+    <div class="lock">🔒</div>
+    <h1>Painel Financeiro</h1>
+    <p>Acesso restrito. Digite a senha do diretor.</p>
+    <input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()">
+    <button onclick="tentar()">Entrar</button>
+    <div class="gerr" id="gerr"></div>
+  </div>
+</div>
+
+<div class="wrap hidden" id="app">
+  <header>
+    <div>
+      <div class="logo">Financeiro <b>Rokbox</b></div>
+      <div class="sub" id="sub">carregando…</div>
+    </div>
+    <div class="top-actions">
+      <a class="lnk" href="paineis.html">← Painéis</a>
+      <span class="lnk" onclick="sair()">Sair 🔒</span>
+    </div>
+  </header>
+
+  <h2>🏦 Saldo em banco</h2>
+  <div class="card"><div class="grid-banks" id="banks"></div></div>
+
+  <h2>💸 A receber e a pagar <span style="color:var(--muted);font-weight:400;font-size:.8em" id="mes-lbl"></span></h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="lab" style="color:var(--lime)">A Receber</div>
+      <div class="kv"><span class="k">Recebido no mês</span><span class="n" id="cr-mes">—</span></div>
+      <div class="kv"><span class="k">A receber (em aberto)</span><span class="n" id="cr-aberto">—</span></div>
+    </div>
+    <div class="card">
+      <div class="lab" style="color:var(--amber)">A Pagar</div>
+      <div class="kv"><span class="k">Pago no mês</span><span class="n" id="cp-mes">—</span></div>
+      <div class="kv"><span class="k">A pagar (em aberto)</span><span class="n" id="cp-aberto">—</span></div>
+    </div>
+  </div>
+
+  <h2>📊 Resultado e faturamento do mês</h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="lab">Resultado do mês (recebido − pago)</div>
+      <div class="big" id="resultado">—</div>
+      <div class="lab" style="margin-top:6px;text-transform:none;font-weight:400;color:var(--muted)" id="res-detalhe"></div>
+    </div>
+    <div class="card">
+      <div class="lab">Faturamento do mês (vendas)</div>
+      <div class="big" id="faturamento" style="color:var(--lime)">—</div>
+      <div class="lab" style="margin-top:6px;text-transform:none;font-weight:400;color:var(--muted)" id="fat-detalhe"></div>
+    </div>
+  </div>
+
+  <div class="foot" id="foot">Rokbox · Painel Financeiro · números dos cálculos do sistema (atualizam quando você clica ☁ Power BI)</div>
+</div>
+
+<script>
+const SUPA_URL='https://xqpqweknlafgtvosqxia.supabase.co';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
+const DEV='rokbox_financeiro';
+const HASH_FIN=2684388475; // senha do diretor (djb2)
+const brl=n=>'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const AMOSTRA=new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
+const VENDA=new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
+function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
+function tentar(){
+  const v=document.getElementById('gpass').value||'';
+  if(djb2(v)===HASH_FIN){ try{localStorage.setItem('rk_gate_fin','1')}catch(e){} abrir(); }
+  else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
+}
+function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
+function abrir(){ document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden'); carregar(); setInterval(carregar,120000); }
+
+async function gk(chave){
+  const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+  const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
+}
+function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+
+async function carregar(){
+  try{
+    const [sid,cr,cp,rico]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('blingVendasRico')]);
+    const mes=mesAtual();
+    // ── saldo por banco (último valor conhecido de cada banco) ──
+    const dias=Object.keys(sid||{}).sort();
+    const bancos={};
+    dias.forEach(d=>{ const o=sid[d]||{}; Object.keys(o).forEach(b=>{ if(o[b]!=null) bancos[b]={v:o[b],d:d}; }); });
+    let totalBanco=0;
+    document.getElementById('banks').innerHTML = Object.keys(bancos).sort().map(b=>{
+      totalBanco+=(+bancos[b].v||0);
+      return `<div class="bank"><div class="nm">${b}</div><div class="v">${brl(bancos[b].v)}</div></div>`;
+    }).join('') + `<div class="bank total-geral card" style="padding:14px 16px"><div class="nm" style="color:var(--lime)">TOTAL</div><div class="v" style="color:var(--lime)">${brl(totalBanco)}</div></div>`;
+    // ── CR ──
+    const crA=Array.isArray(cr)?cr:(cr&&cr.itens||[]);
+    const crMes=crA.filter(r=>String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.recebido_liquido||0),0);
+    const crAberto=crA.filter(r=>!r.data_liquidacao).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+    document.getElementById('cr-mes').textContent=brl(crMes);
+    document.getElementById('cr-aberto').textContent=brl(crAberto);
+    // ── CP ──
+    const cpA=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
+    const cpMes=cpA.filter(r=>!r.cancelado && String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
+    const cpAberto=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago).reduce((s,r)=>s+(+r.valor||0),0);
+    document.getElementById('cp-mes').textContent=brl(cpMes);
+    document.getElementById('cp-aberto').textContent=brl(cpAberto);
+    // ── resultado ──
+    const res=crMes-cpMes;
+    const rEl=document.getElementById('resultado'); rEl.textContent=brl(res); rEl.style.color=res>=0?'var(--lime)':'var(--red)';
+    document.getElementById('res-detalhe').textContent=`Recebido ${brl(crMes)} − Pago ${brl(cpMes)}`;
+    // ── faturamento (vendas do mês, do placar) ──
+    let fat=0,qv=0;
+    if(rico&&rico.registros){ const v=rico.registros.filter(x=>!AMOSTRA.has(x.loja)&&VENDA.has(x.situacao)); fat=v.reduce((s,x)=>s+(+x.valor||0),0); qv=v.length; }
+    document.getElementById('faturamento').textContent=brl(fat);
+    document.getElementById('fat-detalhe').textContent=`${qv} vendas (Bling) · atualiza 9h e 16h`;
+    // header
+    const mesNome=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+    document.getElementById('sub').textContent=mesNome;
+    document.getElementById('mes-lbl').textContent='('+mesNome+')';
+  }catch(e){ document.getElementById('sub').textContent='erro ao carregar, tentando de novo…'; }
+}
+
+// entra direto se já estava liberado neste aparelho
+(function(){ let ok=false; try{ ok=localStorage.getItem('rk_gate_fin')==='1'; }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
+</script>
+</body>
+</html>

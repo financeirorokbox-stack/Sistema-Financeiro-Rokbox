@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painéis Rokbox</title>
+<style>
+  :root{ --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029; --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353; --blue:#7cc4ff; --shadow:0 8px 30px rgba(0,0,0,.35); }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:clamp(16px,3vw,40px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
+  .wrap{max-width:820px;width:100%}
+  h1{font-weight:800;font-size:clamp(24px,3vw,40px);text-align:center}
+  h1 b{color:var(--lime)}
+  .sub{color:var(--muted);text-align:center;margin:6px 0 clamp(20px,3vw,36px);font-size:clamp(13px,1.1vw,16px)}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:clamp(12px,1.6vw,22px)}
+  .panel{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:22px;padding:clamp(22px,2.6vw,38px);text-decoration:none;color:var(--txt);display:block;transition:.15s;box-shadow:var(--shadow);position:relative}
+  .panel:hover{border-color:var(--lime);transform:translateY(-2px)}
+  .panel.fin:hover{border-color:var(--blue)}
+  .ico{font-size:clamp(38px,4.4vw,60px);line-height:1}
+  .pt{font-size:clamp(20px,2vw,28px);font-weight:800;margin-top:12px}
+  .pd{color:var(--muted);font-size:clamp(12px,1.05vw,15px);margin-top:6px;line-height:1.4}
+  .who{margin-top:16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#08130b;background:var(--lime);border-radius:999px;padding:5px 12px;display:inline-block}
+  .fin .who{background:var(--blue)}
+  .lockbadge{position:absolute;top:18px;right:20px;font-size:18px;opacity:.8}
+  .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:clamp(18px,2.4vw,30px);line-height:1.6}
+  @media(max-width:640px){.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Painéis <b>Rokbox</b></h1>
+  <div class="sub">Escolha um painel. Cada um pede a sua senha.</div>
+  <div class="cards">
+    <a class="panel vend" href="placar.html">
+      <span class="lockbadge" id="lk-v">🔓</span>
+      <div class="ico">📊</div>
+      <div class="pt">Vendas</div>
+      <div class="pd">Placar ao vivo: vendas do dia/mês, ranking por vendedor, loja e status (Varejo × Atacado).</div>
+      <div class="who">Diretor + Supervisora</div>
+    </a>
+    <a class="panel fin" href="financeiro.html">
+      <span class="lockbadge" id="lk-f">🔒</span>
+      <div class="ico">💰</div>
+      <div class="pt">Financeiro</div>
+      <div class="pd">Saldo em banco, a receber e a pagar, resultado do mês e faturamento.</div>
+      <div class="who">Somente Diretor</div>
+    </a>
+  </div>
+  <div class="foot">🔒 = precisa de senha · 🔓 = já liberado neste aparelho.<br>Rokbox · Central de Painéis</div>
+</div>
+<script>
+  // mostra cadeado aberto no que já foi liberado neste aparelho
+  try{ if(localStorage.getItem('rk_gate_vendas')==='1') document.getElementById('lk-v').textContent='🔓'; else document.getElementById('lk-v').textContent='🔒'; }catch(e){}
+  try{ if(localStorage.getItem('rk_gate_fin')==='1') document.getElementById('lk-f').textContent='🔓'; }catch(e){}
+</script>
+</body>
+</html>

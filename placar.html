@@ -70,6 +70,17 @@
 </style>
 </head>
 <body>
+<div id="gate" style="position:fixed;inset:0;background:#0b0f0d;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px">
+  <div style="background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+    <div style="font-size:40px;margin-bottom:8px">🔒</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px">Placar de Vendas</div>
+    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Digite a senha de Vendas.</div>
+    <input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px 14px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px">
+    <button onclick="tentarGate()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer">Entrar</button>
+    <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
+    <div style="margin-top:14px"><a href="paineis.html" style="color:#8fa89a;font-size:12px;text-decoration:none">← Painéis</a></div>
+  </div>
+</div>
 <div class="wrap">
   <header>
     <div>
@@ -230,9 +241,10 @@ document.getElementById('seg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b)return;
   setPeriodo(b.dataset.p); startAuto();
 });
-carregar();
-startAuto();
-setInterval(carregar, 60000);
+// ── cadeado do painel de Vendas (senha) ──
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); startAuto(); setInterval(carregar, 60000); }
+function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; if(h===4164806659){ try{localStorage.setItem('rk_gate_vendas','1')}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } }
+(function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
 </script>
 </body>
 </html>
