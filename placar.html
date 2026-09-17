@@ -130,6 +130,8 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const DEV = 'rokbox_financeiro';
 const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
 const OCULTAR = new Set(['Atualização de estoque','Correios']); // status que nao aparecem na faixa (por enqto)
+// Lojas de operação "Amostra" (não são venda) — ficam de fora do placar; mantém só Venda e Troca
+const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário']);
 const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
 const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf = n => (n||0).toLocaleString('pt-BR');
@@ -168,7 +170,7 @@ function barras(el, arr){
 function render(){
   if(!dados){return;}
   const hj = hojeISO();
-  const regsMes = dados.registros||[];
+  const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja)); // só Venda e Troca (sem Amostra)
   const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
   const base = periodo==='hoje' ? vendasMes.filter(x=>x.data===hj) : vendasMes;
 
