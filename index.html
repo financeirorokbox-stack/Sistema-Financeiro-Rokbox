@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v615/09-716';
+const APP_VERSION = 'v616/09-717';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7015,10 +7015,13 @@ function processCobrancaWorkbook(wb) {
   const boletos = getBoletosDaForma(); // boletos do sistema (vindos da Forma de Pagamento)
   let nBaixados = 0;
 
-  // Reconstrói o status dos boletos DOS PEDIDOS que vieram no relatório: o relatório é a fonte da
-  // verdade para eles. Sem isto, uma parcela marcada paga por engano continuava paga na reimportação.
-  const pedidosNoArq = new Set(cobrancaRows.map(c => String(c.pedido || '')).filter(Boolean));
-  boletos.forEach(b => { if (pedidosNoArq.has(String(b.pedido))) delete boletoCobrancaStatus[b.key]; });
+  // Reconstrói o status SÓ das parcelas que o arquivo realmente reporta (pedido + VENCIMENTO).
+  // Antes apagava TODAS as parcelas do pedido → subir o relatório de SETEMBRO apagava a parcela de
+  // AGOSTO (que já estava paga) e ela voltava a "Atrasado". Relatório é mensal, então cada arquivo
+  // só pode mexer nas parcelas DAQUELE mês; as de outros meses ficam intactas.
+  const _vencISOcob = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? dt.toISOString().slice(0, 10) : ''; };
+  const parcelasNoArq = new Set(cobrancaRows.map(c => `${String(c.pedido || '').trim()}|${_vencISOcob(c.vencimento)}`).filter(k => k.indexOf('|') > 0 && !k.endsWith('|')));
+  boletos.forEach(b => { if (parcelasNoArq.has(`${String(b.pedido)}|${_vencISOcob(b.vencimento)}`)) delete boletoCobrancaStatus[b.key]; });
 
   // Casa cada PAGAMENTO do relatório com NO MÁXIMO UMA parcela (consome a linha). Antes, 1 pagamento
   // de 2.247,52 marcava as 3 parcelas de mesmo valor como pagas → recebia 3x (bug do #40041).
