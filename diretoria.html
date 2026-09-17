@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diretoria Rokbox</title>
+<style>
+  :root{ --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029; --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353; --blue:#7cc4ff; --red:#e5534b; --shadow:0 8px 30px rgba(0,0,0,.35); }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:clamp(16px,3vw,40px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
+  /* gate */
+  #gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
+  .gbox{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:var(--shadow)}
+  .gbox .lock{font-size:40px;margin-bottom:8px}
+  .gbox h1{font-size:20px;margin-bottom:4px}
+  .gbox p{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .gbox input{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:#0d1712;color:var(--txt);font-size:16px;text-align:center;letter-spacing:2px}
+  .gbox button{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:var(--lime);color:#08130b;font-weight:800;font-size:15px;cursor:pointer}
+  .gerr{color:var(--red);font-size:13px;margin-top:10px;min-height:16px}
+  .gbox a{color:var(--muted);font-size:12px;text-decoration:none}
+  /* app */
+  .wrap{max-width:820px;width:100%}
+  h1.t{font-weight:800;font-size:clamp(24px,3vw,40px);text-align:center}
+  h1.t b{color:var(--lime)}
+  .sub{color:var(--muted);text-align:center;margin:6px 0 clamp(20px,3vw,36px);font-size:clamp(13px,1.1vw,16px)}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:clamp(12px,1.6vw,22px)}
+  .panel{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:22px;padding:clamp(22px,2.6vw,38px);text-decoration:none;color:var(--txt);display:block;transition:.15s;box-shadow:var(--shadow)}
+  .panel:hover{border-color:var(--lime);transform:translateY(-2px)}
+  .panel.fin:hover{border-color:var(--blue)}
+  .ico{font-size:clamp(38px,4.4vw,60px);line-height:1}
+  .pt{font-size:clamp(20px,2vw,28px);font-weight:800;margin-top:12px}
+  .pd{color:var(--muted);font-size:clamp(12px,1.05vw,15px);margin-top:6px;line-height:1.4}
+  .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:clamp(18px,2.4vw,30px)}
+  .foot a{color:var(--muted);cursor:pointer}
+  @media(max-width:640px){.cards{grid-template-columns:1fr}}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gbox">
+    <div class="lock">👔</div>
+    <h1>Diretoria</h1>
+    <p>Acesso do diretor. Digite a senha.</p>
+    <input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()">
+    <button onclick="tentar()">Entrar</button>
+    <div class="gerr" id="gerr"></div>
+    <div style="margin-top:14px"><a href="paineis.html">← Voltar</a></div>
+  </div>
+</div>
+
+<div class="wrap hidden" id="app">
+  <h1 class="t">Diretoria <b>Rokbox</b></h1>
+  <div class="sub">Você tem acesso aos dois painéis.</div>
+  <div class="cards">
+    <a class="panel vend" href="placar.html">
+      <div class="ico">📊</div>
+      <div class="pt">Vendas</div>
+      <div class="pd">Placar ao vivo: vendas do dia/mês, ranking por vendedor, loja e status.</div>
+    </a>
+    <a class="panel fin" href="financeiro.html">
+      <div class="ico">💰</div>
+      <div class="pt">Financeiro</div>
+      <div class="pd">Saldo em banco, a receber e a pagar, resultado e faturamento do mês.</div>
+    </a>
+  </div>
+  <div class="foot"><a onclick="sair()">Sair 🔒</a> · Rokbox · Diretoria</div>
+</div>
+
+<script>
+const HASH_DIR=2684388475; // senha do diretor (djb2)
+function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
+function tentar(){
+  const v=document.getElementById('gpass').value||'';
+  if(djb2(v)===HASH_DIR){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1');}catch(e){} abrir(); } // libera os dois paineis
+  else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
+}
+function abrir(){ document.getElementById('gate').style.display='none'; document.getElementById('app').classList.remove('hidden'); }
+function sair(){ try{localStorage.removeItem('rk_gate_fin'); localStorage.removeItem('rk_gate_vendas');}catch(e){} location.reload(); }
+(function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_fin')==='1'}catch(e){} if(ok) abrir(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
+</script>
+</body>
+</html>

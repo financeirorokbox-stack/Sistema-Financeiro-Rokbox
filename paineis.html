@@ -33,26 +33,19 @@
   <div class="sub">Escolha um painel. Cada um pede a sua senha.</div>
   <div class="cards">
     <a class="panel vend" href="placar.html">
-      <span class="lockbadge" id="lk-v">🔓</span>
       <div class="ico">📊</div>
       <div class="pt">Vendas</div>
-      <div class="pd">Placar ao vivo: vendas do dia/mês, ranking por vendedor, loja e status (Varejo × Atacado).</div>
-      <div class="who">Diretor + Supervisora</div>
+      <div class="pd">Placar de vendas ao vivo: dia/mês, ranking por vendedor, loja e status (Varejo × Atacado).</div>
+      <div class="who">Equipe / Supervisora</div>
     </a>
-    <a class="panel fin" href="financeiro.html">
-      <span class="lockbadge" id="lk-f">🔒</span>
-      <div class="ico">💰</div>
-      <div class="pt">Financeiro</div>
-      <div class="pd">Saldo em banco, a receber e a pagar, resultado do mês e faturamento.</div>
+    <a class="panel fin" href="diretoria.html">
+      <div class="ico">👔</div>
+      <div class="pt">Diretoria</div>
+      <div class="pd">Acesso do diretor aos DOIS painéis: Vendas e Financeiro.</div>
       <div class="who">Somente Diretor</div>
     </a>
   </div>
-  <div class="foot">🔒 = precisa de senha · 🔓 = já liberado neste aparelho.<br>Rokbox · Central de Painéis</div>
+  <div class="foot">Cada área pede a sua senha (fica lembrada no aparelho).<br>Rokbox · Central de Painéis</div>
 </div>
-<script>
-  // mostra cadeado aberto no que já foi liberado neste aparelho
-  try{ if(localStorage.getItem('rk_gate_vendas')==='1') document.getElementById('lk-v').textContent='🔓'; else document.getElementById('lk-v').textContent='🔒'; }catch(e){}
-  try{ if(localStorage.getItem('rk_gate_fin')==='1') document.getElementById('lk-f').textContent='🔓'; }catch(e){}
-</script>
 </body>
 </html>
