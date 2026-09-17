@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v616/09-717';
+const APP_VERSION = 'v617/09-717';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6501,7 +6501,12 @@ function _getBoletosPorPedidoCalc() {
     // Pagamento do PRÓPRIO boleto NÃO reduz (o boleto já foi emitido cheio; suas parcelas se pagam à parte).
     const _jaPago = +(((_recNaoBoletoPorPed[pid] || 0)) + (_credDevPorPed[pid] || 0)).toFixed(2);
     const _cheio = ped.valor || 0;
-    const _liq = Math.max(0, +(_cheio - _jaPago).toFixed(2));
+    // Se o boleto JÁ FOI EMITIDO, ele saiu no valor CHEIO — as parcelas se pagam à parte (inclusive por PIX),
+    // e o PIX é um PAGAMENTO de parcela, não uma redução do boleto. Só reduz pelo "já pago" quando o boleto
+    // ainda NÃO foi emitido (cash-first: emitir só o restante). Sem isto, um PIX de 1 parcela fazia a Cobrança
+    // mostrar o valor errado (ex.: #40215 aparecia 1.345 em vez de 2.713).
+    const _jaEmitido = Object.keys(boletoStatus).some(k => k.indexOf(pid + '-') === 0 && boletoStatus[k]);
+    const _liq = _jaEmitido ? _cheio : Math.max(0, +(_cheio - _jaPago).toFixed(2));
     byPedido[pid] = {
       pedido: String(pid),
       cliente: ped.nome || '',
@@ -6689,10 +6694,26 @@ function enviarBoletoWpp(pedidoId) {
 function _boletoCobPago(b) {
   const c = boletoCobrancaStatus[b.key];
   if (c && c.pago) return c;
-  const recs = recebimentosConsolidado.filter(r => r.gateway === 'Boleto Itaú' && (r._boletoPagoDireto || r._avulso)
-    && String(r.nped || '').split(',').map(s => s.trim()).includes(String(b.pedido)));
-  const tot = recs.reduce((s, r) => s + (r.bruto || 0), 0);
-  if (tot >= (b.valor || 0) - 0.5) return { pago: true, dataPagamento: (recs[0] && recs[0].data) || null, valorPago: b.valor || 0 };
+  // Reconhece pagamento por QUALQUER forma (boleto, PIX, PayPal...) e aloca por ORDEM de parcela:
+  // 1 pagamento quita a 1ª em aberto, 2 quitam 1ª e 2ª, etc. Antes só via boleto com marca especial,
+  // então boleto pago por PIX ficava eternamente "Atrasado" (ex.: #40215 2/2 paga por PIX).
+  const pedStr = String(b.pedido);
+  const recs = recebimentosConsolidado.filter(r => !r._estornoChave
+    && String(r.nped || '').split(',').map(s => s.trim()).includes(pedStr));
+  const totalRecebido = recs.reduce((s, r) => s + (r.bruto || r.liq || 0), 0);
+  if (totalRecebido <= 0) return null;
+  let irmas; try { irmas = getBoletosDaForma().filter(x => String(x.pedido) === pedStr); } catch (e) { irmas = [b]; }
+  irmas = (irmas && irmas.length ? irmas : [b]).slice().sort((x, y) => (x.parcela || 0) - (y.parcela || 0));
+  // O que já foi reservado pelas parcelas carimbadas (relatório/manual) não pode pagar outra parcela.
+  const usadoCarimbo = irmas.reduce((s, p) => { const cc = boletoCobrancaStatus[p.key]; return s + ((cc && cc.pago) ? (cc.valorPago != null ? cc.valorPago : (p.valor || 0)) : 0); }, 0);
+  const disponivel = totalRecebido - usadoCarimbo;
+  let acum = 0;
+  for (const p of irmas) {
+    const cc = boletoCobrancaStatus[p.key];
+    if (cc && cc.pago) continue; // já paga por carimbo
+    acum += (p.valor || 0);
+    if (p.key === b.key) return (disponivel >= acum - 0.5) ? { pago: true, dataPagamento: (recs[recs.length - 1] || {}).data || null, valorPago: b.valor || 0, _porOrdem: true } : null;
+  }
   return null;
 }
 // ── Lembretes de cobrança (aviso ao abrir + selo no menu + cobrar vencidos) ──
