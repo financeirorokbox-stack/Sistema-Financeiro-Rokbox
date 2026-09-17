@@ -52,6 +52,11 @@
   .bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .8s cubic-bezier(.22,1,.36,1)}
   .seg-atacado .bar>i{background:linear-gradient(90deg,var(--blue2),var(--blue))}
   .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .lojas{margin-top:clamp(12px,1.4vw,20px)}
+  .lojas h2{font-size:clamp(14px,1.2vw,19px);margin-bottom:14px}
+  .lojas h2 span{color:var(--muted);font-weight:400;font-size:.8em}
+  .lojas-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(9px,1vw,13px) clamp(24px,3vw,54px)}
+  @media(max-width:820px){.lojas-grid{grid-template-columns:1fr}}
   .status{margin-top:clamp(12px,1.4vw,20px)}
   .status h2{font-size:clamp(14px,1.2vw,19px);margin-bottom:12px}
   .status h2 span{color:var(--muted);font-weight:400;font-size:.8em}
@@ -93,8 +98,6 @@
       </div>
       <h3>Ranking vendedores</h3>
       <div class="rank" id="Varejo-rank-v"></div>
-      <h3>Ranking lojas</h3>
-      <div class="rank" id="Varejo-rank-l"></div>
     </div>
 
     <div class="card seg-atacado" id="col-Atacado">
@@ -109,9 +112,12 @@
       </div>
       <h3>Ranking vendedores</h3>
       <div class="rank" id="Atacado-rank-v"></div>
-      <h3>Ranking lojas</h3>
-      <div class="rank" id="Atacado-rank-l"></div>
     </div>
+  </section>
+
+  <section class="card lojas">
+    <h2>Ranking de lojas <span>(todas · <b id="loja-per">hoje</b>)</span></h2>
+    <div class="rank lojas-grid" id="rank-lojas"></div>
   </section>
 
   <section class="status card">
@@ -152,16 +158,18 @@ function agrupa(regs, campo){
   regs.forEach(x=>{const k=x[campo]||'(sem)'; m[k]=m[k]||{n:0,v:0}; m[k].n++; m[k].v+=x.valor;});
   return Object.entries(m).map(([k,o])=>({nome:k,...o})).sort((a,b)=>b.v-a.v);
 }
-function barras(el, arr, max){
-  el.innerHTML = arr.slice(0,5).map((x,i)=>`
-    <div class="row">
+function barras(el, arr, max, opts){
+  opts = opts||{}; const lim = opts.limit||5;
+  el.innerHTML = arr.slice(0,lim).map((x,i)=>{
+    const bg = opts.colorFn ? `;background:${opts.colorFn(x.nome)}` : '';
+    return `<div class="row">
       <div class="pos">${i+1}</div>
       <div class="bar-wrap">
         <div class="bar-top"><span class="nm">${x.nome}</span><span class="val">${brl(x.v)}</span></div>
-        <div class="bar"><i style="width:${Math.max(3,x.v/(max||1)*100)}%"></i></div>
+        <div class="bar"><i style="width:${Math.max(3,x.v/(max||1)*100)}%${bg}"></i></div>
       </div>
       <div class="qt">${x.n} ped</div>
-    </div>`).join('') || '<div class="empty">sem vendas no período</div>';
+    </div>`;}).join('') || '<div class="empty">sem vendas no período</div>';
 }
 function preencheSeg(S, regs){
   const tot = regs.reduce((s,x)=>s+x.valor,0), q = regs.length;
@@ -170,11 +178,10 @@ function preencheSeg(S, regs){
   document.getElementById(S+'-qtd').textContent = nf(q);
   document.getElementById(S+'-pecas').textContent = nf(pcs);
   document.getElementById(S+'-ticket').textContent = brl(q?tot/q:0);
-  const rv = agrupa(regs,'vendedor'), rl = agrupa(regs,'loja');
-  const maxv = rv.length?rv[0].v:1, maxl = rl.length?rl[0].v:1;
-  barras(document.getElementById(S+'-rank-v'), rv, maxv);
-  barras(document.getElementById(S+'-rank-l'), rl, maxl);
+  const rv = agrupa(regs,'vendedor');
+  barras(document.getElementById(S+'-rank-v'), rv, rv.length?rv[0].v:1);
 }
+const corLoja = n => segDe(n)==='Atacado' ? 'linear-gradient(90deg,var(--blue2),var(--blue))' : 'linear-gradient(90deg,var(--lime2),var(--lime))';
 function render(){
   if(!dados){return;}
   const hj = hojeISO();
@@ -185,6 +192,11 @@ function render(){
 
   preencheSeg('Varejo', base.filter(x=>segDe(x.loja)==='Varejo'));
   preencheSeg('Atacado', base.filter(x=>segDe(x.loja)==='Atacado'));
+
+  // ranking de lojas (todas juntas, largura total) — barra colorida pela frente
+  const rl = agrupa(base,'loja');
+  barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
+  document.getElementById('loja-per').textContent = periodo==='hoje'?'hoje':'mês';
 
   // status (todos, sem os ocultos)
   const st = agrupa(regsMes.filter(x=>!OCULTAR.has(x.situacao)),'situacao');
