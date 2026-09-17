@@ -171,6 +171,8 @@ function render(){
   if(!dados){return;}
   const hj = hojeISO();
   const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja)); // só Venda e Troca (sem Amostra)
+  // rótulos bonitos p/ cadastro incompleto na Bling (some sozinho quando preencherem loja/vendedor lá)
+  regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
   const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
   const base = periodo==='hoje' ? vendasMes.filter(x=>x.data===hj) : vendasMes;
 
