@@ -81,12 +81,12 @@
     <div class="card">
       <div class="lab" style="color:var(--lime)">A Receber</div>
       <div class="kv"><span class="k">Recebido no mês</span><span class="n" id="cr-mes">—</span></div>
-      <div class="kv"><span class="k">A receber (em aberto)</span><span class="n" id="cr-aberto">—</span></div>
+      <div class="kv"><span class="k">A receber (vence no mês)</span><span class="n" id="cr-aberto">—</span></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
       <div class="kv"><span class="k">Pago no mês</span><span class="n" id="cp-mes">—</span></div>
-      <div class="kv"><span class="k">A pagar (em aberto)</span><span class="n" id="cp-aberto">—</span></div>
+      <div class="kv"><span class="k">A pagar (vence no mês)</span><span class="n" id="cp-aberto">—</span></div>
     </div>
   </div>
 
@@ -146,13 +146,13 @@ async function carregar(){
     // ── CR ──
     const crA=Array.isArray(cr)?cr:(cr&&cr.itens||[]);
     const crMes=crA.filter(r=>String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.recebido_liquido||0),0);
-    const crAberto=crA.filter(r=>!r.data_liquidacao).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+    const crAberto=crA.filter(r=>!r.data_liquidacao && String(r.vencimento||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor_bruto||0),0);
     document.getElementById('cr-mes').textContent=brl(crMes);
     document.getElementById('cr-aberto').textContent=brl(crAberto);
     // ── CP ──
     const cpA=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
     const cpMes=cpA.filter(r=>!r.cancelado && String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
-    const cpAberto=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago).reduce((s,r)=>s+(+r.valor||0),0);
+    const cpAberto=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
     document.getElementById('cp-mes').textContent=brl(cpMes);
     document.getElementById('cp-aberto').textContent=brl(cpAberto);
     // ── resultado ──
