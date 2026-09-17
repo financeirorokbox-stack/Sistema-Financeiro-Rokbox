@@ -184,7 +184,7 @@ function render(){
   if(!dados){return;}
   const hj = hojeISO();
   const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
-  regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
+  regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
   const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
   const base = periodo==='hoje' ? vendasMes.filter(x=>x.data===hj) : vendasMes;
 
