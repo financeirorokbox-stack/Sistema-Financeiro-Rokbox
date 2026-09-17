@@ -133,7 +133,8 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const DEV = 'rokbox_financeiro';
 const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
 const OCULTAR = new Set(['Atualização de estoque','Correios']);
-const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário']);
+// Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
+const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
 const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
 const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
 const segDe = loja => ATACADO.has(loja) ? 'Atacado' : 'Varejo';
