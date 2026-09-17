@@ -119,9 +119,9 @@
     <div class="rank lojas-grid" id="rank-lojas"></div>
   </section>
 
-  <section class="status card">
-    <h2>Situação dos pedidos <span>(todos os status do mês)</span></h2>
-    <div class="chips" id="chips"></div>
+  <section class="card lojas" style="margin-top:16px">
+    <h2>Ranking por status <span>(<b id="status-per">mês</b>)</span></h2>
+    <div class="rank lojas-grid" id="rank-status"></div>
   </section>
 
   <div class="foot" id="foot">Rokbox · Placar de vendas ao vivo</div>
@@ -203,11 +203,11 @@ function render(){
   barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
   document.getElementById('loja-per').textContent = periodo==='hoje'?'hoje':'mês';
 
-  // status
-  const st = agrupa(regsMes.filter(x=>!OCULTAR.has(x.situacao)),'situacao');
-  document.getElementById('chips').innerHTML = st.map(x=>`
-    <div class="chip"><span class="cd" style="background:${STCOR[x.nome]||'#8fa89a'}"></span>
-    <span class="cn">${x.nome}</span><span class="cc">${x.n}</span></div>`).join('');
+  // ranking por status (segue o período Hoje/Mês; mostra valor + qtd; cor de cada status)
+  const stBase = (periodo==='hoje' ? regsMes.filter(x=>x.data===hj) : regsMes).filter(x=>!OCULTAR.has(x.situacao));
+  const rst = agrupa(stBase,'situacao');
+  barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
+  document.getElementById('status-per').textContent = periodo==='hoje'?'hoje':'mês';
 
   const mesNome = new Date((dados.mes||hj)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome} · ${periodo==='hoje'?'vendo HOJE':'vendo o MÊS'}`;
