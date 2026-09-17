@@ -90,6 +90,7 @@
       <div class="big" id="v-total">R$ 0,00</div>
       <div class="cardrow">
         <div class="kv"><div class="k">Pedidos</div><div class="v" id="v-qtd">0</div></div>
+        <div class="kv"><div class="k">Peças</div><div class="v" id="v-pecas">0</div></div>
         <div class="kv"><div class="k">Ticket médio</div><div class="v" id="v-ticket">R$ 0,00</div></div>
       </div>
     </div>
@@ -178,9 +179,11 @@ function render(){
 
   // total
   const tot = base.reduce((s,x)=>s+x.valor,0), q = base.length;
+  const pcs = base.reduce((s,x)=>s+(x.pecas||0),0);
   document.getElementById('lab-total').textContent = periodo==='hoje'?'Vendas de hoje':'Vendas do mês';
   document.getElementById('v-total').textContent = brl(tot);
   document.getElementById('v-qtd').textContent = nf(q);
+  document.getElementById('v-pecas').textContent = nf(pcs);
   document.getElementById('v-ticket').textContent = brl(q?tot/q:0);
 
   // rankings
