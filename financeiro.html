@@ -43,6 +43,13 @@
   .kv .k{color:var(--muted);font-size:clamp(12px,1vw,15px)}
   .kv .n{font-weight:800;font-size:clamp(15px,1.4vw,21px)}
   .total-geral{grid-column:1/-1;background:linear-gradient(180deg,#16241c,var(--bg2));border-color:#2c5e42}
+  table.wk{width:100%;border-collapse:collapse;font-size:clamp(12px,1.05vw,16px)}
+  table.wk th{text-align:right;color:var(--muted);font-weight:700;padding:9px 8px;border-bottom:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  table.wk th:first-child,table.wk td:first-child{text-align:left}
+  table.wk td{padding:11px 8px;border-bottom:1px solid var(--line);text-align:right;font-weight:700}
+  table.wk tr:last-child td{border-bottom:0}
+  table.wk td.pos{color:var(--lime)} table.wk td.neg{color:var(--red)}
+  table.wk tr.now td{background:#182420}
   .foot{margin-top:20px;color:var(--muted);font-size:clamp(10px,.85vw,13px);text-align:center}
   @media(max-width:720px){.grid2{grid-template-columns:1fr}}
   .hidden{display:none}
@@ -88,6 +95,11 @@
       <div class="kv"><span class="k">Pago no mês</span><span class="n" id="cp-mes">—</span></div>
       <div class="kv"><span class="k">A pagar (vence no mês)</span><span class="n" id="cp-aberto">—</span></div>
     </div>
+  </div>
+
+  <h2>📅 Por semana <span style="color:var(--muted);font-weight:400;font-size:.8em">(o que vence, segunda a domingo)</span></h2>
+  <div class="card">
+    <table class="wk"><thead><tr><th>Semana</th><th>A receber</th><th>A pagar</th><th>Resultado</th></tr></thead><tbody id="semanas"></tbody></table>
   </div>
 
   <h2>📊 Resultado e faturamento do mês</h2>
@@ -155,6 +167,24 @@ async function carregar(){
     const cpAberto=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
     document.getElementById('cp-mes').textContent=brl(cpMes);
     document.getElementById('cp-aberto').textContent=brl(cpAberto);
+    // ── por semana (segunda a domingo): o que VENCE a receber x a pagar, e o resultado ──
+    const isoD=dt=>dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+    const [yy,mm]=mes.split('-').map(Number);
+    const ultimo=new Date(yy,mm,0);
+    let dcur=new Date(yy,mm-1,1); dcur.setDate(dcur.getDate()-((dcur.getDay()+6)%7)); // segunda-feira da semana do dia 1
+    const hojeIso=isoD(new Date());
+    let linhasSem='';
+    while(dcur<=ultimo){
+      const ws=isoD(dcur); const weD=new Date(dcur); weD.setDate(weD.getDate()+6); const we=isoD(weD);
+      const rec=crA.filter(r=>!r.data_liquidacao && r.vencimento && r.vencimento>=ws && r.vencimento<=we).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+      const pag=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && r.vencimento && r.vencimento>=ws && r.vencimento<=we).reduce((s,r)=>s+(+r.valor||0),0);
+      const rz=+(rec-pag).toFixed(2);
+      const agora=hojeIso>=ws && hojeIso<=we;
+      const lbl=ws.slice(8,10)+'/'+ws.slice(5,7)+' a '+we.slice(8,10)+'/'+we.slice(5,7);
+      linhasSem+=`<tr class="${agora?'now':''}"><td>${lbl}${agora?' <span style="color:var(--lime);font-size:10px;font-weight:800">• esta semana</span>':''}</td><td>${brl(rec)}</td><td>${brl(pag)}</td><td class="${rz>=0?'pos':'neg'}">${brl(rz)}</td></tr>`;
+      dcur.setDate(dcur.getDate()+7);
+    }
+    document.getElementById('semanas').innerHTML=linhasSem;
     // ── resultado ──
     const res=crMes-cpMes;
     const rEl=document.getElementById('resultado'); rEl.textContent=brl(res); rEl.style.color=res>=0?'var(--lime)':'var(--red)';
