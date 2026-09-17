@@ -122,7 +122,7 @@ function tentar(){
   else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
 function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
-function abrir(){ document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden'); carregar(); setInterval(carregar,120000); }
+function abrir(){ document.getElementById('gate').style.display='none'; document.getElementById('app').classList.remove('hidden'); carregar(); setInterval(carregar,120000); }
 
 async function gk(chave){
   const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
