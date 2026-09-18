@@ -52,6 +52,7 @@
   .bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .8s cubic-bezier(.22,1,.36,1)}
   .seg-atacado .bar>i{background:linear-gradient(90deg,var(--blue2),var(--blue))}
   .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .nums-ocultos .col-tot,.nums-ocultos .tsub,.nums-ocultos .val,.nums-ocultos .qt{filter:blur(9px);-webkit-filter:blur(9px);user-select:none;transition:filter .15s}
   .lojas{margin-top:clamp(12px,1.4vw,20px)}
   .lojas h2,.status h2{font-size:clamp(14px,1.2vw,19px);margin-bottom:14px}
   .lojas h2 span,.status h2 span{color:var(--muted);font-weight:400;font-size:.8em}
@@ -93,6 +94,7 @@
         <button data-p="mes">Mês</button>
       </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
+      <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
     </div>
   </header>
 
@@ -242,7 +244,8 @@ document.getElementById('seg').addEventListener('click',e=>{
   setPeriodo(b.dataset.p); startAuto();
 });
 // ── cadeado do painel de Vendas (senha) ──
-function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); startAuto(); setInterval(carregar, 60000); }
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); document.body.classList.add('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent='🙈 Mostrar'; carregar(); startAuto(); setInterval(carregar, 60000); } // abre borrado
+function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; if(h===4164806659||h===2684388475){ try{localStorage.setItem('rk_gate_vendas','1')}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // aceita senha de Vendas OU a do diretor
 (function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
 </script>

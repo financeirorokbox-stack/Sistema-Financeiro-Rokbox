@@ -143,8 +143,8 @@ function tentar(){
   else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
 function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
-function abrir(){ document.getElementById('gate').style.display='none'; document.getElementById('app').classList.remove('hidden'); try{ if(localStorage.getItem('rk_fin_oculto')==='1'){ document.getElementById('app').classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; } }catch(e){} carregar(); setInterval(carregar,120000); }
-function toggleNums(){ const app=document.getElementById('app'); const oc=app.classList.toggle('nums-ocultos'); document.getElementById('eye').textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; try{localStorage.setItem('rk_fin_oculto',oc?'1':'0')}catch(e){} }
+function abrir(){ document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; carregar(); setInterval(carregar,120000); } // sempre abre borrado
+function toggleNums(){ const app=document.getElementById('app'); const oc=app.classList.toggle('nums-ocultos'); document.getElementById('eye').textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 
 async function gk(chave){
   const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
