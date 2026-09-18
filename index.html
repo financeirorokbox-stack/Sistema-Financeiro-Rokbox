@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v622/09-718';
+const APP_VERSION = 'v623/09-718';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2715,6 +2715,12 @@ function _renderContasImpl(el) {
             // mas NÃO entra no relatório/Power BI (o crédito não é dinheiro a receber).
             if (_credT > 0.5) {
               linhas.push({ ped, f: { pedido: ped.id, descricao: 'Crédito de troca (abate o pedido)', valor: _credT, vencimento: null, key: ped.id + '-credtroca' }, cat: 'Crédito Cliente', st: { recebido: true, detalhe: `✓ crédito de troca ${fmtVal(_credT)}` }, venc: null, realIdx: -1, semForma: false });
+            }
+            // Linha da ENTRADA (PIX/dinheiro recebido antes de emitir): aparece RECEBIDA no Contas a Receber, junto
+            // com os boletos a receber (a Elaine quer ver "boletos a emitir + entrada"). É dinheiro que caiu no
+            // banco, então NÃO é excluída do relatório (conta como recebida, na data do PIX).
+            if (_bPed && _bPed._entrada > 0.5) {
+              linhas.push({ ped, f: { pedido: ped.id, descricao: 'Entrada (recebida antes de emitir)', valor: _bPed._entrada, vencimento: null, key: ped.id + '-entrada' }, cat: _bPed._entradaGw || 'PIX (Extrato)', st: { recebido: true, detalhe: '✓ entrada recebida' }, venc: null, realIdx: -1, semForma: false });
             }
             return; // já empurrou as parcelas — não empurra a linha agregada
           }
@@ -6479,7 +6485,8 @@ function _getBoletosPorPedidoCalc() {
     (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => { _credDevPorPed[pc] = (_credDevPorPed[pc] || 0) + (d.valorPago || 0); });
   });
   const _recNaoBoletoPorPed = {}; // pagamentos que NÃO são boleto (PIX/PayPal/Braavo/manuais) — reduzem o boleto a emitir
-  const _entradaPorPed = {};      // ENTRADA = pagamento não-boleto recebido ANTES da data de saída do boleto (a cliente deu de entrada; o boleto sai só pelo restante). Abate SEMPRE, mesmo já emitido. Pagamento no/após o vencimento é pagamento de parcela (não abate).
+  const _entradaPorPed = {};      // ENTRADA = pagamento não-boleto recebido ATÉ a data de saída do boleto (a cliente deu de entrada; o boleto sai só pelo restante). Abate SEMPRE, mesmo já emitido. Pagamento no/após o vencimento é pagamento de parcela (não abate).
+  const _entradaGwPorPed = {};    // gateway da entrada (pra mostrar a linha "recebida" no Contas a Receber)
   const _parseDBol = v => { if (!v) return null; const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? null : d; };
   recebimentosConsolidado.forEach(r => {
     if (r._estornoChave || r.gateway === 'Boleto Itaú') return; // estorno neutralizado; boleto não reduz a si mesmo
@@ -6490,8 +6497,13 @@ function _getBoletosPorPedidoCalc() {
     peds.forEach(pid => {
       const bruto = (peds.length > 1 && ehGw) ? alocRecebGateway(r, pid) : (r.bruto || r.liq || 0);
       _recNaoBoletoPorPed[pid] = (_recNaoBoletoPorPed[pid] || 0) + bruto;
-      const _ds = (boletoConfig[pid] && boletoConfig[pid].dataSaida) ? _parseDBol(boletoConfig[pid].dataSaida) : null;
-      if (_ds && dPag && dPag < _ds) _entradaPorPed[pid] = (_entradaPorPed[pid] || 0) + bruto; // recebido antes da saída = entrada
+      // ENTRADA: recebido ATÉ a data de saída (inclui o MESMO dia — a cliente dá a entrada e o pedido sai no dia).
+      const _dsRaw = (boletoConfig[pid] && boletoConfig[pid].dataSaida) ? boletoConfig[pid].dataSaida : null;
+      const _dPagDia = dPag ? (dPag.getFullYear() + '-' + String(dPag.getMonth() + 1).padStart(2, '0') + '-' + String(dPag.getDate()).padStart(2, '0')) : null;
+      if (_dsRaw && _dPagDia && _dPagDia <= String(_dsRaw).slice(0, 10)) {
+        _entradaPorPed[pid] = (_entradaPorPed[pid] || 0) + bruto; // recebido no/antes da saída = entrada
+        if (!_entradaGwPorPed[pid]) _entradaGwPorPed[pid] = r.gateway || 'PIX (Extrato)';
+      }
     });
   });
   formaPagamento.forEach(f => {
@@ -6547,6 +6559,9 @@ function _getBoletosPorPedidoCalc() {
       valorTotal: _liq,          // LÍQUIDO a emitir (cheio − já pago/creditado)
       _valorCheio: _cheio,       // valor total do pedido (referência)
       _jaPago: _jaPago,          // o que já entrou (recebimento + crédito devolução)
+      _entrada: +(_entrada || 0).toFixed(2),        // entrada (recebida antes/na saída) → vira linha "recebida" no Contas a Receber
+      _entradaGw: _entradaGwPorPed[pid] || 'PIX (Extrato)',
+      _credDev: +(_credDev || 0).toFixed(2),
       linhas: []
     };
   });
