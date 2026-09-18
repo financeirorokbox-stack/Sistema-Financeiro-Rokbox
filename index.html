@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v617/09-717';
+const APP_VERSION = 'v618/09-718';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2635,6 +2635,12 @@ function _renderContasImpl(el) {
   const linhas = [];
   let ocultadosOp = 0; // pedidos fora por não serem Venda/Troca (ex.: loja não cadastrada → operação vazia)
   const boletoJaAdd = new Set(); // pedidos cujas parcelas de boleto já foram geradas (evita duplicar por linha de forma)
+  // Crédito de troca por pedido: o boleto físico é emitido JÁ LÍQUIDO desse crédito (a cliente não paga a
+  // parte que virou troca). Sem isto, a parcela ficava cheia e o crédito sobrava como "Em Aberto" no CR/painel
+  // (ex.: #40312 sobrava 143,27 por parcela; #40613 mostrava 1.001,56 em vez de 546,84).
+  const _credTrocaPorPed = {};
+  devolucoes.forEach(d => { const c = credDevolucao(d); (String(c).match(/\d{4,6}/g) || []).forEach(pc => { _credTrocaPorPed[pc] = (_credTrocaPorPed[pc] || 0) + (d.valorPago || 0); }); });
+  const _boletoCredNetted = new Set(); // pedidos de boleto cujas parcelas JÁ saíram líquidas do crédito → o bloco de crédito abaixo NÃO abate de novo
 
   pedidos.forEach(ped => {
     const sit = (ped.situacao || '').toLowerCase();
@@ -2688,7 +2694,11 @@ function _renderContasImpl(el) {
         // Boleto Itaú JÁ CONFIGURADO com parcelas → mostra cada parcela com seu vencimento (igual à tela
         // de Boletos a Emitir). Sem isto o boleto cash-first aparecia como 1 linha só, sem vencimento.
         if (cat === 'Boleto Itaú') {
-          const parcelas = getParcelas({ pedido: ped.id, valorTotal: ped.valor });
+          // Emite o boleto LÍQUIDO do crédito de troca (o boleto sai já descontado; a diferença NÃO é a receber).
+          const _credT = _credTrocaPorPed[ped.id] || 0;
+          const _totLiq = Math.max(0, +((ped.valor || 0) - _credT).toFixed(2));
+          if (_credT > 0.5) _boletoCredNetted.add(String(ped.id));
+          const parcelas = getParcelas({ pedido: ped.id, valorTotal: _totLiq });
           if (parcelas.length) {
             // Se o pedido JÁ foi todo recebido (por qualquer forma: boleto pago + PIX + sobra de outro
             // pedido), a parcela mostra PAGA — mesmo que o carimbo de boleto pago não esteja na parcela.
@@ -2750,6 +2760,7 @@ function _renderContasImpl(el) {
     });
   });
   Object.entries(credDevPorPedido).forEach(([pc, credito]) => {
+    if (_boletoCredNetted.has(String(pc))) return; // boleto já saiu líquido do crédito (parcelas descontadas) → não abate 2x
     // Desconta o que já foi reconhecido por linhas de Devolução (statusForma já marcou pagas)
     const usadoEmDevLines = linhas
       .filter(l => String(l.f.pedido) === String(pc) && (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') && l.st.recebido)
