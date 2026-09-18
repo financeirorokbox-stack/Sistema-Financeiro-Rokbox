@@ -166,7 +166,8 @@ async function carregar(){
     const [sid,cr,cp,pedidos,lc,dev]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes')]);
     const mes=mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
-    const dias=Object.keys(sid||{}).sort();
+    const _hj=new Date(); const hojeStr=_hj.getFullYear()+'-'+String(_hj.getMonth()+1).padStart(2,'0')+'-'+String(_hj.getDate()).padStart(2,'0');
+    const dias=Object.keys(sid||{}).filter(d=>d<=hojeStr).sort(); // ignora datas FUTURAS (o extrato preenche o "dia seguinte"); usa o saldo ATÉ HOJE (o que a Elaine mantém na mão)
     const bancos={};
     dias.forEach(d=>{ const o=sid[d]||{}; Object.keys(o).forEach(b=>{ if(o[b]!=null) bancos[b]={v:o[b],d:d}; }); });
     let totalBanco=0;
