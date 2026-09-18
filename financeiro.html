@@ -60,7 +60,11 @@
   @media(max-width:720px){.grid2{grid-template-columns:1fr}}
   .hidden{display:none}
   /* olhinho: oculta (borra) os valores em dinheiro */
-  .nums-ocultos .big, .nums-ocultos .bank .v, .nums-ocultos .kv .n, .nums-ocultos table.wk td:not(:first-child), .nums-ocultos #saldo-final-det, .nums-ocultos #res-detalhe, .nums-ocultos #fat-detalhe{filter:blur(10px);-webkit-filter:blur(10px);user-select:none;transition:filter .15s}
+  .nums-ocultos .big, .nums-ocultos .bank .v, .nums-ocultos .kv .n, .nums-ocultos table.wk td:not(:first-child), .nums-ocultos #saldo-final-det, .nums-ocultos #res-detalhe, .nums-ocultos #fat-detalhe, .nums-ocultos .lista{filter:blur(10px);-webkit-filter:blur(10px);user-select:none;transition:filter .15s}
+  .lista{margin-top:8px;border-top:1px solid var(--line);padding-top:6px;max-height:300px;overflow:auto}
+  .lista .li{display:flex;justify-content:space-between;gap:12px;padding:7px 2px;font-size:clamp(12px,1vw,14px);border-bottom:1px solid #1a2620}
+  .lista .li:last-child{border-bottom:0}
+  .lista .li .vv{font-weight:800;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -98,12 +102,14 @@
     <div class="card">
       <div class="lab" style="color:var(--lime)">A Receber</div>
       <div class="kv"><span class="k">Recebido no mês</span><span class="n" id="cr-mes">—</span></div>
-      <div class="kv"><span class="k">A receber (vence no mês)</span><span class="n" id="cr-aberto">—</span></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr')" title="Ver o que está em aberto"><span class="k">A receber (vence no mês) 🔎</span><span class="n" id="cr-aberto">—</span></div>
+      <div class="lista hidden" id="cr-lista"></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
       <div class="kv"><span class="k">Pago no mês</span><span class="n" id="cp-mes">—</span></div>
-      <div class="kv"><span class="k">A pagar (vence no mês)</span><span class="n" id="cp-aberto">—</span></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cp')" title="Ver o que está em aberto"><span class="k">A pagar (vence no mês) 🔎</span><span class="n" id="cp-aberto">—</span></div>
+      <div class="lista hidden" id="cp-lista"></div>
     </div>
   </div>
 
@@ -152,6 +158,7 @@ function tentar(){
 function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
 function abrir(){ document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; carregar(); setInterval(carregar,120000); } // sempre abre borrado
 function toggleNums(){ const app=document.getElementById('app'); const oc=app.classList.toggle('nums-ocultos'); document.getElementById('eye').textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
+function toggleLista(k){ const el=document.getElementById(k+'-lista'); if(el) el.classList.toggle('hidden'); }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair':'⛶ Tela cheia'; });
 
@@ -187,6 +194,10 @@ async function carregar(){
     const cpAberto=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
     document.getElementById('cp-mes').textContent=brl(cpMes);
     document.getElementById('cp-aberto').textContent=brl(cpAberto);
+    // ── listas do que está EM ABERTO (clientes/fornecedores que compõem o a receber/a pagar do mês) ──
+    const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada em aberto neste mês 🎉</div>'; };
+    document.getElementById('cr-lista').innerHTML=_liLista(crA.filter(r=>!r.data_liquidacao && String(r.vencimento||'').slice(0,7)===mes),'cliente','vencimento','valor_bruto');
+    document.getElementById('cp-lista').innerHTML=_liLista(cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento||'').slice(0,7)===mes),'fornecedor','vencimento','valor');
     // ── saldo final projetado = saldo no banco + a receber (vence no mês) − a pagar (vence no mês) ──
     const saldoFinal=+(totalBanco+crAberto-cpAberto).toFixed(2);
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
