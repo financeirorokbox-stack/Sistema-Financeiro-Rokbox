@@ -98,7 +98,7 @@
 <div class="wrap">
   <header>
     <div>
-      <div class="logo">R<b>K</b></div>
+      <div class="logo">R<b>K</b>.</div>
       <div class="sub" id="sub">carregando vendas…</div>
     </div>
     <div class="ctrl">
@@ -159,7 +159,7 @@
     </div>
   </section>
 
-  <div class="foot" id="foot">RK · Placar de vendas ao vivo</div>
+  <div class="foot" id="foot">RK. · Placar de vendas ao vivo</div>
 </div>
 
 <script>
@@ -252,7 +252,7 @@ function render(){
   document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}`;
   const upd = dados.atualizado? new Date(dados.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('foot').textContent = `RK · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
+  document.getElementById('foot').textContent = `RK. · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
   renderVendedorDia(vendasMes); // resumo vendedor x dia (mês inteiro, sempre — não segue o Hoje/Semana/Mês)
 }
 // Resumo compacto: vendedor (linhas) × dia do mês (colunas), valores EM MIL R$ (1,2 = R$ 1.200); célula vazia = sem venda.
