@@ -98,15 +98,10 @@
 <div class="wrap">
   <header>
     <div>
-      <div class="logo">ROK<b>BOX</b> · Placar</div>
+      <div class="logo">R<b>K</b></div>
       <div class="sub" id="sub">carregando vendas…</div>
     </div>
     <div class="ctrl">
-      <div class="seg" id="seg">
-        <button data-p="hoje" class="on">Hoje</button>
-        <button data-p="semana">Semana</button>
-        <button data-p="mes">Mês</button>
-      </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
@@ -147,7 +142,7 @@
   <!-- RANKING LOJAS (todas, largura total) -->
   <section class="baixo">
     <div class="card lojas">
-      <h2>Ranking de lojas <span>(todas · <b id="loja-per">hoje</b>)</span></h2>
+      <h2>Ranking de lojas <span>(todas · <b id="loja-per">mês</b>)</span></h2>
       <div class="rank" id="rank-lojas"></div>
     </div>
     <div class="card lojas">
@@ -164,7 +159,7 @@
     </div>
   </section>
 
-  <div class="foot" id="foot">Rokbox · Placar de vendas ao vivo</div>
+  <div class="foot" id="foot">RK · Placar de vendas ao vivo</div>
 </div>
 
 <script>
@@ -180,7 +175,7 @@ const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39
 const segDe = loja => ATACADO.has(loja) ? 'Atacado' : 'Varejo';
 const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf = n => (n||0).toLocaleString('pt-BR');
-let periodo = 'hoje';
+let periodo = 'mes'; // placar mostra sempre o MÊS (os dias ficam no resumo Vendedor × dia embaixo)
 let dados = null;
 
 function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -254,10 +249,10 @@ function render(){
   document.getElementById('status-per').textContent = perLabel();
 
   const mesNome = new Date((dados.mes||hj)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome} · ${periodo==='hoje'?'vendo HOJE':(periodo==='semana'?'vendo a SEMANA':'vendo o MÊS')}`;
+  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}`;
   const upd = dados.atualizado? new Date(dados.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('foot').textContent = `Rokbox · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
+  document.getElementById('foot').textContent = `RK · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
   renderVendedorDia(vendasMes); // resumo vendedor x dia (mês inteiro, sempre — não segue o Hoje/Semana/Mês)
 }
 // Resumo compacto: vendedor (linhas) × dia do mês (colunas), valores EM MIL R$ (1,2 = R$ 1.200); célula vazia = sem venda.
@@ -277,19 +272,8 @@ function renderVendedorDia(vendas){
   h+='<tr class="tot"><th class="nm">Total do dia</th>'+dias.map(d=>{ const s=linhas.reduce((t,[,o])=>t+(o.d[d]||0),0); return `<td>${abrMil(s)}</td>`; }).join('')+`<td>${abrMil(totGeral)}</td></tr></tbody>`;
   el.innerHTML=h;
 }
-function setPeriodo(p){
-  periodo=p;
-  [...document.querySelectorAll('#seg button')].forEach(x=>x.classList.toggle('on',x.dataset.p===p));
-  render();
-}
-let autoTimer;
-function startAuto(){ clearInterval(autoTimer); autoTimer=setInterval(()=>setPeriodo(periodo==='hoje'?'semana':(periodo==='semana'?'mes':'hoje')), 60000); }
-document.getElementById('seg').addEventListener('click',e=>{
-  const b=e.target.closest('button'); if(!b)return;
-  setPeriodo(b.dataset.p); startAuto();
-});
 // ── cadeado do painel de Vendas (senha) ──
-function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); startAuto(); setInterval(carregar, 60000); } // placar (TV) abre MOSTRANDO os numeros; o olhinho oculta na mao se quiser
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); setInterval(carregar, 60000); } // placar sempre no MÊS; recarrega os dados a cada 60s. Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
