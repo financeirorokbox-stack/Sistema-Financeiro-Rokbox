@@ -102,14 +102,18 @@
     <div class="card">
       <div class="lab" style="color:var(--lime)">A Receber</div>
       <div class="kv"><span class="k">Recebido no mês</span><span class="n" id="cr-mes">—</span></div>
-      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr')" title="Ver o que está em aberto"><span class="k">A receber (vence no mês) 🔎</span><span class="n" id="cr-aberto">—</span></div>
-      <div class="lista hidden" id="cr-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-vencer')" title="O que vence de hoje até o fim do mês"><span class="k">A vencer (hoje → fim do mês) 🔎</span><span class="n" id="cr-vencer">—</span></div>
+      <div class="lista hidden" id="cr-vencer-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Venceu neste mês e ainda está em aberto"><span class="k">Atrasado (venceu, em aberto) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
+      <div class="lista hidden" id="cr-atraso-lista"></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
       <div class="kv"><span class="k">Pago no mês</span><span class="n" id="cp-mes">—</span></div>
-      <div class="kv" style="cursor:pointer" onclick="toggleLista('cp')" title="Ver o que está em aberto"><span class="k">A pagar (vence no mês) 🔎</span><span class="n" id="cp-aberto">—</span></div>
-      <div class="lista hidden" id="cp-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cp-vencer')" title="O que vence de hoje até o fim do mês"><span class="k">A vencer (hoje → fim do mês) 🔎</span><span class="n" id="cp-vencer">—</span></div>
+      <div class="lista hidden" id="cp-vencer-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cp-atraso')" title="Venceu neste mês e ainda está em aberto"><span class="k">Atrasado (venceu, em aberto) 🔎</span><span class="n" id="cp-atraso" style="color:var(--red)">—</span></div>
+      <div class="lista hidden" id="cp-atraso-lista"></div>
     </div>
   </div>
 
@@ -182,22 +186,36 @@ async function carregar(){
       totalBanco+=(+bancos[b].v||0);
       return `<div class="bank"><div class="nm">${b}</div><div class="v">${brl(bancos[b].v)}</div></div>`;
     }).join('') + `<div class="bank total-geral card" style="padding:14px 16px"><div class="nm" style="color:var(--lime)">TOTAL</div><div class="v" style="color:var(--lime)">${brl(totalBanco)}</div></div>`;
+    // Em aberto do mês, dividido: A VENCER (hoje → fim do mês) e ATRASADO (venceu de 01 até ontem, ainda em aberto).
+    const emMes=v=>String(v||'').slice(0,7)===mes;
+    const sVal=(arr,c)=>+arr.reduce((s,r)=>s+(+r[c]||0),0).toFixed(2);
     // ── CR ──
     const crA=Array.isArray(cr)?cr:(cr&&cr.itens||[]);
-    const crMes=crA.filter(r=>String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.recebido_liquido||0),0);
-    const crAberto=crA.filter(r=>!r.data_liquidacao && String(r.vencimento||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+    const crMes=crA.filter(r=>emMes(r.data_liquidacao)).reduce((s,r)=>s+(+r.recebido_liquido||0),0);
+    const crVencerArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)>=hojeStr);
+    const crAtrasoArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)<hojeStr);
+    const crVencer=sVal(crVencerArr,'valor_bruto'), crAtraso=sVal(crAtrasoArr,'valor_bruto');
+    const crAberto=+(crVencer+crAtraso).toFixed(2);
     document.getElementById('cr-mes').textContent=brl(crMes);
-    document.getElementById('cr-aberto').textContent=brl(crAberto);
+    document.getElementById('cr-vencer').textContent=brl(crVencer);
+    document.getElementById('cr-atraso').textContent=brl(crAtraso);
     // ── CP ──
     const cpA=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
-    const cpMes=cpA.filter(r=>!r.cancelado && String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
-    const cpAberto=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0);
+    const cpMes=cpA.filter(r=>!r.cancelado && emMes(r.data_liquidacao)).reduce((s,r)=>s+(+r.valor||0),0);
+    const cpAbertoF=r=>!r.cancelado && !r.data_liquidacao && !r.pago && emMes(r.vencimento);
+    const cpVencerArr=cpA.filter(r=>cpAbertoF(r) && String(r.vencimento)>=hojeStr);
+    const cpAtrasoArr=cpA.filter(r=>cpAbertoF(r) && String(r.vencimento)<hojeStr);
+    const cpVencer=sVal(cpVencerArr,'valor'), cpAtraso=sVal(cpAtrasoArr,'valor');
+    const cpAberto=+(cpVencer+cpAtraso).toFixed(2);
     document.getElementById('cp-mes').textContent=brl(cpMes);
-    document.getElementById('cp-aberto').textContent=brl(cpAberto);
-    // ── listas do que está EM ABERTO (clientes/fornecedores que compõem o a receber/a pagar do mês) ──
-    const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada em aberto neste mês 🎉</div>'; };
-    document.getElementById('cr-lista').innerHTML=_liLista(crA.filter(r=>!r.data_liquidacao && String(r.vencimento||'').slice(0,7)===mes),'cliente','vencimento','valor_bruto');
-    document.getElementById('cp-lista').innerHTML=_liLista(cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento||'').slice(0,7)===mes),'fornecedor','vencimento','valor');
+    document.getElementById('cp-vencer').textContent=brl(cpVencer);
+    document.getElementById('cp-atraso').textContent=brl(cpAtraso);
+    // ── listas do que está EM ABERTO (clientes/fornecedores que compõem cada valor) ──
+    const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada aqui 🎉</div>'; };
+    document.getElementById('cr-vencer-lista').innerHTML=_liLista(crVencerArr,'cliente','vencimento','valor_bruto');
+    document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
+    document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
+    document.getElementById('cp-atraso-lista').innerHTML=_liLista(cpAtrasoArr,'fornecedor','vencimento','valor');
     // ── saldo final projetado = saldo no banco + a receber (vence no mês) − a pagar (vence no mês) ──
     const saldoFinal=+(totalBanco+crAberto-cpAberto).toFixed(2);
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
