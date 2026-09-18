@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v623/09-718';
+const APP_VERSION = 'v624/09-718';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2720,7 +2720,7 @@ function _renderContasImpl(el) {
             // com os boletos a receber (a Elaine quer ver "boletos a emitir + entrada"). É dinheiro que caiu no
             // banco, então NÃO é excluída do relatório (conta como recebida, na data do PIX).
             if (_bPed && _bPed._entrada > 0.5) {
-              linhas.push({ ped, f: { pedido: ped.id, descricao: 'Entrada (recebida antes de emitir)', valor: _bPed._entrada, vencimento: null, key: ped.id + '-entrada' }, cat: _bPed._entradaGw || 'PIX (Extrato)', st: { recebido: true, detalhe: '✓ entrada recebida' }, venc: null, realIdx: -1, semForma: false });
+              linhas.push({ ped, f: { pedido: ped.id, descricao: 'Entrada (recebida antes de emitir)', valor: _bPed._entrada, vencimento: null, key: ped.id + '-entrada' }, cat: _bPed._entradaGw || 'PIX (Extrato)', st: { recebido: true, detalhe: '✓ entrada recebida' }, venc: null, realIdx: -1, semForma: false, _entradaFixa: true, _entradaData: _bPed._entradaData });
             }
             return; // já empurrou as parcelas — não empurra a linha agregada
           }
@@ -4417,7 +4417,7 @@ function _crRowsAOA(semFiltro) {
     const pedNum = String(l.f.pedido);
     // Pedido com PARCELAS (linhas l.f.key) mas PAGO por outra forma (PIX/PayPal): os pagamentos são do
     // PEDIDO, não da parcela → só a 1ª parcela emite; senão cada parcela repetia os recebimentos (ex.: #40060/#39910 saíam 2x).
-    if (l.f && l.f.key && l.cat !== 'Boleto Itaú') {
+    if (l.f && l.f.key && l.cat !== 'Boleto Itaú' && !l._entradaFixa) {
       if (_pedNaoBolEmit.has(pedNum)) return;
       _pedNaoBolEmit.add(pedNum);
     }
@@ -4436,6 +4436,18 @@ function _crRowsAOA(semFiltro) {
       const comp = liqD ? `01/${String(liqD.getMonth() + 1).padStart(2, '0')}/${liqD.getFullYear()}` : (vencDt ? `01/${String(vencDt.getMonth() + 1).padStart(2, '0')}/${vencDt.getFullYear()}` : '');
       return [_noon(liqD), _noon(vencDt), pedNum, nome, sit, comp, valor, 0, 0, 0, receb, 0, +((taxa || 0)).toFixed(2), descricao, obs, cat, _ma(liqD || vencDt), _ma(liqD), valor, _noon(liqD || vencDt), emp];
     };
+    // Linha da ENTRADA (recebida antes de emitir): emite UMA linha "Pago" com o valor/data da entrada.
+    // Não passa por pagamentosDaLinha (que puxaria TODOS os recebimentos do pedido, inclusive o do boleto,
+    // duplicando — ex.: #40352 contava o boleto 2x).
+    if (l._entradaFixa) {
+      const _ve = +(+l.f.valor || 0).toFixed(2);
+      const _de = _asDate(l._entradaData);
+      if (_ve > 0.005 && !(_dfOn && !passaData(_de))) {
+        const rke = pedNum + '|' + (_de ? new Date(_de).toISOString().slice(0, 10) : '') + '|' + _ve.toFixed(2) + '|' + _ve.toFixed(2);
+        if (!_rowKeyEmit.has(rke)) { _rowKeyEmit.add(rke); rows.push(mkRow(_de, _ve, _ve, 'Pago', 0)); _pedComLinha.add(pedNum); }
+      }
+      return;
+    }
     const pags = pagamentosDaLinha(l);
     let somaPag = 0;
     pags.forEach(pg => {
@@ -6487,6 +6499,7 @@ function _getBoletosPorPedidoCalc() {
   const _recNaoBoletoPorPed = {}; // pagamentos que NÃO são boleto (PIX/PayPal/Braavo/manuais) — reduzem o boleto a emitir
   const _entradaPorPed = {};      // ENTRADA = pagamento não-boleto recebido ATÉ a data de saída do boleto (a cliente deu de entrada; o boleto sai só pelo restante). Abate SEMPRE, mesmo já emitido. Pagamento no/após o vencimento é pagamento de parcela (não abate).
   const _entradaGwPorPed = {};    // gateway da entrada (pra mostrar a linha "recebida" no Contas a Receber)
+  const _entradaDataPorPed = {};  // data da entrada (data do PIX/recebimento no banco)
   const _parseDBol = v => { if (!v) return null; const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? null : d; };
   recebimentosConsolidado.forEach(r => {
     if (r._estornoChave || r.gateway === 'Boleto Itaú') return; // estorno neutralizado; boleto não reduz a si mesmo
@@ -6502,7 +6515,7 @@ function _getBoletosPorPedidoCalc() {
       const _dPagDia = dPag ? (dPag.getFullYear() + '-' + String(dPag.getMonth() + 1).padStart(2, '0') + '-' + String(dPag.getDate()).padStart(2, '0')) : null;
       if (_dsRaw && _dPagDia && _dPagDia <= String(_dsRaw).slice(0, 10)) {
         _entradaPorPed[pid] = (_entradaPorPed[pid] || 0) + bruto; // recebido no/antes da saída = entrada
-        if (!_entradaGwPorPed[pid]) _entradaGwPorPed[pid] = r.gateway || 'PIX (Extrato)';
+        if (!_entradaGwPorPed[pid]) { _entradaGwPorPed[pid] = r.gateway || 'PIX (Extrato)'; _entradaDataPorPed[pid] = dataRepasseBanco(r) || r.data; }
       }
     });
   });
@@ -6561,6 +6574,7 @@ function _getBoletosPorPedidoCalc() {
       _jaPago: _jaPago,          // o que já entrou (recebimento + crédito devolução)
       _entrada: +(_entrada || 0).toFixed(2),        // entrada (recebida antes/na saída) → vira linha "recebida" no Contas a Receber
       _entradaGw: _entradaGwPorPed[pid] || 'PIX (Extrato)',
+      _entradaData: _entradaDataPorPed[pid] || null,
       _credDev: +(_credDev || 0).toFixed(2),
       linhas: []
     };
