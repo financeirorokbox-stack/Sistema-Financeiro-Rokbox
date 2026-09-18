@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v620/09-718';
+const APP_VERSION = 'v621/09-718';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2694,11 +2694,13 @@ function _renderContasImpl(el) {
         // Boleto Itaú JÁ CONFIGURADO com parcelas → mostra cada parcela com seu vencimento (igual à tela
         // de Boletos a Emitir). Sem isto o boleto cash-first aparecia como 1 linha só, sem vencimento.
         if (cat === 'Boleto Itaú') {
-          // Emite o boleto LÍQUIDO do crédito de troca (o boleto sai já descontado; a diferença NÃO é a receber).
+          // Usa o MESMO valor líquido da tela de Boletos a Emitir (crédito de troca + entrada já abatidos),
+          // pra o Contas a Receber bater com o boleto que sai de verdade. Ex.: #40312 632,32; #40352 2.111,24.
           const _credT = _credTrocaPorPed[ped.id] || 0;
-          const _totLiq = Math.max(0, +((ped.valor || 0) - _credT).toFixed(2));
+          const _bPed = getBoletosPorPedido().find(b => String(b.pedido) === String(ped.id));
+          const _totLiq = _bPed ? _bPed.valorTotal : Math.max(0, +((ped.valor || 0) - _credT).toFixed(2));
           if (_credT > 0.5) _boletoCredNetted.add(String(ped.id));
-          const parcelas = getParcelas({ pedido: ped.id, valorTotal: _totLiq });
+          const parcelas = getParcelas(_bPed || { pedido: ped.id, valorTotal: _totLiq });
           if (parcelas.length) {
             // Se o pedido JÁ foi todo recebido (por qualquer forma: boleto pago + PIX + sobra de outro
             // pedido), a parcela mostra PAGA — mesmo que o carimbo de boleto pago não esteja na parcela.
@@ -6477,14 +6479,19 @@ function _getBoletosPorPedidoCalc() {
     (String(credEfetivo).match(/\d{4,6}/g) || []).forEach(pc => { _credDevPorPed[pc] = (_credDevPorPed[pc] || 0) + (d.valorPago || 0); });
   });
   const _recNaoBoletoPorPed = {}; // pagamentos que NÃO são boleto (PIX/PayPal/Braavo/manuais) — reduzem o boleto a emitir
+  const _entradaPorPed = {};      // ENTRADA = pagamento não-boleto recebido ANTES da data de saída do boleto (a cliente deu de entrada; o boleto sai só pelo restante). Abate SEMPRE, mesmo já emitido. Pagamento no/após o vencimento é pagamento de parcela (não abate).
+  const _parseDBol = v => { if (!v) return null; const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? null : d; };
   recebimentosConsolidado.forEach(r => {
     if (r._estornoChave || r.gateway === 'Boleto Itaú') return; // estorno neutralizado; boleto não reduz a si mesmo
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.length) return;
     const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)';
+    const dPag = _parseDBol(r.data);
     peds.forEach(pid => {
       const bruto = (peds.length > 1 && ehGw) ? alocRecebGateway(r, pid) : (r.bruto || r.liq || 0);
       _recNaoBoletoPorPed[pid] = (_recNaoBoletoPorPed[pid] || 0) + bruto;
+      const _ds = (boletoConfig[pid] && boletoConfig[pid].dataSaida) ? _parseDBol(boletoConfig[pid].dataSaida) : null;
+      if (_ds && dPag && dPag < _ds) _entradaPorPed[pid] = (_entradaPorPed[pid] || 0) + bruto; // recebido antes da saída = entrada
     });
   });
   formaPagamento.forEach(f => {
@@ -6512,17 +6519,20 @@ function _getBoletosPorPedidoCalc() {
     if (formaOverrideMap[pid] !== 'Boleto Itaú' || byPedido[pid]) return;
     const ped = pedidoPorId(pid);
     if (!ped) return;
-    // Cash-first: parte que já entrou reduz o boleto A EMITIR. Dois tipos, com regras diferentes:
+    // Cash-first: parte que já entrou reduz o boleto A EMITIR. Três tipos, com regras diferentes:
     // • CRÉDITO DE TROCA: o boleto FÍSICO sai já descontado dele (a cliente não paga a parte que virou
     //   troca) → SEMPRE reduz, inclusive depois de emitido (ex.: #40312 sai 632,32, não 775,59).
-    // • PIX/PayPal/outras formas: pagam PARCELA. Só reduzem o boleto ANTES de emitir (cash-first);
-    //   depois de emitido, o boleto já saiu e o PIX é pagamento de parcela, não reduz (ex.: #40215,
-    //   PIX de 1 parcela fazia a Cobrança mostrar 1.345 em vez de 2.713).
-    const _credDev = _credDevPorPed[pid] || 0;        // crédito de troca → sempre abate
-    const _recOutras = _recNaoBoletoPorPed[pid] || 0; // PIX/PayPal → só antes de emitir
+    // • ENTRADA (PIX/PayPal recebido ANTES da data de saída): a cliente deu de entrada e o boleto sai só
+    //   pelo restante → SEMPRE reduz (ex.: #40352, entrada 2.111,23 → parcela 2.111,24, não 2.814,98).
+    // • PIX/PayPal recebido no/após o vencimento: paga PARCELA. Só reduz o boleto ANTES de emitir
+    //   (cash-first); depois de emitido, o boleto já saiu e é pagamento de parcela (ex.: #40215).
+    const _credDev = _credDevPorPed[pid] || 0;         // crédito de troca → sempre abate
+    const _entrada = _entradaPorPed[pid] || 0;         // entrada (antes da saída) → sempre abate
+    const _recOutras = _recNaoBoletoPorPed[pid] || 0;  // todos os não-boleto (inclui a entrada)
+    const _recPosSaida = Math.max(0, +(_recOutras - _entrada).toFixed(2)); // pagamento de parcela → só antes de emitir
     const _cheio = ped.valor || 0;
     const _jaEmitido = Object.keys(boletoStatus).some(k => k.indexOf(pid + '-') === 0 && boletoStatus[k]);
-    const _jaPago = +(_credDev + (_jaEmitido ? 0 : _recOutras)).toFixed(2); // o que foi realmente descontado do boleto
+    const _jaPago = +(_credDev + _entrada + (_jaEmitido ? 0 : _recPosSaida)).toFixed(2); // o que foi realmente descontado do boleto
     const _liq = Math.max(0, +(_cheio - _jaPago).toFixed(2));
     byPedido[pid] = {
       pedido: String(pid),
