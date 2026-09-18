@@ -106,6 +106,8 @@
       <div class="lista hidden" id="cr-vencer-lista"></div>
       <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Venceu neste mês e ainda está em aberto"><span class="k">Atrasado (venceu, em aberto) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
       <div class="lista hidden" id="cr-atraso-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-banco')" title="Caiu HOJE no banco (extrato) e ainda não foi baixado no sistema — amanhã vira pago quando você atualiza o saldo"><span class="k">Caiu hoje no banco (falta baixar) 🔎</span><span class="n" id="cr-banco" style="color:var(--lime)">—</span></div>
+      <div class="lista hidden" id="cr-banco-lista"></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
@@ -174,7 +176,7 @@ function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMo
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes')]);
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks')]);
     const mes=mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
     const _hj=new Date(); const hojeStr=_hj.getFullYear()+'-'+String(_hj.getMonth()+1).padStart(2,'0')+'-'+String(_hj.getDate()).padStart(2,'0');
@@ -195,10 +197,19 @@ async function carregar(){
     const crVencerArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)>=hojeStr);
     const crAtrasoArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)<hojeStr);
     const crVencer=sVal(crVencerArr,'valor_bruto'), crAtraso=sVal(crAtrasoArr,'valor_bruto');
-    const crAberto=+(crVencer+crAtraso).toFixed(2);
+    // ── Caiu HOJE no banco (extrato) e ainda NÃO foi baixado (não está em extratoLinks) → soma no a receber.
+    //    Amanhã, quando a Elaine baixa e atualiza o saldo, ele sai daqui e vira "pago". Só CRÉDITO (entrada) de HOJE.
+    const links=extL||{};
+    const extArr=Array.isArray(extB)?extB:[];
+    const _dDia=v=>{ if(!v) return ''; const d=v instanceof Date?v:new Date(v); return isNaN(d)?String(v).slice(0,10):(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
+    const bancoHojeArr=extArr.filter(t=>(+t.valor||0)>0 && _dDia(t.data)===hojeStr && !links[t.id]);
+    const crBanco=+bancoHojeArr.reduce((s,t)=>s+(+t.valor||0),0).toFixed(2);
+    const crAberto=+(crVencer+crAtraso+crBanco).toFixed(2);
     document.getElementById('cr-mes').textContent=brl(crMes);
     document.getElementById('cr-vencer').textContent=brl(crVencer);
     document.getElementById('cr-atraso').textContent=brl(crAtraso);
+    document.getElementById('cr-banco').textContent=brl(crBanco);
+    document.getElementById('cr-banco-lista').innerHTML = bancoHojeArr.length ? bancoHojeArr.sort((a,b)=>(+b.valor||0)-(+a.valor||0)).map(t=>`<div class="li"><span>${t.banco||'—'} · ${String(t.memo||'').slice(0,34)}</span><span class="vv">${brl(+t.valor||0)}</span></div>`).join('') : '<div class="li" style="color:var(--muted)">nada novo no banco hoje 🎉</div>';
     // ── CP ──
     const cpA=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
     const cpMes=cpA.filter(r=>!r.cancelado && emMes(r.data_liquidacao)).reduce((s,r)=>s+(+r.valor||0),0);
