@@ -53,6 +53,12 @@
   table.vd td.z{color:var(--line)}
   table.vd tr.tot td,table.vd tr.tot th{border-top:2px solid var(--line);font-weight:800;color:var(--lime)}
   table.vd td.rt{font-weight:800;color:var(--lime)}
+  .prosp-tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .ptile{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .ptile .pv{font-weight:800;font-size:clamp(18px,1.8vw,26px);color:#fff}
+  .ptile .pl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  .ptile.conv .pv{color:var(--lime)}
+  table.vd td.g{color:var(--muted)}
   .row{display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px}
   .pos{font-weight:800;color:var(--muted);font-size:clamp(13px,1.1vw,17px);text-align:center}
   .row:nth-child(1) .pos{color:var(--gold)}
@@ -159,6 +165,16 @@
     </div>
   </section>
 
+  <!-- PROSPECÇÃO / CRM por vendedora (Varejo) -->
+  <section class="baixo" id="prosp-sec" style="display:none">
+    <div class="card lojas" style="grid-column:1/-1">
+      <h2>Prospecção · Varejo <span>(mês · trabalho da vendedora)</span></h2>
+      <div class="prosp-tops" id="prosp-tops"></div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px"><table class="vd" id="prosp-tab"></table></div>
+      <div id="prosp-upd" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
+    </div>
+  </section>
+
   <div class="foot" id="foot">RK. · Placar de vendas ao vivo</div>
 </div>
 
@@ -189,6 +205,29 @@ async function carregar(){
     if(Array.isArray(j)&&j[0]) dados = JSON.parse(j[0].valor);
     render();
   }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
+}
+// ── Prospecção · Varejo (CRM por vendedora) — lê o que o robozinho da planilha grava no banco ──
+async function carregarProsp(){
+  try{
+    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.prospeccaoVarejo&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'});
+    const j = await r.json();
+    renderProsp((Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : null);
+  }catch(e){}
+}
+function renderProsp(p){
+  const sec=document.getElementById('prosp-sec'); if(!sec) return;
+  if(!p || !Array.isArray(p.vendedores) || !p.vendedores.length){ sec.style.display='none'; return; }
+  sec.style.display='';
+  const t=p.totais||{};
+  const tops=[['Novos fechados',t.novosF],['Ativos compraram',t.ativosC],['Inativos reativados',t.inativosR],['Carrinho fechado',t.carrinhoF]];
+  document.getElementById('prosp-tops').innerHTML = tops.map(([l,v])=>`<div class="ptile"><div class="pv">${nf(v||0)}</div><div class="pl">${l}</div></div>`).join('') + `<div class="ptile conv"><div class="pv">${t.convNovos!=null?t.convNovos:'—'}</div><div class="pl">% conv. novos</div></div>`;
+  const pf=(a,b)=>`${nf(a||0)} <span class="g">→</span> ${nf(b||0)}`;
+  let h='<thead><tr><th class="nm">Vendedora</th><th>Novos (P→F)</th><th>Ativos (P→compra)</th><th>Inativos (P→reativ)</th><th>Carrinho (P→F)</th><th class="rt">% Conv.</th></tr></thead><tbody>';
+  p.vendedores.forEach(v=>{ h+=`<tr><td class="nm">${v.nome||'—'}</td><td>${pf(v.novosP,v.novosF)}</td><td>${pf(v.ativosP,v.ativosC)}</td><td>${pf(v.inativosP,v.inativosR)}</td><td>${pf(v.carrinhoP,v.carrinhoF)}</td><td class="rt">${v.convNovos!=null?v.convNovos:'—'}</td></tr>`; });
+  h+='</tbody>';
+  document.getElementById('prosp-tab').innerHTML=h;
+  const u=p.atualizado?new Date(p.atualizado):null;
+  document.getElementById('prosp-upd').textContent = u?('planilha atualizada '+u.toLocaleDateString('pt-BR')+' '+u.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+(p.mes?' · mês '+p.mes:'')):'';
 }
 function agrupa(regs, campo){
   const m={};
@@ -273,7 +312,7 @@ function renderVendedorDia(vendas){
   el.innerHTML=h;
 }
 // ── cadeado do painel de Vendas (senha) ──
-function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); setInterval(carregar, 60000); } // placar sempre no MÊS; recarrega os dados a cada 60s. Olhinho oculta os valores na mão.
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); carregarProsp(); setInterval(()=>{ carregar(); carregarProsp(); }, 60000); } // placar sempre no MÊS; recarrega os dados a cada 60s. Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
