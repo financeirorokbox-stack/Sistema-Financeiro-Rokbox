@@ -2,7 +2,13 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Financeiro Rokbox">
+<meta name="theme-color" content="#0b0f0d">
+<link rel="manifest" href="manifest-financeiro.json">
 <title>Financeiro Rokbox</title>
 <style>
   :root{
@@ -78,6 +84,7 @@
     </div>
     <div class="top-actions">
       <span class="lnk" id="eye" onclick="toggleNums()" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
+      <span class="lnk" id="full" onclick="toggleFull()" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
       <a class="lnk" href="paineis.html">← Painéis</a>
       <span class="lnk" onclick="sair()">Sair 🔒</span>
     </div>
@@ -145,6 +152,8 @@ function tentar(){
 function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
 function abrir(){ document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; carregar(); setInterval(carregar,120000); } // sempre abre borrado
 function toggleNums(){ const app=document.getElementById('app'); const oc=app.classList.toggle('nums-ocultos'); document.getElementById('eye').textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
+function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
+document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair':'⛶ Tela cheia'; });
 
 async function gk(chave){
   const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});

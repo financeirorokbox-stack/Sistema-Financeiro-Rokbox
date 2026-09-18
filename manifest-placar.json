@@ -1,0 +1,10 @@
+{
+  "name": "Placar Rokbox",
+  "short_name": "Placar RK",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "start_url": "placar.html",
+  "scope": "./",
+  "background_color": "#0b0f0d",
+  "theme_color": "#0b0f0d"
+}

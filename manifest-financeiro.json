@@ -1,0 +1,9 @@
+{
+  "name": "Financeiro Rokbox",
+  "short_name": "Financeiro RK",
+  "display": "standalone",
+  "start_url": "financeiro.html",
+  "scope": "./",
+  "background_color": "#0b0f0d",
+  "theme_color": "#0b0f0d"
+}
