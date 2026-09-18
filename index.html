@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v619/09-718';
+const APP_VERSION = 'v620/09-718';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6512,18 +6512,18 @@ function _getBoletosPorPedidoCalc() {
     if (formaOverrideMap[pid] !== 'Boleto Itaú' || byPedido[pid]) return;
     const ped = pedidoPorId(pid);
     if (!ped) return;
-    // Cash-first: se parte já foi paga (recebimentos) ou virou crédito de devolução, o boleto A EMITIR
-    // é só o RESTANTE. Isto NÃO muda o Contas a Receber (que usa o valor cheio do pedido direto), só a emissão.
-    // Só pagamentos de OUTRAS formas (PIX, PayPal…) e crédito de devolução reduzem o boleto a emitir.
-    // Pagamento do PRÓPRIO boleto NÃO reduz (o boleto já foi emitido cheio; suas parcelas se pagam à parte).
-    const _jaPago = +(((_recNaoBoletoPorPed[pid] || 0)) + (_credDevPorPed[pid] || 0)).toFixed(2);
+    // Cash-first: parte que já entrou reduz o boleto A EMITIR. Dois tipos, com regras diferentes:
+    // • CRÉDITO DE TROCA: o boleto FÍSICO sai já descontado dele (a cliente não paga a parte que virou
+    //   troca) → SEMPRE reduz, inclusive depois de emitido (ex.: #40312 sai 632,32, não 775,59).
+    // • PIX/PayPal/outras formas: pagam PARCELA. Só reduzem o boleto ANTES de emitir (cash-first);
+    //   depois de emitido, o boleto já saiu e o PIX é pagamento de parcela, não reduz (ex.: #40215,
+    //   PIX de 1 parcela fazia a Cobrança mostrar 1.345 em vez de 2.713).
+    const _credDev = _credDevPorPed[pid] || 0;        // crédito de troca → sempre abate
+    const _recOutras = _recNaoBoletoPorPed[pid] || 0; // PIX/PayPal → só antes de emitir
     const _cheio = ped.valor || 0;
-    // Se o boleto JÁ FOI EMITIDO, ele saiu no valor CHEIO — as parcelas se pagam à parte (inclusive por PIX),
-    // e o PIX é um PAGAMENTO de parcela, não uma redução do boleto. Só reduz pelo "já pago" quando o boleto
-    // ainda NÃO foi emitido (cash-first: emitir só o restante). Sem isto, um PIX de 1 parcela fazia a Cobrança
-    // mostrar o valor errado (ex.: #40215 aparecia 1.345 em vez de 2.713).
     const _jaEmitido = Object.keys(boletoStatus).some(k => k.indexOf(pid + '-') === 0 && boletoStatus[k]);
-    const _liq = _jaEmitido ? _cheio : Math.max(0, +(_cheio - _jaPago).toFixed(2));
+    const _jaPago = +(_credDev + (_jaEmitido ? 0 : _recOutras)).toFixed(2); // o que foi realmente descontado do boleto
+    const _liq = Math.max(0, +(_cheio - _jaPago).toFixed(2));
     byPedido[pid] = {
       pedido: String(pid),
       cliente: ped.nome || '',
