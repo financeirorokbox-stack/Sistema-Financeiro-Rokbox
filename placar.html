@@ -97,6 +97,7 @@
     <div class="ctrl">
       <div class="seg" id="seg">
         <button data-p="hoje" class="on">Hoje</button>
+        <button data-p="semana">Semana</button>
         <button data-p="mes">Mês</button>
       </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
@@ -168,6 +169,8 @@ let periodo = 'hoje';
 let dados = null;
 
 function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function semanaRange(){ const d=new Date(); const dow=(d.getDay()+6)%7; const seg=new Date(d); seg.setDate(d.getDate()-dow); const dom=new Date(seg); dom.setDate(seg.getDate()+6); const iso=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); return {de:iso(seg), ate:iso(dom)}; } // segunda a domingo da semana atual
+function perLabel(){ return periodo==='hoje'?'hoje':(periodo==='semana'?'semana':'mês'); }
 
 async function carregar(){
   try{
@@ -210,7 +213,9 @@ function render(){
   const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
   regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
   const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
-  const base = periodo==='hoje' ? vendasMes.filter(x=>x.data===hj) : vendasMes;
+  const _wk = semanaRange();
+  const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
+  const base = vendasMes.filter(x=>inPer(x.data));
 
   const bV = base.filter(x=>segDe(x.loja)==='Varejo');
   const bA = base.filter(x=>segDe(x.loja)==='Atacado');
@@ -225,16 +230,16 @@ function render(){
   // ranking lojas (todas, largura total)
   const rl = agrupa(base,'loja');
   barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
-  document.getElementById('loja-per').textContent = periodo==='hoje'?'hoje':'mês';
+  document.getElementById('loja-per').textContent = perLabel();
 
-  // ranking por status (segue o período Hoje/Mês; mostra valor + qtd; cor de cada status)
-  const stBase = (periodo==='hoje' ? regsMes.filter(x=>x.data===hj) : regsMes).filter(x=>!OCULTAR.has(x.situacao));
+  // ranking por status (segue o período Hoje/Semana/Mês; mostra valor + qtd; cor de cada status)
+  const stBase = regsMes.filter(x=>inPer(x.data)).filter(x=>!OCULTAR.has(x.situacao));
   const rst = agrupa(stBase,'situacao');
   barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
-  document.getElementById('status-per').textContent = periodo==='hoje'?'hoje':'mês';
+  document.getElementById('status-per').textContent = perLabel();
 
   const mesNome = new Date((dados.mes||hj)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome} · ${periodo==='hoje'?'vendo HOJE':'vendo o MÊS'}`;
+  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome} · ${periodo==='hoje'?'vendo HOJE':(periodo==='semana'?'vendo a SEMANA':'vendo o MÊS')}`;
   const upd = dados.atualizado? new Date(dados.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('foot').textContent = `Rokbox · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
@@ -245,7 +250,7 @@ function setPeriodo(p){
   render();
 }
 let autoTimer;
-function startAuto(){ clearInterval(autoTimer); autoTimer=setInterval(()=>setPeriodo(periodo==='hoje'?'mes':'hoje'), 60000); }
+function startAuto(){ clearInterval(autoTimer); autoTimer=setInterval(()=>setPeriodo(periodo==='hoje'?'semana':(periodo==='semana'?'mes':'hoje')), 60000); }
 document.getElementById('seg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b)return;
   setPeriodo(b.dataset.p); startAuto();
