@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v621/09-718';
+const APP_VERSION = 'v622/09-718';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6527,7 +6527,12 @@ function _getBoletosPorPedidoCalc() {
     // • PIX/PayPal recebido no/após o vencimento: paga PARCELA. Só reduz o boleto ANTES de emitir
     //   (cash-first); depois de emitido, o boleto já saiu e é pagamento de parcela (ex.: #40215).
     const _credDev = _credDevPorPed[pid] || 0;         // crédito de troca → sempre abate
-    const _entrada = _entradaPorPed[pid] || 0;         // entrada (antes da saída) → sempre abate
+    // MÊS FECHADO NÃO SE MEXE: se TODOS os vencimentos do boleto caem em mês congelado (crFechado, vem da
+    // planilha oficial), a entrada NÃO reabate (senão a gente recalcularia o passado). Ex.: #357 (venc 11/07).
+    const _vencsBol = calcVencimentos((boletoConfig[pid] || {}).dataSaida, (boletoConfig[pid] || {}).prazo) || [];
+    const _mFech = (typeof crFechado !== 'undefined' && crFechado) ? Object.keys(crFechado) : [];
+    const _vencTudoFechado = _vencsBol.length > 0 && _vencsBol.every(v => _mFech.includes(v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0')));
+    const _entrada = _vencTudoFechado ? 0 : (_entradaPorPed[pid] || 0); // entrada (antes da saída) → sempre abate, exceto mês fechado
     const _recOutras = _recNaoBoletoPorPed[pid] || 0;  // todos os não-boleto (inclui a entrada)
     const _recPosSaida = Math.max(0, +(_recOutras - _entrada).toFixed(2)); // pagamento de parcela → só antes de emitir
     const _cheio = ped.valor || 0;
