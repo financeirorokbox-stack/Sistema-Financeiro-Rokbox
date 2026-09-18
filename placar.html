@@ -46,6 +46,13 @@
   .col-name{font-size:clamp(15px,1.4vw,21px);font-weight:800;display:flex;align-items:center;gap:9px;margin-bottom:14px;padding-bottom:11px;border-bottom:1px solid var(--line)}
   .col-name .tag{margin-left:auto;font-size:.62em;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1px}
   .rank{display:flex;flex-direction:column;gap:clamp(8px,.9vw,12px)}
+  table.vd{border-collapse:collapse;font-size:clamp(10px,.85vw,13px);white-space:nowrap}
+  table.vd th,table.vd td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--line)}
+  table.vd th{color:var(--muted);font-weight:700;position:sticky;top:0;background:var(--card)}
+  table.vd td.nm,table.vd th.nm{text-align:left;position:sticky;left:0;background:var(--card);font-weight:700;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  table.vd td.z{color:var(--line)}
+  table.vd tr.tot td,table.vd tr.tot th{border-top:2px solid var(--line);font-weight:800;color:var(--lime)}
+  table.vd td.rt{font-weight:800;color:var(--lime)}
   .row{display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px}
   .pos{font-weight:800;color:var(--muted);font-size:clamp(13px,1.1vw,17px);text-align:center}
   .row:nth-child(1) .pos{color:var(--gold)}
@@ -149,6 +156,14 @@
     </div>
   </section>
 
+  <!-- RESUMO VENDEDOR x DIA (mes inteiro, compacto) -->
+  <section class="baixo">
+    <div class="card lojas" style="grid-column:1/-1">
+      <h2>Vendedor × dia <span>(mês · valores em mil R$)</span></h2>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="vend-dia"></table></div>
+    </div>
+  </section>
+
   <div class="foot" id="foot">Rokbox · Placar de vendas ao vivo</div>
 </div>
 
@@ -243,6 +258,24 @@ function render(){
   const upd = dados.atualizado? new Date(dados.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('foot').textContent = `Rokbox · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
+  renderVendedorDia(vendasMes); // resumo vendedor x dia (mês inteiro, sempre — não segue o Hoje/Semana/Mês)
+}
+// Resumo compacto: vendedor (linhas) × dia do mês (colunas), valores EM MIL R$ (1,2 = R$ 1.200); célula vazia = sem venda.
+function abrMil(v){ return v>0 ? (v/1000).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) : ''; }
+function renderVendedorDia(vendas){
+  const el=document.getElementById('vend-dia'); if(!el) return;
+  if(!vendas || !vendas.length){ el.innerHTML=''; return; }
+  const dias=[...new Set(vendas.map(x=>x.data))].filter(Boolean).sort();
+  const vend={}; vendas.forEach(x=>{ const v=x.vendedor||'Sem vendedor'; (vend[v]=vend[v]||{tot:0,d:{}}); vend[v].tot+=(+x.valor||0); vend[v].d[x.data]=(vend[v].d[x.data]||0)+(+x.valor||0); });
+  const linhas=Object.entries(vend).sort((a,b)=>b[1].tot-a[1].tot);
+  const dd=d=>d.slice(8,10);
+  let h='<thead><tr><th class="nm">Vendedor</th>'+dias.map(d=>`<th>${dd(d)}</th>`).join('')+'<th class="rt">Total</th></tr></thead><tbody>';
+  linhas.forEach(([nome,o])=>{
+    h+=`<tr><td class="nm" title="${nome}">${nome}</td>`+dias.map(d=>{ const v=o.d[d]||0; return v>0?`<td>${abrMil(v)}</td>`:'<td class="z">·</td>'; }).join('')+`<td class="rt">${abrMil(o.tot)}</td></tr>`;
+  });
+  const totGeral=vendas.reduce((t,x)=>t+(+x.valor||0),0);
+  h+='<tr class="tot"><th class="nm">Total do dia</th>'+dias.map(d=>{ const s=linhas.reduce((t,[,o])=>t+(o.d[d]||0),0); return `<td>${abrMil(s)}</td>`; }).join('')+`<td>${abrMil(totGeral)}</td></tr></tbody>`;
+  el.innerHTML=h;
 }
 function setPeriodo(p){
   periodo=p;
