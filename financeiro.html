@@ -220,10 +220,10 @@ async function carregar(){
     document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
     document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
     document.getElementById('cp-atraso-lista').innerHTML=_liLista(cpAtrasoArr,'fornecedor','vencimento','valor');
-    // ── saldo final projetado = saldo no banco + a receber (vence no mês) − a pagar (vence no mês) ──
-    const saldoFinal=+(totalBanco+crAberto-cpAberto).toFixed(2);
+    // ── saldo final projetado = saldo no banco + a receber A VENCER (NÃO conta atrasado, pedido da Elaine) − a pagar ──
+    const saldoFinal=+(totalBanco+crVencer-cpAberto).toFixed(2);
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
-    document.getElementById('saldo-final-det').textContent=`Saldo ${brl(totalBanco)} + a receber ${brl(crAberto)} − a pagar ${brl(cpAberto)}`;
+    document.getElementById('saldo-final-det').textContent=`Saldo ${brl(totalBanco)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
     // ── por semana (segunda a domingo): o que VENCE a receber x a pagar, e o resultado ──
     const isoD=dt=>dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
     const [yy,mm]=mes.split('-').map(Number);
