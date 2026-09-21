@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v625/09-721';
+const APP_VERSION = 'v626/09-721';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4414,6 +4414,10 @@ function _crRowsAOA(semFiltro) {
   const _pedsNaTela = new Set(_linhasCRExport.map(l => String(l.f && l.f.pedido)).filter(Boolean)); // pedidos visíveis na tela de CR
   _linhasCRExport.forEach(l => {
     if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente' || l.cat === 'Desconto em Folha') return; // aparecem na tela, mas NÃO entram no relatório de contas a receber (desconto em folha não passa no banco)
+    // Boleto que virou ACORDO (renegociado) sai do relatório: quem vale são as PARCELAS do acordo (avulsos AVxx, que
+    // já entram como linha). Sem isto o original E as parcelas contavam em dobro no a receber (ex.: #40329 do acordo A02).
+    if (l.f && l.f.key && typeof sistemaAcordo !== 'undefined' && sistemaAcordo[l.f.key]) return;      // boleto do SISTEMA em acordo
+    if (l._avulso && (boletosAvulsos[l._avIdx] || {})._acordoId) return;                                 // boleto AVULSO original que entrou num acordo
     const pedNum = String(l.f.pedido);
     // Pedido com PARCELAS (linhas l.f.key) mas PAGO por outra forma (PIX/PayPal): os pagamentos são do
     // PEDIDO, não da parcela → só a 1ª parcela emite; senão cada parcela repetia os recebimentos (ex.: #40060/#39910 saíam 2x).
@@ -7454,6 +7458,16 @@ function enviarBoletosAcordoWpp(id) {
 function editarAcordo(id) {
   const ac = acordos.find(a => a.id === id); if (!ac) { alert('Acordo não encontrado.'); return; }
   const parc = boletosAvulsos.filter(a => a._acordoParc === id);
+  // Reconstrói os TÍTULOS originais que entraram no acordo (pra mostrar dentro do Editar).
+  const _avO = boletosAvulsos.filter(b => b._acordoId === id).map(b => ({ ref: b.pedido || 'avulso', venc: b.vencimento, val: (b.valorTitulo || 0) }));
+  const _mapP = {}; try { getBoletosPorPedido().forEach(bp => getParcelas(bp).forEach(p => { _mapP[p.key] = { ped: bp.pedido, pc: p.totalParcelas > 1 ? `${p.parcela}/${p.totalParcelas}` : '', venc: p.vencimento, val: p.valor }; })); } catch (e) {}
+  const _sisO = Object.keys(sistemaAcordo || {}).filter(k => sistemaAcordo[k] === id).map(k => { const m = _mapP[k] || {}; return { ref: m.ped ? ('#' + m.ped + (m.pc ? ' ' + m.pc : '')) : k, venc: m.venc, val: (m.val || 0) }; });
+  const _orig = [..._sisO, ..._avO].sort((a, b) => String(a.venc || '').localeCompare(String(b.venc || '')));
+  const _origHtml = _orig.length ? `<div style="font-size:12px;font-weight:700;margin:6px 0 4px">Títulos originais neste acordo (${_orig.length})</div>
+    <div style="max-height:150px;overflow:auto;border:1px solid var(--line,#ddd);border-radius:8px;margin-bottom:12px"><table style="width:100%;font-size:12px;border-collapse:collapse">
+    <thead><tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px">Ref.</th><th style="padding:4px 8px">Vencimento</th><th style="padding:4px 8px;text-align:right">Valor</th></tr></thead><tbody>
+    ${_orig.map(o => `<tr><td style="padding:4px 8px">${o.ref || '—'}</td><td style="padding:4px 8px">${o.venc ? fmtDate(o.venc) : '—'}</td><td style="padding:4px 8px;text-align:right">${fmtVal(o.val)}</td></tr>`).join('')}
+    </tbody></table></div>` : '';
   _acordoSel = [{ valor: +ac.valorOriginal || 0 }]; // sintético: só pro _acordoRecalc calcular o alvo (original + multa)
   const old = document.getElementById('acordo-modal'); if (old) old.remove();
   const ov = document.createElement('div'); ov.id = 'acordo-modal';
@@ -7466,6 +7480,7 @@ function editarAcordo(id) {
       <div><label style="font-size:11px;color:var(--muted)">Multa/juros</label><br><input id="ac-multa" type="number" step="0.01" class="inline-input" value="${(+ac.multa || 0).toFixed(2)}" style="width:110px;text-align:right" oninput="_acordoRecalc()"></div>
       <div style="font-size:12px;color:var(--muted)">Total do acordo: <strong id="ac-alvo" style="color:var(--accent)">${fmtVal(ac.valorAcordo || 0)}</strong></div>
     </div>
+    ${_origHtml}
     <div style="font-size:12px;font-weight:700;margin-bottom:4px">Parcelas do acordo (datas e valores)</div>
     <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:3px">Vencimento</th><th style="padding:3px;text-align:right;width:120px">Valor</th><th style="width:40px"></th></tr></thead><tbody id="ac-parc"></tbody></table>
     <div style="margin:6px 0 2px"><button class="btn ghost sm" onclick="_acordoAddParc()">➕ parcela</button></div>
