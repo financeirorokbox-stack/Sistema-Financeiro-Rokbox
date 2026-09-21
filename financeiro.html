@@ -216,9 +216,15 @@ async function gk(chave){
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 let mesSel=null;          // mês escolhido no filtro (null = mês atual)
 let _FIN=null;            // guarda os dados carregados (pro Balancete usar sem rebuscar)
-function _mesesDisponiveis(){ const [ay,am]=mesAtual().split('-').map(Number); const arr=[]; let y=2026,m=6; while(y<ay||(y===ay&&m<=am)){ arr.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} } return arr.reverse(); } // mais recente primeiro
+function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra frente: out/nov… aparecem), mais recente primeiro
+  let fim=mesAtual();
+  try{ const cr=(_FIN&&_FIN.cr)||[], cp=(_FIN&&_FIN.cp)||[]; const crA=Array.isArray(cr)?cr:(cr.itens||[]); const cpA=Array.isArray(cp)?cp:(cp.itens||[]);
+    [...crA.filter(r=>!r.data_liquidacao), ...cpA.filter(r=>!r.cancelado&&!r.data_liquidacao&&!r.pago)].forEach(r=>{ const m=String(r.vencimento||'').slice(0,7); if(/^\d{4}-\d{2}$/.test(m)&&m>fim) fim=m; }); }catch(e){}
+  const [cy,cm]=mesAtual().split('-').map(Number); const capD=new Date(cy,cm-1+12,1); const cap=capD.getFullYear()+'-'+String(capD.getMonth()+1).padStart(2,'0'); if(fim>cap) fim=cap; // no máximo 12 meses à frente
+  const [fy,fm]=fim.split('-').map(Number); const arr=[]; let y=2026,m=6; while(y<fy||(y===fy&&m<=fm)){ arr.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} } return arr.reverse();
+}
 function _popMesSel(){ const s=document.getElementById('mes-sel'); if(!s) return; const cur=mesSel||mesAtual(); s.innerHTML=_mesesDisponiveis().map(mm=>{ const nome=new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<option value="${mm}" ${mm===cur?'selected':''}>${nome.charAt(0).toUpperCase()+nome.slice(1)}</option>`; }).join(''); }
-function mudarMes(v){ mesSel=v; carregar(); }
+function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); } // atualiza o balancete tbm se estiver aberto
 function setAba(t){ mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; if(t==='balancete') renderBalancete(); }
 
 async function carregar(){
