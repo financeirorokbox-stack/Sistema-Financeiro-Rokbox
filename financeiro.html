@@ -94,6 +94,13 @@
     </div>
   </header>
 
+  <div class="abas">
+    <button class="aba on" data-t="fluxo" onclick="setAba('fluxo')">💰 Fluxo de Caixa</button>
+    <button class="aba" data-t="balancete" onclick="setAba('balancete')">📊 Balancete</button>
+    <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
+  </div>
+
+  <div id="aba-fluxo">
   <h2>🏦 Saldo em banco</h2>
   <div class="card"><div class="grid-banks" id="banks"></div></div>
 
@@ -148,6 +155,11 @@
     <div id="graf-det" style="text-align:center;margin-top:10px;font-size:13px;min-height:22px;font-weight:600"></div>
     <div class="gleg"><span><i class="gi gi-rec"></i> Recebido (banco)</span><span><i class="gi gi-pag"></i> Pago</span><span style="color:var(--muted)">toque num mês pra ver os valores</span></div>
   </div>
+  </div><!-- /aba-fluxo -->
+
+  <div id="aba-balancete" style="display:none">
+    <div id="balancete-conteudo"></div>
+  </div>
 
   <div class="foot" id="foot">Rokbox · Painel Financeiro · números dos cálculos do sistema (atualizam quando você clica ☁ Power BI)</div>
 </div>
@@ -164,6 +176,16 @@
   .gleg{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:10px;font-size:12px;color:var(--txt,#cfe)}
   .gi{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
   .gi-rec{background:#2ea043}.gi-pag{background:#e0823a}
+  .abas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 14px}
+  .aba{background:var(--bg2,#141a1f);color:var(--muted);border:1px solid var(--line,#233);border-radius:12px;padding:9px 16px;font-size:14px;font-weight:700;cursor:pointer}
+  .aba.on{background:linear-gradient(180deg,#1f6feb33,#1f6feb11);color:#fff;border-color:#1f6feb}
+  .mes-sel{margin-left:auto;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:700}
+  table.bal{width:100%;border-collapse:collapse;font-size:13px}
+  table.bal th,table.bal td{padding:6px 10px;border-bottom:1px solid var(--line,#233)}
+  table.bal td.v,table.bal th.v{text-align:right;white-space:nowrap}
+  table.bal tr.grp td{font-weight:800;background:var(--bg2,#141a1f)}
+  table.bal tr.tot td{font-weight:800;border-top:2px solid var(--line,#233)}
+  table.bal td.cat{padding-left:22px;color:var(--txt,#cfe)}
 </style>
 
 <script>
@@ -192,11 +214,19 @@ async function gk(chave){
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+let mesSel=null;          // mês escolhido no filtro (null = mês atual)
+let _FIN=null;            // guarda os dados carregados (pro Balancete usar sem rebuscar)
+function _mesesDisponiveis(){ const [ay,am]=mesAtual().split('-').map(Number); const arr=[]; let y=2026,m=6; while(y<ay||(y===ay&&m<=am)){ arr.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} } return arr.reverse(); } // mais recente primeiro
+function _popMesSel(){ const s=document.getElementById('mes-sel'); if(!s) return; const cur=mesSel||mesAtual(); s.innerHTML=_mesesDisponiveis().map(mm=>{ const nome=new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<option value="${mm}" ${mm===cur?'selected':''}>${nome.charAt(0).toUpperCase()+nome.slice(1)}</option>`; }).join(''); }
+function mudarMes(v){ mesSel=v; carregar(); }
+function setAba(t){ mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; if(t==='balancete') renderBalancete(); }
 
 async function carregar(){
   try{
     const [sid,cr,cp,pedidos,lc,dev,extB,extL]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks')]);
-    const mes=mesAtual();
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL};
+    _popMesSel();
+    const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
     const _hj=new Date(); const hojeStr=_hj.getFullYear()+'-'+String(_hj.getMonth()+1).padStart(2,'0')+'-'+String(_hj.getDate()).padStart(2,'0');
     const dias=Object.keys(sid||{}).filter(d=>d<=hojeStr).sort(); // ignora datas FUTURAS (o extrato preenche o "dia seguinte"); usa o saldo ATÉ HOJE (o que a Elaine mantém na mão)
@@ -214,9 +244,12 @@ async function carregar(){
     const crA=Array.isArray(cr)?cr:(cr&&cr.itens||[]);
     const extArr=Array.isArray(extB)?extB:[];
     const _dDia=v=>{ if(!v) return ''; const d=v instanceof Date?v:new Date(v); return isNaN(d)?String(v).slice(0,10):(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
-    // RECEBIDO no mês = TUDO que entrou no banco (créditos do extrato) no mês. (Combinado com a Elaine: recebido vem
-    // do BANCO — inclui PayPal em lote e entradas de cliente; "a receber" e "atrasado" vêm do sistema, não do banco.)
-    const crMes=extArr.filter(t=>(+t.valor||0)>0 && emMes(_dDia(t.data))).reduce((s,t)=>s+(+t.valor||0),0);
+    // RECEBIDO no mês: mês VIGENTE = tudo que entrou no BANCO (extrato); mês FECHADO (passado) = recebido OFICIAL
+    // da planilha (flatCR/crFechado), pra bater com o fechamento. (Combinado com a Elaine.)
+    const _fechadoMes = mes < mesAtual();
+    const crMes = _fechadoMes
+      ? crA.filter(r=>String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
+      : extArr.filter(t=>(+t.valor||0)>0 && emMes(_dDia(t.data))).reduce((s,t)=>s+(+t.valor||0),0);
     const crVencerArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)>=hojeStr);
     const crAtrasoArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)<hojeStr);
     const crVencer=sVal(crVencerArr,'valor_bruto'), crAtraso=sVal(crAtrasoArr,'valor_bruto');
@@ -328,6 +361,15 @@ function grafDet(mm, rec, pag, node){
   if(det) det.innerHTML=`<span style="text-transform:capitalize">${nome}</span> · <span style="color:var(--lime)">Recebido ${brl(rec)}</span> · <span style="color:var(--amber)">Pago ${brl(pag)}</span> · Resultado <strong style="color:${rz>=0?'var(--lime)':'var(--red)'}">${brl(rz)}</strong>`;
   // destaca o mês tocado
   try{ document.querySelectorAll('.gmes').forEach(x=>x.style.opacity='.55'); if(node){ node.style.opacity='1'; } }catch(e){}
+}
+
+function renderBalancete(){
+  const el=document.getElementById('balancete-conteudo'); if(!el) return;
+  el.innerHTML=`<div class="card" style="text-align:center;color:var(--muted);padding:34px 20px">
+    <div style="font-size:34px">📊</div>
+    <div style="font-weight:800;color:var(--txt,#cfe);margin-top:6px">Balancete (em construção)</div>
+    <div style="margin-top:8px;max-width:520px;margin-left:auto;margin-right:auto">Vai dividir por <b>mês</b>, <b>empresa</b> e <b>categoria</b> (receitas e despesas). Já já monto aqui, assim que definirmos o formato.</div>
+  </div>`;
 }
 
 // entra direto se já estava liberado neste aparelho
