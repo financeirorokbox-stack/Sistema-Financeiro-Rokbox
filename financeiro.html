@@ -223,8 +223,8 @@ function setAba(t){ mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL};
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete')]);
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal};
     _popMesSel();
     const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
@@ -363,13 +363,56 @@ function grafDet(mm, rec, pag, node){
   try{ document.querySelectorAll('.gmes').forEach(x=>x.style.opacity='.55'); if(node){ node.style.opacity='1'; } }catch(e){}
 }
 
+let _balExpand=false;
+function toggleBalExpand(){ _balExpand=!_balExpand; renderBalancete(); }
 function renderBalancete(){
   const el=document.getElementById('balancete-conteudo'); if(!el) return;
-  el.innerHTML=`<div class="card" style="text-align:center;color:var(--muted);padding:34px 20px">
-    <div style="font-size:34px">📊</div>
-    <div style="font-weight:800;color:var(--txt,#cfe);margin-top:6px">Balancete (em construção)</div>
-    <div style="margin-top:8px;max-width:520px;margin-left:auto;margin-right:auto">Vai dividir por <b>mês</b>, <b>empresa</b> e <b>categoria</b> (receitas e despesas). Já já monto aqui, assim que definirmos o formato.</div>
-  </div>`;
+  const bal=_FIN&&_FIN.bal;
+  if(!bal||!Array.isArray(bal.rows)){ el.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:30px">Balancete ainda não gerado. No sistema, clique em <b>☁ Atualizar Power BI</b> pra criar, depois volte aqui.</div>'; return; }
+  const mes=mesSel||mesAtual();
+  const nomeMes=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const rows=bal.rows.filter(r=>r.mes===mes);
+  const emps=[...new Set(bal.rows.map(r=>r.emp))].sort((a,b)=> a==='(sem empresa)'?1 : b==='(sem empresa)'?-1 : (a<b?-1:1));
+  // saldo anterior = base + movimento do banco (R−D) ANTES do mês
+  const netAntes=bal.rows.filter(r=>r.mes<mes).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
+  const saldoAnt=+(( +bal.base||0)+netAntes).toFixed(2);
+  // agrupa por tipo→grupo→sub, com por-empresa
+  const arv=(tipo)=>{ const g={}; rows.filter(r=>r.tipo===tipo).forEach(r=>{ const G=g[r.grupo]=g[r.grupo]||{tot:0,emp:{},sub:{}}; G.tot+=r.valor; G.emp[r.emp]=(G.emp[r.emp]||0)+r.valor; const S=G.sub[r.sub]=G.sub[r.sub]||{tot:0,emp:{}}; S.tot+=r.valor; S.emp[r.emp]=(S.emp[r.emp]||0)+r.valor; }); return g; };
+  const gR=arv('R'), gD=arv('D');
+  const totR=+Object.values(gR).reduce((s,x)=>s+x.tot,0).toFixed(2);
+  const totD=+Object.values(gD).reduce((s,x)=>s+x.tot,0).toFixed(2);
+  const cell=v=>v?brl(v):'<span style="color:var(--line,#345)">—</span>';
+  const linhaGrupo=(nome,o,base,cls)=>{
+    const pct=base>0?Math.round(o.tot/base*100):0;
+    let h=`<tr class="grp"><td>${nome}</td>${emps.map(e=>`<td class="v">${cell(o.emp[e])}</td>`).join('')}<td class="v" style="color:${cls}">${brl(o.tot)}</td><td class="v">${pct}%</td></tr>`;
+    if(_balExpand){ Object.entries(o.sub).sort((a,b)=>b[1].tot-a[1].tot).forEach(([sn,s])=>{ h+=`<tr><td class="cat">${sn}</td>${emps.map(e=>`<td class="v">${cell(s.emp[e])}</td>`).join('')}<td class="v">${brl(s.tot)}</td><td class="v"></td></tr>`; }); }
+    return h;
+  };
+  const secao=(titulo,g,tot,cls,bg)=>{
+    const grupos=Object.entries(g).sort((a,b)=>b[1].tot-a[1].tot);
+    let h=`<tr class="tot" style="background:${bg}"><td>${titulo}</td>${emps.map(e=>`<td class="v">${brl(grupos.reduce((s,[,o])=>s+(o.emp[e]||0),0))}</td>`).join('')}<td class="v" style="color:${cls}">${brl(tot)}</td><td class="v"></td></tr>`;
+    grupos.forEach(([n,o])=>h+=linhaGrupo(n,o,tot,cls));
+    return h;
+  };
+  const resultado=+(totR-totD).toFixed(2);
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div style="font-weight:800;text-transform:capitalize">📊 Balancete · ${nomeMes}</div>
+      <button class="aba" style="padding:6px 12px;font-size:13px" onclick="toggleBalExpand()">${_balExpand?'▾ Recolher':'▸ Expandir'} subcategorias</button>
+    </div>
+    <div class="card" style="overflow-x:auto;padding:0">
+      <table class="bal">
+        <thead><tr><th>Categoria</th>${emps.map(e=>`<th class="v">${e}</th>`).join('')}<th class="v">TOTAL</th><th class="v">%</th></tr></thead>
+        <tbody>
+          <tr class="tot"><td>💰 Saldo anterior em conta</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:var(--accent,#7cc4ff)">${brl(saldoAnt)}</td><td class="v"></td></tr>
+          ${secao('⬆ RECEITAS', gR, totR, 'var(--lime)', 'rgba(46,160,67,.12)')}
+          ${secao('⬇ DESPESAS', gD, totD, 'var(--red)', 'rgba(224,60,60,.12)')}
+          <tr class="tot"><td>= RESULTADO (receitas − despesas)</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:${resultado>=0?'var(--lime)':'var(--red)'}">${brl(resultado)}</td><td class="v"></td></tr>
+          <tr class="tot"><td>🏦 Saldo final</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:var(--accent,#7cc4ff)">${brl(+(saldoAnt+resultado).toFixed(2))}</td><td class="v"></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Receitas = créditos do banco · Despesas = débitos do banco, por categoria da conciliação · empresas nas colunas. Atualiza quando você clica ☁ Atualizar Power BI no sistema.</div>`;
 }
 
 // entra direto se já estava liberado neste aparelho
