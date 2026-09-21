@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v626/09-721';
+const APP_VERSION = 'v627/09-721';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4279,12 +4279,23 @@ function getLiqDate(l) {
 function dataLiquidacaoConta(c) {
   if (!c) return null;
   const chave = chaveContaPagar(c);
+  // Contas idênticas (ex.: TARIFA BANCÁRIA R$1,00) têm a MESMA chave (fornecedor|venc|valor|empresa), então vários
+  // débitos do banco batem nela. Antes pegava o PRIMEIRO → uma tarifa de junho podia herdar a data de um débito de
+  // setembro (data fora do mês). Agora, entre os débitos ligados a essa chave, pega o MAIS PRÓXIMO da data da conta.
+  const _alvo = c.dataPag || c.vencimento;
+  const _alvoMs = _alvo ? +new Date(_alvo) : null;
+  let _melhor = null, _dist = Infinity;
   for (const [extId, link] of Object.entries(debitoLinks)) {
     if (debLinkItens(link).some(it => it.chave === chave)) {
       const t = extratoBancario.find(x => x.id === extId);
-      if (t && t.data) return t.data;
+      if (t && t.data) {
+        if (_alvoMs == null) return t.data;
+        const d = Math.abs(+new Date(t.data) - _alvoMs);
+        if (d < _dist) { _dist = d; _melhor = t.data; }
+      }
     }
   }
+  if (_melhor) return _melhor;
   // Estorno/reembolso: NÃO sai como débito próprio no banco (foi descontado do repasse), então nunca teria
   // uma conciliação. Mesmo assim tem que APARECER — usa a data do pagamento como liquidação.
   if ((String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno) return c.dataPag || null;
