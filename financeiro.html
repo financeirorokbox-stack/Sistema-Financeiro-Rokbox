@@ -233,7 +233,7 @@ async function carregar(){
     let linhasSem='';
     while(dcur<=ultimo){
       const ws=isoD(dcur); const weD=new Date(dcur); weD.setDate(weD.getDate()+6); const we=isoD(weD);
-      const rec=crA.filter(r=>!r.data_liquidacao && r.vencimento && r.vencimento>=ws && r.vencimento<=we).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+      const rec=crA.filter(r=>!r.data_liquidacao && r.vencimento && r.vencimento>=ws && r.vencimento<=we && r.vencimento>=hojeStr).reduce((s,r)=>s+(+r.valor_bruto||0),0); // a receber: só a VENCER (tira o atrasado, pedido da Elaine)
       const pag=cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && r.vencimento && r.vencimento>=ws && r.vencimento<=we).reduce((s,r)=>s+(+r.valor||0),0);
       const rz=+(rec-pag).toFixed(2);
       const agora=hojeIso>=ws && hojeIso<=we;
