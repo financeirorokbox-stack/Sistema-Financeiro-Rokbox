@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v627/09-721';
+const APP_VERSION = 'v628/09-721';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4624,7 +4624,51 @@ async function _syncPowerBI() {
     };
   });
   await saveData('flatVendas', vendasFlat);
+  try { await saveData('flatBalancete', _exportBalancete()); } catch (e) { console.warn('balancete export falhou:', e.message); }
   return { cr: crFlat.length, cp: cpFlat.length, vendas: vendasFlat.length };
+}
+// BALANCETE pro painel: extrato categorizado (mesma lógica do renderFluxo/Balancete), 1 linha por lançamento
+// {mes, emp, tipo:R/D, grupo, sub, valor}. O painel PIVOTA (empresa nas colunas, grupo/sub nas linhas, filtro de mês).
+// Reusa a categorização do sistema (categoriaLancamento/grupoReceitaGateway/grupoDespesa/catContaPagar) → fica idêntico.
+function _exportBalancete() {
+  const SUB_REC = { 'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito' };
+  const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
+  const _normEmp = e => { const s = String(e || '').toLowerCase(); if (/rokbox/.test(s)) return 'ROKBOX'; if (/rk/.test(s)) return 'RK'; return (e && String(e).trim()) || '(sem empresa)'; };
+  const _mesDe = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return (dt && !isNaN(dt)) ? (dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0')) : null; };
+  const rows = [];
+  (extratoBancario || []).forEach(t => {
+    const mes = _mesDe(t.data); if (!mes) return;
+    const v = +t.valor || 0;
+    if (v > 0) {
+      let grupo, sub;
+      if (receitaLinks[t.id]) { const ra = receitasAvulsas.find(r => r._extratoId === t.id); sub = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros'; }
+      else { const gw = categoriaLancamento(t); grupo = gw ? grupoReceitaGateway(gw) : 'Não conciliado'; sub = gw ? (SUB_REC[gw] || gw) : 'Crédito não conciliado'; }
+      rows.push({ mes, emp: _normEmp(t.banco), tipo: 'R', grupo, sub, valor: +v.toFixed(2) });
+    } else if (v < 0) {
+      const emp0 = _normEmp(t.banco); const link = debitoLinks[t.id];
+      if (link && debLinkItens(link).length) {
+        const itens = debLinkItens(link); let distribuido = 0;
+        itens.forEach(it => {
+          const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+          const cat = conta ? catContaPagar(conta) : (it.fornecedor || 'Outras despesas');
+          const ehEstorno = conta && (conta._origemEstorno || /estorno/i.test(cat) || /estorno/i.test(conta.descricao || '') || /estorno/i.test(conta.fornecedor || ''));
+          const g = ehEstorno ? 'ESTORNOS' : _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
+          const sub = ehEstorno ? ((conta && conta.fornecedor) || 'Estorno') : cat;
+          rows.push({ mes, emp: _normEmp((conta && conta.empresa) || t.banco), tipo: 'D', grupo: g, sub, valor: +(+(it.valor || 0)).toFixed(2) });
+          distribuido += (it.valor || 0);
+        });
+        const cr = +((link.credito) || 0);
+        if (cr > 0.005) { rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'CRÉDITO CARTÃO', sub: 'Crédito cartão', valor: +(-cr).toFixed(2) }); distribuido -= cr; }
+        const resid = +(Math.abs(v) - distribuido).toFixed(2);
+        if (Math.abs(resid) > 0.005) rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'AJUSTE (conciliação a conferir)', sub: (Math.abs(resid) > 5 ? 'débito ≠ soma das contas' : 'juros/multa/centavos'), valor: resid });
+      } else {
+        rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'Não conciliado', sub: 'Débito não conciliado', valor: +Math.abs(v).toFixed(2) });
+      }
+    }
+  });
+  // saldo anterior por mês = base dos saldos iniciais + movimento do banco ANTES do mês
+  const base = Object.values(saldosIniciais || {}).reduce((s, c) => s + (+c.valor || 0), 0);
+  return { rows, base };
 }
 // Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
 // (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
