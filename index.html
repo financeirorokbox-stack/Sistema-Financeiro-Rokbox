@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v624/09-718';
+const APP_VERSION = 'v625/09-721';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7520,6 +7520,34 @@ function _garantirCodAcordos() {
   });
   if (mudou) { saveData('acordos', acordos); saveData('boletosAvulsos', boletosAvulsos); }
 }
+// Mostra o que COMPÕE um acordo: os boletos originais que entraram (sistema + avulsos) e as parcelas novas.
+function verComposicaoAcordo(id) {
+  const ac = acordos.find(a => a.id === id); if (!ac) { alert('Acordo não encontrado.'); return; }
+  const avOrig = boletosAvulsos.filter(b => b._acordoId === id).map(b => ({ tipo: 'Avulso', ref: b.pedido || '', venc: b.vencimento, val: (b.valorTitulo || 0) }));
+  const keysSis = Object.keys(sistemaAcordo || {}).filter(k => sistemaAcordo[k] === id);
+  const mapParc = {};
+  try { getBoletosPorPedido().forEach(bp => getParcelas(bp).forEach(p => { mapParc[p.key] = { ped: bp.pedido, pc: p.totalParcelas > 1 ? `${p.parcela}/${p.totalParcelas}` : '', venc: p.vencimento, val: p.valor }; })); } catch (e) {}
+  const sisOrig = keysSis.map(k => { const m = mapParc[k] || {}; return { tipo: 'Sistema', ref: (m.ped ? ('#' + m.ped + (m.pc ? ' ' + m.pc : '')) : k), venc: m.venc, val: (m.val || 0) }; });
+  const orig = [...sisOrig, ...avOrig].sort((a, b) => String(a.venc || '').localeCompare(String(b.venc || '')));
+  const parc = boletosAvulsos.filter(b => b._acordoParc === id);
+  const somaOrig = orig.reduce((s, x) => s + x.val, 0);
+  const linhasOrig = orig.length ? orig.map(o => `<tr><td>${o.tipo}</td><td>${o.ref || '—'}</td><td>${o.venc ? fmtDate(o.venc) : '—'}</td><td style="text-align:right">${fmtVal(o.val)}</td></tr>`).join('') : '<tr><td colspan="4" style="color:var(--muted)">(não consegui listar os originais deste acordo)</td></tr>';
+  const linhasParc = parc.length ? parc.map(p => `<tr><td>${p._acordoParcN || ''}</td><td>${p.vencimento ? fmtDate(p.vencimento) : '—'}</td><td style="text-align:right">${fmtVal(p.valorTitulo || 0)}</td><td style="font-size:11px">${p.dataPagamento ? ('✓ pago ' + fmtDate(p.dataPagamento)) : 'a receber'}</td></tr>`).join('') : '<tr><td colspan="4" style="color:var(--muted)">(sem parcelas)</td></tr>';
+  const ov = document.createElement('div');
+  ov.id = 'acordo-det-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div style="background:var(--card,#12181f);border:1px solid var(--line,#233);border-radius:16px;max-width:640px;width:100%;max-height:85vh;overflow:auto;padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><h3 style="margin:0">🤝 Acordo ${ac.codigo || ''} · ${ac.cliente || ''}</h3><button class="btn ghost sm" onclick="document.getElementById('acordo-det-modal').remove()">✕ Fechar</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">${ac.data ? fmtDate(ac.data) : ''}</div>
+    <div class="section-title">Boletos originais que entraram (${orig.length})</div>
+    <div class="table-wrap"><table><thead><tr><th>Origem</th><th>Ref.</th><th>Vencimento</th><th style="text-align:right">Valor</th></tr></thead><tbody>${linhasOrig}<tr style="font-weight:700;border-top:2px solid var(--line,#233)"><td colspan="3">Soma dos originais</td><td style="text-align:right">${fmtVal(somaOrig)}</td></tr></tbody></table></div>
+    <div style="margin:12px 0;font-size:13px">+ Multa: <strong style="color:var(--amber)">${fmtVal(ac.multa || 0)}</strong> &nbsp;=&nbsp; Total do acordo: <strong style="color:var(--lime)">${fmtVal(ac.valorAcordo)}</strong></div>
+    <div class="section-title" style="margin-top:14px">Parcelas do acordo (${parc.length})</div>
+    <div class="table-wrap"><table><thead><tr><th>Parcela</th><th>Vencimento</th><th style="text-align:right">Valor</th><th>Situação</th></tr></thead><tbody>${linhasParc}</tbody></table></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
 function criarAcordo() {
   const sel = _acordoSel || [];
   if (!sel.length) return;
@@ -7647,7 +7675,7 @@ function renderCobranca() {
         const parc = boletosAvulsos.filter(a=>a._acordoParc===ac.id);
         const pagas = parc.filter(a=>a.dataPagamento).length;
         return `<tr><td><span class="badge" style="background:#0a7d55;color:#fff;font-weight:700">🤝 ${ac.codigo||'—'}</span></td><td><strong>${ac.cliente||'—'}</strong></td><td style="font-size:11px;color:var(--muted)">${ac.data?fmtDate(ac.data):'—'}</td>
-          <td style="text-align:right;color:var(--muted)">${fmtVal(ac.valorOriginal)} <span style="font-size:10px">(${ac.nOrig})</span></td>
+          <td style="text-align:right;color:var(--muted);cursor:pointer" onclick="verComposicaoAcordo('${ac.id}')" title="Ver o que compõe o acordo (boletos originais + parcelas)">${fmtVal(ac.valorOriginal)} <span style="font-size:10px">(${ac.nOrig}) 🔎</span></td>
           <td style="text-align:right;color:var(--amber)">${ac.multa?fmtVal(ac.multa):'—'}</td>
           <td style="text-align:right;font-weight:700">${fmtVal(ac.valorAcordo)}</td>
           <td style="font-size:11px">${pagas}/${parc.length} parcela(s) paga(s)</td>
