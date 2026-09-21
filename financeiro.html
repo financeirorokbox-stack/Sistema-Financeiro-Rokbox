@@ -283,20 +283,25 @@ async function carregar(){
     const mesNome=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
     document.getElementById('sub').textContent=mesNome;
     document.getElementById('mes-lbl').textContent='('+mesNome+')';
-    // ── gráfico dos meses (recebido = banco/extrato × pago = flatCP), de junho pra cá ──
-    renderGrafMeses(extArr, cpA, _dDia, mes);
+    // ── gráfico dos meses (mês FECHADO = planilha oficial crFechado/cpFechado via flatCR/flatCP; mês VIGENTE = banco) ──
+    renderGrafMeses(extArr, cpA, crA, _dDia, mes);
   }catch(e){ document.getElementById('sub').textContent='erro ao carregar, tentando de novo…'; }
 }
-function renderGrafMeses(extArr, cpA, _dDia, mesAtualStr){
+function renderGrafMeses(extArr, cpA, crA, _dDia, mesAtualStr){
   const el=document.getElementById('graf-meses'); if(!el) return;
   // meses de 2026-06 até o mês vigente
   const [ay,am]=mesAtualStr.split('-').map(Number);
   const meses=[]; let y=2026,m=6;
   while(y<ay || (y===ay && m<=am)){ meses.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} }
   const dados=meses.map(mm=>{
-    const rec=(extArr||[]).filter(t=>(+t.valor||0)>0 && _dDia(t.data).slice(0,7)===mm).reduce((s,t)=>s+(+t.valor||0),0);
+    // Mês FECHADO (anterior ao vigente) → recebido da planilha oficial (crFechado, via flatCR); mês VIGENTE → banco (extrato).
+    const fechado = mm < mesAtualStr;
+    const rec = fechado
+      ? (crA||[]).filter(r=>String(r.data_liquidacao||'').slice(0,7)===mm).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
+      : (extArr||[]).filter(t=>(+t.valor||0)>0 && _dDia(t.data).slice(0,7)===mm).reduce((s,t)=>s+(+t.valor||0),0);
+    // Pago: flatCP já traz o cpFechado oficial nos meses fechados e o ao-vivo no vigente.
     const pag=(cpA||[]).filter(r=>!r.cancelado && String(r.data_liquidacao||'').slice(0,7)===mm).reduce((s,r)=>s+(+r.valor||0),0);
-    return { mm, rec:+rec.toFixed(2), pag:+pag.toFixed(2) };
+    return { mm, rec:+rec.toFixed(2), pag:+pag.toFixed(2), fechado };
   });
   const max=Math.max(1,...dados.map(d=>Math.max(d.rec,d.pag)));
   const nomeMes=mm=>new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'short'}).replace('.','');
