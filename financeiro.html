@@ -6,9 +6,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Painel RK · Financeiro">
+<meta name="apple-mobile-web-app-title" content="RK Financeiro">
 <meta name="theme-color" content="#0b0f0d">
 <link rel="manifest" href="manifest-financeiro.json">
+<link rel="apple-touch-icon" href="icon-rk-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
 <title>Painel RK · Financeiro</title>
 <style>
   :root{
@@ -424,7 +427,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ ok=localStorage.getItem('rk_gate_fin')==='1'; }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.6';
+const BUILD='2026-09-22.7';
 async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 checkVersao();setInterval(checkVersao,5*60000);
 </script>

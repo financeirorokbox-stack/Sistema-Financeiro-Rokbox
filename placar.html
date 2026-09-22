@@ -6,9 +6,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Placar Rokbox">
+<meta name="apple-mobile-web-app-title" content="RK Vendas">
 <meta name="theme-color" content="#0b0f0d">
 <link rel="manifest" href="manifest-placar.json">
+<link rel="apple-touch-icon" href="icon-rk-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
 <title>Placar Rokbox</title>
 <style>
   :root{
@@ -187,7 +190,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-22.6';
+const BUILD = '2026-09-22.7';
 async function checkVersao(){
   try{
     const r = await fetch(location.pathname + '?cb=' + Date.now(), {cache:'no-store'});

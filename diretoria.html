@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RK Diretoria">
+<meta name="theme-color" content="#0b0f0d">
+<link rel="apple-touch-icon" href="icon-rk-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
 <title>Painel RK · Diretoria</title>
 <style>
   :root{ --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029; --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353; --blue:#7cc4ff; --red:#e5534b; --shadow:0 8px 30px rgba(0,0,0,.35); }
@@ -81,7 +88,7 @@ function abrir(){ document.getElementById('gate').style.display='none'; document
 function sair(){ try{localStorage.removeItem('rk_gate_fin'); localStorage.removeItem('rk_gate_vendas');}catch(e){} location.reload(); }
 (function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_fin')==='1'}catch(e){} if(ok) abrir(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.6';
+const BUILD='2026-09-22.7';
 async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 checkVersao();setInterval(checkVersao,5*60000);
 </script>
