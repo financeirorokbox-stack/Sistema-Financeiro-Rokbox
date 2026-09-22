@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v632/09-722';
+const APP_VERSION = 'v633/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13945,18 +13945,22 @@ function _custoTecido(t){ const p=+t.precoKg||0, r=+t.rend||0, c=+t.consumo||0; 
 function _custoAviEmb(x){ return +(((+x.preco||0)*(+x.consumo||0))).toFixed(4); }
 function _pecaQtd(pc){ const g=pc.grade||{}; return DESENV_TAMS.reduce((s,t)=>s+(+g[t]||0),0); }
 function _pecaCustos(pc){
+  const q=_pecaQtd(pc);
   const tec=(pc.tecidos||[]).reduce((s,t)=>s+_custoTecido(t),0);
   const avi=(pc.aviamentos||[]).reduce((s,a)=>s+_custoAviEmb(a),0);
   const emb=(pc.embalagem||[]).reduce((s,e)=>s+_custoAviEmb(e),0);
   const mo=+pc.maoObra||0, log=+pc.logistica||0;
-  const cmv=+(tec+avi+emb+mo+log).toFixed(2);
+  // Desenvolvimento = valor ÚNICO (modelagem + pilotagem + corte) rateado pela quantidade da grade.
+  const devTot=(+pc.modelagem||0)+(+pc.pilotagem||0)+(+pc.corte||0);
+  const devPeca=q>0 ? +(devTot/q).toFixed(4) : 0;
+  const cmv=+(tec+avi+emb+mo+log+devPeca).toFixed(2);
   const markup=+pc.markup||1.8;
   const sugerido=+(cmv*markup).toFixed(2);
   const vendido=+pc.valorVendido||0;
   const ref=vendido||sugerido;
   const margem=+(ref-cmv).toFixed(2);
   const pct=ref>0?margem/ref*100:0;
-  return {tec:+tec.toFixed(2),avi:+avi.toFixed(2),emb:+emb.toFixed(2),mo,log,cmv,markup,sugerido,vendido,margem,pct};
+  return {tec:+tec.toFixed(2),avi:+avi.toFixed(2),emb:+emb.toFixed(2),mo,log,devTot:+devTot.toFixed(2),devPeca:+devPeca.toFixed(2),cmv,markup,sugerido,vendido,margem,pct};
 }
 function _findPeca(pid){ for(const col of desenvColecoes){ const p=(col.pecas||[]).find(x=>x.id===pid); if(p) return {col,p}; } return null; }
 function _saveDesenv(){ saveData('desenvColecoes', desenvColecoes); }
@@ -13971,7 +13975,7 @@ function renderDesenv(){
       const k=_pecaCustos(pc), q=_pecaQtd(pc);
       return `<tr>
         <td style="text-align:left"><a href="#" onclick="toggleFicha('${pc.id}');return false" style="color:var(--accent);text-decoration:none">${esc(pc.descricao)||'(sem nome)'}</a></td>
-        <td>${q}</td><td>${m(k.tec)}</td><td>${m(k.avi)}</td><td>${m(k.emb)}</td><td>${m(k.mo)}</td><td>${m(k.log)}</td>
+        <td>${q}</td><td>${m(k.tec)}</td><td>${m(k.avi)}</td><td>${m(k.emb)}</td><td>${m(k.mo)}</td><td>${m(k.log)}</td><td>${m(k.devPeca)}</td>
         <td><strong>${m(k.cmv)}</strong></td><td>${(+k.markup).toLocaleString('pt-BR')}</td><td>${m(k.sugerido)}</td>
         <td>${k.vendido?m(k.vendido):'<span style="color:var(--muted)">—</span>'}</td>
         <td style="color:${k.margem>=0?'var(--green)':'var(--red)'}">${m(k.margem)} · ${k.pct.toFixed(0)}%</td>
@@ -13987,10 +13991,10 @@ function renderDesenv(){
         <button class="btn ghost sm" style="color:var(--red)" onclick="removeDesenvCol('${col.id}')" title="Remover coleção">🗑</button>
       </div>
       <div style="overflow-x:auto;margin-bottom:12px">
-        <table class="dtbl" style="min-width:960px">
-          <thead><tr><th style="text-align:left">Peça</th><th>Qtd</th><th>Tecidos</th><th>Aviam.</th><th>Emb.</th><th>M.Obra</th><th>Log.</th><th>CMV</th><th>Markup</th><th>Sugerido</th><th>Vendido</th><th>Margem</th></tr></thead>
+        <table class="dtbl" style="min-width:1040px">
+          <thead><tr><th style="text-align:left">Peça</th><th>Qtd</th><th>Tecidos</th><th>Aviam.</th><th>Emb.</th><th>M.Obra</th><th>Log.</th><th>Desenv.</th><th>CMV</th><th>Markup</th><th>Sugerido</th><th>Vendido</th><th>Margem</th></tr></thead>
           <tbody>${linhas||'<tr><td colspan="12" style="color:var(--muted);text-align:left">Nenhuma peça ainda. Clique ➕ Nova peça.</td></tr>'}</tbody>
-          ${tot.q?`<tfoot><tr style="font-weight:800"><td style="text-align:left">TOTAL · ${(col.pecas||[]).length} peça(s)</td><td>${tot.q}</td><td colspan="5"></td><td>${m(tot.cmv)}</td><td></td><td>${m(tot.sug)}</td><td>${m(tot.vend)}</td><td style="color:${(tot.vend||tot.sug)-tot.cmv>=0?'var(--green)':'var(--red)'}">${m((tot.vend||tot.sug)-tot.cmv)}</td></tr></tfoot>`:''}
+          ${tot.q?`<tfoot><tr style="font-weight:800"><td style="text-align:left">TOTAL · ${(col.pecas||[]).length} peça(s)</td><td>${tot.q}</td><td colspan="6"></td><td>${m(tot.cmv)}</td><td></td><td>${m(tot.sug)}</td><td>${m(tot.vend)}</td><td style="color:${(tot.vend||tot.sug)-tot.cmv>=0?'var(--green)':'var(--red)'}">${m((tot.vend||tot.sug)-tot.cmv)}</td></tr></tfoot>`:''}
         </table>
       </div>
       <button class="btn primary sm" onclick="novaDesenvPeca('${col.id}')" style="margin-bottom:10px">➕ Nova peça</button>
@@ -14063,8 +14067,16 @@ function _fichaHtml(col,pc,esc,m){
         <div class="dblk"><h4>🧵 Tecidos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Tecido</th><th>Cor</th><th>Fornecedor</th><th>Preço/kg</th><th>Rend.</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${tecRows||''}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','tecidos')">➕ tecido</button></div>
         <div class="dblk"><h4>🔩 Aviamentos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${simplesRows('aviamentos')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','aviamentos')">➕ aviamento</button></div>
         <div class="dblk"><h4>📦 Embalagem</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${simplesRows('embalagem')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','embalagem')">➕ embalagem</button></div>
+        <div class="dblk"><h4>🎨 Desenvolvimento (valor único, rateia pela qtd)</h4>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+            <label style="font-size:12px;color:var(--muted)">📐 Modelagem (total)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.modelagem||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','modelagem',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">🧷 Pilotagem (total)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.pilotagem||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','pilotagem',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">✂️ Corte (total)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.corte||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','corte',this.value)"></label>
+            <span style="font-size:12px;color:var(--muted)">Total ${m(k.devTot)} ÷ ${q} peça(s) = <strong>${m(k.devPeca)}/peça</strong></span>
+          </div>
+        </div>
         <div class="dblk" style="display:flex;gap:16px;flex-wrap:wrap">
-          <label style="font-size:12px;color:var(--muted)">✂️ Mão de obra (R$/peça)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.maoObra||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','maoObra',this.value)"></label>
+          <label style="font-size:12px;color:var(--muted)">🪡 Mão de obra costura (R$/peça)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.maoObra||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','maoObra',this.value)"></label>
           <label style="font-size:12px;color:var(--muted)">🚚 Logística (R$/peça)<br><input class="inline-input" style="width:90px;text-align:right" inputmode="decimal" value="${pc.logistica||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','logistica',this.value)"></label>
           <label style="font-size:12px;color:var(--muted)">Markup<br><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${pc.markup||''}" placeholder="1,8" onchange="updDesenvPeca('${pc.id}','markup',this.value)"></label>
           <label style="font-size:12px;color:var(--muted)">Valor vendido (R$/peça)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.valorVendido||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','valorVendido',this.value)"></label>
@@ -14076,7 +14088,8 @@ function _fichaHtml(col,pc,esc,m){
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Aviamentos</span><strong>${m(k.avi)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Embalagem</span><strong>${m(k.emb)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Mão de obra</span><strong>${m(k.mo)}</strong></div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Logística</span><strong>${m(k.log)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Logística</span><strong>${m(k.log)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px" title="Modelagem + Pilotagem + Corte (${m(k.devTot)}) ÷ ${q} peças"><span>Desenv. (rateio)</span><strong>${m(k.devPeca)}</strong></div>
         <div style="border-top:1px solid var(--border);margin:6px 0"></div>
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px"><span>CMV/peça</span><strong>${m(k.cmv)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Sugerido (×${(+k.markup).toLocaleString('pt-BR')})</span><strong>${m(k.sugerido)}</strong></div>
@@ -14092,10 +14105,10 @@ function _fichaHtml(col,pc,esc,m){
 function novaDesenvCol(){ desenvColecoes.push({id:'col_'+Date.now(),cliente:'',codigo:'',obs:'',pecas:[]}); _saveDesenv(); renderDesenv(); }
 function updDesenvCol(id,campo,val){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; c[campo]=val; _saveDesenv(); }
 function removeDesenvCol(id){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; if(!confirm('Remover a coleção "'+(c.cliente||'')+'" e todas as peças?')) return; desenvColecoes=desenvColecoes.filter(x=>x.id!==id); _saveDesenv(); renderDesenv(); }
-function novaDesenvPeca(colId){ const c=desenvColecoes.find(x=>x.id===colId); if(!c) return; const pid='pc_'+Date.now(); (c.pecas=c.pecas||[]).push({id:pid,codigo:'',descricao:'',grade:{},tecidos:[{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}],aviamentos:[],embalagem:[],maoObra:0,logistica:0,markup:1.8,valorVendido:0}); _desenvAberto[pid]=true; _saveDesenv(); renderDesenv(); }
+function novaDesenvPeca(colId){ const c=desenvColecoes.find(x=>x.id===colId); if(!c) return; const pid='pc_'+Date.now(); (c.pecas=c.pecas||[]).push({id:pid,codigo:'',descricao:'',grade:{},tecidos:[{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}],aviamentos:[],embalagem:[],maoObra:0,logistica:0,modelagem:0,pilotagem:0,corte:0,markup:1.8,valorVendido:0}); _desenvAberto[pid]=true; _saveDesenv(); renderDesenv(); }
 function removeDesenvPeca(pid){ const f=_findPeca(pid); if(!f) return; if(!confirm('Remover esta peça?')) return; f.col.pecas=f.col.pecas.filter(x=>x.id!==pid); _saveDesenv(); renderDesenv(); }
 function toggleFicha(pid){ _desenvAberto[pid]=!_desenvAberto[pid]; _renderDesenvKeep(); }
-function updDesenvPeca(pid,campo,val){ const f=_findPeca(pid); if(!f) return; if(['maoObra','logistica','markup','valorVendido'].includes(campo)) f.p[campo]=_dNum(val); else f.p[campo]=val; _saveDesenv(); _renderDesenvKeep(); }
+function updDesenvPeca(pid,campo,val){ const f=_findPeca(pid); if(!f) return; if(['maoObra','logistica','modelagem','pilotagem','corte','markup','valorVendido'].includes(campo)) f.p[campo]=_dNum(val); else f.p[campo]=val; _saveDesenv(); _renderDesenvKeep(); }
 function updDesenvGrade(pid,tam,val){ const f=_findPeca(pid); if(!f) return; f.p.grade=f.p.grade||{}; f.p.grade[tam]=parseInt(String(val).replace(/[^\d]/g,''),10)||0; _saveDesenv(); _renderDesenvKeep(); }
 function addDesenvItem(pid,bloco){ const f=_findPeca(pid); if(!f) return; f.p[bloco]=f.p[bloco]||[]; if(bloco==='tecidos') f.p[bloco].push({nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}); else f.p[bloco].push({nome:'',cor:'',fornecedor:'',preco:0,tam:'',consumo:0}); _saveDesenv(); _renderDesenvKeep(); }
 function removeDesenvItem(pid,bloco,i){ const f=_findPeca(pid); if(!f||!f.p[bloco]) return; f.p[bloco].splice(i,1); _saveDesenv(); _renderDesenvKeep(); }
