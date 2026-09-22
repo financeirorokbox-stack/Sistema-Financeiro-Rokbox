@@ -130,7 +130,7 @@
   </div>
 
   <div class="card total-geral" style="margin-top:12px">
-    <div class="lab">💰 Saldo final projetado do mês</div>
+    <div class="lab" id="saldo-final-lab">💰 Saldo final projetado do mês</div>
     <div class="big" id="saldo-final">—</div>
     <div class="lab" style="margin-top:6px;text-transform:none;font-weight:400;color:var(--muted)" id="saldo-final-det"></div>
   </div>
@@ -287,10 +287,42 @@ async function carregar(){
     document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
     document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
     document.getElementById('cp-atraso-lista').innerHTML=_liLista(cpAtrasoArr,'fornecedor','vencimento','valor');
-    // ── saldo final projetado = saldo no banco + a receber A VENCER (NÃO conta atrasado, pedido da Elaine) − a pagar ──
-    const saldoFinal=+(totalBanco+crVencer-cpAberto).toFixed(2);
+    // ── Saldo do mês, coerente pro PASSADO (real), VIGENTE (projetado de hoje) e FUTURO (rolado) ──
+    // PASSADO (mês fechado): usa o REAL que aconteceu no banco (base do Balancete + movimento até/no mês), igual à aba Balancete.
+    //   Assim o "saldo inicial" de um mês fechado = o saldo FINAL real do mês anterior, e não o saldo de hoje.
+    // VIGENTE (mês atual): saldo de hoje no banco + a receber a vencer − a pagar (projeção que ela já usava).
+    // FUTURO: "rola" o saldo de hoje até o começo do mês escolhido e projeta dali.
+    const _mesA = mesAtual();
+    const _balRows = (bal && Array.isArray(bal.rows)) ? bal.rows : null;
+    const _netBanco = filtro => (_balRows||[]).filter(filtro).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
+    const saldoRealInicio = +(((bal&&+bal.base)||0) + _netBanco(r=>r.mes < mes)).toFixed(2); // real no início do mês (= fim do mês anterior)
+    let saldoInicioMes, saldoFinal, _labFinal, _detTxt;
+    if (mes < _mesA && _balRows) {
+      // MÊS FECHADO → tudo REAL (o que bateu no banco), sem projeção
+      const netMes = +_netBanco(r=>r.mes === mes).toFixed(2);
+      saldoInicioMes = saldoRealInicio;
+      saldoFinal = +(saldoRealInicio + netMes).toFixed(2);
+      _labFinal = '🏦 Saldo final do mês (real)';
+      _detTxt = `Início do mês ${brl(saldoRealInicio)} ${netMes>=0?'+':'−'} movimento do banco ${brl(Math.abs(netMes))}`;
+    } else if (mes === _mesA) {
+      // MÊS VIGENTE → começa no real, fecha projetado (saldo de hoje + a vencer − a pagar)
+      saldoInicioMes = _balRows ? saldoRealInicio : totalBanco;
+      saldoFinal = +(totalBanco + crVencer - cpAberto).toFixed(2);
+      _labFinal = '💰 Saldo final projetado do mês';
+      _detTxt = `Saldo ${brl(totalBanco)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
+    } else {
+      // MÊS FUTURO → rola o saldo de hoje até o começo do mês, depois projeta
+      const _ini1 = mes + '-01';
+      const crAntes = crA.filter(r=>!r.data_liquidacao && r.vencimento && String(r.vencimento)>=hojeStr && String(r.vencimento)<_ini1).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+      const cpAntes = cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && r.vencimento && String(r.vencimento)>=hojeStr && String(r.vencimento)<_ini1).reduce((s,r)=>s+(+r.valor||0),0);
+      saldoInicioMes = +(totalBanco + crAntes - cpAntes).toFixed(2);
+      saldoFinal = +(saldoInicioMes + crVencer - cpAberto).toFixed(2);
+      _labFinal = '💰 Saldo final projetado do mês';
+      _detTxt = `Saldo início do mês ${brl(saldoInicioMes)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
+    }
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
-    document.getElementById('saldo-final-det').textContent=`Saldo ${brl(totalBanco)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
+    const _lf=document.getElementById('saldo-final-lab'); if(_lf) _lf.textContent=_labFinal;
+    document.getElementById('saldo-final-det').textContent=_detTxt;
     // ── por semana (segunda a domingo): o que VENCE a receber x a pagar, e o resultado ──
     const isoD=dt=>dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
     const [yy,mm]=mes.split('-').map(Number);
@@ -431,7 +463,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.16';
+const BUILD='2026-09-22.17';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
