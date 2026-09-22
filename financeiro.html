@@ -79,7 +79,7 @@
     <div class="lock">🔒</div>
     <h1>Painel Financeiro</h1>
     <p>Acesso restrito. Digite a senha do diretor.</p>
-    <input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()">
+    <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()" style="padding-left:40px;padding-right:40px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
     <button onclick="tentar()">Entrar</button>
     <div class="gerr" id="gerr"></div>
   </div>
@@ -202,6 +202,7 @@ const brl=n=>'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximu
 const AMOSTRA=new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
 const VENDA=new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
 function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
+function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function tentar(){
   const v=document.getElementById('gpass').value||'';
@@ -430,7 +431,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.10';
+const BUILD='2026-09-22.11';
 async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 checkVersao();setInterval(checkVersao,5*60000);
 </script>

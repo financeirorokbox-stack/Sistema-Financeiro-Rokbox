@@ -98,7 +98,7 @@
     <div style="font-size:40px;margin-bottom:8px">🔒</div>
     <div style="font-size:20px;font-weight:800;margin-bottom:4px">Placar de Vendas</div>
     <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Digite a senha de Vendas.</div>
-    <input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px 14px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px">
+    <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px 40px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
     <button onclick="tentarGate()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer">Entrar</button>
     <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
     <div style="margin-top:14px"><a href="paineis.html" style="color:#8fa89a;font-size:12px;text-decoration:none">← Painéis</a></div>
@@ -190,7 +190,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-22.10';
+const BUILD = '2026-09-22.11';
 async function checkVersao(){
   try{
     const r = await fetch(location.pathname + '?cb=' + Date.now(), {cache:'no-store'});
@@ -214,6 +214,7 @@ let dados = null;          // cenário BLING (blingVendasRico, cru do robozinho)
 let dadosSistema = null;   // cenário SISTEMA (montado dos pedidos do Gestão RK, com as edições dela)
 let fonte = 'bling';       // qual cenário está na tela
 
+function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
 function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function semanaRange(){ const d=new Date(); const dow=(d.getDay()+6)%7; const seg=new Date(d); seg.setDate(d.getDate()-dow); const dom=new Date(seg); dom.setDate(seg.getDate()+6); const iso=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); return {de:iso(seg), ate:iso(dom)}; } // segunda a domingo da semana atual
 function perLabel(){ return periodo==='hoje'?'hoje':(periodo==='semana'?'semana':'mês'); }
