@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v638/09-722';
+const APP_VERSION = 'v639/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12063,7 +12063,10 @@ function saldoBancarioDiarioHTML() {
     const d = dias[dk];
     const saldoFim = saldoFinalDia(banco, dk);
     const saldoIni = saldoFim - d.ent + d.sai; // saldo no começo do dia
-    const real = saldosDiarios[banco + '|' + dk];
+    // Saldo real (banco) = o que a Elaine DIGITA no Contas a Pagar como saldo inicial do DIA SEGUINTE (= fim deste dia). Fallback: OFX/digitado antigo.
+    const _dp = new Date(dk + 'T12:00:00'); _dp.setDate(_dp.getDate() + 1); const _proxK = _toDateInput(_dp);
+    let real = saldoInicialDiaBancoValor(_proxK, banco);
+    if (real == null) real = saldosDiarios[banco + '|' + dk];
     const temReal = real !== undefined && real !== null && real !== '';
     const dif = temReal ? +(saldoFim - real).toFixed(2) : null;
     const bate = temReal && Math.abs(dif) < 0.01;
@@ -12074,7 +12077,7 @@ function saldoBancarioDiarioHTML() {
       <td style="text-align:right;color:var(--green)">${d.ent ? '+ ' + fmtVal(d.ent) : '—'}</td>
       <td style="text-align:right;color:var(--red)">${d.sai ? '− ' + fmtVal(d.sai) : '—'}</td>
       <td style="text-align:right;font-weight:700">${fmtVal(saldoFim)}</td>
-      <td style="text-align:right"><input type="text" value="${valReal}" placeholder="—" onchange="setSaldoRealDia('${esc}','${dk}',this.value)" style="width:110px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
+      <td style="text-align:right"><input type="text" value="${valReal}" placeholder="—" onchange="setFluxoSaldoReal('${esc}','${dk}',this.value)" style="width:110px;text-align:right;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px"></td>
       <td style="text-align:right;font-weight:700;color:${!temReal?'var(--muted)':(bate?'var(--green)':'var(--red)')}">${!temReal ? '—' : (bate ? '✓ bate' : fmtVal(dif))}</td>
     </tr>`;
   }).join('');
@@ -12091,7 +12094,7 @@ function saldoBancarioDiarioHTML() {
           ${seletor}
           <span style="font-size:11px;color:var(--muted)">Saldo inicial em ${fmtDate(dRef)}: <strong>${fmtVal(cfg.valor||0)}</strong> · <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">editar</a></span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">O <strong>Saldo real</strong> vem sozinho do extrato (o saldo que o banco reporta no fim do arquivo) no dia correspondente; você também pode digitar à mão em qualquer dia. O sistema confere contra o calculado. Verde = bate.</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">O <strong>Saldo real (banco)</strong> é o que você digita no <strong>Contas a Pagar</strong> (o saldo inicial do dia seguinte = o fim deste dia). Pode ajustar aqui também (vai pro mesmo lugar). O sistema confere contra o calculado. Verde = bate.</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -12131,6 +12134,23 @@ function setSaldoRealDia(banco, dk, valor) {
     saldosDiarios[banco + '|' + dk] = v;
   }
   saveData('saldosDiarios', saldosDiarios);
+  if (currentSub === 'fluxo') { try { renderFluxo(); } catch (e) {} }
+}
+// Editar a coluna "Saldo real (banco)" no Fluxo grava no MESMO lugar do Contas a Pagar:
+// o saldo real do dia dk = saldo inicial do dia SEGUINTE (dk+1) que a Elaine digita no Contas a Pagar.
+function setFluxoSaldoReal(banco, dk, valor) {
+  const dp = new Date(dk + 'T12:00:00'); dp.setDate(dp.getDate() + 1); const prox = _toDateInput(dp);
+  const s = String(valor).trim();
+  if (!saldoInicialDia[prox] || typeof saldoInicialDia[prox] !== 'object') saldoInicialDia[prox] = {};
+  if (s === '') { delete saldoInicialDia[prox][banco]; }
+  else {
+    let n = s.replace(/[R$\s]/g, '');
+    n = n.indexOf(',') >= 0 ? n.replace(/\./g, '').replace(',', '.') : n;
+    const v = parseFloat(n);
+    if (isNaN(v)) return;
+    saldoInicialDia[prox][banco] = +v.toFixed(2);
+  }
+  saveData('saldoInicialDia', saldoInicialDia);
   if (currentSub === 'fluxo') { try { renderFluxo(); } catch (e) {} }
 }
 function _saldoReRender() {
