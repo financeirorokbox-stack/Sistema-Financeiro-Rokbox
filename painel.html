@@ -27,6 +27,7 @@
   .sair{margin-left:auto;color:#8fa89a;font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap}
   #frames{flex:1 1 auto;position:relative;min-height:0}
   #frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;background:#0b0f0d}
+  #fingate{position:absolute;inset:0;background:#0b0f0d;z-index:5;display:none;align-items:center;justify-content:center;padding:20px}
   /* gate */
   #gate{position:fixed;inset:0;background:#0b0f0d;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
   .gcard{background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
@@ -58,51 +59,86 @@
   <div id="frames">
     <iframe id="fv" title="Vendas"></iframe>
     <iframe id="ff" title="Financeiro"></iframe>
+    <div id="fingate">
+      <div class="gcard">
+        <div style="font-size:34px;margin-bottom:6px">💰</div>
+        <div style="font-size:18px;font-weight:800;margin-bottom:2px">Financeiro</div>
+        <div style="color:#8fa89a;font-size:13px;margin-bottom:14px">Por segurança, o Financeiro pede a senha 1x por dia.</div>
+        <input id="fpass" type="password" placeholder="senha do diretor" autocomplete="off" onkeydown="if(event.key==='Enter')tentarFin()">
+        <button onclick="tentarFin()">Abrir Financeiro</button>
+        <div id="ferr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
 // ── Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador) ──
-const BUILD='2026-09-22.7';
+const BUILD='2026-09-22.9';
 async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 
 let role='vendas';
+const H_VENDAS=1886177389;   // Rkvendas*  (supervisora → só Vendas)
+const H_DIRETOR=515829727;   // Rkdiretor$ (diretor → Vendas + Financeiro)
 function hash(v){ let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; return h; }
-// senhas: rkvendas (supervisora) = só Vendas · rkdiretor = Vendas + Financeiro
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// Vendas fica LEMBRADO; Financeiro vale só por HOJE (pede 1x/dia).
+function finValid(){ try{ return localStorage.getItem('rk_gate_fin')===todayStr(); }catch(e){ return false; } }
+
 function tentar(){
   const v=document.getElementById('gpass').value||''; const h=hash(v);
-  if(h===2684388475){ entrar('diretor'); }
-  else if(h===4164806659){ entrar('vendas'); }
+  if(h===H_DIRETOR){ try{ localStorage.setItem('rk_role','diretor'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){} entrar('diretor'); }
+  else if(h===H_VENDAS){ try{ localStorage.setItem('rk_role','vendas'); localStorage.setItem('rk_gate_vendas','1'); }catch(e){} entrar('vendas'); }
   else { document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
 function entrar(r){
   role=r;
-  try{ localStorage.setItem('rk_gate_vendas','1'); if(r==='diretor') localStorage.setItem('rk_gate_fin','1'); }catch(e){}
   document.getElementById('tb-f').style.display = (r==='diretor') ? '' : 'none';
   document.getElementById('gate').style.display='none';
   document.getElementById('app').style.display='flex';
   const fv=document.getElementById('fv'); if(!fv.getAttribute('src')) fv.setAttribute('src','placar.html');
   setTab('v');
 }
+function abrirFin(){
+  const ff=document.getElementById('ff');
+  try{ if(localStorage.getItem('rk_gate_fin')!==todayStr()) localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){}
+  if(!ff.getAttribute('src')) ff.setAttribute('src','financeiro.html');
+  document.getElementById('fingate').style.display='none';
+  ff.style.display='block'; document.getElementById('fv').style.display='none';
+  document.getElementById('tb-f').classList.add('on'); document.getElementById('tb-v').classList.remove('on');
+}
+function tentarFin(){
+  const v=document.getElementById('fpass').value||'';
+  if(hash(v)===H_DIRETOR){ try{ localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){} document.getElementById('fpass').value=''; document.getElementById('ferr').textContent=''; abrirFin(); }
+  else { document.getElementById('ferr').textContent='Senha incorreta.'; }
+}
 function setTab(t){
   const bv=document.getElementById('tb-v'), bf=document.getElementById('tb-f');
-  const fv=document.getElementById('fv'), ff=document.getElementById('ff');
+  const fv=document.getElementById('fv'), fg=document.getElementById('fingate');
   if(t==='f' && role==='diretor'){
-    if(!ff.getAttribute('src')) ff.setAttribute('src','financeiro.html');
-    ff.style.display='block'; fv.style.display='none';
-    bf.classList.add('on'); bv.classList.remove('on');
+    if(finValid()){ abrirFin(); }
+    else { // Financeiro pede senha 1x por dia
+      fv.style.display='none'; document.getElementById('ff').style.display='none';
+      fg.style.display='flex';
+      bf.classList.add('on'); bv.classList.remove('on');
+      const fp=document.getElementById('fpass'); if(fp){ fp.value=''; setTimeout(()=>fp.focus(),50); }
+    }
   } else {
-    fv.style.display='block'; ff.style.display='none';
+    fg.style.display='none';
+    fv.style.display='block'; document.getElementById('ff').style.display='none';
     bv.classList.add('on'); bf.classList.remove('on');
   }
 }
-function sair(){ try{ localStorage.removeItem('rk_gate_vendas'); localStorage.removeItem('rk_gate_fin'); }catch(e){} location.reload(); }
-// entra direto se já estava liberado neste aparelho (diretor vê os dois; supervisora só Vendas)
+function sair(){ try{ localStorage.removeItem('rk_role'); localStorage.removeItem('rk_gate_vendas'); localStorage.removeItem('rk_gate_fin'); }catch(e){} location.reload(); }
+// entra direto se já estava liberado neste aparelho (o papel fica lembrado; o Financeiro ainda pede 1x/dia ao abrir a aba)
 (function(){
-  let fin=false, vend=false;
-  try{ fin=localStorage.getItem('rk_gate_fin')==='1'; vend=localStorage.getItem('rk_gate_vendas')==='1'; }catch(e){}
-  if(fin) entrar('diretor');
-  else if(vend) entrar('vendas');
+  let r=null;
+  try{
+    r=localStorage.getItem('rk_role');
+    if(!r){ if(localStorage.getItem('rk_gate_fin')) r='diretor'; else if(localStorage.getItem('rk_gate_vendas')==='1') r='vendas'; } // compat com versões antigas
+  }catch(e){}
+  if(r==='diretor') entrar('diretor');
+  else if(r==='vendas') entrar('vendas');
   else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); }
 })();
 checkVersao(); setInterval(checkVersao, 5*60000);

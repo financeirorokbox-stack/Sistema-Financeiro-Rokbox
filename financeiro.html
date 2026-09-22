@@ -197,14 +197,15 @@
 const SUPA_URL='https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV='rokbox_financeiro';
-const HASH_FIN=2684388475; // senha do diretor (djb2)
+const HASH_FIN=515829727; // senha do diretor (djb2) — Rkdiretor$
 const brl=n=>'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const AMOSTRA=new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
 const VENDA=new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
 function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function tentar(){
   const v=document.getElementById('gpass').value||'';
-  if(djb2(v)===HASH_FIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1');}catch(e){} abrir(); } // diretor libera os DOIS paineis
+  if(djb2(v)===HASH_FIN){ try{localStorage.setItem('rk_gate_fin',todayStr()); localStorage.setItem('rk_gate_vendas','1');}catch(e){} abrir(); } // diretor libera os DOIS paineis; Financeiro vale por HOJE (pede 1x/dia)
   else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
 function sair(){ try{localStorage.removeItem('rk_gate_fin')}catch(e){} location.reload(); }
@@ -427,9 +428,9 @@ function renderBalancete(){
 }
 
 // entra direto se já estava liberado neste aparelho
-(function(){ let ok=false; try{ ok=localStorage.getItem('rk_gate_fin')==='1'; }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
+(function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.8';
+const BUILD='2026-09-22.9';
 async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 checkVersao();setInterval(checkVersao,5*60000);
 </script>
