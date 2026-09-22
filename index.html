@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v631/09-722';
+const APP_VERSION = 'v632/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -627,7 +627,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','crFechado','cpFechado'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -782,7 +782,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1264,6 +1264,7 @@ let folhaRH = {};              // folha mensal digitada (igual à planilha dela)
 let feriasRH = [];             // férias lançadas: [{id,funcId,funcNome,empresa,inicio,fim,dias,noPapel,salarioBase,valor,terco,total,enviadoCP}] (datas em texto AAAA-MM-DD)
 let budgets = [];              // Budget/orçamento por peça: [{id,cliente,pedido,produto,qtd,precoVenda,desconto,custos:[{nome,valor}],vencPrev,obs,enviadoCR,enviadoCP}]
 let desenvColecoes = [];       // Desenvolvimento de peças: [{id,cliente,codigo,obs,pecas:[{id,codigo,descricao,grade:{P,M,...},tecidos:[{nome,cor,fornecedor,precoKg,rend,consumo}],aviamentos:[...],embalagem:[...],maoObra,logistica,markup,valorVendido}]}]
+let insumosBase = { tecidos:[], aviamentos:[], embalagem:[] }; // base de insumos p/ autocompletar a ficha: tecidos [{nome,cor,fornecedor,precoKg,rend}], aviamentos/embalagem [{nome,cor,fornecedor,preco,tam}]
 let _rhSub = 'folha';          // sub-aba do RH: 'folha' | 'ferias'
 let _ferBusca = '';            // busca da aba Férias (filtra as linhas por nome/empresa/cargo)
 let lojaFixes = {};
@@ -14009,8 +14010,12 @@ function renderDesenv(){
     </style>
     <div class="section-title" style="margin-top:0">🧵 Desenvolvimento de Peças</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Monte a <strong>ficha de custo</strong> de cada peça (grade, tecidos, aviamentos, embalagem, mão de obra). O sistema calcula o <strong>CMV</strong>, o <strong>preço sugerido</strong> (markup) e a <strong>margem</strong>, e consolida no resumo da coleção. <span style="opacity:.75">Em breve: explosão de compras → Pedido de Compras, e recebimento do cliente.</span></div>
+    ${_baseInsumosHtml(esc,m)}
     <button class="btn primary sm" onclick="novaDesenvCol()" style="margin-bottom:16px">➕ Nova coleção</button>
-    ${cols}`;
+    ${cols}
+    <datalist id="dl-tecidos">${_dlOptions('tecidos')}</datalist>
+    <datalist id="dl-aviamentos">${_dlOptions('aviamentos')}</datalist>
+    <datalist id="dl-embalagem">${_dlOptions('embalagem')}</datalist>`;
 }
 
 function _fichaHtml(col,pc,esc,m){
@@ -14025,24 +14030,24 @@ function _fichaHtml(col,pc,esc,m){
   if(!aberto) return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)">${head}</div>`;
   const grade=DESENV_TAMS.map(t=>`<label style="font-size:11px;color:var(--muted);display:inline-flex;flex-direction:column;align-items:center;gap:2px">${t}<input class="inline-input" type="number" step="1" value="${(pc.grade||{})[t]||''}" onchange="updDesenvGrade('${pc.id}','${t}',this.value)"></label>`).join('');
   const tecRows=(pc.tecidos||[]).map((t,i)=>`<tr>
-    <td style="text-align:left"><input class="inline-input" style="width:130px" value="${esc(t.nome)}" placeholder="tecido" onchange="updDesenvItem('${pc.id}','tecidos',${i},'nome',this.value)"></td>
+    <td style="text-align:left"><input class="inline-input" style="width:130px" list="dl-tecidos" value="${esc(t.nome)}" placeholder="tecido" onchange="updDesenvItem('${pc.id}','tecidos',${i},'nome',this.value)"></td>
     <td><input class="inline-input" style="width:80px" value="${esc(t.cor)}" placeholder="cor" onchange="updDesenvItem('${pc.id}','tecidos',${i},'cor',this.value)"></td>
     <td><input class="inline-input" style="width:110px" value="${esc(t.fornecedor)}" placeholder="fornecedor" onchange="updDesenvItem('${pc.id}','tecidos',${i},'fornecedor',this.value)"></td>
     <td><input class="inline-input" style="width:78px;text-align:right" inputmode="decimal" value="${t.precoKg||''}" placeholder="R$/kg" onchange="updDesenvItem('${pc.id}','tecidos',${i},'precoKg',this.value)"></td>
     <td><input class="inline-input" style="width:58px;text-align:right" inputmode="decimal" value="${t.rend||''}" placeholder="rend." title="Rendimento" onchange="updDesenvItem('${pc.id}','tecidos',${i},'rend',this.value)"></td>
     <td><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${t.consumo||''}" placeholder="consumo" onchange="updDesenvItem('${pc.id}','tecidos',${i},'consumo',this.value)"></td>
     <td style="font-weight:700">${m(_custoTecido(t))}</td>
-    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','tecidos',${i})">✕</button></td>
+    <td style="white-space:nowrap"><button class="btn ghost sm" style="font-size:11px" title="Salvar este tecido na base" onclick="salvarNaBase('${pc.id}','tecidos',${i})">💾</button> <button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','tecidos',${i})">✕</button></td>
   </tr>`).join('');
   const simplesRows=(bloco)=>(pc[bloco]||[]).map((x,i)=>`<tr>
-    <td style="text-align:left"><input class="inline-input" style="width:150px" value="${esc(x.nome)}" placeholder="item" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'nome',this.value)"></td>
+    <td style="text-align:left"><input class="inline-input" style="width:150px" list="dl-${bloco}" value="${esc(x.nome)}" placeholder="item" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'nome',this.value)"></td>
     <td><input class="inline-input" style="width:80px" value="${esc(x.cor)}" placeholder="cor" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'cor',this.value)"></td>
     <td><input class="inline-input" style="width:110px" value="${esc(x.fornecedor)}" placeholder="fornecedor" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'fornecedor',this.value)"></td>
     <td><input class="inline-input" style="width:78px;text-align:right" inputmode="decimal" value="${x.preco||''}" placeholder="R$ un" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'preco',this.value)"></td>
     <td><input class="inline-input" style="width:70px" value="${esc(x.tam)}" placeholder="tam" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'tam',this.value)"></td>
     <td><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${x.consumo||''}" placeholder="consumo" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'consumo',this.value)"></td>
     <td style="font-weight:700">${m(_custoAviEmb(x))}</td>
-    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','${bloco}',${i})">✕</button></td>
+    <td style="white-space:nowrap"><button class="btn ghost sm" style="font-size:11px" title="Salvar na base" onclick="salvarNaBase('${pc.id}','${bloco}',${i})">💾</button> <button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','${bloco}',${i})">✕</button></td>
   </tr>`).join('');
   return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:var(--bg)">
     ${head}
@@ -14094,7 +14099,68 @@ function updDesenvPeca(pid,campo,val){ const f=_findPeca(pid); if(!f) return; if
 function updDesenvGrade(pid,tam,val){ const f=_findPeca(pid); if(!f) return; f.p.grade=f.p.grade||{}; f.p.grade[tam]=parseInt(String(val).replace(/[^\d]/g,''),10)||0; _saveDesenv(); _renderDesenvKeep(); }
 function addDesenvItem(pid,bloco){ const f=_findPeca(pid); if(!f) return; f.p[bloco]=f.p[bloco]||[]; if(bloco==='tecidos') f.p[bloco].push({nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}); else f.p[bloco].push({nome:'',cor:'',fornecedor:'',preco:0,tam:'',consumo:0}); _saveDesenv(); _renderDesenvKeep(); }
 function removeDesenvItem(pid,bloco,i){ const f=_findPeca(pid); if(!f||!f.p[bloco]) return; f.p[bloco].splice(i,1); _saveDesenv(); _renderDesenvKeep(); }
-function updDesenvItem(pid,bloco,i,campo,val){ const f=_findPeca(pid); if(!f||!f.p[bloco]||!f.p[bloco][i]) return; if(['precoKg','rend','consumo','preco'].includes(campo)) f.p[bloco][i][campo]=_dNum(val); else f.p[bloco][i][campo]=val; _saveDesenv(); _renderDesenvKeep(); }
+function updDesenvItem(pid,bloco,i,campo,val){
+  const f=_findPeca(pid); if(!f||!f.p[bloco]||!f.p[bloco][i]) return;
+  const it=f.p[bloco][i];
+  if(['precoKg','rend','consumo','preco'].includes(campo)) it[campo]=_dNum(val);
+  else it[campo]=val;
+  // Autocompletar pela BASE quando escreve o nome do insumo
+  if(campo==='nome'){
+    const b=_baseMatch(bloco,val);
+    if(b){
+      it.cor = b.cor || it.cor || '';
+      it.fornecedor = b.fornecedor || '';
+      if(bloco==='tecidos'){ it.precoKg = +b.precoKg||0; it.rend = +b.rend||0; }
+      else { it.preco = +b.preco||0; it.tam = b.tam || it.tam || ''; }
+    }
+  }
+  _saveDesenv(); _renderDesenvKeep();
+}
+// ── Base de insumos (autocomplete) ──
+let _baseAberta = false;
+function _baseMatch(bloco,nome){ const n=String(nome||'').trim().toLowerCase(); if(!n) return null; return (insumosBase[bloco]||[]).find(x=>String(x.nome||'').trim().toLowerCase()===n)||null; }
+function _saveBase(){ saveData('insumosBase', insumosBase); }
+function toggleBaseInsumos(){ _baseAberta=!_baseAberta; _renderDesenvKeep(); }
+function addInsumoBase(bloco){ insumosBase[bloco]=insumosBase[bloco]||[]; insumosBase[bloco].push(bloco==='tecidos'?{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0}:{nome:'',cor:'',fornecedor:'',preco:0,tam:''}); _saveBase(); _renderDesenvKeep(); }
+function removeInsumoBase(bloco,i){ if(!insumosBase[bloco]) return; insumosBase[bloco].splice(i,1); _saveBase(); _renderDesenvKeep(); }
+function updInsumoBase(bloco,i,campo,val){ const a=insumosBase[bloco]; if(!a||!a[i]) return; if(['precoKg','rend','preco'].includes(campo)) a[i][campo]=_dNum(val); else a[i][campo]=val; _saveBase(); _renderDesenvKeep(); }
+// Salva a linha da ficha na base (pra reusar depois). Dedup por nome.
+function salvarNaBase(pid,bloco,i){
+  const f=_findPeca(pid); if(!f||!f.p[bloco]||!f.p[bloco][i]) return; const it=f.p[bloco][i];
+  if(!String(it.nome||'').trim()){ alert('Escreva o nome do insumo antes de salvar na base.'); return; }
+  insumosBase[bloco]=insumosBase[bloco]||[];
+  const idx=insumosBase[bloco].findIndex(x=>String(x.nome||'').trim().toLowerCase()===String(it.nome).trim().toLowerCase());
+  const reg = bloco==='tecidos' ? {nome:it.nome,cor:it.cor||'',fornecedor:it.fornecedor||'',precoKg:+it.precoKg||0,rend:+it.rend||0} : {nome:it.nome,cor:it.cor||'',fornecedor:it.fornecedor||'',preco:+it.preco||0,tam:it.tam||''};
+  if(idx>=0) insumosBase[bloco][idx]=reg; else insumosBase[bloco].push(reg);
+  _saveBase(); _renderDesenvKeep();
+  alert('💾 "'+it.nome+'" salvo na base de '+bloco+'. Da próxima vez, é só escrever o nome que o resto vem sozinho.');
+}
+function _dlOptions(bloco){ return (insumosBase[bloco]||[]).map(x=>`<option value="${String(x.nome||'').replace(/"/g,'&quot;')}">`).join(''); }
+function _baseInsumosHtml(esc,m){
+  if(!_baseAberta) return `<div style="margin-bottom:16px"><button class="btn ghost sm" onclick="toggleBaseInsumos()">📚 Base de insumos (${(insumosBase.tecidos||[]).length} tecidos) ▸</button></div>`;
+  const tabTec=(insumosBase.tecidos||[]).map((x,i)=>`<tr>
+    <td style="text-align:left"><input class="inline-input" style="width:150px" value="${esc(x.nome)}" placeholder="tecido" onchange="updInsumoBase('tecidos',${i},'nome',this.value)"></td>
+    <td><input class="inline-input" style="width:80px" value="${esc(x.cor)}" placeholder="cor" onchange="updInsumoBase('tecidos',${i},'cor',this.value)"></td>
+    <td><input class="inline-input" style="width:120px" value="${esc(x.fornecedor)}" placeholder="fornecedor" onchange="updInsumoBase('tecidos',${i},'fornecedor',this.value)"></td>
+    <td><input class="inline-input" style="width:80px;text-align:right" inputmode="decimal" value="${x.precoKg||''}" placeholder="R$/kg" onchange="updInsumoBase('tecidos',${i},'precoKg',this.value)"></td>
+    <td><input class="inline-input" style="width:60px;text-align:right" inputmode="decimal" value="${x.rend||''}" placeholder="rend." onchange="updInsumoBase('tecidos',${i},'rend',this.value)"></td>
+    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeInsumoBase('tecidos',${i})">✕</button></td>
+  </tr>`).join('');
+  const simples=(bloco)=>(insumosBase[bloco]||[]).map((x,i)=>`<tr>
+    <td style="text-align:left"><input class="inline-input" style="width:150px" value="${esc(x.nome)}" placeholder="item" onchange="updInsumoBase('${bloco}',${i},'nome',this.value)"></td>
+    <td><input class="inline-input" style="width:80px" value="${esc(x.cor)}" placeholder="cor" onchange="updInsumoBase('${bloco}',${i},'cor',this.value)"></td>
+    <td><input class="inline-input" style="width:120px" value="${esc(x.fornecedor)}" placeholder="fornecedor" onchange="updInsumoBase('${bloco}',${i},'fornecedor',this.value)"></td>
+    <td><input class="inline-input" style="width:80px;text-align:right" inputmode="decimal" value="${x.preco||''}" placeholder="R$ un" onchange="updInsumoBase('${bloco}',${i},'preco',this.value)"></td>
+    <td><input class="inline-input" style="width:70px" value="${esc(x.tam)}" placeholder="tam" onchange="updInsumoBase('${bloco}',${i},'tam',this.value)"></td>
+    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeInsumoBase('${bloco}',${i})">✕</button></td>
+  </tr>`).join('');
+  return `<div class="dcol" style="background:var(--bg)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><strong>📚 Base de insumos</strong><span style="font-size:12px;color:var(--muted)">preencha aqui e depois é só escrever o nome na ficha que fornecedor/preço vêm sozinhos</span><span style="flex:1"></span><button class="btn ghost sm" onclick="toggleBaseInsumos()">▾ recolher</button></div>
+    <div class="dblk"><h4>🧵 Tecidos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Tecido</th><th>Cor</th><th>Fornecedor</th><th>Preço/kg</th><th>Rend.</th><th></th></tr></thead><tbody>${tabTec}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('tecidos')">➕ tecido</button></div>
+    <div class="dblk"><h4>🔩 Aviamentos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th></th></tr></thead><tbody>${simples('aviamentos')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('aviamentos')">➕ aviamento</button></div>
+    <div class="dblk"><h4>📦 Embalagem</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th></th></tr></thead><tbody>${simples('embalagem')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('embalagem')">➕ embalagem</button></div>
+  </div>`;
+}
 
 // ── FÉRIAS (sub-aba do RH) ──────────────────────────────────────────────
 // Tabela por PERÍODO (igual à planilha da Elaine): empresa, nome, salário, cargo, admissão, início período limite,
@@ -15634,7 +15700,7 @@ async function _autoImportBling() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','crFechado','cpFechado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -15646,6 +15712,7 @@ async function _autoImportBling() {
     else if (k==='fornecedoresCompras') fornecedoresCompras = v || [];
     else if (k==='colecoes') colecoes = v || [];
     else if (k==='desenvColecoes') desenvColecoes = v || [];
+    else if (k==='insumosBase') insumosBase = Object.assign({tecidos:[],aviamentos:[],embalagem:[]}, v || {});
     else if (k==='compras') compras = v || [];
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
