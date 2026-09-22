@@ -2,138 +2,110 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meu Painel Rokbox</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Painel RK">
+<meta name="theme-color" content="#0b0f0d">
+<link rel="manifest" href="manifest-painel.json">
+<link rel="apple-touch-icon" href="icon-rk-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
+<title>Painel RK</title>
 <style>
-  :root{
-    --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029;
-    --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353;
-    --gold:#ffd76a; --blue:#7cc4ff; --amber:#ffb347; --shadow:0 8px 30px rgba(0,0,0,.35);
-  }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-  body{min-height:100vh;padding:clamp(14px,2.2vw,34px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
-  .wrap{max-width:1100px;margin:0 auto}
-  header{margin-bottom:clamp(14px,1.8vw,24px)}
-  .logo{font-weight:800;font-size:clamp(22px,2.4vw,36px)}
-  .logo b{color:var(--lime)}
-  .date{color:var(--muted);font-size:clamp(13px,1.1vw,16px);margin-top:3px;text-transform:capitalize}
-  .prog{margin-top:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px}
-  .prog .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;font-size:clamp(13px,1.1vw,15px)}
-  .prog .top b{color:var(--lime);font-size:1.25em}
-  .pbar{height:12px;background:#0d1712;border-radius:999px;overflow:hidden}
-  .pbar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .5s ease}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(12px,1.4vw,18px);margin-top:clamp(14px,1.6vw,22px)}
-  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:18px;padding:clamp(16px,1.7vw,24px);box-shadow:var(--shadow)}
-  .card.full{grid-column:1/-1}
-  h2{font-size:clamp(15px,1.3vw,20px);display:flex;align-items:center;gap:10px;margin-bottom:6px}
-  h2 .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;background:#0d1712;border:1px solid var(--line);border-radius:999px;padding:3px 10px}
-  .hint{color:var(--muted);font-size:clamp(11px,.9vw,13px);margin-bottom:12px}
-  ul{list-style:none}
-  li{display:flex;align-items:flex-start;gap:12px;padding:12px 8px;border-radius:12px;cursor:pointer;transition:background .12s}
-  li:hover{background:#182420}
-  li+li{border-top:1px solid var(--line)}
-  .box{flex:0 0 auto;width:26px;height:26px;border-radius:8px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:16px;color:transparent;transition:.15s;margin-top:1px}
-  li.done .box{background:var(--lime);border-color:var(--lime);color:#08130b}
-  .txt2{font-size:clamp(14px,1.15vw,17px);line-height:1.35;font-weight:600}
-  li.done .txt2{text-decoration:line-through;color:var(--muted);font-weight:500}
-  .sub2{display:block;font-size:clamp(11px,.9vw,13px);color:var(--muted);font-weight:400;margin-top:2px}
-  .foot{margin-top:20px;color:var(--muted);font-size:clamp(11px,.85vw,13px);text-align:center;line-height:1.6}
-  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  html,body{height:100%;background:#0b0f0d;color:#eafaf1;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  /* barra de cima (só quando há mais de uma aba) */
+  #app{display:none;flex-direction:column;height:100vh;height:100dvh}
+  #bar{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:8px 14px;background:#0e1712;border-bottom:1px solid #233029}
+  .brand{font-weight:800;letter-spacing:.5px;font-size:15px}
+  .brand b{color:#39d353}
+  .tabs{display:flex;gap:6px;background:#16211b;border:1px solid #233029;border-radius:999px;padding:4px}
+  .tabs button{background:none;border:0;color:#8fa89a;font-weight:700;font-size:14px;padding:7px 18px;border-radius:999px;cursor:pointer;transition:.15s}
+  .tabs button.on{background:#7ee787;color:#08130b}
+  .sair{margin-left:auto;color:#8fa89a;font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap}
+  #frames{flex:1 1 auto;position:relative;min-height:0}
+  #frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;background:#0b0f0d}
+  /* gate */
+  #gate{position:fixed;inset:0;background:#0b0f0d;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
+  .gcard{background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  .gcard input{width:100%;padding:13px 14px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px}
+  .gcard button{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="logo">Meu Painel <b>Rokbox</b></div>
-    <div class="date" id="date">—</div>
-    <div class="prog">
-      <div class="top"><span>Atividades de <b>hoje</b></span><span><b id="pdone">0</b>/<span id="ptot">0</span> feitas</span></div>
-      <div class="pbar"><i id="pbar" style="width:0%"></i></div>
-    </div>
-  </header>
-
-  <div class="grid">
-    <div class="card full">
-      <h2>☀️ Diárias <span class="tag">todo dia</span></h2>
-      <div class="hint">Faço todo dia. Reinicia sozinho a cada dia novo.</div>
-      <ul id="diarias"></ul>
-    </div>
-    <div class="card">
-      <h2>📅 Semanais <span class="tag">toda semana</span></h2>
-      <div class="hint">Reinicia a cada semana.</div>
-      <ul id="semanais"></ul>
-    </div>
-    <div class="card">
-      <h2>🗓️ Mensais <span class="tag">todo mês</span></h2>
-      <div class="hint">Reinicia a cada mês.</div>
-      <ul id="mensais"></ul>
-    </div>
+<div id="gate">
+  <div class="gcard">
+    <div style="font-size:40px;margin-bottom:8px">🔒</div>
+    <div style="font-size:22px;font-weight:800;margin-bottom:4px">Painel <span style="color:#39d353">RK</span></div>
+    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Digite a sua senha.</div>
+    <input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()">
+    <button onclick="tentar()">Entrar</button>
+    <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
   </div>
+</div>
 
-  <div class="foot" id="foot">Meu Painel Rokbox · marque tocando na tarefa · fica salvo neste aparelho</div>
+<div id="app">
+  <div id="bar">
+    <div class="brand">Painel <b>RK</b></div>
+    <div class="tabs" id="tabs">
+      <button id="tb-v" class="on" onclick="setTab('v')">🛍️ Vendas</button>
+      <button id="tb-f" style="display:none" onclick="setTab('f')">💰 Financeiro</button>
+    </div>
+    <a class="sair" onclick="sair()">Sair 🔒</a>
+  </div>
+  <div id="frames">
+    <iframe id="fv" title="Vendas"></iframe>
+    <iframe id="ff" title="Financeiro"></iframe>
+  </div>
 </div>
 
 <script>
-// ===== SUAS ATIVIDADES (é só me pedir pra adicionar/tirar/renomear) =====
-const DIARIAS = [
-  {t:'Subir os extratos dos bancos e conferir o saldo do dia', s:'Itaú + Bradesco · o saldo do dia precisa bater'},
-  {t:'Baixa de Contas a Receber', s:'conferir os recebimentos do dia'},
-  {t:'Baixa de Contas a Pagar', s:'conferir os pagamentos do dia'},
-  {t:'Conciliação bancária', s:'créditos e débitos batendo com Receber/Pagar'},
-  {t:'Atualizar o Power BI', s:'clicar em ☁ Power BI (1x no dia)'},
-];
-const SEMANAIS = [
-  {t:'Ajustar o cartão de crédito', s:'conferir e lançar a fatura/gastos da semana'},
-];
-const MENSAIS = [
-  {t:'Gerar a folha e conferir o líquido dos holerites', s:''},
-  {t:'Fechar a comissão do mês', s:''},
-  {t:'Impostos do mês', s:'DAS / tributos'},
-  {t:'Fechar o mês (Contas a Receber e a Pagar)', s:'e congelar os valores do mês'},
-];
+// ── Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador) ──
+const BUILD='2026-09-22.7';
+async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 
-const hoje = new Date();
-const iso = hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0')+'-'+String(hoje.getDate()).padStart(2,'0');
-function semanaISO(d){ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const day=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-day); const y0=new Date(Date.UTC(t.getUTCFullYear(),0,1)); const w=Math.ceil((((t-y0)/86400000)+1)/7); return t.getUTCFullYear()+'-W'+String(w).padStart(2,'0'); }
-const bucket = { diarias: iso, semanais: semanaISO(hoje), mensais: iso.slice(0,7) };
-
-function chave(grupo, i){ return 'rkpainel:'+grupo+':'+i+':'+bucket[grupo]; }
-function get(grupo, i){ try{ return localStorage.getItem(chave(grupo,i))==='1'; }catch(e){ return false; } }
-function set(grupo, i, v){ try{ if(v) localStorage.setItem(chave(grupo,i),'1'); else localStorage.removeItem(chave(grupo,i)); }catch(e){} }
-
-function render(grupo, lista){
-  const ul = document.getElementById(grupo);
-  ul.innerHTML = lista.map((x,i)=>{
-    const done = get(grupo,i);
-    return `<li class="${done?'done':''}" data-g="${grupo}" data-i="${i}">
-      <span class="box">✓</span>
-      <span><span class="txt2">${x.t}</span>${x.s?`<span class="sub2">${x.s}</span>`:''}</span>
-    </li>`;
-  }).join('');
+let role='vendas';
+function hash(v){ let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; return h; }
+// senhas: rkvendas (supervisora) = só Vendas · rkdiretor = Vendas + Financeiro
+function tentar(){
+  const v=document.getElementById('gpass').value||''; const h=hash(v);
+  if(h===2684388475){ entrar('diretor'); }
+  else if(h===4164806659){ entrar('vendas'); }
+  else { document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
-function progresso(){
-  let done=0; DIARIAS.forEach((_,i)=>{ if(get('diarias',i)) done++; });
-  document.getElementById('pdone').textContent = done;
-  document.getElementById('ptot').textContent = DIARIAS.length;
-  document.getElementById('pbar').style.width = (DIARIAS.length? done/DIARIAS.length*100:0)+'%';
+function entrar(r){
+  role=r;
+  try{ localStorage.setItem('rk_gate_vendas','1'); if(r==='diretor') localStorage.setItem('rk_gate_fin','1'); }catch(e){}
+  document.getElementById('tb-f').style.display = (r==='diretor') ? '' : 'none';
+  document.getElementById('gate').style.display='none';
+  document.getElementById('app').style.display='flex';
+  const fv=document.getElementById('fv'); if(!fv.getAttribute('src')) fv.setAttribute('src','placar.html');
+  setTab('v');
 }
-function pintaTudo(){
-  render('diarias',DIARIAS); render('semanais',SEMANAIS); render('mensais',MENSAIS); progresso();
+function setTab(t){
+  const bv=document.getElementById('tb-v'), bf=document.getElementById('tb-f');
+  const fv=document.getElementById('fv'), ff=document.getElementById('ff');
+  if(t==='f' && role==='diretor'){
+    if(!ff.getAttribute('src')) ff.setAttribute('src','financeiro.html');
+    ff.style.display='block'; fv.style.display='none';
+    bf.classList.add('on'); bv.classList.remove('on');
+  } else {
+    fv.style.display='block'; ff.style.display='none';
+    bv.classList.add('on'); bf.classList.remove('on');
+  }
 }
-document.addEventListener('click', e=>{
-  const li = e.target.closest('li'); if(!li) return;
-  const g=li.dataset.g, i=+li.dataset.i;
-  const novo = !get(g,i); set(g,i,novo);
-  li.classList.toggle('done',novo);
-  if(g==='diarias') progresso();
-});
-const dias=['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
-const meses=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-document.getElementById('date').textContent = `${dias[hoje.getDay()]}, ${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
-pintaTudo();
-// vira o dia sozinho se a página ficar aberta
-setInterval(()=>{ const n=new Date(); const ni=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); if(ni!==iso) location.reload(); }, 60000);
+function sair(){ try{ localStorage.removeItem('rk_gate_vendas'); localStorage.removeItem('rk_gate_fin'); }catch(e){} location.reload(); }
+// entra direto se já estava liberado neste aparelho (diretor vê os dois; supervisora só Vendas)
+(function(){
+  let fin=false, vend=false;
+  try{ fin=localStorage.getItem('rk_gate_fin')==='1'; vend=localStorage.getItem('rk_gate_vendas')==='1'; }catch(e){}
+  if(fin) entrar('diretor');
+  else if(vend) entrar('vendas');
+  else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); }
+})();
+checkVersao(); setInterval(checkVersao, 5*60000);
 </script>
 </body>
 </html>

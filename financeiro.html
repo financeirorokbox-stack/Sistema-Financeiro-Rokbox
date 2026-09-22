@@ -13,7 +13,9 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
 <title>Painel RK · Financeiro</title>
+<script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
+  html.embed .solo{display:none} /* dentro do Painel RK (iframe): esconde ← Painéis e Sair, quem manda é a barra do painel */
   :root{
     --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029;
     --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353;
@@ -92,8 +94,8 @@
     <div class="top-actions">
       <span class="lnk" id="eye" onclick="toggleNums()" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="lnk" id="full" onclick="toggleFull()" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
-      <a class="lnk" href="paineis.html">← Painéis</a>
-      <span class="lnk" onclick="sair()">Sair 🔒</span>
+      <a class="lnk solo" href="painel.html">← Painéis</a>
+      <span class="lnk solo" onclick="sair()">Sair 🔒</span>
     </div>
   </header>
 
@@ -427,7 +429,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ ok=localStorage.getItem('rk_gate_fin')==='1'; }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.7';
+const BUILD='2026-09-22.8';
 async function checkVersao(){try{const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 checkVersao();setInterval(checkVersao,5*60000);
 </script>
