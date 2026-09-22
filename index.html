@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v635/09-722';
+const APP_VERSION = 'v636/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13952,8 +13952,8 @@ function _pecaCustos(pc){
   const est=(pc.estamparia||[]).reduce((s,e)=>s+_custoEst(e),0);
   const emb=(pc.embalagem||[]).reduce((s,e)=>s+_custoAviEmb(e),0);
   const mo=(Array.isArray(pc.maoObras)&&pc.maoObras.length)?pc.maoObras.reduce((s,x)=>s+(+x.valor||0),0):(+pc.maoObra||0), log=+pc.logistica||0;
-  // Desenvolvimento = valor ÚNICO (modelagem + pilotagem + corte) rateado pela quantidade da grade.
-  const devTot=(+pc.modelagem||0)+(+pc.pilotagem||0)+(+pc.corte||0);
+  // Desenvolvimento = valor ÚNICO (modelagem + encaixe + pilotagem + corte + consumo) rateado pela quantidade da grade.
+  const devTot=(+pc.modelagem||0)+(+pc.encaixe||0)+(+pc.pilotagem||0)+(+pc.corte||0)+(+pc.consumoDev||0);
   const devPeca=q>0 ? +(devTot/q).toFixed(4) : 0;
   const cmv=+(tec+avi+est+emb+mo+log+devPeca).toFixed(2);
   const markup=+pc.markup||1.8;
@@ -14096,9 +14096,11 @@ function _fichaHtml(col,pc,esc,m){
         <div class="dblk"><h4>📦 Embalagem</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${simplesRows('embalagem')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','embalagem')">➕ embalagem</button></div>
         <div class="dblk"><h4>🎨 Desenvolvimento (valor único, rateia pela qtd)</h4>
           <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-            <label style="font-size:12px;color:var(--muted)">📐 Modelagem (total)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.modelagem||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','modelagem',this.value)"></label>
-            <label style="font-size:12px;color:var(--muted)">🧷 Pilotagem (total)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.pilotagem||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','pilotagem',this.value)"></label>
-            <label style="font-size:12px;color:var(--muted)">✂️ Corte (total)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.corte||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','corte',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">📐 Modelagem (total)<br><input class="inline-input" style="width:96px;text-align:right" inputmode="decimal" value="${pc.modelagem||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','modelagem',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">📎 Encaixe (total)<br><input class="inline-input" style="width:96px;text-align:right" inputmode="decimal" value="${pc.encaixe||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','encaixe',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">🧷 Pilotagem (total)<br><input class="inline-input" style="width:96px;text-align:right" inputmode="decimal" value="${pc.pilotagem||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','pilotagem',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">✂️ Corte (total)<br><input class="inline-input" style="width:96px;text-align:right" inputmode="decimal" value="${pc.corte||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','corte',this.value)"></label>
+            <label style="font-size:12px;color:var(--muted)">🧶 Consumo (total)<br><input class="inline-input" style="width:96px;text-align:right" inputmode="decimal" value="${pc.consumoDev||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','consumoDev',this.value)"></label>
             <span style="font-size:12px;color:var(--muted)">Total ${m(k.devTot)} ÷ ${q} peça(s) = <strong>${m(k.devPeca)}/peça</strong></span>
           </div>
         </div>
@@ -14117,7 +14119,7 @@ function _fichaHtml(col,pc,esc,m){
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Embalagem</span><strong>${m(k.emb)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Mão de obra</span><strong>${m(k.mo)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Logística</span><strong>${m(k.log)}</strong></div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px" title="Modelagem + Pilotagem + Corte (${m(k.devTot)}) ÷ ${q} peças"><span>Desenv. (rateio)</span><strong>${m(k.devPeca)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px" title="Modelagem + Encaixe + Pilotagem + Corte + Consumo (${m(k.devTot)}) ÷ ${q} peças"><span>Desenv. (rateio)</span><strong>${m(k.devPeca)}</strong></div>
         <div style="border-top:1px solid var(--border);margin:6px 0"></div>
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px"><span>CMV/peça</span><strong>${m(k.cmv)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Sugerido (×${(+k.markup).toLocaleString('pt-BR')})</span><strong>${m(k.sugerido)}</strong></div>
@@ -14133,10 +14135,10 @@ function _fichaHtml(col,pc,esc,m){
 function novaDesenvCol(){ desenvColecoes.push({id:'col_'+Date.now(),cliente:'',codigo:'',obs:'',pecas:[]}); _saveDesenv(); renderDesenv(); }
 function updDesenvCol(id,campo,val){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; c[campo]=val; _saveDesenv(); }
 function removeDesenvCol(id){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; if(!confirm('Remover a coleção "'+(c.cliente||'')+'" e todas as peças?')) return; desenvColecoes=desenvColecoes.filter(x=>x.id!==id); _saveDesenv(); renderDesenv(); }
-function novaDesenvPeca(colId){ const c=desenvColecoes.find(x=>x.id===colId); if(!c) return; const pid='pc_'+Date.now(); (c.pecas=c.pecas||[]).push({id:pid,codigo:'',descricao:'',grade:{},tecidos:[{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}],aviamentos:[],estamparia:[],embalagem:[],maoObras:[{fornecedor:'',valor:0}],logistica:0,modelagem:0,pilotagem:0,corte:0,markup:1.8,valorVendido:0}); _desenvAberto[pid]=true; _saveDesenv(); renderDesenv(); }
+function novaDesenvPeca(colId){ const c=desenvColecoes.find(x=>x.id===colId); if(!c) return; const pid='pc_'+Date.now(); (c.pecas=c.pecas||[]).push({id:pid,codigo:'',descricao:'',grade:{},tecidos:[{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}],aviamentos:[],estamparia:[],embalagem:[],maoObras:[{fornecedor:'',valor:0}],logistica:0,modelagem:0,encaixe:0,pilotagem:0,corte:0,consumoDev:0,markup:1.8,valorVendido:0}); _desenvAberto[pid]=true; _saveDesenv(); renderDesenv(); }
 function removeDesenvPeca(pid){ const f=_findPeca(pid); if(!f) return; if(!confirm('Remover esta peça?')) return; f.col.pecas=f.col.pecas.filter(x=>x.id!==pid); _saveDesenv(); renderDesenv(); }
 function toggleFicha(pid){ _desenvAberto[pid]=!_desenvAberto[pid]; _renderDesenvKeep(); }
-function updDesenvPeca(pid,campo,val){ const f=_findPeca(pid); if(!f) return; if(['maoObra','logistica','modelagem','pilotagem','corte','markup','valorVendido'].includes(campo)) f.p[campo]=_dNum(val); else f.p[campo]=val; _saveDesenv(); _renderDesenvKeep(); }
+function updDesenvPeca(pid,campo,val){ const f=_findPeca(pid); if(!f) return; if(['maoObra','logistica','modelagem','encaixe','pilotagem','corte','consumoDev','markup','valorVendido'].includes(campo)) f.p[campo]=_dNum(val); else f.p[campo]=val; _saveDesenv(); _renderDesenvKeep(); }
 function updDesenvGrade(pid,tam,val){ const f=_findPeca(pid); if(!f) return; f.p.grade=f.p.grade||{}; f.p.grade[tam]=parseInt(String(val).replace(/[^\d]/g,''),10)||0; _saveDesenv(); _renderDesenvKeep(); }
 function addDesenvItem(pid,bloco){ const f=_findPeca(pid); if(!f) return; f.p[bloco]=f.p[bloco]||[]; if(bloco==='tecidos') f.p[bloco].push({nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}); else f.p[bloco].push({nome:'',cor:'',fornecedor:'',preco:0,tam:'',consumo:0}); _saveDesenv(); _renderDesenvKeep(); }
 function removeDesenvItem(pid,bloco,i){ const f=_findPeca(pid); if(!f||!f.p[bloco]) return; f.p[bloco].splice(i,1); _saveDesenv(); _renderDesenvKeep(); }
