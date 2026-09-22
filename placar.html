@@ -331,8 +331,9 @@ function render(){
   barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
   document.getElementById('loja-per').textContent = perLabel();
 
-  // ranking por status (segue o período Hoje/Semana/Mês; mostra valor + qtd; cor de cada status)
-  const stBase = regsMes.filter(x=>inPer(x.data)).filter(x=>!OCULTAR.has(x.situacao));
+  // ranking por status: BLING mostra tudo (pipeline, inclui Em aberto); SISTEMA só o que conta (os 140 que somam o Total geral, sem Em aberto).
+  const stSource = (fonte==='sistema') ? vendasMes : regsMes;
+  const stBase = stSource.filter(x=>inPer(x.data)).filter(x=>!OCULTAR.has(x.situacao));
   const rst = agrupa(stBase,'situacao');
   barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
   document.getElementById('status-per').textContent = perLabel();
