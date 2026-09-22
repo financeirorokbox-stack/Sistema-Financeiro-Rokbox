@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v628/09-721';
+const APP_VERSION = 'v629/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -15408,6 +15408,52 @@ function delCheckboxHeader(source) {
 // ════════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════════
+// AUTO-IMPORT BLING → pedidos: a cada abertura, puxa o blingVendasRico (o mesmo que o placar usa, atualizado
+// pelo cron 2x/dia) e ADICIONA no `pedidos` as vendas que ainda não estão (dedup por número, no formato dela,
+// com linhas/SKU do blingDetCache). SÓ ADICIONA (nunca mexe/apaga o que já existe — preserva suas correções).
+async function _autoImportBling() {
+  let rico = null, det = null;
+  try { rico = await loadData('blingVendasRico'); } catch (e) {}
+  try { det = await loadData('blingDetCache'); } catch (e) {}
+  if (!rico || !Array.isArray(rico.registros)) return 0;
+  det = det || {};
+  const IGNORAR = new Set(['Cancelado', 'Atualização de estoque', 'Atualização de Estoque', 'Correios']);
+  const pedById = new Map(pedidos.map(p => [String(p.id), p]));
+  let add = 0, upd = 0;
+  rico.registros.forEach(r => {
+    const num = String(r.numero || r.pedido || '');
+    if (!num || IGNORAR.has(String(r.situacao || ''))) return;
+    const ex = pedById.get(num);
+    if (ex) {
+      // JÁ existe: só ATUALIZA as que EU importei (_autoBling) e que a Bling mudou (situação/valor/frete).
+      // Assim uma venda "Em aberto" que vira "Atendido" passa a contar. NUNCA mexe em pedido manual/corrigido.
+      if (ex._autoBling) {
+        let mud = false;
+        if (ex.situacao !== (r.situacao || '')) { ex.situacao = r.situacao || ''; mud = true; }
+        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { ex.valor = +r.valor || 0; mud = true; }
+        if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.005) { ex.frete = +r.frete || 0; mud = true; }
+        if (mud) upd++;
+      }
+      return;
+    }
+    const _d = r.data ? new Date(r.data + 'T03:00:00.000Z') : null;
+    const d = det[num] || {};
+    const linhas = Array.isArray(d.itens) ? d.itens.map(it => {
+      const pu = +it.valor || 0, q = +it.qtd || 0;
+      return { sku: it.sku || '', descricao: it.descricao || '', qtd: q, precoUnit: pu, valorLinha: +(pu * (q || 1)).toFixed(2), totalProdutos: +r.valor || 0, precoCusto: 0, frete: 0, outras: 0, desconto: 0 };
+    }) : [];
+    pedidos.push({
+      id: num, nome: r.cliente || '', loja: r.loja || '', situacao: r.situacao || '', vendedor: r.vendedor || '',
+      empresa: 'Rokbox', data: _d, valor: +r.valor || 0, frete: +r.frete || 0, outrasDespesas: 0, desconto: 0,
+      dataSaida: _d, dataFechamento: null, obsInternas: '', obs: '', temNF: '', numeroDoc: '', bairro: '', cep: '',
+      cidade: '', uf: '', clienteDesde: '', linhas, _bling: true, _freteLinhas: [], _autoBling: true
+    });
+    pedById.set(num, pedidos[pedidos.length - 1]); add++;
+  });
+  if (add || upd) { await saveData('pedidos', pedidos); console.log('[Bling] auto-import: +' + add + ' nova(s), ' + upd + ' atualizada(s)'); }
+  return add + upd;
+}
+
 (async function init() {
   // Mostra a versão carregada no topo
   const _vEl = document.getElementById('app-version');
@@ -15502,6 +15548,7 @@ function delCheckboxHeader(source) {
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
+  try { const nB = await _autoImportBling(); if (nB) console.log('[Bling] ' + nB + ' venda(s) entraram no sistema automaticamente'); } catch (e) { console.warn('auto-import Bling:', e.message); } // vendas novas da Bling entram sozinhas (dedup por número)
   initLojaCadastro();
   try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
   try { const m = _migrarChavesCP(); if (m) console.log('[identidade CP] ' + m + ' vínculo(s) migrado(s) p/ número+vencimento+empresa'); } catch(e) {} // ANTES do aplicarBaixaConciliada: migra os vínculos p/ a identidade nova
