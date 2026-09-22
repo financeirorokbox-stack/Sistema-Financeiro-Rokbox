@@ -187,6 +187,8 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
+// No cenário SISTEMA "Em aberto" NÃO conta como venda (igual ao faturamento do Gestão RK) → menos pedidos que a Bling.
+const VENDA_SIST = new Set(['Verificado','Em separação','Atendido','Checkout parcial']);
 const OCULTAR = new Set(['Atualização de estoque','Correios']);
 // Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
 const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
@@ -304,7 +306,8 @@ function render(){
   const hj = hojeISO();
   const regsMes = (D.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
   regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
-  const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
+  const vendaSet = (fonte==='sistema') ? VENDA_SIST : VENDA;
+  const vendasMes = regsMes.filter(x=>vendaSet.has(x.situacao));
   const _wk = semanaRange();
   const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
   const base = vendasMes.filter(x=>inPer(x.data));
