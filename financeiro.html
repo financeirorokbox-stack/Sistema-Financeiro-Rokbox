@@ -27,7 +27,7 @@
   body{min-height:100vh;padding:clamp(14px,2.2vw,34px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
   .wrap{max-width:1500px;margin:0 auto}
   /* gate */
-  #gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
+  #gate{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:99;padding:20px}
   .gbox{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:var(--shadow)}
   .gbox .lock{font-size:40px;margin-bottom:8px}
   .gbox h1{font-size:20px;margin-bottom:4px}
@@ -429,9 +429,9 @@ function renderBalancete(){
 }
 
 // entra direto se já estava liberado neste aparelho
-(function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
+abrir(); // SEM SENHA: abre direto
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.13';
+const BUILD='2026-09-22.15';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

@@ -93,7 +93,7 @@
 </style>
 </head>
 <body>
-<div id="gate" style="position:fixed;inset:0;background:#0b0f0d;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px">
+<div id="gate" style="position:fixed;inset:0;background:#0b0f0d;display:none;align-items:center;justify-content:center;z-index:99;padding:20px">
   <div style="background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)">
     <div style="font-size:40px;margin-bottom:8px">🔒</div>
     <div style="font-size:20px;font-weight:800;margin-bottom:4px">Placar de Vendas</div>
@@ -190,7 +190,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-22.13';
+const BUILD = '2026-09-22.15';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -386,7 +386,7 @@ function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); 
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
 function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; if(h===1886177389||h===515829727){ try{localStorage.setItem('rk_gate_vendas','1')}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // aceita Vendas (Rkvendas*) OU diretor (Rkdiretor$)
-(function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
+abrirGate(); // SEM SENHA: abre direto
 checkVersao(); setInterval(checkVersao, 5*60000); // checa versão nova ao abrir e a cada 5 min
 </script>
 </body>

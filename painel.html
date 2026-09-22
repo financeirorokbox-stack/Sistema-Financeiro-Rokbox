@@ -29,7 +29,7 @@
   #frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;background:#0b0f0d}
   #fingate{position:absolute;inset:0;background:#0b0f0d;z-index:5;display:none;align-items:center;justify-content:center;padding:20px}
   /* gate */
-  #gate{position:fixed;inset:0;background:#0b0f0d;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px}
+  #gate{position:fixed;inset:0;background:#0b0f0d;display:none;align-items:center;justify-content:center;z-index:99;padding:20px}
   .gcard{background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
   .gcard input{width:100%;padding:13px 40px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px}
   .gcard button{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer}
@@ -76,7 +76,7 @@
 
 <script>
 // ── Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador) ──
-const BUILD='2026-09-22.14';
+const BUILD='2026-09-22.15';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
@@ -120,32 +120,16 @@ function tentarFin(){
 function setTab(t){
   const bv=document.getElementById('tb-v'), bf=document.getElementById('tb-f');
   const fv=document.getElementById('fv'), fg=document.getElementById('fingate');
-  if(t==='f' && role==='diretor'){
-    if(finValid()){ abrirFin(); }
-    else { // Financeiro pede senha 1x por dia
-      fv.style.display='none'; document.getElementById('ff').style.display='none';
-      fg.style.display='flex';
-      bf.classList.add('on'); bv.classList.remove('on');
-      const fp=document.getElementById('fpass'); if(fp){ fp.value=''; setTimeout(()=>fp.focus(),50); }
-    }
-  } else {
-    fg.style.display='none';
+  if(t==='f'){ abrirFin(); } // sem senha: abre o Financeiro direto
+  else {
+    if(fg) fg.style.display='none';
     fv.style.display='block'; document.getElementById('ff').style.display='none';
     bv.classList.add('on'); bf.classList.remove('on');
   }
 }
 function sair(){ try{ localStorage.removeItem('rk_role'); localStorage.removeItem('rk_gate_vendas'); localStorage.removeItem('rk_gate_fin'); }catch(e){} location.reload(); }
-// entra direto se já estava liberado neste aparelho (o papel fica lembrado; o Financeiro ainda pede 1x/dia ao abrir a aba)
-(function(){
-  let r=null;
-  try{
-    r=localStorage.getItem('rk_role');
-    if(!r){ if(localStorage.getItem('rk_gate_fin')) r='diretor'; else if(localStorage.getItem('rk_gate_vendas')==='1') r='vendas'; } // compat com versões antigas
-  }catch(e){}
-  if(r==='diretor') entrar('diretor');
-  else if(r==='vendas') entrar('vendas');
-  else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); }
-})();
+// SEM SENHA: abre tudo direto (Vendas + Financeiro)
+entrar('diretor');
 checkVersao(); setInterval(checkVersao, 5*60000);
 </script>
 </body>
