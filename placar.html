@@ -186,9 +186,8 @@
 const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
-const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']);
-// No cenário SISTEMA "Em aberto" NÃO conta como venda (igual ao faturamento do Gestão RK) → menos pedidos que a Bling.
-const VENDA_SIST = new Set(['Verificado','Em separação','Atendido','Checkout parcial']);
+const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']); // cenário BLING conta tudo isso (inclui Em aberto)
+// cenário SISTEMA não usa esse set: conta como o TOTAL GERAL do Gestão RK = operação Venda+Troca (pela lojaCadastro), fora cancelado/em aberto, valor cheio — ver _pedToRegs/_conta.
 const OCULTAR = new Set(['Atualização de estoque','Correios']);
 // Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
 const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
@@ -221,7 +220,10 @@ function _normSit(s){
   const m = {'atendido':'Atendido','verificado':'Verificado','em separação':'Em separação','em separacao':'Em separação','checkout parcial':'Checkout parcial','em aberto':'Em aberto','cancelado':'Cancelado','correios':'Correios','atualização de estoque':'Atualização de estoque','atualizacao de estoque':'Atualização de estoque'};
   return m[s.toLowerCase()] || s;
 }
-function _pedToRegs(peds, mes){
+function _pedToRegs(peds, mes, lc){
+  // _conta = entra no TOTAL GERAL do Gestão RK: operação Venda/Troca (pela lojaCadastro) e status != cancelado/em aberto.
+  const NAOAP = ['cancelado','em aberto'];
+  const opDe = l => (lc && lc[l] && lc[l].operacao) ? String(lc[l].operacao).toLowerCase() : '';
   const out = [];
   (peds||[]).forEach(p=>{
     let d = p.data;
@@ -229,17 +231,18 @@ function _pedToRegs(peds, mes){
     else if(typeof d === 'string'){ d = d.slice(0,10); }
     if(!d || (mes && d.slice(0,7) !== mes)) return;
     const pcs = Array.isArray(p.linhas) ? p.linhas.reduce((s,l)=>s+(+l.qtd||0),0) : 0;
-    out.push({ numero:String(p.id||''), data:d, situacao:_normSit(p.situacao), loja:p.loja||'', vendedor:p.vendedor||'', cliente:p.nome||'', valor:+p.valor||0, frete:+p.frete||0, pecas:pcs });
+    const op = opDe(p.loja);
+    const conta = !NAOAP.includes(String(p.situacao||'').toLowerCase()) && (op==='venda' || op==='troca');
+    out.push({ numero:String(p.id||''), data:d, situacao:_normSit(p.situacao), loja:p.loja||'', vendedor:p.vendedor||'', cliente:p.nome||'', valor:+p.valor||0, frete:+p.frete||0, pecas:pcs, _conta:conta });
   });
   return out;
 }
 async function carregarPedidos(){
   try{
-    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.pedidos&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'});
-    const j = await r.json();
-    const peds = (Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : [];
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const [peds, lc] = await Promise.all([gk('pedidos'), gk('lojaCadastro')]);
     const mes = (dados&&dados.mes) || hojeISO().slice(0,7);
-    dadosSistema = { mes, atualizado:new Date().toISOString(), registros:_pedToRegs(peds, mes) };
+    dadosSistema = { mes, atualizado:new Date().toISOString(), registros:_pedToRegs(peds||[], mes, lc) };
   }catch(e){ if(fonte==='sistema') document.getElementById('sub').textContent='sem conexão (Sistema), tentando de novo…'; }
 }
 function setFonte(f){
@@ -304,10 +307,11 @@ function render(){
   const D = (fonte==='sistema') ? dadosSistema : dados;
   if(!D){return;}
   const hj = hojeISO();
-  const regsMes = (D.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
-  regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
-  const vendaSet = (fonte==='sistema') ? VENDA_SIST : VENDA;
-  const vendasMes = regsMes.filter(x=>vendaSet.has(x.situacao));
+  const _raw = (D.registros||[]);
+  _raw.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
+  // BLING: filtra pelos sets do placar (só venda, exclui amostra/troca). SISTEMA: usa _conta = TOTAL GERAL do Gestão RK (Venda+Troca via lojaCadastro).
+  const regsMes = (fonte==='sistema') ? _raw : _raw.filter(x=>!AMOSTRA.has(x.loja));
+  const vendasMes = (fonte==='sistema') ? regsMes.filter(x=>x._conta) : regsMes.filter(x=>VENDA.has(x.situacao));
   const _wk = semanaRange();
   const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
   const base = vendasMes.filter(x=>inPer(x.data));
