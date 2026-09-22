@@ -76,7 +76,7 @@
 
 <script>
 // ── Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador) ──
-const BUILD='2026-09-22.13';
+const BUILD='2026-09-22.14';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
@@ -101,13 +101,13 @@ function entrar(r){
   document.getElementById('tb-f').style.display = (r==='diretor') ? '' : 'none';
   document.getElementById('gate').style.display='none';
   document.getElementById('app').style.display='flex';
-  const fv=document.getElementById('fv'); if(!fv.getAttribute('src')) fv.setAttribute('src','placar.html?v='+BUILD);
+  const fv=document.getElementById('fv'); if(!fv.getAttribute('src')) fv.setAttribute('src','placar.html?cb='+Date.now()); // cache-buster sempre fresco (evita aba antiga em cache)
   setTab('v');
 }
 function abrirFin(){
   const ff=document.getElementById('ff');
   try{ if(localStorage.getItem('rk_gate_fin')!==todayStr()) localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){}
-  if(!ff.getAttribute('src')) ff.setAttribute('src','financeiro.html?v='+BUILD);
+  if(!ff.getAttribute('src')) ff.setAttribute('src','financeiro.html?cb='+Date.now()); // cache-buster sempre fresco
   document.getElementById('fingate').style.display='none';
   ff.style.display='block'; document.getElementById('fv').style.display='none';
   document.getElementById('tb-f').classList.add('on'); document.getElementById('tb-v').classList.remove('on');
