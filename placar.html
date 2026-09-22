@@ -190,13 +190,16 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-22.12';
+const BUILD = '2026-09-22.13';
+let _verChk=false;
+function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
   try{
+    if(_verChk || _gateVisivel()) return; // não recarrega enquanto a senha está na tela, e só 1x por abertura
     const r = await fetch(location.pathname + '?cb=' + Date.now(), {cache:'no-store'});
     const t = await r.text();
     const m = t.match(/const BUILD = '([^']+)'/);
-    if(m && m[1] && m[1] !== BUILD){ location.replace(location.pathname + '?cb=' + Date.now()); }
+    if(m && m[1] && m[1] !== BUILD){ _verChk=true; location.replace(location.pathname + '?cb=' + Date.now()); }
   }catch(e){}
 }
 const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']); // cenário BLING conta tudo isso (inclui Em aberto)
