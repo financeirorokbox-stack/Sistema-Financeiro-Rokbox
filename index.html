@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v634/09-722';
+const APP_VERSION = 'v635/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1264,7 +1264,7 @@ let folhaRH = {};              // folha mensal digitada (igual à planilha dela)
 let feriasRH = [];             // férias lançadas: [{id,funcId,funcNome,empresa,inicio,fim,dias,noPapel,salarioBase,valor,terco,total,enviadoCP}] (datas em texto AAAA-MM-DD)
 let budgets = [];              // Budget/orçamento por peça: [{id,cliente,pedido,produto,qtd,precoVenda,desconto,custos:[{nome,valor}],vencPrev,obs,enviadoCR,enviadoCP}]
 let desenvColecoes = [];       // Desenvolvimento de peças: [{id,cliente,codigo,obs,pecas:[{id,codigo,descricao,grade:{P,M,...},tecidos:[{nome,cor,fornecedor,precoKg,rend,consumo}],aviamentos:[...],embalagem:[...],maoObra,logistica,markup,valorVendido}]}]
-let insumosBase = { tecidos:[], aviamentos:[], embalagem:[] }; // base de insumos p/ autocompletar a ficha: tecidos [{nome,cor,fornecedor,precoKg,rend}], aviamentos/embalagem [{nome,cor,fornecedor,preco,tam}]
+let insumosBase = { tecidos:[], aviamentos:[], embalagem:[], estamparia:[] }; // base p/ autocompletar: tecidos [{nome,cor,fornecedor,precoKg,rend}], aviamentos/embalagem [{nome,cor,fornecedor,preco,tam}], estamparia [{nome,tipo,fornecedor,precoPc,batida}]
 let _rhSub = 'folha';          // sub-aba do RH: 'folha' | 'ferias'
 let _ferBusca = '';            // busca da aba Férias (filtra as linhas por nome/empresa/cargo)
 let lojaFixes = {};
@@ -13943,13 +13943,13 @@ const _desenvAberto = {}; // {pecaId:true} fichas expandidas (não é salvo)
 function _dNum(v){ return +String(v==null?'':v).replace(/\./g,'').replace(',', '.').replace(/[^\d.]/g,'') || +v || 0; }
 function _custoTecido(t){ const p=+t.precoKg||0, r=+t.rend||0, c=+t.consumo||0; return +( (r>0 ? p*c/r : p*c) ).toFixed(4); }
 function _custoAviEmb(x){ return +(((+x.preco||0)*(+x.consumo||0))).toFixed(4); }
-function _custoEstamp(x){ return +(((+x.precoPc||0)+(+x.batida||0))).toFixed(4); } // estamparia/transfer: preço por peça + batida (por peça)
+function _custoEst(x){ return +(((+x.quadro||0)+(+x.precoPc||0)+(+x.batida||0))).toFixed(4); } // silk = quadro + batida · transfer = preço/pç + batida
 function _pecaQtd(pc){ const g=pc.grade||{}; return DESENV_TAMS.reduce((s,t)=>s+(+g[t]||0),0); }
 function _pecaCustos(pc){
   const q=_pecaQtd(pc);
   const tec=(pc.tecidos||[]).reduce((s,t)=>s+_custoTecido(t),0);
   const avi=(pc.aviamentos||[]).reduce((s,a)=>s+_custoAviEmb(a),0);
-  const est=(pc.estamparia||[]).reduce((s,e)=>s+_custoEstamp(e),0);
+  const est=(pc.estamparia||[]).reduce((s,e)=>s+_custoEst(e),0);
   const emb=(pc.embalagem||[]).reduce((s,e)=>s+_custoAviEmb(e),0);
   const mo=(Array.isArray(pc.maoObras)&&pc.maoObras.length)?pc.maoObras.reduce((s,x)=>s+(+x.valor||0),0):(+pc.maoObra||0), log=+pc.logistica||0;
   // Desenvolvimento = valor ÚNICO (modelagem + pilotagem + corte) rateado pela quantidade da grade.
@@ -14026,7 +14026,9 @@ function renderDesenv(){
     <datalist id="dl-tecidos">${_dlOptions('tecidos')}</datalist>
     <datalist id="dl-aviamentos">${_dlOptions('aviamentos')}</datalist>
     <datalist id="dl-embalagem">${_dlOptions('embalagem')}</datalist>
-    <datalist id="dl-fornecedores">${(fornecedoresCompras||[]).map(f=>`<option value="${String(f.nome||'').replace(/"/g,'&quot;')}">`).join('')}</datalist>`;
+    <datalist id="dl-fornecedores">${(fornecedoresCompras||[]).map(f=>`<option value="${String(f.nome||'').replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    <datalist id="dl-estamparia">${_dlOptions('estamparia')}</datalist>
+    <datalist id="dl-tipo-est"><option value="Silk"><option value="Transfer"></datalist>`;
 }
 
 function _fichaHtml(col,pc,esc,m){
@@ -14061,15 +14063,15 @@ function _fichaHtml(col,pc,esc,m){
     <td style="white-space:nowrap"><button class="btn ghost sm" style="font-size:11px" title="Salvar na base" onclick="salvarNaBase('${pc.id}','${bloco}',${i})">💾</button> <button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','${bloco}',${i})">✕</button></td>
   </tr>`).join('');
   const estampRows=(pc.estamparia||[]).map((x,i)=>`<tr>
-    <td><input class="inline-input" style="width:88px" value="${esc(x.tipo)}" placeholder="Silk/Transfer" onchange="updEstamp('${pc.id}',${i},'tipo',this.value)"></td>
-    <td style="text-align:left"><input class="inline-input" style="width:120px" value="${esc(x.estampa)}" placeholder="estampa" onchange="updEstamp('${pc.id}',${i},'estampa',this.value)"></td>
+    <td><input class="inline-input" style="width:88px" list="dl-tipo-est" value="${esc(x.tipo)}" placeholder="Silk/Transfer" onchange="updEstamp('${pc.id}',${i},'tipo',this.value)"></td>
+    <td style="text-align:left"><input class="inline-input" style="width:120px" list="dl-estamparia" value="${esc(x.estampa)}" placeholder="estampa" onchange="updEstamp('${pc.id}',${i},'estampa',this.value)"></td>
     <td><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${x.precoPc||''}" placeholder="R$/pç" onchange="updEstamp('${pc.id}',${i},'precoPc',this.value)"></td>
     <td><input class="inline-input" style="width:66px;text-align:right" inputmode="decimal" value="${x.batida||''}" placeholder="batida" onchange="updEstamp('${pc.id}',${i},'batida',this.value)"></td>
     <td><input class="inline-input" style="width:120px" list="dl-fornecedores" value="${esc(x.fornecedor)}" placeholder="forn. batida" onchange="updEstamp('${pc.id}',${i},'fornecedor',this.value)"></td>
     <td><input class="inline-input" style="width:66px" value="${esc(x.cor)}" placeholder="cor" onchange="updEstamp('${pc.id}',${i},'cor',this.value)"></td>
     <td><input class="inline-input" style="width:96px" value="${esc(x.local)}" placeholder="localização" onchange="updEstamp('${pc.id}',${i},'local',this.value)"></td>
-    <td style="font-weight:700">${m(_custoEstamp(x))}</td>
-    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeEstamp('${pc.id}',${i})">✕</button></td>
+    <td style="font-weight:700">${m(_custoEst(x))}</td>
+    <td style="white-space:nowrap"><button class="btn ghost sm" style="font-size:11px" title="Salvar esta estampa na base" onclick="salvarEstampBase('${pc.id}',${i})">💾</button> <button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeEstamp('${pc.id}',${i})">✕</button></td>
   </tr>`).join('');
   const moRows=(pc.maoObras||[]).map((x,i)=>`<tr>
     <td style="text-align:left"><input class="inline-input" style="width:180px" list="dl-fornecedores" value="${esc(x.fornecedor)}" placeholder="fornecedor (facção)" onchange="updMaoObra('${pc.id}',${i},'fornecedor',this.value)"></td>
@@ -14145,7 +14147,22 @@ function updMaoObra(pid,i,campo,val){ const f=_findPeca(pid); if(!f||!f.p.maoObr
 // Estamparia / Transfer: custo/peça = preço/pç + batida; guarda o fornecedor da batida
 function addEstamp(pid){ const f=_findPeca(pid); if(!f) return; f.p.estamparia=f.p.estamparia||[]; f.p.estamparia.push({tipo:'',estampa:'',precoPc:0,batida:0,fornecedor:'',cor:'',local:''}); _saveDesenv(); _renderDesenvKeep(); }
 function removeEstamp(pid,i){ const f=_findPeca(pid); if(!f||!f.p.estamparia) return; f.p.estamparia.splice(i,1); _saveDesenv(); _renderDesenvKeep(); }
-function updEstamp(pid,i,campo,val){ const f=_findPeca(pid); if(!f||!f.p.estamparia||!f.p.estamparia[i]) return; f.p.estamparia[i][campo]= ['precoPc','batida'].includes(campo)?_dNum(val):val; _saveDesenv(); _renderDesenvKeep(); }
+function updEstamp(pid,i,campo,val){
+  const f=_findPeca(pid); if(!f||!f.p.estamparia||!f.p.estamparia[i]) return; const it=f.p.estamparia[i];
+  it[campo]= ['precoPc','batida'].includes(campo)?_dNum(val):val;
+  if(campo==='estampa'){ const b=_baseMatch('estamparia',val); if(b){ it.tipo=b.tipo||it.tipo||''; it.fornecedor=b.fornecedor||''; it.precoPc=+b.precoPc||0; it.batida=+b.batida||0; } }
+  _saveDesenv(); _renderDesenvKeep();
+}
+function salvarEstampBase(pid,i){
+  const f=_findPeca(pid); if(!f||!f.p.estamparia||!f.p.estamparia[i]) return; const it=f.p.estamparia[i];
+  if(!String(it.estampa||'').trim()){ alert('Escreva o nome da estampa antes de salvar na base.'); return; }
+  insumosBase.estamparia=insumosBase.estamparia||[];
+  const idx=insumosBase.estamparia.findIndex(x=>String(x.nome||'').trim().toLowerCase()===String(it.estampa).trim().toLowerCase());
+  const reg={nome:it.estampa,tipo:it.tipo||'',fornecedor:it.fornecedor||'',precoPc:+it.precoPc||0,batida:+it.batida||0};
+  if(idx>=0) insumosBase.estamparia[idx]=reg; else insumosBase.estamparia.push(reg);
+  _saveBase(); _renderDesenvKeep();
+  alert('💾 "'+it.estampa+'" salvo na base de estamparia (tipo '+(it.tipo||'?')+', '+(it.fornecedor||'sem fornecedor')+'). Da próxima vez, escreva o nome que o resto vem sozinho.');
+}
 function updDesenvItem(pid,bloco,i,campo,val){
   const f=_findPeca(pid); if(!f||!f.p[bloco]||!f.p[bloco][i]) return;
   const it=f.p[bloco][i];
@@ -14168,9 +14185,9 @@ let _baseAberta = false;
 function _baseMatch(bloco,nome){ const n=String(nome||'').trim().toLowerCase(); if(!n) return null; return (insumosBase[bloco]||[]).find(x=>String(x.nome||'').trim().toLowerCase()===n)||null; }
 function _saveBase(){ saveData('insumosBase', insumosBase); }
 function toggleBaseInsumos(){ _baseAberta=!_baseAberta; _renderDesenvKeep(); }
-function addInsumoBase(bloco){ insumosBase[bloco]=insumosBase[bloco]||[]; insumosBase[bloco].push(bloco==='tecidos'?{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0}:{nome:'',cor:'',fornecedor:'',preco:0,tam:''}); _saveBase(); _renderDesenvKeep(); }
+function addInsumoBase(bloco){ insumosBase[bloco]=insumosBase[bloco]||[]; insumosBase[bloco].push(bloco==='tecidos'?{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0}:(bloco==='estamparia'?{nome:'',tipo:'',fornecedor:'',precoPc:0,batida:0}:{nome:'',cor:'',fornecedor:'',preco:0,tam:''})); _saveBase(); _renderDesenvKeep(); }
 function removeInsumoBase(bloco,i){ if(!insumosBase[bloco]) return; insumosBase[bloco].splice(i,1); _saveBase(); _renderDesenvKeep(); }
-function updInsumoBase(bloco,i,campo,val){ const a=insumosBase[bloco]; if(!a||!a[i]) return; if(['precoKg','rend','preco'].includes(campo)) a[i][campo]=_dNum(val); else a[i][campo]=val; _saveBase(); _renderDesenvKeep(); }
+function updInsumoBase(bloco,i,campo,val){ const a=insumosBase[bloco]; if(!a||!a[i]) return; if(['precoKg','rend','preco','precoPc','batida'].includes(campo)) a[i][campo]=_dNum(val); else a[i][campo]=val; _saveBase(); _renderDesenvKeep(); }
 // Salva a linha da ficha na base (pra reusar depois). Dedup por nome.
 function salvarNaBase(pid,bloco,i){
   const f=_findPeca(pid); if(!f||!f.p[bloco]||!f.p[bloco][i]) return; const it=f.p[bloco][i];
@@ -14201,11 +14218,20 @@ function _baseInsumosHtml(esc,m){
     <td><input class="inline-input" style="width:70px" value="${esc(x.tam)}" placeholder="tam" onchange="updInsumoBase('${bloco}',${i},'tam',this.value)"></td>
     <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeInsumoBase('${bloco}',${i})">✕</button></td>
   </tr>`).join('');
+  const estBase=(insumosBase.estamparia||[]).map((x,i)=>`<tr>
+    <td><input class="inline-input" style="width:88px" list="dl-tipo-est" value="${esc(x.tipo)}" placeholder="Silk/Transfer" onchange="updInsumoBase('estamparia',${i},'tipo',this.value)"></td>
+    <td style="text-align:left"><input class="inline-input" style="width:140px" value="${esc(x.nome)}" placeholder="estampa" onchange="updInsumoBase('estamparia',${i},'nome',this.value)"></td>
+    <td><input class="inline-input" style="width:120px" list="dl-fornecedores" value="${esc(x.fornecedor)}" placeholder="fornecedor" onchange="updInsumoBase('estamparia',${i},'fornecedor',this.value)"></td>
+    <td><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${x.precoPc||''}" placeholder="R$/pç" onchange="updInsumoBase('estamparia',${i},'precoPc',this.value)"></td>
+    <td><input class="inline-input" style="width:66px;text-align:right" inputmode="decimal" value="${x.batida||''}" placeholder="batida" onchange="updInsumoBase('estamparia',${i},'batida',this.value)"></td>
+    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeInsumoBase('estamparia',${i})">✕</button></td>
+  </tr>`).join('');
   return `<div class="dcol" style="background:var(--bg)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><strong>📚 Base de insumos</strong><span style="font-size:12px;color:var(--muted)">preencha aqui e depois é só escrever o nome na ficha que fornecedor/preço vêm sozinhos</span><span style="flex:1"></span><button class="btn ghost sm" onclick="toggleBaseInsumos()">▾ recolher</button></div>
     <div class="dblk"><h4>🧵 Tecidos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Tecido</th><th>Cor</th><th>Fornecedor</th><th>Preço/kg</th><th>Rend.</th><th></th></tr></thead><tbody>${tabTec}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('tecidos')">➕ tecido</button></div>
     <div class="dblk"><h4>🔩 Aviamentos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th></th></tr></thead><tbody>${simples('aviamentos')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('aviamentos')">➕ aviamento</button></div>
     <div class="dblk"><h4>📦 Embalagem</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th></th></tr></thead><tbody>${simples('embalagem')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('embalagem')">➕ embalagem</button></div>
+    <div class="dblk"><h4>🖨️ Estamparia (Silk/Transfer)</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th>Tipo</th><th style="text-align:left">Estampa</th><th>Fornecedor</th><th>Preço/pç</th><th>Batida</th><th></th></tr></thead><tbody>${estBase}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addInsumoBase('estamparia')">➕ estampa</button></div>
   </div>`;
 }
 
@@ -15759,7 +15785,7 @@ async function _autoImportBling() {
     else if (k==='fornecedoresCompras') fornecedoresCompras = v || [];
     else if (k==='colecoes') colecoes = v || [];
     else if (k==='desenvColecoes') desenvColecoes = v || [];
-    else if (k==='insumosBase') insumosBase = Object.assign({tecidos:[],aviamentos:[],embalagem:[]}, v || {});
+    else if (k==='insumosBase') insumosBase = Object.assign({tecidos:[],aviamentos:[],embalagem:[],estamparia:[]}, v || {});
     else if (k==='compras') compras = v || [];
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
