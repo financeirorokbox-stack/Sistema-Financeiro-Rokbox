@@ -135,7 +135,7 @@
     <div class="lab" style="margin-top:6px;text-transform:none;font-weight:400;color:var(--muted)" id="saldo-final-det"></div>
   </div>
 
-  <h2>💸 A pagar por categoria <span style="color:var(--muted);font-weight:400;font-size:.8em">(do mês, maior → menor)</span></h2>
+  <h2>💸 Contas a pagar por categoria <span style="color:var(--muted);font-weight:400;font-size:.8em">(pago + em aberto, maior → menor)</span></h2>
   <div class="card" id="cp-cat"></div>
 
   <h2>📅 Por semana <span style="color:var(--muted);font-weight:400;font-size:.8em">(o que vence, segunda a domingo)</span></h2>
@@ -326,19 +326,20 @@ async function carregar(){
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
     const _lf=document.getElementById('saldo-final-lab'); if(_lf) _lf.textContent=_labFinal;
     document.getElementById('saldo-final-det').textContent=_detTxt;
-    // ── A PAGAR por categoria: quebra o total "a pagar do mês" (a vencer + atrasado) por categoria, maior → menor, com valor e % ──
-    const cpAbertoArr = cpA.filter(cpAbertoF);
+    // ── CONTAS A PAGAR por categoria: TOTAL do mês = PAGO (liquidado no mês) + EM ABERTO (a vencer + atrasado), maior → menor, com valor e % ──
+    const _pagoNoMesF = r => !r.cancelado && emMes(r.data_liquidacao);
+    const cpTotalArr = cpA.filter(r => _pagoNoMesF(r) || cpAbertoF(r));
     const _catMap = {};
-    cpAbertoArr.forEach(r=>{ const c=(r.categoria&&String(r.categoria).trim())||'(sem categoria)'; _catMap[c]=(_catMap[c]||0)+(+r.valor||0); });
+    cpTotalArr.forEach(r=>{ const c=(r.categoria&&String(r.categoria).trim())||'(sem categoria)'; _catMap[c]=(_catMap[c]||0)+(+r.valor||0); });
     const _catArr = Object.entries(_catMap).map(([nome,valor])=>({nome,valor:+valor.toFixed(2)})).sort((a,b)=>b.valor-a.valor);
     const _catTot = +_catArr.reduce((s,x)=>s+x.valor,0).toFixed(2);
     const _catMax = _catArr.length?_catArr[0].valor:0;
     const _cpCatEl=document.getElementById('cp-cat');
     if(_cpCatEl){
-      if(!_catArr.length){ _cpCatEl.innerHTML='<div style="color:var(--muted);text-align:center;padding:12px">nada a pagar em aberto neste mês 🎉</div>'; }
+      if(!_catArr.length){ _cpCatEl.innerHTML='<div style="color:var(--muted);text-align:center;padding:12px">nenhuma conta neste mês 🎉</div>'; }
       else {
         _cpCatEl.innerHTML =
-          `<div class="kv" style="margin-bottom:10px"><span class="k">Total a pagar do mês</span><span class="n" style="color:var(--amber)">${brl(_catTot)}</span></div>`+
+          `<div class="kv" style="margin-bottom:10px"><span class="k">Total de contas do mês <span style="color:var(--muted);font-weight:400;font-size:.85em">(pago + em aberto)</span></span><span class="n" style="color:var(--amber)">${brl(_catTot)}</span></div>`+
           _catArr.map(c=>{ const pct=_catTot>0?(c.valor/_catTot*100):0; const w=_catMax>0?Math.max(2,Math.round(c.valor/_catMax*100)):0;
             return `<div style="margin:9px 0">
               <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:3px">
@@ -492,7 +493,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.19';
+const BUILD='2026-09-22.20';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
