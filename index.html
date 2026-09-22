@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v639/09-722';
+const APP_VERSION = 'v640/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9454,7 +9454,10 @@ function renderExtrato() {
       // (ex.: 20260630001), NÃO é fixo por transação — então sozinho ele "falsa-pula" créditos legítimos.
       // E duas transações iguais no mesmo dia têm FITID diferente → as duas entram. Nunca perde lançamento.
       const fitidBase = t => (t.id && !String(t.id).startsWith('ofx-')) ? String(t.id).split('_')[0] : '';
-      const conteudo = t => [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor, (t.memo || '').trim().toLowerCase()].join('|');
+      // NÃO usa o texto/memo na chave: o Itaú MUDA a "escrita" a cada exportação, e isso fazia o mesmo lançamento
+      // entrar de novo (com _1) no re-upload diário. Casa só por data + valor (a ORDEM/quantidade do mesmo dia é
+      // tratada pelo multiset contConta abaixo, que preserva 2 lançamentos iguais legítimos e barra a cópia repetida).
+      const conteudo = t => [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor].join('|');
       const chaveDedup = t => fitidBase(t) + '§' + conteudo(t);
       const porChave = {};
       extratoBancario.forEach(t => { porChave[(t.banco || '') + '||' + chaveDedup(t)] = t; });
