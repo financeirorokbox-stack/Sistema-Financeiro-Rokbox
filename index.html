@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v636/09-722';
+const APP_VERSION = 'v637/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13945,7 +13945,7 @@ function _custoTecido(t){ const p=+t.precoKg||0, r=+t.rend||0, c=+t.consumo||0; 
 function _custoAviEmb(x){ return +(((+x.preco||0)*(+x.consumo||0))).toFixed(4); }
 function _custoEst(x){ return +(((+x.quadro||0)+(+x.precoPc||0)+(+x.batida||0))).toFixed(4); } // silk = quadro + batida · transfer = preço/pç + batida
 function _pecaQtd(pc){ const g=pc.grade||{}; return DESENV_TAMS.reduce((s,t)=>s+(+g[t]||0),0); }
-function _pecaCustos(pc){
+function _pecaCustos(pc, col){
   const q=_pecaQtd(pc);
   const tec=(pc.tecidos||[]).reduce((s,t)=>s+_custoTecido(t),0);
   const avi=(pc.aviamentos||[]).reduce((s,a)=>s+_custoAviEmb(a),0);
@@ -13960,10 +13960,18 @@ function _pecaCustos(pc){
   const sugerido=+(cmv*markup).toFixed(2);
   const vendido=+pc.valorVendido||0;
   const ref=vendido||sugerido;
-  const margem=+(ref-cmv).toFixed(2);
+  // Deduções da VENDA (definidas na coleção): PL = imposto% · Própria = frete% + cartão% (tudo % do preço de venda)
+  let dedPct=0, dedLabel='';
+  if(col){
+    if(col.tipo==='pl'){ dedPct=(+col.impostoPct||0); dedLabel='imposto '+(_fmtPct(dedPct)); }
+    else { const fr=+col.fretePct||0, ca=+col.cartaoPct||0; dedPct=fr+ca; dedLabel='frete '+_fmtPct(fr)+' + cartão '+_fmtPct(ca); }
+  }
+  const dedVenda=+(ref*dedPct/100).toFixed(2);
+  const margem=+(ref-cmv-dedVenda).toFixed(2);
   const pct=ref>0?margem/ref*100:0;
-  return {tec:+tec.toFixed(2),avi:+avi.toFixed(2),est:+est.toFixed(2),emb:+emb.toFixed(2),mo,log,devTot:+devTot.toFixed(2),devPeca:+devPeca.toFixed(2),cmv,markup,sugerido,vendido,margem,pct};
+  return {tec:+tec.toFixed(2),avi:+avi.toFixed(2),est:+est.toFixed(2),emb:+emb.toFixed(2),mo,log,devTot:+devTot.toFixed(2),devPeca:+devPeca.toFixed(2),cmv,markup,sugerido,vendido,dedPct,dedVenda,dedLabel,margem,pct};
 }
+function _fmtPct(v){ return (+v||0).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%'; }
 function _findPeca(pid){ for(const col of desenvColecoes){ const p=(col.pecas||[]).find(x=>x.id===pid); if(p) return {col,p}; } return null; }
 function _saveDesenv(){ saveData('desenvColecoes', desenvColecoes); }
 function _renderDesenvKeep(){ const sy=window.scrollY||0; renderDesenv(); window.scrollTo(0,sy); requestAnimationFrame(()=>window.scrollTo(0,sy)); }
@@ -13978,7 +13986,7 @@ function renderDesenv(){
   if(_mig) _saveDesenv();
   const cols=desenvColecoes.map(col=>{
     const linhas=(col.pecas||[]).map(pc=>{
-      const k=_pecaCustos(pc), q=_pecaQtd(pc);
+      const k=_pecaCustos(pc, col), q=_pecaQtd(pc);
       return `<tr>
         <td style="text-align:left"><a href="#" onclick="toggleFicha('${pc.id}');return false" style="color:var(--accent);text-decoration:none">${esc(pc.descricao)||'(sem nome)'}</a></td>
         <td>${q}</td><td>${m(k.tec)}</td><td>${m(k.avi)}</td><td>${m(k.est)}</td><td>${m(k.emb)}</td><td>${m(k.mo)}</td><td>${m(k.log)}</td><td>${m(k.devPeca)}</td>
@@ -13987,7 +13995,7 @@ function renderDesenv(){
         <td style="color:${k.margem>=0?'var(--green)':'var(--red)'}">${m(k.margem)} · ${k.pct.toFixed(0)}%</td>
       </tr>`;
     }).join('');
-    const tot=(col.pecas||[]).reduce((a,pc)=>{const k=_pecaCustos(pc),q=_pecaQtd(pc);a.q+=q;a.cmv+=k.cmv*q;a.sug+=k.sugerido*q;a.vend+=(k.vendido||0)*q;return a;},{q:0,cmv:0,sug:0,vend:0});
+    const tot=(col.pecas||[]).reduce((a,pc)=>{const k=_pecaCustos(pc,col),q=_pecaQtd(pc);a.q+=q;a.cmv+=k.cmv*q;a.sug+=k.sugerido*q;a.vend+=(k.vendido||0)*q;return a;},{q:0,cmv:0,sug:0,vend:0});
     const fichas=(col.pecas||[]).map(pc=>_fichaHtml(col,pc,esc,m)).join('');
     return `<div class="dcol">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
@@ -13995,6 +14003,19 @@ function renderDesenv(){
         <input class="inline-input" style="width:160px" value="${esc(col.codigo)}" placeholder="Código (ex.: PLRK.CRV.26)" onchange="updDesenvCol('${col.id}','codigo',this.value)">
         <input class="inline-input" style="flex:1;min-width:160px" value="${esc(col.obs)}" placeholder="observação da coleção" onchange="updDesenvCol('${col.id}','obs',this.value)">
         <button class="btn ghost sm" style="color:var(--red)" onclick="removeDesenvCol('${col.id}')" title="Remover coleção">🗑</button>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:12px;color:var(--muted)">
+        <label>Tipo da coleção
+          <select class="inline-input" style="width:160px" onchange="updDesenvCol('${col.id}','tipo',this.value)">
+            <option value="propria" ${col.tipo==='pl'?'':'selected'}>Coleção própria</option>
+            <option value="pl" ${col.tipo==='pl'?'selected':''}>PL (White Label)</option>
+          </select>
+        </label>
+        ${col.tipo==='pl'
+          ? `<label>Imposto % <input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${col.impostoPct!=null?col.impostoPct:''}" placeholder="10" onchange="updDesenvCol('${col.id}','impostoPct',this.value)"></label>`
+          : `<label>Frete % <input class="inline-input" style="width:64px;text-align:right" inputmode="decimal" value="${col.fretePct!=null?col.fretePct:''}" placeholder="0" onchange="updDesenvCol('${col.id}','fretePct',this.value)"></label>
+             <label>Cartão % <input class="inline-input" style="width:64px;text-align:right" inputmode="decimal" value="${col.cartaoPct!=null?col.cartaoPct:''}" placeholder="0" onchange="updDesenvCol('${col.id}','cartaoPct',this.value)"></label>`}
+        <span style="opacity:.75">estas deduções saem da margem de cada peça</span>
       </div>
       <div style="overflow-x:auto;margin-bottom:12px">
         <table class="dtbl" style="min-width:1140px">
@@ -14032,7 +14053,7 @@ function renderDesenv(){
 }
 
 function _fichaHtml(col,pc,esc,m){
-  const k=_pecaCustos(pc), q=_pecaQtd(pc), aberto=!!_desenvAberto[pc.id];
+  const k=_pecaCustos(pc, col), q=_pecaQtd(pc), aberto=!!_desenvAberto[pc.id];
   const head=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;cursor:pointer" onclick="toggleFicha('${pc.id}')">
     <span style="font-size:15px">${aberto?'▾':'▸'}</span>
     <strong>${esc(pc.descricao)||'(peça sem nome)'}</strong>
@@ -14124,7 +14145,8 @@ function _fichaHtml(col,pc,esc,m){
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px"><span>CMV/peça</span><strong>${m(k.cmv)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Sugerido (×${(+k.markup).toLocaleString('pt-BR')})</span><strong>${m(k.sugerido)}</strong></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Vendido</span><strong>${k.vendido?m(k.vendido):'—'}</strong></div>
-        <div style="display:flex;justify-content:space-between;font-size:14px;color:${k.margem>=0?'var(--green)':'var(--red)'}"><span>Margem/peça</span><strong>${m(k.margem)} · ${k.pct.toFixed(0)}%</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:var(--muted)" title="${col.tipo==='pl'?'PL: imposto sobre a venda':'Coleção própria: frete + cartão sobre a venda'}"><span>Deduções (${k.dedLabel||'venda'})</span><strong>${k.dedVenda>0?'− '+m(k.dedVenda):'—'}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:${k.margem>=0?'var(--green)':'var(--red)'}"><span>Margem líq./peça</span><strong>${m(k.margem)} · ${k.pct.toFixed(0)}%</strong></div>
         <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>CMV total (${q}×)</span><strong>${m(k.cmv*q)}</strong></div>
       </div>
@@ -14132,8 +14154,8 @@ function _fichaHtml(col,pc,esc,m){
   </div>`;
 }
 
-function novaDesenvCol(){ desenvColecoes.push({id:'col_'+Date.now(),cliente:'',codigo:'',obs:'',pecas:[]}); _saveDesenv(); renderDesenv(); }
-function updDesenvCol(id,campo,val){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; c[campo]=val; _saveDesenv(); }
+function novaDesenvCol(){ desenvColecoes.push({id:'col_'+Date.now(),cliente:'',codigo:'',obs:'',tipo:'propria',impostoPct:10,fretePct:0,cartaoPct:0,pecas:[]}); _saveDesenv(); renderDesenv(); }
+function updDesenvCol(id,campo,val){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; if(['impostoPct','fretePct','cartaoPct'].includes(campo)) c[campo]=_dNum(val); else c[campo]=val; _saveDesenv(); _renderDesenvKeep(); }
 function removeDesenvCol(id){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; if(!confirm('Remover a coleção "'+(c.cliente||'')+'" e todas as peças?')) return; desenvColecoes=desenvColecoes.filter(x=>x.id!==id); _saveDesenv(); renderDesenv(); }
 function novaDesenvPeca(colId){ const c=desenvColecoes.find(x=>x.id===colId); if(!c) return; const pid='pc_'+Date.now(); (c.pecas=c.pecas||[]).push({id:pid,codigo:'',descricao:'',grade:{},tecidos:[{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}],aviamentos:[],estamparia:[],embalagem:[],maoObras:[{fornecedor:'',valor:0}],logistica:0,modelagem:0,encaixe:0,pilotagem:0,corte:0,consumoDev:0,markup:1.8,valorVendido:0}); _desenvAberto[pid]=true; _saveDesenv(); renderDesenv(); }
 function removeDesenvPeca(pid){ const f=_findPeca(pid); if(!f) return; if(!confirm('Remover esta peça?')) return; f.col.pecas=f.col.pecas.filter(x=>x.id!==pid); _saveDesenv(); renderDesenv(); }
