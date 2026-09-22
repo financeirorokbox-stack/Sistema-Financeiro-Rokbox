@@ -135,7 +135,7 @@
     <div class="lab" style="margin-top:6px;text-transform:none;font-weight:400;color:var(--muted)" id="saldo-final-det"></div>
   </div>
 
-  <h2>💸 Contas a pagar por categoria <span style="color:var(--muted);font-weight:400;font-size:.8em">(pago + em aberto, maior → menor)</span></h2>
+  <h2>💸 Contas a pagar por grupo <span style="color:var(--muted);font-weight:400;font-size:.8em">(pago + em aberto · abre o subgrupo)</span></h2>
   <div class="card" id="cp-cat"></div>
 
   <h2>📅 Por semana <span style="color:var(--muted);font-weight:400;font-size:.8em">(o que vence, segunda a domingo)</span></h2>
@@ -224,6 +224,36 @@ async function gk(chave){
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+// Mapa categoria(subgrupo) → GRUPO grande (CMV, PESSOAL, SÓCIOS...). Espelho do index.html (CATEGORIAS_DESPESA/grupoDespesa),
+// usado só pra AGRUPAR o "Contas a pagar por categoria" do Fluxo. Se mudar lá, atualizar aqui também.
+const CATEGORIAS_DESPESA_FIN = {
+  'ADMINISTRATIVA FIXA': ['AGUA','ALIMENTAÇÃO','ALUGUEL/ IPTU/ COND.','CONTADOR','ENERGIA','LIMPEZA/ FAXINA','SEGURO','SEGURANÇA DO TRABALHO','TELEFONE/ INTERNET'],
+  'ADMINISTRATIVA VAR.': ['CONSULTA CHEQUE/ SERASA','SEGURO CARRO','DOAÇÃO','EQUIPAMENTOS','ESTACIONAMENTO','GASOLINA','MANUTENÇÃO','MATERIAL DE ESCRITÓRIO','MERCADO','OUTRAS DESPESAS'],
+  'CMV': ['AVIAMENTOS','BOJO','CMV - PROVISAO','CONSUMO','CORTE','ENCAIXE','ESTAMPARIA','ETIQUETA E TAG','MÃO DE OBRA','MEIAS','MODELAGEM','MODELISTA','PEDIDOS','PILOTAGEM','PILOTO','TECIDO','MÁSCARAS'],
+  'PRODUTO ACABADO': ['PRODUTO ACABADO','SACOLAS/ EMBALAGENS/ CABIDES','SACOLAS/EMBALAGENS/CABIDES'],
+  'CMV PL': ['MÃO DE OBRA PL','TECIDO PL','ESTAMPARIA PL','AVIAMENTOS PL','PRODUTO ACABADO PL'],
+  'CMV WL': ['MÃO DE OBRA WL','TECIDO WL','ESTAMPARIA WL','AVIAMENTOS WL','PRODUTO ACABADO WL'],
+  'COMERCIAL': ['BAZAR','BUFFET','CLIENTE','CONFRATERNIZAÇÃO','CURSOS','REGISTRO RK'],
+  'COMISSÃO': ['SITE','COMISSÃO'],
+  'DESPESAS FINANCEIRAS': ['TARIFAS','EMPRÉSTIMO'],
+  'DEVOLUÇÃO': ['ESTORNO'],
+  'FRETE S/ VENDAS': ['CORREIOS','FRETE CLIENTE'],
+  'IMPOSTO_FAT': ['SIMPLES','SIMPLES PL','ICMS DIFAL'],
+  'IMPOSTOS': ['DARF IRRF','ISS'],
+  'IMPOSTOS/ TAXAS': ['TFE','GARE ICMS'],
+  'INFORMATICA': ['EQUIPAMENTOS DE INF.','MANUTENÇÃO INFORMATICA','MARKETPLACE','SISTEMAS'],
+  'INVESTIMENTO': ['INVESTIMENTO - RKBX','INVESTIMENTO - ROKBOX','REFORMA','INVESTIMENTO - RK CONFECÇÃO'],
+  'LOGÍSTICA': ['LOGGI/ UBER/ 99','MOTOBOY/ TRANSPORTADORA'],
+  'MARKETING': ['ASS DE IMPRENSA','AUXILIO DE FOTOS','CRIAÇÃO/ DIVULGAÇÃO/ DIGITAL','DIVERSOS','EVENTO','GRÁFICA','MODELOS/ BLOGUEIRA','PESSOAS','SESSÃO FOTOS','COMISSÃO ATLETA','INVEST CAMPANHAS'],
+  'PESSOAL': ['13º','CONSULTOR','EXAME MEDICO','EXTRAS','FÉRIAS','FGTS','INSS','IR SALÁRIO','REPRESENTANTE','RESCISÃO','SALÁRIOS','VALE ALIMENTAÇÃO','VALE TRANSPORTE','SEGURO ESTAGIARIOS','BENEFÍCIOS'],
+  'SÓCIOS': ['CONVÊNIO MÉDICO','APORTE SÓCIO','BENEFÍCIOS SOCIOS','DISTRIBUIÇÃO DE LUCROS','PRÓ LABORE','DESPESAS','SALARIO SOCIO'],
+  'RETIRADA SÓCIOS': ['RETIRADA SÓCIOS']
+};
+const _normNomeF = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim();
+const _GRUPO_DE_CAT_FIN = (()=>{ const m={}; for(const [g,subs] of Object.entries(CATEGORIAS_DESPESA_FIN)){ m[_normNomeF(g)]=g; subs.forEach(s=>{ m[_normNomeF(s)]=g; }); } return m; })();
+const grupoDaCategoria = cat => _GRUPO_DE_CAT_FIN[_normNomeF(cat)] || 'OUTRAS';
+// abre/fecha os subgrupos de um grupo no "Contas a pagar por categoria"
+function _togGcat(id,node){ const e=document.getElementById(id); if(!e) return; const abrir=e.style.display==='none'; e.style.display=abrir?'':'none'; try{ node.querySelector('._arw').textContent=abrir?'▾':'▸'; }catch(_){} }
 let mesSel=null;          // mês escolhido no filtro (null = mês atual)
 let _FIN=null;            // guarda os dados carregados (pro Balancete usar sem rebuscar)
 function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra frente: out/nov… aparecem), mais recente primeiro
@@ -326,29 +356,32 @@ async function carregar(){
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
     const _lf=document.getElementById('saldo-final-lab'); if(_lf) _lf.textContent=_labFinal;
     document.getElementById('saldo-final-det').textContent=_detTxt;
-    // ── CONTAS A PAGAR por categoria: TOTAL do mês = PAGO (liquidado no mês) + EM ABERTO (a vencer + atrasado), maior → menor, com valor e % ──
+    // ── CONTAS A PAGAR por GRUPO (CMV, PESSOAL...) → subgrupo dentro. TOTAL do mês = PAGO (liquidado no mês) + EM ABERTO (a vencer + atrasado). ──
     const _pagoNoMesF = r => !r.cancelado && emMes(r.data_liquidacao);
     const cpTotalArr = cpA.filter(r => _pagoNoMesF(r) || cpAbertoF(r));
-    const _catMap = {};
-    cpTotalArr.forEach(r=>{ const c=(r.categoria&&String(r.categoria).trim())||'(sem categoria)'; _catMap[c]=(_catMap[c]||0)+(+r.valor||0); });
-    const _catArr = Object.entries(_catMap).map(([nome,valor])=>({nome,valor:+valor.toFixed(2)})).sort((a,b)=>b.valor-a.valor);
-    const _catTot = +_catArr.reduce((s,x)=>s+x.valor,0).toFixed(2);
-    const _catMax = _catArr.length?_catArr[0].valor:0;
+    const _grp = {}; // grupo -> {tot, subs:{sub:val}}
+    cpTotalArr.forEach(r=>{ const cat=(r.categoria&&String(r.categoria).trim())||'(sem categoria)'; const G=grupoDaCategoria(cat); const o=_grp[G]=_grp[G]||{tot:0,subs:{}}; const v=(+r.valor||0); o.tot+=v; o.subs[cat]=(o.subs[cat]||0)+v; });
+    const _grpArr = Object.entries(_grp).map(([nome,o])=>({nome,tot:+o.tot.toFixed(2),subs:Object.entries(o.subs).map(([n,v])=>({n,v:+v.toFixed(2)})).sort((a,b)=>b.v-a.v)})).sort((a,b)=>b.tot-a.tot);
+    const _grpTot = +_grpArr.reduce((s,x)=>s+x.tot,0).toFixed(2);
+    const _grpMax = _grpArr.length?_grpArr[0].tot:0;
     const _cpCatEl=document.getElementById('cp-cat');
     if(_cpCatEl){
-      if(!_catArr.length){ _cpCatEl.innerHTML='<div style="color:var(--muted);text-align:center;padding:12px">nenhuma conta neste mês 🎉</div>'; }
+      if(!_grpArr.length){ _cpCatEl.innerHTML='<div style="color:var(--muted);text-align:center;padding:12px">nenhuma conta neste mês 🎉</div>'; }
       else {
         _cpCatEl.innerHTML =
-          `<div class="kv" style="margin-bottom:10px"><span class="k">Total de contas do mês <span style="color:var(--muted);font-weight:400;font-size:.85em">(pago + em aberto)</span></span><span class="n" style="color:var(--amber)">${brl(_catTot)}</span></div>`+
-          _catArr.map(c=>{ const pct=_catTot>0?(c.valor/_catTot*100):0; const w=_catMax>0?Math.max(2,Math.round(c.valor/_catMax*100)):0;
+          `<div class="kv" style="margin-bottom:10px"><span class="k">Total de contas do mês <span style="color:var(--muted);font-weight:400;font-size:.85em">(pago + em aberto · toque num grupo pra abrir)</span></span><span class="n" style="color:var(--amber)">${brl(_grpTot)}</span></div>`+
+          _grpArr.map((g,gi)=>{ const pct=_grpTot>0?(g.tot/_grpTot*100):0; const w=_grpMax>0?Math.max(2,Math.round(g.tot/_grpMax*100)):0; const subId='gcat-'+gi;
+            const subHtml = g.subs.map(s=>{ const sp=g.tot>0?(s.v/g.tot*100):0;
+              return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0 3px 22px;color:var(--muted)"><span>• ${s.n}</span><span style="white-space:nowrap">${brl(s.v)} <span style="opacity:.7">${sp.toFixed(1)}%</span></span></div>`; }).join('');
             return `<div style="margin:9px 0">
-              <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:3px">
-                <span style="color:var(--txt,#cfe)">${c.nome}</span>
-                <span style="white-space:nowrap;font-weight:700">${brl(c.valor)} <span style="color:var(--muted);font-weight:600">${pct.toFixed(1)}%</span></span>
+              <div onclick="_togGcat('${subId}',this)" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:3px;font-weight:700">
+                <span><span class="_arw" style="display:inline-block;width:14px;color:var(--muted)">▸</span>${g.nome.replace(/_/g,' ')}</span>
+                <span style="white-space:nowrap">${brl(g.tot)} <span style="color:var(--muted);font-weight:600">${pct.toFixed(1)}%</span></span>
               </div>
-              <div style="background:var(--bg2,#141a1f);border-radius:6px;height:10px;overflow:hidden">
+              <div style="background:var(--bg2,#141a1f);border-radius:6px;height:10px;overflow:hidden;margin-left:14px">
                 <div style="height:100%;width:${w}%;background:var(--amber);border-radius:6px"></div>
               </div>
+              <div id="${subId}" style="display:none;margin-top:4px">${subHtml}</div>
             </div>`;
           }).join('');
       }
@@ -493,7 +526,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.20';
+const BUILD='2026-09-22.21';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
