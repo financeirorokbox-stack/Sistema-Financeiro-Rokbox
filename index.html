@@ -364,6 +364,7 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-rh" onclick="setView('rh')">👥 RH</div>
   <div class="topnav-item" id="nav-financeiro" onclick="setView('financeiro')">Financeiro</div>
   <div class="topnav-item" id="nav-budget" onclick="setView('budget')">📐 Budget</div>
+  <div class="topnav-item" id="nav-desenv" onclick="setView('desenv')">🧵 Desenvolvimento</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
   <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
 </div>
@@ -407,6 +408,7 @@ tr:hover td{background:#fafaf8}
 <div id="v-compras" class="main" style="display:none"></div>
 <div id="v-rh" class="main" style="display:none"></div>
 <div id="v-budget" class="main" style="display:none"></div>
+<div id="v-desenv" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
 </div><!-- /app -->
@@ -465,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v630/09-722';
+const APP_VERSION = 'v631/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -625,7 +627,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','crFechado','cpFechado'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','crFechado','cpFechado'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -780,7 +782,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -1261,6 +1263,7 @@ let funcionariosRH = [];       // RH/folha: [{id,nome,funcao,empresa,salario,dia
 let folhaRH = {};              // folha mensal digitada (igual à planilha dela): { 'YYYY-MM': { funcId: {adiant,salLiq,comissao,dsr,ferias,vt,extras,extrasCat,descontos} } }
 let feriasRH = [];             // férias lançadas: [{id,funcId,funcNome,empresa,inicio,fim,dias,noPapel,salarioBase,valor,terco,total,enviadoCP}] (datas em texto AAAA-MM-DD)
 let budgets = [];              // Budget/orçamento por peça: [{id,cliente,pedido,produto,qtd,precoVenda,desconto,custos:[{nome,valor}],vencPrev,obs,enviadoCR,enviadoCP}]
+let desenvColecoes = [];       // Desenvolvimento de peças: [{id,cliente,codigo,obs,pecas:[{id,codigo,descricao,grade:{P,M,...},tecidos:[{nome,cor,fornecedor,precoKg,rend,consumo}],aviamentos:[...],embalagem:[...],maoObra,logistica,markup,valorVendido}]}]
 let _rhSub = 'folha';          // sub-aba do RH: 'folha' | 'ferias'
 let _ferBusca = '';            // busca da aba Férias (filtra as linhas por nome/empresa/cargo)
 let lojaFixes = {};
@@ -1386,13 +1389,14 @@ function setView(v) {
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','compras','rh','budget','financeiro','cadastro'].forEach(x => {
+  ['dashboard','vendas','compras','rh','budget','desenv','financeiro','cadastro'].forEach(x => {
     document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
   document.getElementById('v-vendas').style.display = v === 'vendas' ? 'block' : 'none';
   document.getElementById('v-compras').style.display = v === 'compras' ? 'block' : 'none';
   const _vbg = document.getElementById('v-budget'); if (_vbg) _vbg.style.display = v === 'budget' ? 'block' : 'none';
+  const _vdz = document.getElementById('v-desenv'); if (_vdz) _vdz.style.display = v === 'desenv' ? 'block' : 'none';
   const _vrh = document.getElementById('v-rh'); if (_vrh) _vrh.style.display = v === 'rh' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
@@ -1403,6 +1407,7 @@ function setView(v) {
   if (v === 'compras') _perf('Compras', renderCompras);
   if (v === 'rh') _perf('RH', renderRH);
   if (v === 'budget') _perf('Budget', renderBudget);
+  if (v === 'desenv') _perf('Desenvolvimento', renderDesenv);
   if (v === 'financeiro') {
     // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
     let s = currentSub === 'conc' ? 'contas' : currentSub;
@@ -13925,6 +13930,172 @@ function budgetPrevisaoPagar(id) {
   renderBudget();
   alert(`📤 Previsão a PAGAR criada: ${n} custo(s) no Contas a Pagar (em aberto).\n\nEntram no Fluxo como 🔮 Previsto a pagar. Ajuste as categorias/fornecedor no Contas a Pagar se precisar.`);
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// DESENVOLVIMENTO DE PEÇAS — ficha técnica de custo por coleção de cliente
+// Fase 1: coleção → peças (grade + tecidos/aviamentos/embalagem/mão de obra + logística) → CMV, markup, preço sugerido, margem + RESUMO.
+// Formulas (batem com a planilha CORAVI): tecido = preço/kg × consumo ÷ rendimento; aviamento/embalagem = preço × consumo.
+// Próximas fases: explosão de compras → Pedido de Compras; recebimento do cliente (proposta Bling); margem real.
+// ══════════════════════════════════════════════════════════════════════
+const DESENV_TAMS = ['PP','P','M','G','GG','XG'];
+const _desenvAberto = {}; // {pecaId:true} fichas expandidas (não é salvo)
+function _dNum(v){ return +String(v==null?'':v).replace(/\./g,'').replace(',', '.').replace(/[^\d.]/g,'') || +v || 0; }
+function _custoTecido(t){ const p=+t.precoKg||0, r=+t.rend||0, c=+t.consumo||0; return +( (r>0 ? p*c/r : p*c) ).toFixed(4); }
+function _custoAviEmb(x){ return +(((+x.preco||0)*(+x.consumo||0))).toFixed(4); }
+function _pecaQtd(pc){ const g=pc.grade||{}; return DESENV_TAMS.reduce((s,t)=>s+(+g[t]||0),0); }
+function _pecaCustos(pc){
+  const tec=(pc.tecidos||[]).reduce((s,t)=>s+_custoTecido(t),0);
+  const avi=(pc.aviamentos||[]).reduce((s,a)=>s+_custoAviEmb(a),0);
+  const emb=(pc.embalagem||[]).reduce((s,e)=>s+_custoAviEmb(e),0);
+  const mo=+pc.maoObra||0, log=+pc.logistica||0;
+  const cmv=+(tec+avi+emb+mo+log).toFixed(2);
+  const markup=+pc.markup||1.8;
+  const sugerido=+(cmv*markup).toFixed(2);
+  const vendido=+pc.valorVendido||0;
+  const ref=vendido||sugerido;
+  const margem=+(ref-cmv).toFixed(2);
+  const pct=ref>0?margem/ref*100:0;
+  return {tec:+tec.toFixed(2),avi:+avi.toFixed(2),emb:+emb.toFixed(2),mo,log,cmv,markup,sugerido,vendido,margem,pct};
+}
+function _findPeca(pid){ for(const col of desenvColecoes){ const p=(col.pecas||[]).find(x=>x.id===pid); if(p) return {col,p}; } return null; }
+function _saveDesenv(){ saveData('desenvColecoes', desenvColecoes); }
+function _renderDesenvKeep(){ const sy=window.scrollY||0; renderDesenv(); window.scrollTo(0,sy); requestAnimationFrame(()=>window.scrollTo(0,sy)); }
+
+function renderDesenv(){
+  const el=document.getElementById('v-desenv'); if(!el) return;
+  const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
+  const m=v=>fmtVal(+v||0);
+  const cols=desenvColecoes.map(col=>{
+    const linhas=(col.pecas||[]).map(pc=>{
+      const k=_pecaCustos(pc), q=_pecaQtd(pc);
+      return `<tr>
+        <td style="text-align:left"><a href="#" onclick="toggleFicha('${pc.id}');return false" style="color:var(--accent);text-decoration:none">${esc(pc.descricao)||'(sem nome)'}</a></td>
+        <td>${q}</td><td>${m(k.tec)}</td><td>${m(k.avi)}</td><td>${m(k.emb)}</td><td>${m(k.mo)}</td><td>${m(k.log)}</td>
+        <td><strong>${m(k.cmv)}</strong></td><td>${(+k.markup).toLocaleString('pt-BR')}</td><td>${m(k.sugerido)}</td>
+        <td>${k.vendido?m(k.vendido):'<span style="color:var(--muted)">—</span>'}</td>
+        <td style="color:${k.margem>=0?'var(--green)':'var(--red)'}">${m(k.margem)} · ${k.pct.toFixed(0)}%</td>
+      </tr>`;
+    }).join('');
+    const tot=(col.pecas||[]).reduce((a,pc)=>{const k=_pecaCustos(pc),q=_pecaQtd(pc);a.q+=q;a.cmv+=k.cmv*q;a.sug+=k.sugerido*q;a.vend+=(k.vendido||0)*q;return a;},{q:0,cmv:0,sug:0,vend:0});
+    const fichas=(col.pecas||[]).map(pc=>_fichaHtml(col,pc,esc,m)).join('');
+    return `<div class="dcol">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <input class="inline-input" style="width:200px" value="${esc(col.cliente)}" placeholder="Cliente (ex.: CORAVI)" onchange="updDesenvCol('${col.id}','cliente',this.value)">
+        <input class="inline-input" style="width:160px" value="${esc(col.codigo)}" placeholder="Código (ex.: PLRK.CRV.26)" onchange="updDesenvCol('${col.id}','codigo',this.value)">
+        <input class="inline-input" style="flex:1;min-width:160px" value="${esc(col.obs)}" placeholder="observação da coleção" onchange="updDesenvCol('${col.id}','obs',this.value)">
+        <button class="btn ghost sm" style="color:var(--red)" onclick="removeDesenvCol('${col.id}')" title="Remover coleção">🗑</button>
+      </div>
+      <div style="overflow-x:auto;margin-bottom:12px">
+        <table class="dtbl" style="min-width:960px">
+          <thead><tr><th style="text-align:left">Peça</th><th>Qtd</th><th>Tecidos</th><th>Aviam.</th><th>Emb.</th><th>M.Obra</th><th>Log.</th><th>CMV</th><th>Markup</th><th>Sugerido</th><th>Vendido</th><th>Margem</th></tr></thead>
+          <tbody>${linhas||'<tr><td colspan="12" style="color:var(--muted);text-align:left">Nenhuma peça ainda. Clique ➕ Nova peça.</td></tr>'}</tbody>
+          ${tot.q?`<tfoot><tr style="font-weight:800"><td style="text-align:left">TOTAL · ${(col.pecas||[]).length} peça(s)</td><td>${tot.q}</td><td colspan="5"></td><td>${m(tot.cmv)}</td><td></td><td>${m(tot.sug)}</td><td>${m(tot.vend)}</td><td style="color:${(tot.vend||tot.sug)-tot.cmv>=0?'var(--green)':'var(--red)'}">${m((tot.vend||tot.sug)-tot.cmv)}</td></tr></tfoot>`:''}
+        </table>
+      </div>
+      <button class="btn primary sm" onclick="novaDesenvPeca('${col.id}')" style="margin-bottom:10px">➕ Nova peça</button>
+      ${fichas}
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px">Nenhuma coleção ainda. Clique <strong>➕ Nova coleção</strong> pra começar (ex.: cliente CORAVI).</div>';
+  el.innerHTML=`
+    <style>
+      #v-desenv table.dtbl{border-collapse:collapse;width:100%}
+      #v-desenv table.dtbl th,#v-desenv table.dtbl td{padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;font-size:12px}
+      #v-desenv table.dtbl th{color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase}
+      #v-desenv table.dtbl tfoot td{border-top:2px solid var(--border)}
+      #v-desenv .dcol{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;background:var(--surface)}
+      #v-desenv .dblk{margin:12px 0}
+      #v-desenv .dblk h4{font-size:12px;margin:0 0 4px;color:var(--accent);text-transform:uppercase;letter-spacing:.4px}
+      #v-desenv .grade input{width:52px;text-align:center}
+    </style>
+    <div class="section-title" style="margin-top:0">🧵 Desenvolvimento de Peças</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Monte a <strong>ficha de custo</strong> de cada peça (grade, tecidos, aviamentos, embalagem, mão de obra). O sistema calcula o <strong>CMV</strong>, o <strong>preço sugerido</strong> (markup) e a <strong>margem</strong>, e consolida no resumo da coleção. <span style="opacity:.75">Em breve: explosão de compras → Pedido de Compras, e recebimento do cliente.</span></div>
+    <button class="btn primary sm" onclick="novaDesenvCol()" style="margin-bottom:16px">➕ Nova coleção</button>
+    ${cols}`;
+}
+
+function _fichaHtml(col,pc,esc,m){
+  const k=_pecaCustos(pc), q=_pecaQtd(pc), aberto=!!_desenvAberto[pc.id];
+  const head=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;cursor:pointer" onclick="toggleFicha('${pc.id}')">
+    <span style="font-size:15px">${aberto?'▾':'▸'}</span>
+    <strong>${esc(pc.descricao)||'(peça sem nome)'}</strong>
+    <span style="color:var(--muted);font-size:12px">${esc(pc.codigo)||''}</span>
+    <span style="flex:1"></span>
+    <span style="font-size:12px">Qtd ${q} · CMV <strong>${m(k.cmv)}</strong> · Sugerido ${m(k.sugerido)} · <span style="color:${k.margem>=0?'var(--green)':'var(--red)'}">Margem ${k.pct.toFixed(0)}%</span></span>
+  </div>`;
+  if(!aberto) return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)">${head}</div>`;
+  const grade=DESENV_TAMS.map(t=>`<label style="font-size:11px;color:var(--muted);display:inline-flex;flex-direction:column;align-items:center;gap:2px">${t}<input class="inline-input" type="number" step="1" value="${(pc.grade||{})[t]||''}" onchange="updDesenvGrade('${pc.id}','${t}',this.value)"></label>`).join('');
+  const tecRows=(pc.tecidos||[]).map((t,i)=>`<tr>
+    <td style="text-align:left"><input class="inline-input" style="width:130px" value="${esc(t.nome)}" placeholder="tecido" onchange="updDesenvItem('${pc.id}','tecidos',${i},'nome',this.value)"></td>
+    <td><input class="inline-input" style="width:80px" value="${esc(t.cor)}" placeholder="cor" onchange="updDesenvItem('${pc.id}','tecidos',${i},'cor',this.value)"></td>
+    <td><input class="inline-input" style="width:110px" value="${esc(t.fornecedor)}" placeholder="fornecedor" onchange="updDesenvItem('${pc.id}','tecidos',${i},'fornecedor',this.value)"></td>
+    <td><input class="inline-input" style="width:78px;text-align:right" inputmode="decimal" value="${t.precoKg||''}" placeholder="R$/kg" onchange="updDesenvItem('${pc.id}','tecidos',${i},'precoKg',this.value)"></td>
+    <td><input class="inline-input" style="width:58px;text-align:right" inputmode="decimal" value="${t.rend||''}" placeholder="rend." title="Rendimento" onchange="updDesenvItem('${pc.id}','tecidos',${i},'rend',this.value)"></td>
+    <td><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${t.consumo||''}" placeholder="consumo" onchange="updDesenvItem('${pc.id}','tecidos',${i},'consumo',this.value)"></td>
+    <td style="font-weight:700">${m(_custoTecido(t))}</td>
+    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','tecidos',${i})">✕</button></td>
+  </tr>`).join('');
+  const simplesRows=(bloco)=>(pc[bloco]||[]).map((x,i)=>`<tr>
+    <td style="text-align:left"><input class="inline-input" style="width:150px" value="${esc(x.nome)}" placeholder="item" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'nome',this.value)"></td>
+    <td><input class="inline-input" style="width:80px" value="${esc(x.cor)}" placeholder="cor" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'cor',this.value)"></td>
+    <td><input class="inline-input" style="width:110px" value="${esc(x.fornecedor)}" placeholder="fornecedor" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'fornecedor',this.value)"></td>
+    <td><input class="inline-input" style="width:78px;text-align:right" inputmode="decimal" value="${x.preco||''}" placeholder="R$ un" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'preco',this.value)"></td>
+    <td><input class="inline-input" style="width:70px" value="${esc(x.tam)}" placeholder="tam" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'tam',this.value)"></td>
+    <td><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${x.consumo||''}" placeholder="consumo" onchange="updDesenvItem('${pc.id}','${bloco}',${i},'consumo',this.value)"></td>
+    <td style="font-weight:700">${m(_custoAviEmb(x))}</td>
+    <td><button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvItem('${pc.id}','${bloco}',${i})">✕</button></td>
+  </tr>`).join('');
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:var(--bg)">
+    ${head}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0">
+      <input class="inline-input" style="width:220px" value="${esc(pc.descricao)}" placeholder="Descrição da peça" onchange="updDesenvPeca('${pc.id}','descricao',this.value)">
+      <input class="inline-input" style="width:120px" value="${esc(pc.codigo)}" placeholder="Código (.91)" onchange="updDesenvPeca('${pc.id}','codigo',this.value)">
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" style="color:var(--red);font-size:11px" onclick="removeDesenvPeca('${pc.id}')" title="Remover peça">🗑 peça</button>
+    </div>
+    <div class="dblk grade"><h4>Grade (qtd por tamanho) · total ${q}</h4><div style="display:flex;gap:10px;flex-wrap:wrap">${grade}</div></div>
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start">
+      <div>
+        <div class="dblk"><h4>🧵 Tecidos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Tecido</th><th>Cor</th><th>Fornecedor</th><th>Preço/kg</th><th>Rend.</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${tecRows||''}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','tecidos')">➕ tecido</button></div>
+        <div class="dblk"><h4>🔩 Aviamentos</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${simplesRows('aviamentos')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','aviamentos')">➕ aviamento</button></div>
+        <div class="dblk"><h4>📦 Embalagem</h4><div style="overflow-x:auto"><table class="dtbl"><thead><tr><th style="text-align:left">Item</th><th>Cor</th><th>Fornecedor</th><th>Preço</th><th>Tam</th><th>Consumo</th><th>Custo</th><th></th></tr></thead><tbody>${simplesRows('embalagem')}</tbody></table></div><button class="btn ghost sm" style="font-size:11px;margin-top:4px" onclick="addDesenvItem('${pc.id}','embalagem')">➕ embalagem</button></div>
+        <div class="dblk" style="display:flex;gap:16px;flex-wrap:wrap">
+          <label style="font-size:12px;color:var(--muted)">✂️ Mão de obra (R$/peça)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.maoObra||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','maoObra',this.value)"></label>
+          <label style="font-size:12px;color:var(--muted)">🚚 Logística (R$/peça)<br><input class="inline-input" style="width:90px;text-align:right" inputmode="decimal" value="${pc.logistica||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','logistica',this.value)"></label>
+          <label style="font-size:12px;color:var(--muted)">Markup<br><input class="inline-input" style="width:70px;text-align:right" inputmode="decimal" value="${pc.markup||''}" placeholder="1,8" onchange="updDesenvPeca('${pc.id}','markup',this.value)"></label>
+          <label style="font-size:12px;color:var(--muted)">Valor vendido (R$/peça)<br><input class="inline-input" style="width:100px;text-align:right" inputmode="decimal" value="${pc.valorVendido||''}" placeholder="0,00" onchange="updDesenvPeca('${pc.id}','valorVendido',this.value)"></label>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Resumo da peça</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Tecidos</span><strong>${m(k.tec)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Aviamentos</span><strong>${m(k.avi)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Embalagem</span><strong>${m(k.emb)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Mão de obra</span><strong>${m(k.mo)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Logística</span><strong>${m(k.log)}</strong></div>
+        <div style="border-top:1px solid var(--border);margin:6px 0"></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px"><span>CMV/peça</span><strong>${m(k.cmv)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Sugerido (×${(+k.markup).toLocaleString('pt-BR')})</span><strong>${m(k.sugerido)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Vendido</span><strong>${k.vendido?m(k.vendido):'—'}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:${k.margem>=0?'var(--green)':'var(--red)'}"><span>Margem/peça</span><strong>${m(k.margem)} · ${k.pct.toFixed(0)}%</strong></div>
+        <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>CMV total (${q}×)</span><strong>${m(k.cmv*q)}</strong></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function novaDesenvCol(){ desenvColecoes.push({id:'col_'+Date.now(),cliente:'',codigo:'',obs:'',pecas:[]}); _saveDesenv(); renderDesenv(); }
+function updDesenvCol(id,campo,val){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; c[campo]=val; _saveDesenv(); }
+function removeDesenvCol(id){ const c=desenvColecoes.find(x=>x.id===id); if(!c) return; if(!confirm('Remover a coleção "'+(c.cliente||'')+'" e todas as peças?')) return; desenvColecoes=desenvColecoes.filter(x=>x.id!==id); _saveDesenv(); renderDesenv(); }
+function novaDesenvPeca(colId){ const c=desenvColecoes.find(x=>x.id===colId); if(!c) return; const pid='pc_'+Date.now(); (c.pecas=c.pecas||[]).push({id:pid,codigo:'',descricao:'',grade:{},tecidos:[{nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}],aviamentos:[],embalagem:[],maoObra:0,logistica:0,markup:1.8,valorVendido:0}); _desenvAberto[pid]=true; _saveDesenv(); renderDesenv(); }
+function removeDesenvPeca(pid){ const f=_findPeca(pid); if(!f) return; if(!confirm('Remover esta peça?')) return; f.col.pecas=f.col.pecas.filter(x=>x.id!==pid); _saveDesenv(); renderDesenv(); }
+function toggleFicha(pid){ _desenvAberto[pid]=!_desenvAberto[pid]; _renderDesenvKeep(); }
+function updDesenvPeca(pid,campo,val){ const f=_findPeca(pid); if(!f) return; if(['maoObra','logistica','markup','valorVendido'].includes(campo)) f.p[campo]=_dNum(val); else f.p[campo]=val; _saveDesenv(); _renderDesenvKeep(); }
+function updDesenvGrade(pid,tam,val){ const f=_findPeca(pid); if(!f) return; f.p.grade=f.p.grade||{}; f.p.grade[tam]=parseInt(String(val).replace(/[^\d]/g,''),10)||0; _saveDesenv(); _renderDesenvKeep(); }
+function addDesenvItem(pid,bloco){ const f=_findPeca(pid); if(!f) return; f.p[bloco]=f.p[bloco]||[]; if(bloco==='tecidos') f.p[bloco].push({nome:'',cor:'',fornecedor:'',precoKg:0,rend:0,consumo:0}); else f.p[bloco].push({nome:'',cor:'',fornecedor:'',preco:0,tam:'',consumo:0}); _saveDesenv(); _renderDesenvKeep(); }
+function removeDesenvItem(pid,bloco,i){ const f=_findPeca(pid); if(!f||!f.p[bloco]) return; f.p[bloco].splice(i,1); _saveDesenv(); _renderDesenvKeep(); }
+function updDesenvItem(pid,bloco,i,campo,val){ const f=_findPeca(pid); if(!f||!f.p[bloco]||!f.p[bloco][i]) return; if(['precoKg','rend','consumo','preco'].includes(campo)) f.p[bloco][i][campo]=_dNum(val); else f.p[bloco][i][campo]=val; _saveDesenv(); _renderDesenvKeep(); }
+
 // ── FÉRIAS (sub-aba do RH) ──────────────────────────────────────────────
 // Tabela por PERÍODO (igual à planilha da Elaine): empresa, nome, salário, cargo, admissão, início período limite,
 // DATA LIMITE, tirada?, início/fim, dias usados, saldo. Avisa quando a Data Limite está vencendo. Calcula o valor
@@ -15463,7 +15634,7 @@ async function _autoImportBling() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','crFechado','cpFechado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','crFechado','cpFechado'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -15474,6 +15645,7 @@ async function _autoImportBling() {
     else if (k==='condicoesPagamento') condicoesPagamento = v || [];
     else if (k==='fornecedoresCompras') fornecedoresCompras = v || [];
     else if (k==='colecoes') colecoes = v || [];
+    else if (k==='desenvColecoes') desenvColecoes = v || [];
     else if (k==='compras') compras = v || [];
     else if (k==='formaPagamento') formaPagamento = v.map(f=>({...f,vencimento:f.vencimento?new Date(f.vencimento):null}));
     else if (k==='recebimentosConsolidado') recebimentosConsolidado = v.map(r=>({...r,data:r.data?new Date(r.data):null}));
