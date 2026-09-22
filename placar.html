@@ -108,6 +108,10 @@
       <div class="sub" id="sub">carregando vendas…</div>
     </div>
     <div class="ctrl">
+      <div class="seg" id="fonte-seg" title="Trocar a fonte dos números: Bling (cru) ou Sistema (com as suas edições)">
+        <button id="f-bling" class="on" onclick="setFonte('bling')">Bling</button>
+        <button id="f-sist" onclick="setFonte('sistema')">Sistema</button>
+      </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
@@ -175,7 +179,7 @@
     </div>
   </section>
 
-  <div class="foot" id="foot">RK. · Placar de vendas ao vivo</div>
+  <div class="foot" id="foot">Painel RK · Placar de vendas ao vivo</div>
 </div>
 
 <script>
@@ -192,7 +196,9 @@ const segDe = loja => ATACADO.has(loja) ? 'Atacado' : 'Varejo';
 const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf = n => (n||0).toLocaleString('pt-BR');
 let periodo = 'mes'; // placar mostra sempre o MÊS (os dias ficam no resumo Vendedor × dia embaixo)
-let dados = null;
+let dados = null;          // cenário BLING (blingVendasRico, cru do robozinho)
+let dadosSistema = null;   // cenário SISTEMA (montado dos pedidos do Gestão RK, com as edições dela)
+let fonte = 'bling';       // qual cenário está na tela
 
 function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function semanaRange(){ const d=new Date(); const dow=(d.getDay()+6)%7; const seg=new Date(d); seg.setDate(d.getDate()-dow); const dom=new Date(seg); dom.setDate(seg.getDate()+6); const iso=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); return {de:iso(seg), ate:iso(dom)}; } // segunda a domingo da semana atual
@@ -205,6 +211,42 @@ async function carregar(){
     if(Array.isArray(j)&&j[0]) dados = JSON.parse(j[0].valor);
     render();
   }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
+}
+// ── cenário SISTEMA: monta os mesmos registros do placar a partir dos pedidos do Gestão RK ──
+// (mesma lógica de render, só muda a fonte: assim dá pra comparar Bling cru × Sistema com as suas edições)
+function _normSit(s){
+  s = (s||'').trim();
+  const m = {'atendido':'Atendido','verificado':'Verificado','em separação':'Em separação','em separacao':'Em separação','checkout parcial':'Checkout parcial','em aberto':'Em aberto','cancelado':'Cancelado','correios':'Correios','atualização de estoque':'Atualização de estoque','atualizacao de estoque':'Atualização de estoque'};
+  return m[s.toLowerCase()] || s;
+}
+function _pedToRegs(peds, mes){
+  const out = [];
+  (peds||[]).forEach(p=>{
+    let d = p.data;
+    if(d && typeof d !== 'string'){ try{ d = new Date(d).toISOString().slice(0,10); }catch(e){ d=''; } }
+    else if(typeof d === 'string'){ d = d.slice(0,10); }
+    if(!d || (mes && d.slice(0,7) !== mes)) return;
+    const pcs = Array.isArray(p.linhas) ? p.linhas.reduce((s,l)=>s+(+l.qtd||0),0) : 0;
+    out.push({ numero:String(p.id||''), data:d, situacao:_normSit(p.situacao), loja:p.loja||'', vendedor:p.vendedor||'', cliente:p.nome||'', valor:+p.valor||0, frete:+p.frete||0, pecas:pcs });
+  });
+  return out;
+}
+async function carregarPedidos(){
+  try{
+    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.pedidos&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'});
+    const j = await r.json();
+    const peds = (Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : [];
+    const mes = (dados&&dados.mes) || hojeISO().slice(0,7);
+    dadosSistema = { mes, atualizado:new Date().toISOString(), registros:_pedToRegs(peds, mes) };
+  }catch(e){ if(fonte==='sistema') document.getElementById('sub').textContent='sem conexão (Sistema), tentando de novo…'; }
+}
+function setFonte(f){
+  fonte = f;
+  const bb=document.getElementById('f-bling'), bs=document.getElementById('f-sist');
+  if(bb) bb.classList.toggle('on', f==='bling');
+  if(bs) bs.classList.toggle('on', f==='sistema');
+  if(f==='sistema' && !dadosSistema){ carregarPedidos().then(render); }
+  else render();
 }
 // ── Prospecção · Varejo (CRM por vendedora) — lê o que o robozinho da planilha grava no banco ──
 async function carregarProsp(){
@@ -257,9 +299,10 @@ function cardTotal(S, regs){
   return {tot,q,pcs};
 }
 function render(){
-  if(!dados){return;}
+  const D = (fonte==='sistema') ? dadosSistema : dados;
+  if(!D){return;}
   const hj = hojeISO();
-  const regsMes = (dados.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
+  const regsMes = (D.registros||[]).filter(x=>!AMOSTRA.has(x.loja));
   regsMes.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
   const vendasMes = regsMes.filter(x=>VENDA.has(x.situacao));
   const _wk = semanaRange();
@@ -287,11 +330,12 @@ function render(){
   barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
   document.getElementById('status-per').textContent = perLabel();
 
-  const mesNome = new Date((dados.mes||hj)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}`;
-  const upd = dados.atualizado? new Date(dados.atualizado): new Date();
+  const mesNome = new Date(((D.mes||dados&&dados.mes||hj).slice(0,7))+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const cenTag = fonte==='sistema' ? ' · cenário Sistema' : ' · cenário Bling';
+  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}${cenTag}`;
+  const upd = D.atualizado? new Date(D.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('foot').textContent = `RK. · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
+  document.getElementById('foot').textContent = `Painel RK · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
   renderVendedorDia(vendasMes); // resumo vendedor x dia (mês inteiro, sempre — não segue o Hoje/Semana/Mês)
 }
 // Resumo compacto: vendedor (linhas) × dia do mês (colunas), valores EM MIL R$ (1,2 = R$ 1.200); célula vazia = sem venda.
@@ -312,7 +356,7 @@ function renderVendedorDia(vendas){
   el.innerHTML=h;
 }
 // ── cadeado do painel de Vendas (senha) ──
-function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); carregarProsp(); setInterval(()=>{ carregar(); carregarProsp(); }, 60000); } // placar sempre no MÊS; recarrega os dados a cada 60s. Olhinho oculta os valores na mão.
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); carregarProsp(); setInterval(()=>{ carregar(); carregarProsp(); if(fonte==='sistema') carregarPedidos().then(render); }, 60000); } // placar sempre no MÊS; recarrega os dados a cada 60s (Bling do cron; Sistema dos pedidos). Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });

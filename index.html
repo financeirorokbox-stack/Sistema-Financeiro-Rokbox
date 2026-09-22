@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Painel de Gestão RK</title>
+<title>Gestão RK</title>
 <script id="pdfjs-embed">
 /**
  * @licstart The following is the entire license notice for the
@@ -308,7 +308,7 @@ tr:hover td{background:#fafaf8}
 
 <!-- HEADER -->
 <div class="header">
-  <div class="header-title">Painel de Gestão RK</div>
+  <div class="header-title">Gestão RK</div>
   <div class="header-actions" id="conc-pills" style="display:none">
     <div class="step-pill active" id="pill-1">1 · Upload</div>
     <div class="step-pill" id="pill-2">2 · Conciliação</div>
@@ -465,7 +465,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v629/09-722';
+const APP_VERSION = 'v630/09-722';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3617,7 +3617,7 @@ function exportarRelComissaoFolha() {
     th{background:#f3f3f3} .r{text-align:right} tfoot td{font-weight:bold;background:#fafafa}
     @media print{.noprint{display:none}}</style></head><body>
     <h1>Relatório de Comissão</h1>
-    <div class="sub">Competência: ${mesLbl} &nbsp;·&nbsp; Painel de Gestão RK</div>
+    <div class="sub">Competência: ${mesLbl} &nbsp;·&nbsp; Gestão RK</div>
     <table><thead><tr><th>Funcionário</th><th>Empresa</th><th class="r">Comissão</th></tr></thead>
     <tbody>${linhas}</tbody>
     <tfoot><tr><td colspan="2">TOTAL</td><td class="r">${fmtVal(tot)}</td></tr></tfoot></table>
