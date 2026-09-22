@@ -2,135 +2,30 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-title" content="Painel RK">
 <meta name="theme-color" content="#0b0f0d">
-<link rel="manifest" href="manifest-painel.json">
 <link rel="apple-touch-icon" href="icon-rk-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
 <title>Painel RK</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;background:#0b0f0d;color:#eafaf1;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-  /* barra de cima (só quando há mais de uma aba) */
-  #app{display:none;flex-direction:column;height:100vh;height:100dvh}
-  #bar{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:8px 14px;background:#0e1712;border-bottom:1px solid #233029}
-  .brand{font-weight:800;letter-spacing:.5px;font-size:15px}
-  .brand b{color:#39d353}
-  .tabs{display:flex;gap:6px;background:#16211b;border:1px solid #233029;border-radius:999px;padding:4px}
-  .tabs button{background:none;border:0;color:#8fa89a;font-weight:700;font-size:14px;padding:7px 18px;border-radius:999px;cursor:pointer;transition:.15s}
-  .tabs button.on{background:#7ee787;color:#08130b}
-  .sair{margin-left:auto;color:#8fa89a;font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap}
-  #frames{flex:1 1 auto;position:relative;min-height:0}
-  #frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;background:#0b0f0d}
-  #fingate{position:absolute;inset:0;background:#0b0f0d;z-index:5;display:none;align-items:center;justify-content:center;padding:20px}
-  /* gate */
-  #gate{position:fixed;inset:0;background:#0b0f0d;display:none;align-items:center;justify-content:center;z-index:99;padding:20px}
-  .gcard{background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
-  .gcard input{width:100%;padding:13px 40px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px}
-  .gcard button{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer}
-  .pwrap{position:relative}
-  .peye{position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none}
+  body{display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,#0b0f0d 55%)}
+  .card{background:#16211b;border:1px solid #233029;border-radius:22px;padding:40px 32px;max-width:380px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  .logo{font-size:34px;font-weight:800;letter-spacing:.5px;margin-bottom:6px}
+  .logo b{color:#39d353}
+  .ico{font-size:44px;margin:6px 0 12px}
+  h1{font-size:19px;margin-bottom:8px}
+  p{color:#8fa89a;font-size:14px;line-height:1.5}
 </style>
 </head>
 <body>
-<div id="gate">
-  <div class="gcard">
-    <div style="font-size:40px;margin-bottom:8px">🔒</div>
-    <div style="font-size:22px;font-weight:800;margin-bottom:4px">Painel <span style="color:#39d353">RK</span></div>
-    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Digite a sua senha.</div>
-    <div class="pwrap"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()"><span class="peye" onclick="olho('gpass',this)">👁️</span></div>
-    <button onclick="tentar()">Entrar</button>
-    <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
+  <div class="card">
+    <div class="logo">Painel <b>RK</b></div>
+    <div class="ico">🛠️</div>
+    <h1>Em manutenção</h1>
+    <p>O painel está temporariamente fora do ar. Já já volta.</p>
   </div>
-</div>
-
-<div id="app">
-  <div id="bar">
-    <div class="brand">Painel <b>RK</b></div>
-    <div class="tabs" id="tabs">
-      <button id="tb-v" class="on" onclick="setTab('v')">🛍️ Vendas</button>
-      <button id="tb-f" style="display:none" onclick="setTab('f')">💰 Financeiro</button>
-    </div>
-    <a class="sair" onclick="sair()">Sair 🔒</a>
-  </div>
-  <div id="frames">
-    <iframe id="fv" title="Vendas"></iframe>
-    <iframe id="ff" title="Financeiro"></iframe>
-    <div id="fingate">
-      <div class="gcard">
-        <div style="font-size:34px;margin-bottom:6px">💰</div>
-        <div style="font-size:18px;font-weight:800;margin-bottom:2px">Financeiro</div>
-        <div style="color:#8fa89a;font-size:13px;margin-bottom:14px">Por segurança, o Financeiro pede a senha 1x por dia.</div>
-        <div class="pwrap"><input id="fpass" type="password" placeholder="senha do diretor" autocomplete="off" onkeydown="if(event.key==='Enter')tentarFin()"><span class="peye" onclick="olho('fpass',this)">👁️</span></div>
-        <button onclick="tentarFin()">Abrir Financeiro</button>
-        <div id="ferr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-// ── Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador) ──
-const BUILD='2026-09-22.15';
-let _verChk=false;
-function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
-async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
-
-let role='vendas';
-const H_VENDAS=1886177389;   // Rkvendas*  (supervisora → só Vendas)
-const H_DIRETOR=515829727;   // Rkdiretor$ (diretor → Vendas + Financeiro)
-function hash(v){ let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; return h; }
-function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
-function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-// Vendas fica LEMBRADO; Financeiro vale só por HOJE (pede 1x/dia).
-function finValid(){ try{ return localStorage.getItem('rk_gate_fin')===todayStr(); }catch(e){ return false; } }
-
-function tentar(){
-  const v=document.getElementById('gpass').value||''; const h=hash(v);
-  if(h===H_DIRETOR){ try{ localStorage.setItem('rk_role','diretor'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){} entrar('diretor'); }
-  else if(h===H_VENDAS){ try{ localStorage.setItem('rk_role','vendas'); localStorage.setItem('rk_gate_vendas','1'); }catch(e){} entrar('vendas'); }
-  else { document.getElementById('gerr').textContent='Senha incorreta.'; }
-}
-function entrar(r){
-  role=r;
-  document.getElementById('tb-f').style.display = (r==='diretor') ? '' : 'none';
-  document.getElementById('gate').style.display='none';
-  document.getElementById('app').style.display='flex';
-  const fv=document.getElementById('fv'); if(!fv.getAttribute('src')) fv.setAttribute('src','placar.html?cb='+Date.now()); // cache-buster sempre fresco (evita aba antiga em cache)
-  setTab('v');
-}
-function abrirFin(){
-  const ff=document.getElementById('ff');
-  try{ if(localStorage.getItem('rk_gate_fin')!==todayStr()) localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){}
-  if(!ff.getAttribute('src')) ff.setAttribute('src','financeiro.html?cb='+Date.now()); // cache-buster sempre fresco
-  document.getElementById('fingate').style.display='none';
-  ff.style.display='block'; document.getElementById('fv').style.display='none';
-  document.getElementById('tb-f').classList.add('on'); document.getElementById('tb-v').classList.remove('on');
-}
-function tentarFin(){
-  const v=document.getElementById('fpass').value||'';
-  if(hash(v)===H_DIRETOR){ try{ localStorage.setItem('rk_gate_fin',todayStr()); }catch(e){} document.getElementById('fpass').value=''; document.getElementById('ferr').textContent=''; abrirFin(); }
-  else { document.getElementById('ferr').textContent='Senha incorreta.'; }
-}
-function setTab(t){
-  const bv=document.getElementById('tb-v'), bf=document.getElementById('tb-f');
-  const fv=document.getElementById('fv'), fg=document.getElementById('fingate');
-  if(t==='f'){ abrirFin(); } // sem senha: abre o Financeiro direto
-  else {
-    if(fg) fg.style.display='none';
-    fv.style.display='block'; document.getElementById('ff').style.display='none';
-    bv.classList.add('on'); bf.classList.remove('on');
-  }
-}
-function sair(){ try{ localStorage.removeItem('rk_role'); localStorage.removeItem('rk_gate_vendas'); localStorage.removeItem('rk_gate_fin'); }catch(e){} location.reload(); }
-// SEM SENHA: abre tudo direto (Vendas + Financeiro)
-entrar('diretor');
-checkVersao(); setInterval(checkVersao, 5*60000);
-</script>
 </body>
 </html>
