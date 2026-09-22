@@ -2,30 +2,392 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="apple-mobile-web-app-title" content="Painel RK">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RK Vendas">
 <meta name="theme-color" content="#0b0f0d">
+<link rel="manifest" href="manifest-placar.json">
 <link rel="apple-touch-icon" href="icon-rk-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-rk-192.png">
-<title>Painel RK</title>
+<link rel="icon" type="image/png" sizes="512x512" href="icon-rk-512.png">
+<title>Placar Rokbox</title>
 <style>
+  :root{
+    --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029;
+    --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353;
+    --gold:#ffd76a; --blue:#7cc4ff; --blue2:#2b9be0; --amber:#ffb347;
+    --shadow:0 8px 30px rgba(0,0,0,.35);
+  }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:#0b0f0d;color:#eafaf1;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-  body{display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,#0b0f0d 55%)}
-  .card{background:#16211b;border:1px solid #233029;border-radius:22px;padding:40px 32px;max-width:380px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
-  .logo{font-size:34px;font-weight:800;letter-spacing:.5px;margin-bottom:6px}
-  .logo b{color:#39d353}
-  .ico{font-size:44px;margin:6px 0 12px}
-  h1{font-size:19px;margin-bottom:8px}
-  p{color:#8fa89a;font-size:14px;line-height:1.5}
+  html,body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;padding:clamp(12px,2vw,30px);background:radial-gradient(1200px 600px at 80% -10%,#16241c 0%,var(--bg) 55%)}
+  .wrap{max-width:1700px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:clamp(12px,1.5vw,22px)}
+  .logo{font-weight:800;font-size:clamp(22px,2.4vw,38px);letter-spacing:.5px;color:#fff}
+  .logo b{color:#fff}
+  .sub{color:var(--muted);font-size:clamp(12px,1vw,15px);margin-top:2px}
+  .ctrl{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .live{display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-size:clamp(12px,1vw,15px);color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--lime2);box-shadow:0 0 0 0 rgba(57,211,83,.6);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(57,211,83,.55)}70%{box-shadow:0 0 0 12px rgba(57,211,83,0)}100%{box-shadow:0 0 0 0 rgba(57,211,83,0)}}
+  .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px}
+  .seg button{background:none;border:0;color:var(--muted);font-weight:700;font-size:clamp(12px,1vw,15px);padding:7px 18px;border-radius:999px;cursor:pointer;transition:.15s}
+  .seg button.on{background:var(--lime);color:#08130b}
+  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:20px;padding:clamp(15px,1.6vw,26px);box-shadow:var(--shadow)}
+  /* cards de total em cima */
+  .tops{display:grid;grid-template-columns:1fr 1fr 1fr;gap:clamp(10px,1.2vw,18px);margin-bottom:clamp(10px,1.2vw,18px)}
+  .tlab{display:flex;align-items:center;gap:9px;font-size:clamp(14px,1.3vw,20px);font-weight:800}
+  .col-tot{font-size:clamp(26px,3.4vw,54px);font-weight:800;line-height:1.02;margin:8px 0 6px;color:var(--lime)}
+  .seg-atacado .col-tot{color:var(--blue)}
+  .tsub{color:var(--muted);font-size:clamp(12px,1vw,15px);font-weight:600}
+  .badge{width:12px;height:12px;border-radius:4px;background:var(--lime)}
+  .seg-atacado .badge{background:var(--blue)}
+  /* colunas de vendedores */
+  .segs{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.2vw,18px)}
+  .col-name{font-size:clamp(15px,1.4vw,21px);font-weight:800;display:flex;align-items:center;gap:9px;margin-bottom:14px;padding-bottom:11px;border-bottom:1px solid var(--line)}
+  .col-name .tag{margin-left:auto;font-size:.62em;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1px}
+  .rank{display:flex;flex-direction:column;gap:clamp(8px,.9vw,12px)}
+  table.vd{border-collapse:collapse;font-size:clamp(10px,.85vw,13px);white-space:nowrap}
+  table.vd th,table.vd td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--line)}
+  table.vd th{color:var(--muted);font-weight:700;position:sticky;top:0;background:var(--card)}
+  table.vd td.nm,table.vd th.nm{text-align:left;position:sticky;left:0;background:var(--card);font-weight:700;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  table.vd td.z{color:var(--line)}
+  table.vd tr.tot td,table.vd tr.tot th{border-top:2px solid var(--line);font-weight:800;color:var(--lime)}
+  table.vd td.rt{font-weight:800;color:var(--lime)}
+  .prosp-tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .ptile{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .ptile .pv{font-weight:800;font-size:clamp(18px,1.8vw,26px);color:#fff}
+  .ptile .pl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  .ptile.conv .pv{color:var(--lime)}
+  table.vd td.g{color:var(--muted)}
+  .row{display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px}
+  .pos{font-weight:800;color:var(--muted);font-size:clamp(13px,1.1vw,17px);text-align:center}
+  .row:nth-child(1) .pos{color:var(--gold)}
+  .bar-wrap{min-width:0}
+  .bar-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px}
+  .nm{font-weight:700;font-size:clamp(13px,1.1vw,18px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .val{font-weight:800;font-size:clamp(13px,1.15vw,19px);white-space:nowrap}
+  .qt{color:var(--muted);font-size:clamp(10px,.85vw,13px);white-space:nowrap}
+  .bar{height:clamp(7px,.6vw,10px);background:#0d1712;border-radius:999px;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .8s cubic-bezier(.22,1,.36,1)}
+  .seg-atacado .bar>i{background:linear-gradient(90deg,var(--blue2),var(--blue))}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .nums-ocultos .col-tot,.nums-ocultos .tsub,.nums-ocultos .val,.nums-ocultos .qt{filter:blur(9px);-webkit-filter:blur(9px);user-select:none;transition:filter .15s}
+  .lojas{margin-top:clamp(12px,1.4vw,20px)}
+  .lojas h2,.status h2{font-size:clamp(14px,1.2vw,19px);margin-bottom:14px}
+  .lojas h2 span,.status h2 span{color:var(--muted);font-weight:400;font-size:.8em}
+  .lojas-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(9px,1vw,13px) clamp(24px,3vw,54px)}
+  /* lojas + status lado a lado (paisagem/TV); empilha no estreito */
+  .baixo{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.2vw,18px);margin-top:clamp(12px,1.4vw,20px);align-items:start}
+  .baixo .lojas{margin-top:0}
+  @media(max-width:820px){.tops{grid-template-columns:1fr}.segs{grid-template-columns:1fr}.lojas-grid{grid-template-columns:1fr}.baixo{grid-template-columns:1fr}}
+  .status{margin-top:clamp(12px,1.4vw,20px)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 14px;display:flex;align-items:center;gap:9px}
+  .chip .cn{font-size:clamp(12px,1vw,15px);color:var(--muted)}
+  .chip .cc{font-weight:800;font-size:clamp(14px,1.2vw,19px)}
+  .chip .cd{width:9px;height:9px;border-radius:50%}
+  .foot{margin-top:16px;color:var(--muted);font-size:clamp(11px,.85vw,13px);text-align:center}
 </style>
 </head>
 <body>
-  <div class="card">
-    <div class="logo">Painel <b>RK</b></div>
-    <div class="ico">🛠️</div>
-    <h1>Em manutenção</h1>
-    <p>O painel está temporariamente fora do ar. Já já volta.</p>
+<div id="gate" style="position:fixed;inset:0;background:#0b0f0d;display:flex;align-items:center;justify-content:center;z-index:99;padding:20px">
+  <div style="background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+    <div style="font-size:40px;margin-bottom:8px">🔒</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px">Placar de Vendas</div>
+    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Digite a senha de Vendas.</div>
+    <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px 40px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
+    <button onclick="tentarGate()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer">Entrar</button>
+    <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
+    <div style="margin-top:14px"><a href="paineis.html" style="color:#8fa89a;font-size:12px;text-decoration:none">← Painéis</a></div>
   </div>
+</div>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="logo">R<b>K</b>.</div>
+      <div class="sub" id="sub">carregando vendas…</div>
+    </div>
+    <div class="ctrl">
+      <div class="seg" id="fonte-seg" title="Trocar a fonte dos números: Bling (cru) ou Sistema (com as suas edições)">
+        <button id="f-bling" class="on" onclick="setFonte('bling')">Bling</button>
+        <button id="f-sist" onclick="setFonte('sistema')">Sistema</button>
+      </div>
+      <div class="live"><span class="dot"></span><span id="upd">—</span></div>
+      <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
+      <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
+    </div>
+  </header>
+
+  <!-- CARDS DE TOTAL (em cima) -->
+  <section class="tops">
+    <div class="card seg-varejo">
+      <div class="tlab"><span class="badge"></span>🛍️ Varejo</div>
+      <div class="col-tot" id="Varejo-tot">R$ 0,00</div>
+      <div class="tsub" id="Varejo-sub">0 pedidos · 0 peças</div>
+    </div>
+    <div class="card seg-atacado">
+      <div class="tlab"><span class="badge"></span>📦 Atacado</div>
+      <div class="col-tot" id="Atacado-tot">R$ 0,00</div>
+      <div class="tsub" id="Atacado-sub">0 pedidos · 0 peças</div>
+    </div>
+    <div class="card">
+      <div class="tlab">🟰 Total geral</div>
+      <div class="col-tot" id="Geral-tot" style="color:var(--txt)">R$ 0,00</div>
+      <div class="tsub" id="Geral-sub">0 pedidos · 0 peças</div>
+    </div>
+  </section>
+
+  <!-- RANKING VENDEDORES (Varejo | Atacado) -->
+  <section class="segs">
+    <div class="card seg-varejo">
+      <div class="col-name"><span class="badge"></span>🛍️ Varejo <span class="tag">vendedores</span></div>
+      <div class="rank" id="Varejo-rank-v"></div>
+    </div>
+    <div class="card seg-atacado">
+      <div class="col-name"><span class="badge"></span>📦 Atacado <span class="tag">vendedores</span></div>
+      <div class="rank" id="Atacado-rank-v"></div>
+    </div>
+  </section>
+
+  <!-- RANKING LOJAS (todas, largura total) -->
+  <section class="baixo">
+    <div class="card lojas">
+      <h2>Ranking de lojas <span>(todas · <b id="loja-per">mês</b>)</span></h2>
+      <div class="rank" id="rank-lojas"></div>
+    </div>
+    <div class="card lojas">
+      <h2>Ranking por status <span>(<b id="status-per">mês</b>)</span></h2>
+      <div class="rank" id="rank-status"></div>
+    </div>
+  </section>
+
+  <!-- RESUMO VENDEDOR x DIA (mes inteiro, compacto) -->
+  <section class="baixo">
+    <div class="card lojas" style="grid-column:1/-1">
+      <h2>Vendedor × dia <span>(mês · valores em mil R$)</span></h2>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="vend-dia"></table></div>
+    </div>
+  </section>
+
+  <!-- PROSPECÇÃO / CRM por vendedora (Varejo) -->
+  <section class="baixo" id="prosp-sec" style="display:none">
+    <div class="card lojas" style="grid-column:1/-1">
+      <h2>Prospecção · Varejo <span>(mês · trabalho da vendedora)</span></h2>
+      <div class="prosp-tops" id="prosp-tops"></div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px"><table class="vd" id="prosp-tab"></table></div>
+      <div id="prosp-upd" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
+    </div>
+  </section>
+
+  <div class="foot" id="foot">Painel RK · Placar de vendas ao vivo</div>
+</div>
+
+<script>
+const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
+const DEV = 'rokbox_financeiro';
+// ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
+const BUILD = '2026-09-22.16';
+let _verChk=false;
+function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
+async function checkVersao(){
+  try{
+    if(_verChk || _gateVisivel()) return; // não recarrega enquanto a senha está na tela, e só 1x por abertura
+    const r = await fetch(location.pathname + '?cb=' + Date.now(), {cache:'no-store'});
+    const t = await r.text();
+    const m = t.match(/const BUILD = '([^']+)'/);
+    if(m && m[1] && m[1] !== BUILD){ _verChk=true; location.replace(location.pathname + '?cb=' + Date.now()); }
+  }catch(e){}
+}
+const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']); // cenário BLING conta tudo isso (inclui Em aberto)
+// cenário SISTEMA não usa esse set: conta como o TOTAL GERAL do Gestão RK = operação Venda+Troca (pela lojaCadastro), fora cancelado/em aberto, valor cheio — ver _pedToRegs/_conta.
+const OCULTAR = new Set(['Atualização de estoque','Correios']);
+// Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
+const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
+const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
+const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
+const segDe = loja => ATACADO.has(loja) ? 'Atacado' : 'Varejo';
+const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nf = n => (n||0).toLocaleString('pt-BR');
+let periodo = 'mes'; // placar mostra sempre o MÊS (os dias ficam no resumo Vendedor × dia embaixo)
+let dados = null;          // cenário BLING (blingVendasRico, cru do robozinho)
+let dadosSistema = null;   // cenário SISTEMA (montado dos pedidos do Gestão RK, com as edições dela)
+let fonte = 'bling';       // qual cenário está na tela
+
+function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
+function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function semanaRange(){ const d=new Date(); const dow=(d.getDay()+6)%7; const seg=new Date(d); seg.setDate(d.getDate()-dow); const dom=new Date(seg); dom.setDate(seg.getDate()+6); const iso=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); return {de:iso(seg), ate:iso(dom)}; } // segunda a domingo da semana atual
+function perLabel(){ return periodo==='hoje'?'hoje':(periodo==='semana'?'semana':'mês'); }
+
+async function carregar(){
+  try{
+    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.blingVendasRico&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+    const j = await r.json();
+    if(Array.isArray(j)&&j[0]) dados = JSON.parse(j[0].valor);
+    render();
+  }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
+}
+// ── cenário SISTEMA: monta os mesmos registros do placar a partir dos pedidos do Gestão RK ──
+// (mesma lógica de render, só muda a fonte: assim dá pra comparar Bling cru × Sistema com as suas edições)
+function _normSit(s){
+  s = (s||'').trim();
+  const m = {'atendido':'Atendido','verificado':'Verificado','em separação':'Em separação','em separacao':'Em separação','checkout parcial':'Checkout parcial','em aberto':'Em aberto','cancelado':'Cancelado','correios':'Correios','atualização de estoque':'Atualização de estoque','atualizacao de estoque':'Atualização de estoque'};
+  return m[s.toLowerCase()] || s;
+}
+function _pedToRegs(peds, mes, lc){
+  // _conta = entra no TOTAL GERAL do Gestão RK: operação Venda/Troca (pela lojaCadastro) e status != cancelado/em aberto.
+  const NAOAP = ['cancelado','em aberto'];
+  const opDe = l => (lc && lc[l] && lc[l].operacao) ? String(lc[l].operacao).toLowerCase() : '';
+  const out = [];
+  (peds||[]).forEach(p=>{
+    let d = p.data;
+    if(d && typeof d !== 'string'){ try{ d = new Date(d).toISOString().slice(0,10); }catch(e){ d=''; } }
+    else if(typeof d === 'string'){ d = d.slice(0,10); }
+    if(!d || (mes && d.slice(0,7) !== mes)) return;
+    const pcs = Array.isArray(p.linhas) ? p.linhas.reduce((s,l)=>s+(+l.qtd||0),0) : 0;
+    const op = opDe(p.loja);
+    const conta = !NAOAP.includes(String(p.situacao||'').toLowerCase()) && (op==='venda' || op==='troca');
+    out.push({ numero:String(p.id||''), data:d, situacao:_normSit(p.situacao), loja:p.loja||'', vendedor:p.vendedor||'', cliente:p.nome||'', valor:+p.valor||0, frete:+p.frete||0, pecas:pcs, _conta:conta });
+  });
+  return out;
+}
+async function carregarPedidos(){
+  try{
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const [peds, lc] = await Promise.all([gk('pedidos'), gk('lojaCadastro')]);
+    const mes = (dados&&dados.mes) || hojeISO().slice(0,7);
+    dadosSistema = { mes, atualizado:new Date().toISOString(), registros:_pedToRegs(peds||[], mes, lc) };
+  }catch(e){ if(fonte==='sistema') document.getElementById('sub').textContent='sem conexão (Sistema), tentando de novo…'; }
+}
+function setFonte(f){
+  fonte = f;
+  const bb=document.getElementById('f-bling'), bs=document.getElementById('f-sist');
+  if(bb) bb.classList.toggle('on', f==='bling');
+  if(bs) bs.classList.toggle('on', f==='sistema');
+  if(f==='sistema' && !dadosSistema){ carregarPedidos().then(render); }
+  else render();
+}
+// ── Prospecção · Varejo (CRM por vendedora) — lê o que o robozinho da planilha grava no banco ──
+async function carregarProsp(){
+  try{
+    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.prospeccaoVarejo&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'});
+    const j = await r.json();
+    renderProsp((Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : null);
+  }catch(e){}
+}
+function renderProsp(p){
+  const sec=document.getElementById('prosp-sec'); if(!sec) return;
+  if(!p || !Array.isArray(p.vendedores) || !p.vendedores.length){ sec.style.display='none'; return; }
+  sec.style.display='';
+  const t=p.totais||{};
+  const tops=[['Novos fechados',t.novosF],['Ativos compraram',t.ativosC],['Inativos reativados',t.inativosR],['Carrinho fechado',t.carrinhoF]];
+  document.getElementById('prosp-tops').innerHTML = tops.map(([l,v])=>`<div class="ptile"><div class="pv">${nf(v||0)}</div><div class="pl">${l}</div></div>`).join('') + `<div class="ptile conv"><div class="pv">${t.convNovos!=null?t.convNovos:'—'}</div><div class="pl">% conv. novos</div></div>`;
+  const pf=(a,b)=>`${nf(a||0)} <span class="g">→</span> ${nf(b||0)}`;
+  let h='<thead><tr><th class="nm">Vendedora</th><th>Novos (P→F)</th><th>Ativos (P→compra)</th><th>Inativos (P→reativ)</th><th>Carrinho (P→F)</th><th class="rt">% Conv.</th></tr></thead><tbody>';
+  p.vendedores.forEach(v=>{ h+=`<tr><td class="nm">${v.nome||'—'}</td><td>${pf(v.novosP,v.novosF)}</td><td>${pf(v.ativosP,v.ativosC)}</td><td>${pf(v.inativosP,v.inativosR)}</td><td>${pf(v.carrinhoP,v.carrinhoF)}</td><td class="rt">${v.convNovos!=null?v.convNovos:'—'}</td></tr>`; });
+  h+='</tbody>';
+  document.getElementById('prosp-tab').innerHTML=h;
+  const u=p.atualizado?new Date(p.atualizado):null;
+  document.getElementById('prosp-upd').textContent = u?('planilha atualizada '+u.toLocaleDateString('pt-BR')+' '+u.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+(p.mes?' · mês '+p.mes:'')):'';
+}
+function agrupa(regs, campo){
+  const m={};
+  regs.forEach(x=>{const k=x[campo]||'(sem)'; m[k]=m[k]||{n:0,v:0}; m[k].n++; m[k].v+=x.valor;});
+  return Object.entries(m).map(([k,o])=>({nome:k,...o})).sort((a,b)=>b.v-a.v);
+}
+function barras(el, arr, max, opts){
+  opts = opts||{}; const lim = opts.limit||5;
+  el.innerHTML = arr.slice(0,lim).map((x,i)=>{
+    const bg = opts.colorFn ? `;background:${opts.colorFn(x.nome)}` : '';
+    return `<div class="row">
+      <div class="pos">${i+1}</div>
+      <div class="bar-wrap">
+        <div class="bar-top"><span class="nm">${x.nome}</span><span class="val">${brl(x.v)}</span></div>
+        <div class="bar"><i style="width:${Math.max(3,x.v/(max||1)*100)}%${bg}"></i></div>
+      </div>
+      <div class="qt">${x.n} ped</div>
+    </div>`;}).join('') || '<div class="empty">sem vendas no período</div>';
+}
+const corLoja = n => segDe(n)==='Atacado' ? 'linear-gradient(90deg,var(--blue2),var(--blue))' : 'linear-gradient(90deg,var(--lime2),var(--lime))';
+
+function cardTotal(S, regs){
+  const tot = regs.reduce((s,x)=>s+x.valor,0), q = regs.length;
+  const pcs = regs.reduce((s,x)=>s+(x.pecas||0),0);
+  document.getElementById(S+'-tot').textContent = brl(tot);
+  document.getElementById(S+'-sub').textContent = `${nf(q)} pedidos · ${nf(pcs)} peças · ticket ${brl(q?tot/q:0)}`;
+  return {tot,q,pcs};
+}
+function render(){
+  const D = (fonte==='sistema') ? dadosSistema : dados;
+  if(!D){return;}
+  const hj = hojeISO();
+  const _raw = (D.registros||[]);
+  _raw.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
+  // BLING: filtra pelos sets do placar (só venda, exclui amostra/troca). SISTEMA: usa _conta = TOTAL GERAL do Gestão RK (Venda+Troca via lojaCadastro).
+  const regsMes = (fonte==='sistema') ? _raw : _raw.filter(x=>!AMOSTRA.has(x.loja));
+  const vendasMes = (fonte==='sistema') ? regsMes.filter(x=>x._conta) : regsMes.filter(x=>VENDA.has(x.situacao));
+  const _wk = semanaRange();
+  const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
+  const base = vendasMes.filter(x=>inPer(x.data));
+
+  const bV = base.filter(x=>segDe(x.loja)==='Varejo');
+  const bA = base.filter(x=>segDe(x.loja)==='Atacado');
+  // cards de total (em cima)
+  const rV = cardTotal('Varejo', bV), rA = cardTotal('Atacado', bA);
+  document.getElementById('Geral-tot').textContent = brl(rV.tot+rA.tot);
+  document.getElementById('Geral-sub').textContent = `${nf(rV.q+rA.q)} pedidos · ${nf(rV.pcs+rA.pcs)} peças`;
+  // rankings vendedores
+  const rvV = agrupa(bV,'vendedor'), rvA = agrupa(bA,'vendedor');
+  barras(document.getElementById('Varejo-rank-v'), rvV, rvV.length?rvV[0].v:1);
+  barras(document.getElementById('Atacado-rank-v'), rvA, rvA.length?rvA[0].v:1);
+  // ranking lojas (todas, largura total)
+  const rl = agrupa(base,'loja');
+  barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
+  document.getElementById('loja-per').textContent = perLabel();
+
+  // ranking por status: BLING mostra tudo (pipeline, inclui Em aberto); SISTEMA só o que conta (os 140 que somam o Total geral, sem Em aberto).
+  const stSource = (fonte==='sistema') ? vendasMes : regsMes;
+  const stBase = stSource.filter(x=>inPer(x.data)).filter(x=>!OCULTAR.has(x.situacao));
+  const rst = agrupa(stBase,'situacao');
+  barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
+  document.getElementById('status-per').textContent = perLabel();
+
+  const mesNome = new Date(((D.mes||dados&&dados.mes||hj).slice(0,7))+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const cenTag = fonte==='sistema' ? ' · cenário Sistema' : ' · cenário Bling';
+  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}${cenTag}`;
+  const upd = D.atualizado? new Date(D.atualizado): new Date();
+  document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('foot').textContent = `Painel RK · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
+  renderVendedorDia(vendasMes); // resumo vendedor x dia (mês inteiro, sempre — não segue o Hoje/Semana/Mês)
+}
+// Resumo compacto: vendedor (linhas) × dia do mês (colunas), valores EM MIL R$ (1,2 = R$ 1.200); célula vazia = sem venda.
+function abrMil(v){ return v>0 ? (v/1000).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) : ''; }
+function renderVendedorDia(vendas){
+  const el=document.getElementById('vend-dia'); if(!el) return;
+  if(!vendas || !vendas.length){ el.innerHTML=''; return; }
+  const dias=[...new Set(vendas.map(x=>x.data))].filter(Boolean).sort();
+  const vend={}; vendas.forEach(x=>{ const v=x.vendedor||'Sem vendedor'; (vend[v]=vend[v]||{tot:0,d:{}}); vend[v].tot+=(+x.valor||0); vend[v].d[x.data]=(vend[v].d[x.data]||0)+(+x.valor||0); });
+  const linhas=Object.entries(vend).sort((a,b)=>b[1].tot-a[1].tot);
+  const dd=d=>d.slice(8,10);
+  let h='<thead><tr><th class="nm">Vendedor</th>'+dias.map(d=>`<th>${dd(d)}</th>`).join('')+'<th class="rt">Total</th></tr></thead><tbody>';
+  linhas.forEach(([nome,o])=>{
+    h+=`<tr><td class="nm" title="${nome}">${nome}</td>`+dias.map(d=>{ const v=o.d[d]||0; return v>0?`<td>${abrMil(v)}</td>`:'<td class="z">·</td>'; }).join('')+`<td class="rt">${abrMil(o.tot)}</td></tr>`;
+  });
+  const totGeral=vendas.reduce((t,x)=>t+(+x.valor||0),0);
+  h+='<tr class="tot"><th class="nm">Total do dia</th>'+dias.map(d=>{ const s=linhas.reduce((t,[,o])=>t+(o.d[d]||0),0); return `<td>${abrMil(s)}</td>`; }).join('')+`<td>${abrMil(totGeral)}</td></tr></tbody>`;
+  el.innerHTML=h;
+}
+// ── cadeado do painel de Vendas (senha) ──
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); carregarProsp(); setInterval(()=>{ carregar(); carregarProsp(); if(fonte==='sistema') carregarPedidos().then(render); }, 3600000); } // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
+function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
+function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
+document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
+function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; if(h===1886177389||h===515829727){ try{localStorage.setItem('rk_gate_vendas','1')}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // aceita Vendas (Rkvendas*) OU diretor (Rkdiretor$)
+(function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
+checkVersao(); setInterval(checkVersao, 5*60000); // checa versão nova ao abrir e a cada 5 min
+</script>
 </body>
 </html>
