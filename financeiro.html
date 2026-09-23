@@ -360,7 +360,27 @@ async function carregar(){
     const _pagoNoMesF = r => !r.cancelado && emMes(r.data_liquidacao);
     const cpTotalArr = cpA.filter(r => _pagoNoMesF(r) || cpAbertoF(r));
     const _grp = {}; // grupo -> {tot, subs:{sub:val}}
-    cpTotalArr.forEach(r=>{ const cat=(r.categoria&&String(r.categoria).trim())||'(sem categoria)'; const G=grupoDaCategoria(cat); const o=_grp[G]=_grp[G]||{tot:0,subs:{}}; const v=(+r.valor||0); o.tot+=v; o.subs[cat]=(o.subs[cat]||0)+v; });
+    const _addCat = (G,sub,v)=>{ const o=_grp[G]=_grp[G]||{tot:0,subs:{}}; o.tot+=v; o.subs[sub]=(o.subs[sub]||0)+v; };
+    cpTotalArr.forEach(r=>{
+      const contaCat=(r.categoria&&String(r.categoria).trim())||'(sem categoria)';
+      const contaVal=(+r.valor||0);
+      const rat=Array.isArray(r.rateio)?r.rateio.filter(x=>(+x.valor||0)>0):[];
+      if(rat.length){
+        // cada linha do rateio vai pro grupo/categoria que a Elaine marcou; sobra (se Σrateio ≠ valor) cai na categoria principal
+        let somaR=0;
+        rat.forEach(x=>{ const v=(+x.valor||0); somaR+=v;
+          const sub=(x.categoria&&String(x.categoria).trim())||'';
+          const grp=(x.grupo&&String(x.grupo).trim())||'';
+          const G=grp || (sub?grupoDaCategoria(sub):'') || grupoDaCategoria(contaCat);
+          const subLabel=sub || (grp?'(grupo todo)':contaCat);
+          _addCat(G,subLabel,v);
+        });
+        const resto=+(contaVal-somaR).toFixed(2);
+        if(Math.abs(resto)>=0.01) _addCat(grupoDaCategoria(contaCat),contaCat,resto);
+      } else {
+        _addCat(grupoDaCategoria(contaCat),contaCat,contaVal);
+      }
+    });
     const _grpArr = Object.entries(_grp).map(([nome,o])=>({nome,tot:+o.tot.toFixed(2),subs:Object.entries(o.subs).map(([n,v])=>({n,v:+v.toFixed(2)})).sort((a,b)=>b.v-a.v)})).sort((a,b)=>b.tot-a.tot);
     const _grpTot = +_grpArr.reduce((s,x)=>s+x.tot,0).toFixed(2);
     const _grpMax = _grpArr.length?_grpArr[0].tot:0;
@@ -526,7 +546,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-22.21';
+const BUILD='2026-09-23.22';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
