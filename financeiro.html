@@ -118,6 +118,8 @@
       <div class="lista hidden" id="cr-vencer-lista"></div>
       <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Venceu neste mês e ainda está em aberto"><span class="k">Atrasado (venceu, em aberto) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
       <div class="lista hidden" id="cr-atraso-lista"></div>
+      <div class="kv" id="cr-emitir-row" style="cursor:pointer;display:none" onclick="toggleLista('cr-emitir')" title="Boletos marcados como Boleto Itaú mas ainda SEM data (a emitir). Como não têm vencimento, não entram no mês; mostro aqui pra você não perder de vista."><span class="k">🧾 A emitir (sem data ainda) 🔎</span><span class="n" id="cr-emitir" style="color:var(--gold)">—</span></div>
+      <div class="lista hidden" id="cr-emitir-lista"></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
@@ -303,6 +305,10 @@ async function carregar(){
     document.getElementById('cr-mes').textContent=brl(crMes);
     document.getElementById('cr-vencer').textContent=brl(crVencer);
     document.getElementById('cr-atraso').textContent=brl(crAtraso);
+    // A EMITIR: boletos marcados como Boleto Itaú, Em Aberto e ainda SEM data (a Elaine vai emitir). Não têm vencimento,
+    // então não caem em nenhum mês. Preenchido mais abaixo (precisa do _liLista), mostrado só no mês VIGENTE.
+    const crEmitirArr = crA.filter(r=>!r.data_liquidacao && String(r.situacao||'')==='Em Aberto' && !(r.vencimento && String(r.vencimento).trim()) && /boleto/i.test(r.canal_pagamento||''));
+    const crEmitir = sVal(crEmitirArr,'valor_bruto');
     // ── CP ──
     const cpA=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
     const cpMes=cpA.filter(r=>!r.cancelado && emMes(r.data_liquidacao)).reduce((s,r)=>s+(+r.valor||0),0);
@@ -318,6 +324,15 @@ async function carregar(){
     const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada aqui 🎉</div>'; };
     document.getElementById('cr-vencer-lista').innerHTML=_liLista(crVencerArr,'cliente','vencimento','valor_bruto');
     document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
+    // A emitir (sem data): só no mês vigente, como lembrete
+    const _emRow=document.getElementById('cr-emitir-row');
+    if(_emRow){
+      if(mes===mesAtual() && crEmitir>0.005){
+        _emRow.style.display='';
+        document.getElementById('cr-emitir').textContent=brl(crEmitir);
+        document.getElementById('cr-emitir-lista').innerHTML=_liLista(crEmitirArr,'cliente','vencimento','valor_bruto');
+      } else { _emRow.style.display='none'; }
+    }
     document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
     document.getElementById('cp-atraso-lista').innerHTML=_liLista(cpAtrasoArr,'fornecedor','vencimento','valor');
     // ── Saldo do mês, coerente pro PASSADO (real), VIGENTE (projetado de hoje) e FUTURO (rolado) ──
@@ -585,7 +600,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-23.25';
+const BUILD='2026-09-23.26';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
