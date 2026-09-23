@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v645/09-723';
+const APP_VERSION = 'v646/09-723';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4600,7 +4600,7 @@ async function _syncPowerBI() {
       situacao: sit, pago: !!c.pago, cancelado: canc, status: sit,
       // Rateio (aditivo, NÃO muda o total nem o que o Power BI já lê): cada linha com empresa/subgrupo/categoria/valor.
       // O painel Financeiro usa isso pra jogar cada pedaço no grupo/categoria certos. Sem rateio fica [].
-      rateio: Array.isArray(c.rateio) ? c.rateio.filter(r => (+r.valor || 0) !== 0).map(r => ({ empresa: r.empresa || '', grupo: r.grupo || '', categoria: r.categoria || '', valor: +(+r.valor || 0).toFixed(2) })) : [],
+      rateio: Array.isArray(c.rateio) ? c.rateio.filter(r => (+r.valor || 0) !== 0).map(r => ({ empresa: r.empresa || '', grupo: r.grupo || '', categoria: r.categoria || '', colecao: r.colecao || '', valor: +(+r.valor || 0).toFixed(2) })) : [],
       // Coleção (aditivo): quebra o valor da conta por coleção, proporcional aos itens do pedido de compra. Sem pedido/coleção fica [].
       colecoes: (() => {
         const m = c._compraPedidoId && _colByPed[c._compraPedidoId];
