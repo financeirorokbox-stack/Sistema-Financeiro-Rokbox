@@ -359,16 +359,20 @@ async function carregar(){
     // ── CONTAS A PAGAR por GRUPO (CMV, PESSOAL...) → subgrupo dentro. TOTAL do mês = PAGO (liquidado no mês) + EM ABERTO (a vencer + atrasado). ──
     const _pagoNoMesF = r => !r.cancelado && emMes(r.data_liquidacao);
     const cpTotalArr = cpA.filter(r => _pagoNoMesF(r) || cpAbertoF(r));
-    const _grp = {}; // grupo -> {tot, subs:{sub:{tot, cols:{colName:val}}}}
-    const _addCat = (G,sub,v,colFracs)=>{
+    const _grp = {}; // grupo -> {tot, subs:{sub:{tot, cols:{colName:{tot, srcs:{label:val}}}}}}
+    const _addCol=(S,nome,v,label)=>{ const C=S.cols[nome]=S.cols[nome]||{tot:0,srcs:{}}; C.tot+=v; C.srcs[label]=(C.srcs[label]||0)+v; };
+    const _addCat = (G,sub,v,colFracs,label)=>{
       const o=_grp[G]=_grp[G]||{tot:0,subs:{}}; o.tot+=v;
       const S=o.subs[sub]=o.subs[sub]||{tot:0,cols:{}}; S.tot+=v;
-      if(colFracs&&colFracs.length){ let acc=0; colFracs.forEach((cf,i)=>{ const cv=(i===colFracs.length-1)?+(v-acc).toFixed(2):+(v*cf.frac).toFixed(2); if(i<colFracs.length-1)acc+=cv; S.cols[cf.nome]=(S.cols[cf.nome]||0)+cv; }); }
-      else { S.cols['(sem coleção)']=(S.cols['(sem coleção)']||0)+v; }
+      if(colFracs&&colFracs.length){ let acc=0; colFracs.forEach((cf,i)=>{ const cv=(i===colFracs.length-1)?+(v-acc).toFixed(2):+(v*cf.frac).toFixed(2); if(i<colFracs.length-1)acc+=cv; _addCol(S,cf.nome,cv,label); }); }
+      else { _addCol(S,'(sem coleção)',v,label); }
     };
     cpTotalArr.forEach(r=>{
       const contaCat=(r.categoria&&String(r.categoria).trim())||'(sem categoria)';
       const contaVal=(+r.valor||0);
+      // rótulo do pedido/fornecedor pra detalhar a coleção
+      const _pm=String(r.descricao||'').match(/Pedido #\s*([\w.\-\/]+)/i);
+      const _label=(_pm?'Ped #'+_pm[1]+' · ':'')+((r.fornecedor&&String(r.fornecedor).trim())||'—');
       // frações de coleção da conta (vindas de Compras): distribui qualquer pedaço proporcionalmente
       const cols=Array.isArray(r.colecoes)?r.colecoes.filter(c=>(+c.valor||0)>0):[];
       const colFracs=(cols.length&&contaVal>0)?cols.map(c=>({nome:(c.nome&&String(c.nome).trim())||'(sem coleção)',frac:(+c.valor||0)/contaVal})):null;
@@ -381,17 +385,17 @@ async function carregar(){
           const grp=(x.grupo&&String(x.grupo).trim())||'';
           const G=grp || (sub?grupoDaCategoria(sub):'') || grupoDaCategoria(contaCat);
           const subLabel=sub || (grp?'(grupo todo)':contaCat);
-          _addCat(G,subLabel,v,colFracs);
+          _addCat(G,subLabel,v,colFracs,_label);
         });
         const resto=+(contaVal-somaR).toFixed(2);
-        if(Math.abs(resto)>=0.01) _addCat(grupoDaCategoria(contaCat),contaCat,resto,colFracs);
+        if(Math.abs(resto)>=0.01) _addCat(grupoDaCategoria(contaCat),contaCat,resto,colFracs,_label);
       } else {
-        _addCat(grupoDaCategoria(contaCat),contaCat,contaVal,colFracs);
+        _addCat(grupoDaCategoria(contaCat),contaCat,contaVal,colFracs,_label);
       }
     });
     const _grpArr = Object.entries(_grp).map(([nome,o])=>({
       nome, tot:+o.tot.toFixed(2),
-      subs: Object.entries(o.subs).map(([n,s])=>({ n, v:+s.tot.toFixed(2), cols: Object.entries(s.cols).map(([cn,cv])=>({cn,cv:+cv.toFixed(2)})).sort((a,b)=>b.cv-a.cv) })).sort((a,b)=>b.v-a.v)
+      subs: Object.entries(o.subs).map(([n,s])=>({ n, v:+s.tot.toFixed(2), cols: Object.entries(s.cols).map(([cn,c])=>({cn,cv:+c.tot.toFixed(2), srcs:Object.entries(c.srcs).map(([nm,vv])=>({nm,v:+vv.toFixed(2)})).sort((a,b)=>b.v-a.v)})).sort((a,b)=>b.cv-a.cv) })).sort((a,b)=>b.v-a.v)
     })).sort((a,b)=>b.tot-a.tot);
     const _grpTot = +_grpArr.reduce((s,x)=>s+x.tot,0).toFixed(2);
     const _grpMax = _grpArr.length?_grpArr[0].tot:0;
@@ -406,8 +410,16 @@ async function carregar(){
               const realCols=(s.cols||[]).filter(c=>c.cn!=='(sem coleção)');
               if(realCols.length){
                 const scId='scat-'+gi+'-'+si;
-                const colHtml=s.cols.map(c=>{ const cp=s.v>0?(c.cv/s.v*100):0;
-                  return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:2px 0 2px 40px;color:var(--muted)"><span>◦ ${c.cn}</span><span style="white-space:nowrap">${brl(c.cv)} <span style="opacity:.7">${cp.toFixed(1)}%</span></span></div>`; }).join('');
+                const colHtml=s.cols.map((c,ci)=>{ const cp=s.v>0?(c.cv/s.v*100):0; const pcId='pcat-'+gi+'-'+si+'-'+ci;
+                  const pedHtml=(c.srcs||[]).map(p=>{ const pp=c.cv>0?(p.v/c.cv*100):0;
+                    return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:10.5px;padding:2px 0 2px 58px;color:var(--muted);opacity:.85"><span>· ${p.nm}</span><span style="white-space:nowrap">${brl(p.v)} <span style="opacity:.7">${pp.toFixed(1)}%</span></span></div>`; }).join('');
+                  return `<div>
+                    <div onclick="_togGcat('${pcId}',this)" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:2px 0 2px 40px;color:var(--muted)">
+                      <span><span class="_arw" style="display:inline-block;width:10px">▸</span>◦ ${c.cn}</span>
+                      <span style="white-space:nowrap">${brl(c.cv)} <span style="opacity:.7">${cp.toFixed(1)}%</span></span>
+                    </div>
+                    <div id="${pcId}" style="display:none">${pedHtml}</div>
+                  </div>`; }).join('');
                 return `<div style="padding-left:22px">
                   <div onclick="_togGcat('${scId}',this)" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;color:var(--txt,#cfe)">
                     <span><span class="_arw" style="display:inline-block;width:12px;color:var(--muted)">▸</span>${s.n}</span>
@@ -570,7 +582,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-23.23';
+const BUILD='2026-09-23.24';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
