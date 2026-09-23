@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v641/09-723';
+const APP_VERSION = 'v642/09-723';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4661,9 +4661,28 @@ function _exportBalancete() {
           const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
           const cat = conta ? catContaPagar(conta) : (it.fornecedor || 'Outras despesas');
           const ehEstorno = conta && (conta._origemEstorno || /estorno/i.test(cat) || /estorno/i.test(conta.descricao || '') || /estorno/i.test(conta.fornecedor || ''));
-          const g = ehEstorno ? 'ESTORNOS' : _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
-          const sub = ehEstorno ? ((conta && conta.fornecedor) || 'Estorno') : cat;
-          rows.push({ mes, emp: _normEmp((conta && conta.empresa) || t.banco), tipo: 'D', grupo: g, sub, valor: +(+(it.valor || 0)).toFixed(2) });
+          const itVal = +(+(it.valor || 0)).toFixed(2);
+          const empFb = _normEmp((conta && conta.empresa) || t.banco);
+          // RATEIO: se a conta tem rateio (e não é estorno), divide ESTE débito pelas linhas — cada uma na empresa/categoria/grupo que a Elaine marcou.
+          // Campo em branco na linha cai no padrão da conta (categoria principal / empresa da conta). A última linha leva a sobra pra fechar exato.
+          const rat = (conta && !ehEstorno && Array.isArray(conta.rateio)) ? conta.rateio.filter(r => (+r.valor || 0) > 0) : [];
+          if (rat.length) {
+            const somaR = rat.reduce((s, r) => s + (+r.valor || 0), 0) || 1;
+            let acc = 0;
+            rat.forEach((r, i) => {
+              const v = (i === rat.length - 1) ? +(itVal - acc).toFixed(2) : +(itVal * (+r.valor || 0) / somaR).toFixed(2);
+              if (i < rat.length - 1) acc += v;
+              const subC = (r.categoria && String(r.categoria).trim()) || cat;
+              const grpC = (r.grupo && String(r.grupo).trim()) || '';
+              const g2 = grpC || _grupoBal(subC, grupoDespesa(subC) || subC || 'Outras despesas');
+              const empC = (r.empresa && String(r.empresa).trim()) ? _normEmp(r.empresa) : empFb;
+              rows.push({ mes, emp: empC, tipo: 'D', grupo: g2, sub: subC, valor: v });
+            });
+          } else {
+            const g = ehEstorno ? 'ESTORNOS' : _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
+            const sub = ehEstorno ? ((conta && conta.fornecedor) || 'Estorno') : cat;
+            rows.push({ mes, emp: empFb, tipo: 'D', grupo: g, sub, valor: itVal });
+          }
           distribuido += (it.valor || 0);
         });
         const cr = +((link.credito) || 0);
