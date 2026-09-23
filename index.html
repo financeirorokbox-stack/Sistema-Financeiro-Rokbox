@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v643/09-723';
+const APP_VERSION = 'v644/09-723';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5931,14 +5931,16 @@ function renderRateioBody() {
   const emps = getEmpresasList();
   const subgrupos = Object.keys(CATEGORIAS_DESPESA);
   const opt = (val, sel) => `<option ${val === sel ? 'selected' : ''}>${String(val).replace(/</g, '&lt;')}</option>`;
+  const _esc = v => String(v || '').replace(/"/g, '&quot;');
+  // Categoria e Coleção: campo que MOSTRA a lista e ACEITA digitar (datalist). Lista completa (não depende de escolher o subgrupo antes).
+  const _catList = [...new Set(Object.values(CATEGORIAS_DESPESA).flat())].sort();
+  const _colList = [...new Set([...(colecoes || []).map(c => c.nome), ...(compras || []).map(c => c.colecao)].map(s => String(s || '').trim()).filter(Boolean))].sort();
   const linhas = _rateioLinhas.map((l, i) => {
-    const cats = CATEGORIAS_DESPESA[l.grupo] || [];
-    const cols = colecoes.filter(cc => cc.subgrupo === l.grupo);
     return `<tr>
       <td><select class="inline-input" style="width:105px" onchange="rtSet(${i},'empresa',this.value)"><option value="">Empresa…</option>${emps.map(e => opt(e, l.empresa)).join('')}</select></td>
       <td><select class="inline-input" style="width:110px" onchange="rtSet(${i},'grupo',this.value)"><option value="">Subgrupo…</option>${subgrupos.map(g => opt(g, l.grupo)).join('')}</select></td>
-      <td><select class="inline-input" style="width:135px" onchange="rtSet(${i},'categoria',this.value)"><option value="">Categoria…</option>${cats.map(ct => opt(ct, l.categoria)).join('')}</select></td>
-      <td><select class="inline-input" style="width:135px" onchange="rtSet(${i},'colecao',this.value)"><option value="">Coleção…</option>${cols.map(cc => opt(cc.nome, l.colecao)).join('')}${l.colecao && !cols.some(cc => cc.nome === l.colecao) ? opt(l.colecao, l.colecao) : ''}</select></td>
+      <td><input class="inline-input" list="rt-catlist" style="width:135px" placeholder="Categoria…" value="${_esc(l.categoria)}" onchange="rtSet(${i},'categoria',this.value)"></td>
+      <td><input class="inline-input" list="rt-collist" style="width:135px" placeholder="Coleção…" value="${_esc(l.colecao)}" onchange="rtSet(${i},'colecao',this.value)"></td>
       <td><input class="inline-input rt-inp" type="number" step="0.01" value="${l.valor ? (+l.valor).toFixed(2) : ''}" placeholder="0,00" oninput="rtVal(${i},this.value)" style="width:85px;text-align:right"></td>
       <td><a href="#" onclick="rtDel(${i});return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover linha">✕</a></td>
     </tr>`;
@@ -5947,6 +5949,8 @@ function renderRateioBody() {
     <div style="font-size:13px;margin-bottom:2px"><strong>${c.fornecedor || '—'}</strong>${c.descricao ? ' · ' + c.descricao : ''}</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Valor da conta: <strong>${fmtVal(c.valor)}</strong>${c.empresa ? ' · Empresa: ' + c.empresa : ''} · abra em Empresa → Subgrupo → Categoria → Coleção</div>
     <div class="table-wrap"><table style="white-space:nowrap"><thead><tr><th>Empresa</th><th>Subgrupo</th><th>Categoria</th><th>Coleção</th><th style="text-align:right">Valor</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>
+    <datalist id="rt-catlist">${_catList.map(x => `<option value="${_esc(x)}">`).join('')}</datalist>
+    <datalist id="rt-collist">${_colList.map(x => `<option value="${_esc(x)}">`).join('')}</datalist>
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn ghost sm" style="font-size:11px" onclick="rtAddLinha()">+ Adicionar linha</button>
       <button class="btn ghost sm" style="font-size:11px" onclick="rtIgual()">Distribuir igualmente</button>
@@ -5960,7 +5964,7 @@ function renderRateioBody() {
     </div>`;
   rtSumUpdate();
 }
-function rtSet(i, field, value) { const l = _rateioLinhas[i]; if (!l) return; l[field] = value; if (field === 'grupo') { l.categoria = ''; l.colecao = ''; } renderRateioBody(); }
+function rtSet(i, field, value) { const l = _rateioLinhas[i]; if (!l) return; l[field] = value; }
 function rtVal(i, value) { const l = _rateioLinhas[i]; if (!l) return; l.valor = parseFloat(value) || 0; rtSumUpdate(); }
 function rtDel(i) { _rateioLinhas.splice(i, 1); renderRateioBody(); }
 function rtAddLinha() { const c = contasPagar[_rateioIdx]; _rateioLinhas.push({ empresa: (c && c.empresa) || '', grupo: '', categoria: '', colecao: '', valor: 0 }); renderRateioBody(); }
