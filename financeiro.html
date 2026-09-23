@@ -315,7 +315,7 @@ async function carregar(){
     document.getElementById('cp-vencer').textContent=brl(cpVencer);
     document.getElementById('cp-atraso').textContent=brl(cpAtraso);
     // ── listas do que está EM ABERTO (clientes/fornecedores que compõem cada valor) ──
-    const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada aqui 🎉</div>'; };
+    const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; const selo=r.a_emitir?' <span style="background:var(--blue);color:#04121f;border-radius:6px;padding:0 5px;font-size:10px;font-weight:800;white-space:nowrap" title="Boleto ainda não emitido (azul na tela Boletos a Emitir)">🧾 a emitir</span>':''; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}${selo}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada aqui 🎉</div>'; };
     document.getElementById('cr-vencer-lista').innerHTML=_liLista(crVencerArr,'cliente','vencimento','valor_bruto');
     document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
     document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
@@ -585,7 +585,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-23.27';
+const BUILD='2026-09-23.28';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

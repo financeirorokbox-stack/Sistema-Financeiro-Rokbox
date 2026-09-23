@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v646/09-723';
+const APP_VERSION = 'v647/09-723';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4582,6 +4582,16 @@ async function _syncPowerBI() {
     recebido_liquido: +(+r[10] || 0).toFixed(2), taxa: +(+r[12] || 0).toFixed(2), descricao: r[13] || '',
     canal_pagamento: r[15] || '', empresa: r[20] || ''
   }));
+  // "A EMITIR": marca cada boleto EM ABERTO que ainda NÃO foi emitido (botão azul na tela Boletos a Emitir),
+  // pra o painel poder mostrar o selinho. Casa por pedido|vencimento com o status boletoStatus[key].
+  const _emitLookup = {};
+  try { getBoletosPorPedido().forEach(bp => getParcelas(bp).forEach(p => { const vk = dISO(p.vencimento); if (vk) _emitLookup[String(bp.pedido) + '|' + vk] = !!boletoStatus[p.key]; })); } catch (e) {}
+  crFlat.forEach(r => {
+    if (!r.data_liquidacao && r.vencimento && /boleto/i.test(r.canal_pagamento || '')) {
+      const k = String(r.pedido) + '|' + r.vencimento;
+      if (k in _emitLookup) r.a_emitir = !_emitLookup[k]; // true = ainda não emitido (azul)
+    }
+  });
   // COLEÇÃO por pedido de compra: soma o total dos itens (que a Elaine preenche em Compras) por coleção,
   // pra depois dividir o valor da conta proporcionalmente. Chave = _compraPedidoId (o mesmo _pedidoId dos itens).
   const _colByPed = {};
