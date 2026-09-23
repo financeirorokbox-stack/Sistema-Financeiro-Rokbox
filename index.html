@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v642/09-723';
+const APP_VERSION = 'v643/09-723';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4582,6 +4582,10 @@ async function _syncPowerBI() {
     recebido_liquido: +(+r[10] || 0).toFixed(2), taxa: +(+r[12] || 0).toFixed(2), descricao: r[13] || '',
     canal_pagamento: r[15] || '', empresa: r[20] || ''
   }));
+  // COLEÇÃO por pedido de compra: soma o total dos itens (que a Elaine preenche em Compras) por coleção,
+  // pra depois dividir o valor da conta proporcionalmente. Chave = _compraPedidoId (o mesmo _pedidoId dos itens).
+  const _colByPed = {};
+  (compras || []).forEach(it => { const pid = it._pedidoId; if (!pid) return; const col = (it.colecao || '').trim() || '(sem coleção)'; const v = +totalCompra(it) || 0; (_colByPed[pid] = _colByPed[pid] || {})[col] = (_colByPed[pid][col] || 0) + v; });
   // CP: todas as contas, com data_liquidacao = data do débito no banco (dataLiquidacaoConta) → bate com a Conciliação.
   let cpFlat = contasPagar.map(c => {
     const canc = (c.situacao === 'Cancelado') || !!c.cancelado;
@@ -4596,7 +4600,14 @@ async function _syncPowerBI() {
       situacao: sit, pago: !!c.pago, cancelado: canc, status: sit,
       // Rateio (aditivo, NÃO muda o total nem o que o Power BI já lê): cada linha com empresa/subgrupo/categoria/valor.
       // O painel Financeiro usa isso pra jogar cada pedaço no grupo/categoria certos. Sem rateio fica [].
-      rateio: Array.isArray(c.rateio) ? c.rateio.filter(r => (+r.valor || 0) !== 0).map(r => ({ empresa: r.empresa || '', grupo: r.grupo || '', categoria: r.categoria || '', valor: +(+r.valor || 0).toFixed(2) })) : []
+      rateio: Array.isArray(c.rateio) ? c.rateio.filter(r => (+r.valor || 0) !== 0).map(r => ({ empresa: r.empresa || '', grupo: r.grupo || '', categoria: r.categoria || '', valor: +(+r.valor || 0).toFixed(2) })) : [],
+      // Coleção (aditivo): quebra o valor da conta por coleção, proporcional aos itens do pedido de compra. Sem pedido/coleção fica [].
+      colecoes: (() => {
+        const m = c._compraPedidoId && _colByPed[c._compraPedidoId];
+        if (!m) return [];
+        const ents = Object.entries(m); const soma = ents.reduce((s, [, v]) => s + v, 0) || 1; const val = +(+c.valor || 0); let acc = 0;
+        return ents.map(([nome, pv], i) => { const v = (i === ents.length - 1) ? +(val - acc).toFixed(2) : +(val * pv / soma).toFixed(2); if (i < ents.length - 1) acc += v; return { nome, valor: v }; });
+      })()
     };
   });
   // ── CONGELAMENTO: mês fechado vem da PLANILHA oficial da Elaine (crFechado/cpFechado), não do recálculo. ──

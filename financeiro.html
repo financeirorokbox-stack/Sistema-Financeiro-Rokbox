@@ -359,11 +359,19 @@ async function carregar(){
     // ── CONTAS A PAGAR por GRUPO (CMV, PESSOAL...) → subgrupo dentro. TOTAL do mês = PAGO (liquidado no mês) + EM ABERTO (a vencer + atrasado). ──
     const _pagoNoMesF = r => !r.cancelado && emMes(r.data_liquidacao);
     const cpTotalArr = cpA.filter(r => _pagoNoMesF(r) || cpAbertoF(r));
-    const _grp = {}; // grupo -> {tot, subs:{sub:val}}
-    const _addCat = (G,sub,v)=>{ const o=_grp[G]=_grp[G]||{tot:0,subs:{}}; o.tot+=v; o.subs[sub]=(o.subs[sub]||0)+v; };
+    const _grp = {}; // grupo -> {tot, subs:{sub:{tot, cols:{colName:val}}}}
+    const _addCat = (G,sub,v,colFracs)=>{
+      const o=_grp[G]=_grp[G]||{tot:0,subs:{}}; o.tot+=v;
+      const S=o.subs[sub]=o.subs[sub]||{tot:0,cols:{}}; S.tot+=v;
+      if(colFracs&&colFracs.length){ let acc=0; colFracs.forEach((cf,i)=>{ const cv=(i===colFracs.length-1)?+(v-acc).toFixed(2):+(v*cf.frac).toFixed(2); if(i<colFracs.length-1)acc+=cv; S.cols[cf.nome]=(S.cols[cf.nome]||0)+cv; }); }
+      else { S.cols['(sem coleção)']=(S.cols['(sem coleção)']||0)+v; }
+    };
     cpTotalArr.forEach(r=>{
       const contaCat=(r.categoria&&String(r.categoria).trim())||'(sem categoria)';
       const contaVal=(+r.valor||0);
+      // frações de coleção da conta (vindas de Compras): distribui qualquer pedaço proporcionalmente
+      const cols=Array.isArray(r.colecoes)?r.colecoes.filter(c=>(+c.valor||0)>0):[];
+      const colFracs=(cols.length&&contaVal>0)?cols.map(c=>({nome:(c.nome&&String(c.nome).trim())||'(sem coleção)',frac:(+c.valor||0)/contaVal})):null;
       const rat=Array.isArray(r.rateio)?r.rateio.filter(x=>(+x.valor||0)>0):[];
       if(rat.length){
         // cada linha do rateio vai pro grupo/categoria que a Elaine marcou; sobra (se Σrateio ≠ valor) cai na categoria principal
@@ -373,15 +381,18 @@ async function carregar(){
           const grp=(x.grupo&&String(x.grupo).trim())||'';
           const G=grp || (sub?grupoDaCategoria(sub):'') || grupoDaCategoria(contaCat);
           const subLabel=sub || (grp?'(grupo todo)':contaCat);
-          _addCat(G,subLabel,v);
+          _addCat(G,subLabel,v,colFracs);
         });
         const resto=+(contaVal-somaR).toFixed(2);
-        if(Math.abs(resto)>=0.01) _addCat(grupoDaCategoria(contaCat),contaCat,resto);
+        if(Math.abs(resto)>=0.01) _addCat(grupoDaCategoria(contaCat),contaCat,resto,colFracs);
       } else {
-        _addCat(grupoDaCategoria(contaCat),contaCat,contaVal);
+        _addCat(grupoDaCategoria(contaCat),contaCat,contaVal,colFracs);
       }
     });
-    const _grpArr = Object.entries(_grp).map(([nome,o])=>({nome,tot:+o.tot.toFixed(2),subs:Object.entries(o.subs).map(([n,v])=>({n,v:+v.toFixed(2)})).sort((a,b)=>b.v-a.v)})).sort((a,b)=>b.tot-a.tot);
+    const _grpArr = Object.entries(_grp).map(([nome,o])=>({
+      nome, tot:+o.tot.toFixed(2),
+      subs: Object.entries(o.subs).map(([n,s])=>({ n, v:+s.tot.toFixed(2), cols: Object.entries(s.cols).map(([cn,cv])=>({cn,cv:+cv.toFixed(2)})).sort((a,b)=>b.cv-a.cv) })).sort((a,b)=>b.v-a.v)
+    })).sort((a,b)=>b.tot-a.tot);
     const _grpTot = +_grpArr.reduce((s,x)=>s+x.tot,0).toFixed(2);
     const _grpMax = _grpArr.length?_grpArr[0].tot:0;
     const _cpCatEl=document.getElementById('cp-cat');
@@ -391,7 +402,20 @@ async function carregar(){
         _cpCatEl.innerHTML =
           `<div class="kv" style="margin-bottom:10px"><span class="k">Total de contas do mês <span style="color:var(--muted);font-weight:400;font-size:.85em">(pago + em aberto · toque num grupo pra abrir)</span></span><span class="n" style="color:var(--amber)">${brl(_grpTot)}</span></div>`+
           _grpArr.map((g,gi)=>{ const pct=_grpTot>0?(g.tot/_grpTot*100):0; const w=_grpMax>0?Math.max(2,Math.round(g.tot/_grpMax*100)):0; const subId='gcat-'+gi;
-            const subHtml = g.subs.map(s=>{ const sp=g.tot>0?(s.v/g.tot*100):0;
+            const subHtml = g.subs.map((s,si)=>{ const sp=g.tot>0?(s.v/g.tot*100):0;
+              const realCols=(s.cols||[]).filter(c=>c.cn!=='(sem coleção)');
+              if(realCols.length){
+                const scId='scat-'+gi+'-'+si;
+                const colHtml=s.cols.map(c=>{ const cp=s.v>0?(c.cv/s.v*100):0;
+                  return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:2px 0 2px 40px;color:var(--muted)"><span>◦ ${c.cn}</span><span style="white-space:nowrap">${brl(c.cv)} <span style="opacity:.7">${cp.toFixed(1)}%</span></span></div>`; }).join('');
+                return `<div style="padding-left:22px">
+                  <div onclick="_togGcat('${scId}',this)" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;color:var(--txt,#cfe)">
+                    <span><span class="_arw" style="display:inline-block;width:12px;color:var(--muted)">▸</span>${s.n}</span>
+                    <span style="white-space:nowrap">${brl(s.v)} <span style="color:var(--muted)">${sp.toFixed(1)}%</span></span>
+                  </div>
+                  <div id="${scId}" style="display:none">${colHtml}</div>
+                </div>`;
+              }
               return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0 3px 22px;color:var(--muted)"><span>• ${s.n}</span><span style="white-space:nowrap">${brl(s.v)} <span style="opacity:.7">${sp.toFixed(1)}%</span></span></div>`; }).join('');
             return `<div style="margin:9px 0">
               <div onclick="_togGcat('${subId}',this)" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:3px;font-weight:700">
@@ -546,7 +570,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-23.22';
+const BUILD='2026-09-23.23';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
