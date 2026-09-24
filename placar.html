@@ -127,6 +127,7 @@
         <option value="Rokbox">Rokbox</option>
         <option value="Rk">Rk (PL/WL)</option>
       </select>
+      <select class="empresa-sel" id="mes-sel" onchange="setMes(this.value)" title="Escolher o mês (passados vêm do Sistema, já fechados)"></select>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
@@ -177,7 +178,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-24.18';
+const BUILD = '2026-09-24.19';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -203,6 +204,17 @@ const SEG_ORDER = ['Varejo','Atacado','PL','WL'];
 const SEG_META = { Varejo:{cls:'seg-varejo',ico:'🛍️'}, Atacado:{cls:'seg-atacado',ico:'📦'}, PL:{cls:'seg-pl',ico:'🏷️'}, WL:{cls:'seg-wl',ico:'🏭'} };
 let empresaSel = 'ambas';
 function setEmpresa(v){ empresaSel = v; render(); }
+let mesSel = null; // null = mês vigente (Bling ao vivo); um mês passado = só Sistema (fechado)
+function setMes(v){ mesSel = v || null; render(); }
+function _popMeses(){
+  const sel = document.getElementById('mes-sel'); if(!sel) return;
+  const cur = (dados&&dados.mes) || hojeISO().slice(0,7);
+  const set = new Set([cur]);
+  ((dadosSistema&&dadosSistema.registros)||[]).forEach(x=>{ if(x.data) set.add(String(x.data).slice(0,7)); });
+  const meses = [...set].sort().reverse();
+  const atual = mesSel || cur;
+  sel.innerHTML = meses.map(m=>{ const nome=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); const lbl=nome.charAt(0).toUpperCase()+nome.slice(1)+(m===cur?' (atual)':''); return `<option value="${m}" ${m===atual?'selected':''}>${lbl}</option>`; }).join('');
+}
 const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf = n => (n||0).toLocaleString('pt-BR');
 let periodo = 'mes'; // placar mostra sempre o MÊS (os dias ficam no resumo Vendedor × dia embaixo)
@@ -223,7 +235,7 @@ async function carregar(){
     const tag = (D, emp) => { if(D&&Array.isArray(D.registros)) D.registros.forEach(x=>{ if(!x.empresa) x.empresa=emp; }); return D; };
     if(d1) dados = tag(d1,'Rokbox');
     if(d2) dados2 = tag(d2,'Rk');
-    render();
+    _popMeses(); render();
   }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
 }
 // ── cenário SISTEMA: monta os mesmos registros do placar a partir dos pedidos do Gestão RK ──
@@ -254,8 +266,8 @@ async function carregarPedidos(){
   try{
     const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
     const [peds, lc] = await Promise.all([gk('pedidos'), gk('lojaCadastro')]);
-    const mes = (dados&&dados.mes) || hojeISO().slice(0,7);
-    dadosSistema = { mes, atualizado:new Date().toISOString(), registros:_pedToRegs(peds||[], mes, lc) };
+    dadosSistema = { atualizado:new Date().toISOString(), registros:_pedToRegs(peds||[], '', lc) }; // TODOS os meses (o render filtra pelo mês escolhido)
+    _popMeses();
   }catch(e){ if(fonte==='sistema') document.getElementById('sub').textContent='sem conexão (Sistema), tentando de novo…'; }
 }
 function setFonte(f){
@@ -317,17 +329,23 @@ function cardTotal(S, regs){
   return {tot,q,pcs};
 }
 function render(){
-  const D = (fonte==='sistema') ? dadosSistema : dados;
-  if(fonte==='sistema' ? !dadosSistema : (!dados && !dados2)) return;
   const hj = hojeISO();
-  // BLING: combina Rokbox (dados) + Rk (dados2). SISTEMA: já vem tudo junto do pedidos (com empresa).
-  let _raw = (fonte==='sistema') ? ((dadosSistema&&dadosSistema.registros)||[]).slice()
-    : [ ...((dados&&dados.registros)||[]), ...((dados2&&dados2.registros)||[]) ];
-  // filtro por empresa (dropdown)
+  const curMes = (dados&&dados.mes) || hj.slice(0,7);
+  const mesAtivo = mesSel || curMes;
+  const ehVigente = (mesAtivo===curMes);
+  // Mês vigente pode vir do Bling (ao vivo) ou Sistema (pelo toggle). Mês FECHADO (passado) = SÓ Sistema.
+  const usarBling = ehVigente && (fonte==='bling');
+  if(usarBling ? (!dados && !dados2) : !dadosSistema) return;
+  let _raw = usarBling
+    ? [ ...((dados&&dados.registros)||[]), ...((dados2&&dados2.registros)||[]) ]
+    : ((dadosSistema&&dadosSistema.registros)||[]).slice();
+  _raw = _raw.filter(x=>String(x.data||'').slice(0,7)===mesAtivo); // filtra pelo mês escolhido
   if(empresaSel!=='ambas') _raw = _raw.filter(x=>(x.empresa||'Rokbox')===empresaSel);
+  const fEf = usarBling ? 'bling' : 'sistema'; // fonte efetiva
+  const D = usarBling ? dados : dadosSistema;
   _raw.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
-  const regsMes = (fonte==='sistema') ? _raw : _raw.filter(x=>!AMOSTRA.has(x.loja));
-  const vendasMes = (fonte==='sistema') ? regsMes.filter(x=>x._conta) : regsMes.filter(x=>VENDA.has(x.situacao));
+  const regsMes = (fEf==='sistema') ? _raw : _raw.filter(x=>!AMOSTRA.has(x.loja));
+  const vendasMes = (fEf==='sistema') ? regsMes.filter(x=>x._conta) : regsMes.filter(x=>VENDA.has(x.situacao));
   const _wk = semanaRange();
   const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
   const base = vendasMes.filter(x=>inPer(x.data));
@@ -353,15 +371,14 @@ function render(){
   barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
   document.getElementById('loja-per').textContent = perLabel();
   // ranking por status: BLING mostra tudo (pipeline, inclui Em aberto); SISTEMA só o que conta.
-  const stSource = (fonte==='sistema') ? vendasMes : regsMes;
+  const stSource = (fEf==='sistema') ? vendasMes : regsMes;
   const stBase = stSource.filter(x=>inPer(x.data)).filter(x=>!OCULTAR.has(x.situacao));
   const rst = agrupa(stBase,'situacao');
   barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
   document.getElementById('status-per').textContent = perLabel();
 
-  const _mesF = (fonte==='sistema'?(dadosSistema&&dadosSistema.mes):(dados&&dados.mes)) || hj.slice(0,7);
-  const mesNome = new Date(_mesF.slice(0,7)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  const cenTag = fonte==='sistema' ? ' · cenário Sistema' : ' · cenário Bling';
+  const mesNome = new Date(mesAtivo+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const cenTag = ehVigente ? (fEf==='sistema' ? ' · cenário Sistema' : ' · cenário Bling') : ' · mês fechado (Sistema)';
   const empTag = empresaSel==='ambas' ? '' : (' · '+(empresaSel==='Rk'?'Rk (PL/WL)':empresaSel));
   document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}${cenTag}${empTag}`;
   const upd = (D&&D.atualizado)? new Date(D.atualizado): new Date();
@@ -387,7 +404,7 @@ function renderVendedorDia(vendas){
   el.innerHTML=h;
 }
 // ── cadeado do painel de Vendas (senha) ──
-function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); carregarProsp(); setInterval(()=>{ carregar(); carregarProsp(); if(fonte==='sistema') carregarPedidos().then(render); }, 3600000); } // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
+function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); carregar(); carregarProsp(); carregarPedidos().then(render); setInterval(()=>{ carregar(); carregarProsp(); carregarPedidos().then(render); }, 3600000); } // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
