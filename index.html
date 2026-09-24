@@ -358,7 +358,6 @@ tr:hover td{background:#fafaf8}
 
 <!-- TOPNAV -->
 <div class="topnav">
-  <div class="topnav-item" id="nav-dashboard" onclick="setView('dashboard')" style="font-weight:800;color:var(--accent)">Dashboard</div>
   <div class="topnav-item active" id="nav-vendas" onclick="setView('vendas')">Vendas</div>
   <div class="topnav-item" id="nav-compras" onclick="setView('compras')">🛒 Compras</div>
   <div class="topnav-item" id="nav-rh" onclick="setView('rh')">👥 RH</div>
@@ -467,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v649/09-724';
+const APP_VERSION = 'v650/09-724';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1002,7 +1001,7 @@ function viewAllowed(v) {
   return v === 'financeiro' ? canFinanceiro() : can(v);
 }
 function firstAllowedView() {
-  return ['dashboard', 'vendas', 'compras', 'rh', 'financeiro', 'cadastro'].find(viewAllowed) || null;
+  return ['vendas', 'compras', 'rh', 'financeiro', 'cadastro'].find(viewAllowed) || null;
 }
 function firstAllowedSub() {
   return ['contas', 'pagar', 'extrato', 'banco'].find(subAllowed) || null;
