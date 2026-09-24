@@ -295,12 +295,16 @@ function renderFechamento(){
   const devPorPed={}; Object.keys(rawDev).forEach(pc=>{const p=pedById[pc];const cap=p?(+p.valor||0):Infinity;devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2);});
   const NAOAP=['cancelado','em aberto'], opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'', segDe=l=>(lc[l]&&lc[l].segmento)?lc[l].segmento:'Outros';
   const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+  const extArr=Array.isArray(F.extB)?F.extB:[]; const _dDia=v=>{ if(!v)return ''; const d=v instanceof Date?v:new Date(v); return isNaN(d)?String(v).slice(0,10):(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); }; const _mExt=v=>_dDia(v).slice(0,7); const _mesA=mesAtual();
   const ms=new Set(); (bal&&bal.rows||[]).forEach(r=>ms.add(r.mes)); peds.forEach(p=>{const m=_m(p.data); if(m)ms.add(m);}); crA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));}); cpA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));});
   const meses=[...ms].filter(Boolean).sort(), base0=+((bal&&+bal.base)||0);
   const serie=meses.map(M=>{
     let fat=0; const emp={}, seg={};
     peds.forEach(p=>{ if(_m(p.data)!==M||!ehVT(p))return; const v=(+p.valor||0)-(devPorPed[String(p.id)]||0); fat+=v; const e=/rokbox/i.test(p.empresa||'')?'Rokbox':(/rk/i.test(p.empresa||'')?'Rk':(p.empresa||'Rokbox')); emp[e]=(emp[e]||0)+v; const sg=segDe(p.loja); seg[sg]=(seg[sg]||0)+v; });
-    const receb=crA.filter(r=>_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.recebido_liquido||0),0);
+    // Recebido: mês FECHADO = CR oficial (recebido_liquido); mês VIGENTE = o que entrou no banco (extrato), igual ao Fluxo.
+    const receb=(M<_mesA)
+      ? crA.filter(r=>_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
+      : extArr.filter(t=>(+t.valor||0)>0 && _mExt(t.data)===M).reduce((s,t)=>s+(+t.valor||0),0);
     const pago=cpA.filter(r=>!r.cancelado&&_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.valor||0),0);
     const crAb=crA.filter(r=>!r.data_liquidacao&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor_bruto||0),0);
     const cpAb=cpA.filter(r=>!r.cancelado&&!r.data_liquidacao&&!r.pago&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor||0),0);
@@ -677,7 +681,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-24.30';
+const BUILD='2026-09-24.31';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
