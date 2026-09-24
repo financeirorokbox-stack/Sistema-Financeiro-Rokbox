@@ -17,7 +17,7 @@
   :root{
     --bg:#0b0f0d; --bg2:#121a16; --card:#16211b; --line:#233029;
     --txt:#eafaf1; --muted:#8fa89a; --lime:#7ee787; --lime2:#39d353;
-    --gold:#ffd76a; --blue:#7cc4ff; --blue2:#2b9be0; --amber:#ffb347;
+    --gold:#ffd76a; --blue:#7cc4ff; --blue2:#2b9be0; --amber:#ffb347; --pink:#ff9ecb;
     --shadow:0 8px 30px rgba(0,0,0,.35);
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -37,15 +37,22 @@
   .seg button.on{background:var(--lime);color:#08130b}
   .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:20px;padding:clamp(15px,1.6vw,26px);box-shadow:var(--shadow)}
   /* cards de total em cima */
-  .tops{display:grid;grid-template-columns:1fr 1fr 1fr;gap:clamp(10px,1.2vw,18px);margin-bottom:clamp(10px,1.2vw,18px)}
+  .tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:clamp(10px,1.2vw,18px);margin-bottom:clamp(10px,1.2vw,18px)}
   .tlab{display:flex;align-items:center;gap:9px;font-size:clamp(14px,1.3vw,20px);font-weight:800}
   .col-tot{font-size:clamp(26px,3.4vw,54px);font-weight:800;line-height:1.02;margin:8px 0 6px;color:var(--lime)}
   .seg-atacado .col-tot{color:var(--blue)}
+  .seg-pl .col-tot{color:var(--gold)}
+  .seg-wl .col-tot{color:var(--pink)}
   .tsub{color:var(--muted);font-size:clamp(12px,1vw,15px);font-weight:600}
   .badge{width:12px;height:12px;border-radius:4px;background:var(--lime)}
   .seg-atacado .badge{background:var(--blue)}
+  .seg-pl .badge{background:var(--gold)}
+  .seg-wl .badge{background:var(--pink)}
+  .empresa-sel{background:var(--card);border:1px solid var(--line);border-radius:999px;color:var(--txt);font-weight:700;font-size:clamp(12px,1vw,15px);padding:7px 14px;cursor:pointer}
   /* colunas de vendedores */
-  .segs{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.2vw,18px)}
+  .segs{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(10px,1.2vw,18px)}
+  .seg-pl .bar>i{background:linear-gradient(90deg,var(--amber),var(--gold))}
+  .seg-wl .bar>i{background:linear-gradient(90deg,var(--pink),var(--pink))}
   .col-name{font-size:clamp(15px,1.4vw,21px);font-weight:800;display:flex;align-items:center;gap:9px;margin-bottom:14px;padding-bottom:11px;border-bottom:1px solid var(--line)}
   .col-name .tag{margin-left:auto;font-size:.62em;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1px}
   .rank{display:flex;flex-direction:column;gap:clamp(8px,.9vw,12px)}
@@ -115,42 +122,22 @@
         <button id="f-bling" class="on" onclick="setFonte('bling')">Bling</button>
         <button id="f-sist" onclick="setFonte('sistema')">Sistema</button>
       </div>
+      <select class="empresa-sel" id="empresa-sel" onchange="setEmpresa(this.value)" title="Filtrar por empresa">
+        <option value="ambas">Todas as empresas</option>
+        <option value="Rokbox">Rokbox</option>
+        <option value="Rk">Rk (PL/WL)</option>
+      </select>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
     </div>
   </header>
 
-  <!-- CARDS DE TOTAL (em cima) -->
-  <section class="tops">
-    <div class="card seg-varejo">
-      <div class="tlab"><span class="badge"></span>🛍️ Varejo</div>
-      <div class="col-tot" id="Varejo-tot">R$ 0,00</div>
-      <div class="tsub" id="Varejo-sub">0 pedidos · 0 peças</div>
-    </div>
-    <div class="card seg-atacado">
-      <div class="tlab"><span class="badge"></span>📦 Atacado</div>
-      <div class="col-tot" id="Atacado-tot">R$ 0,00</div>
-      <div class="tsub" id="Atacado-sub">0 pedidos · 0 peças</div>
-    </div>
-    <div class="card">
-      <div class="tlab">🟰 Total geral</div>
-      <div class="col-tot" id="Geral-tot" style="color:var(--txt)">R$ 0,00</div>
-      <div class="tsub" id="Geral-sub">0 pedidos · 0 peças</div>
-    </div>
-  </section>
+  <!-- CARDS DE TOTAL (em cima) — montados dinamicamente por segmento (+ Total geral) -->
+  <section class="tops" id="tops-cards"></section>
 
-  <!-- RANKING VENDEDORES (Varejo | Atacado) -->
-  <section class="segs">
-    <div class="card seg-varejo">
-      <div class="col-name"><span class="badge"></span>🛍️ Varejo <span class="tag">vendedores</span></div>
-      <div class="rank" id="Varejo-rank-v"></div>
-    </div>
-    <div class="card seg-atacado">
-      <div class="col-name"><span class="badge"></span>📦 Atacado <span class="tag">vendedores</span></div>
-      <div class="rank" id="Atacado-rank-v"></div>
-    </div>
-  </section>
+  <!-- RANKING VENDEDORES por segmento — dinâmico -->
+  <section class="segs" id="segs-cards"></section>
 
   <!-- RANKING LOJAS (todas, largura total) -->
   <section class="baixo">
@@ -190,7 +177,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-22.16';
+const BUILD = '2026-09-24.17';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -209,11 +196,18 @@ const OCULTAR = new Set(['Atualização de estoque','Correios']);
 const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
 const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
 const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
-const segDe = loja => ATACADO.has(loja) ? 'Atacado' : 'Varejo';
+const PL_LOJA = new Set(['Vendas PL','Parceria PL']);
+const WL_LOJA = new Set(['Vendas White Label','Mostruário']);
+const segDe = loja => PL_LOJA.has(loja) ? 'PL' : (WL_LOJA.has(loja) ? 'WL' : (ATACADO.has(loja) ? 'Atacado' : 'Varejo'));
+const SEG_ORDER = ['Varejo','Atacado','PL','WL'];
+const SEG_META = { Varejo:{cls:'seg-varejo',ico:'🛍️'}, Atacado:{cls:'seg-atacado',ico:'📦'}, PL:{cls:'seg-pl',ico:'🏷️'}, WL:{cls:'seg-wl',ico:'🏭'} };
+let empresaSel = 'ambas';
+function setEmpresa(v){ empresaSel = v; render(); }
 const brl = n => 'R$ ' + (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf = n => (n||0).toLocaleString('pt-BR');
 let periodo = 'mes'; // placar mostra sempre o MÊS (os dias ficam no resumo Vendedor × dia embaixo)
-let dados = null;          // cenário BLING (blingVendasRico, cru do robozinho)
+let dados = null;          // cenário BLING (blingVendasRico = Rokbox)
+let dados2 = null;         // cenário BLING 2a conta (blingVendasRico2 = Rk PL/WL)
 let dadosSistema = null;   // cenário SISTEMA (montado dos pedidos do Gestão RK, com as edições dela)
 let fonte = 'bling';       // qual cenário está na tela
 
@@ -224,9 +218,11 @@ function perLabel(){ return periodo==='hoje'?'hoje':(periodo==='semana'?'semana'
 
 async function carregar(){
   try{
-    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.blingVendasRico&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
-    const j = await r.json();
-    if(Array.isArray(j)&&j[0]) dados = JSON.parse(j[0].valor);
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const [d1, d2] = await Promise.all([gk('blingVendasRico'), gk('blingVendasRico2')]);
+    const tag = (D, emp) => { if(D&&Array.isArray(D.registros)) D.registros.forEach(x=>{ if(!x.empresa) x.empresa=emp; }); return D; };
+    if(d1) dados = tag(d1,'Rokbox');
+    if(d2) dados2 = tag(d2,'Rk');
     render();
   }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
 }
@@ -250,7 +246,7 @@ function _pedToRegs(peds, mes, lc){
     const pcs = Array.isArray(p.linhas) ? p.linhas.reduce((s,l)=>s+(+l.qtd||0),0) : 0;
     const op = opDe(p.loja);
     const conta = !NAOAP.includes(String(p.situacao||'').toLowerCase()) && (op==='venda' || op==='troca');
-    out.push({ numero:String(p.id||''), data:d, situacao:_normSit(p.situacao), loja:p.loja||'', vendedor:p.vendedor||'', cliente:p.nome||'', valor:+p.valor||0, frete:+p.frete||0, pecas:pcs, _conta:conta });
+    out.push({ numero:String(p.id||''), data:d, situacao:_normSit(p.situacao), loja:p.loja||'', vendedor:p.vendedor||'', cliente:p.nome||'', valor:+p.valor||0, frete:+p.frete||0, pecas:pcs, empresa:p.empresa||'Rokbox', _conta:conta });
   });
   return out;
 }
@@ -311,7 +307,7 @@ function barras(el, arr, max, opts){
       <div class="qt">${x.n} ped</div>
     </div>`;}).join('') || '<div class="empty">sem vendas no período</div>';
 }
-const corLoja = n => segDe(n)==='Atacado' ? 'linear-gradient(90deg,var(--blue2),var(--blue))' : 'linear-gradient(90deg,var(--lime2),var(--lime))';
+const corLoja = n => { const sg=segDe(n); return sg==='Atacado'?'linear-gradient(90deg,var(--blue2),var(--blue))':(sg==='PL'?'linear-gradient(90deg,var(--amber),var(--gold))':(sg==='WL'?'linear-gradient(90deg,var(--pink),var(--pink))':'linear-gradient(90deg,var(--lime2),var(--lime))')); };
 
 function cardTotal(S, regs){
   const tot = regs.reduce((s,x)=>s+x.valor,0), q = regs.length;
@@ -322,45 +318,55 @@ function cardTotal(S, regs){
 }
 function render(){
   const D = (fonte==='sistema') ? dadosSistema : dados;
-  if(!D){return;}
+  if(fonte==='sistema' ? !dadosSistema : (!dados && !dados2)) return;
   const hj = hojeISO();
-  const _raw = (D.registros||[]);
+  // BLING: combina Rokbox (dados) + Rk (dados2). SISTEMA: já vem tudo junto do pedidos (com empresa).
+  let _raw = (fonte==='sistema') ? ((dadosSistema&&dadosSistema.registros)||[]).slice()
+    : [ ...((dados&&dados.registros)||[]), ...((dados2&&dados2.registros)||[]) ];
+  // filtro por empresa (dropdown)
+  if(empresaSel!=='ambas') _raw = _raw.filter(x=>(x.empresa||'Rokbox')===empresaSel);
   _raw.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
-  // BLING: filtra pelos sets do placar (só venda, exclui amostra/troca). SISTEMA: usa _conta = TOTAL GERAL do Gestão RK (Venda+Troca via lojaCadastro).
   const regsMes = (fonte==='sistema') ? _raw : _raw.filter(x=>!AMOSTRA.has(x.loja));
   const vendasMes = (fonte==='sistema') ? regsMes.filter(x=>x._conta) : regsMes.filter(x=>VENDA.has(x.situacao));
   const _wk = semanaRange();
   const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
   const base = vendasMes.filter(x=>inPer(x.data));
 
-  const bV = base.filter(x=>segDe(x.loja)==='Varejo');
-  const bA = base.filter(x=>segDe(x.loja)==='Atacado');
-  // cards de total (em cima)
-  const rV = cardTotal('Varejo', bV), rA = cardTotal('Atacado', bA);
-  document.getElementById('Geral-tot').textContent = brl(rV.tot+rA.tot);
-  document.getElementById('Geral-sub').textContent = `${nf(rV.q+rA.q)} pedidos · ${nf(rV.pcs+rA.pcs)} peças`;
-  // rankings vendedores
-  const rvV = agrupa(bV,'vendedor'), rvA = agrupa(bA,'vendedor');
-  barras(document.getElementById('Varejo-rank-v'), rvV, rvV.length?rvV[0].v:1);
-  barras(document.getElementById('Atacado-rank-v'), rvA, rvA.length?rvA[0].v:1);
-  // ranking lojas (todas, largura total)
+  // segmentos presentes (ordem fixa Varejo, Atacado, PL, WL)
+  let segs = SEG_ORDER.filter(sg => base.some(x=>segDe(x.loja)===sg));
+  if(!segs.length) segs = (empresaSel==='Rk') ? ['PL','WL'] : ['Varejo','Atacado'];
+  // CARDS DE TOTAL (dinâmico) + Total geral
+  let totG=0,qG=0,pcsG=0, topsHtml=''; const segData={};
+  segs.forEach(sg=>{
+    const b = base.filter(x=>segDe(x.loja)===sg); segData[sg]=b;
+    const tot=b.reduce((s,x)=>s+x.valor,0), q=b.length, pcs=b.reduce((s,x)=>s+(x.pecas||0),0);
+    totG+=tot; qG+=q; pcsG+=pcs; const M=SEG_META[sg]||{cls:'',ico:'•'};
+    topsHtml += `<div class="card ${M.cls}"><div class="tlab"><span class="badge"></span>${M.ico} ${sg}</div><div class="col-tot">${brl(tot)}</div><div class="tsub">${nf(q)} pedidos · ${nf(pcs)} peças · ticket ${brl(q?tot/q:0)}</div></div>`;
+  });
+  topsHtml += `<div class="card"><div class="tlab">🟰 Total geral</div><div class="col-tot" style="color:var(--txt)">${brl(totG)}</div><div class="tsub">${nf(qG)} pedidos · ${nf(pcsG)} peças</div></div>`;
+  document.getElementById('tops-cards').innerHTML = topsHtml;
+  // RANKING VENDEDORES por segmento (dinâmico)
+  document.getElementById('segs-cards').innerHTML = segs.map(sg=>{ const M=SEG_META[sg]||{cls:'',ico:'•'}; return `<div class="card ${M.cls}"><div class="col-name"><span class="badge"></span>${M.ico} ${sg} <span class="tag">vendedores</span></div><div class="rank" id="segrank-${sg}"></div></div>`; }).join('');
+  segs.forEach(sg=>{ const rv=agrupa(segData[sg]||[],'vendedor'); barras(document.getElementById('segrank-'+sg), rv, rv.length?rv[0].v:1); });
+  // ranking lojas (todas)
   const rl = agrupa(base,'loja');
   barras(document.getElementById('rank-lojas'), rl, rl.length?rl[0].v:1, { limit:12, colorFn:corLoja });
   document.getElementById('loja-per').textContent = perLabel();
-
-  // ranking por status: BLING mostra tudo (pipeline, inclui Em aberto); SISTEMA só o que conta (os 140 que somam o Total geral, sem Em aberto).
+  // ranking por status: BLING mostra tudo (pipeline, inclui Em aberto); SISTEMA só o que conta.
   const stSource = (fonte==='sistema') ? vendasMes : regsMes;
   const stBase = stSource.filter(x=>inPer(x.data)).filter(x=>!OCULTAR.has(x.situacao));
   const rst = agrupa(stBase,'situacao');
   barras(document.getElementById('rank-status'), rst, rst.length?rst[0].v:1, { limit:8, colorFn:n=>`linear-gradient(90deg, ${STCOR[n]||'#8fa89a'}, ${STCOR[n]||'#8fa89a'})` });
   document.getElementById('status-per').textContent = perLabel();
 
-  const mesNome = new Date(((D.mes||dados&&dados.mes||hj).slice(0,7))+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const _mesF = (fonte==='sistema'?(dadosSistema&&dadosSistema.mes):(dados&&dados.mes)) || hj.slice(0,7);
+  const mesNome = new Date(_mesF.slice(0,7)+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const cenTag = fonte==='sistema' ? ' · cenário Sistema' : ' · cenário Bling';
-  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}${cenTag}`;
-  const upd = D.atualizado? new Date(D.atualizado): new Date();
+  const empTag = empresaSel==='ambas' ? '' : (' · '+(empresaSel==='Rk'?'Rk (PL/WL)':empresaSel));
+  document.getElementById('sub').textContent = `${nf(vendasMes.length)} vendas em ${mesNome}${cenTag}${empTag}`;
+  const upd = (D&&D.atualizado)? new Date(D.atualizado): new Date();
   document.getElementById('upd').textContent = 'atualizado ' + upd.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('foot').textContent = `Painel RK · Placar ao vivo · ${mesNome} · ${brl(vendasMes.reduce((s,x)=>s+x.valor,0))} no mês (Varejo + Atacado)`;
+  document.getElementById('foot').textContent = `Painel RK · Placar ao vivo · ${mesNome} · ${brl(totG)} no período (${segs.join(' + ')})`;
   renderVendedorDia(vendasMes); // resumo vendedor x dia (mês inteiro, sempre — não segue o Hoje/Semana/Mês)
 }
 // Resumo compacto: vendedor (linhas) × dia do mês (colunas), valores EM MIL R$ (1,2 = R$ 1.200); célula vazia = sem venda.
