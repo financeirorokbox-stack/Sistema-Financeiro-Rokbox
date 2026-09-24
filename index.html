@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v647/09-723';
+const APP_VERSION = 'v648/09-724';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -15817,9 +15817,15 @@ function delCheckboxHeader(source) {
 // pelo cron 2x/dia) e ADICIONA no `pedidos` as vendas que ainda não estão (dedup por número, no formato dela,
 // com linhas/SKU do blingDetCache). SÓ ADICIONA (nunca mexe/apaga o que já existe — preserva suas correções).
 async function _autoImportBling() {
+  // 1a Bling (Rokbox) e 2a Bling (Rk PL/WL) — cada uma na sua chave e com sua empresa. Dedup por número (não colidem).
+  const n1 = await _impBlingConta('blingVendasRico', 'blingDetCache', 'Rokbox', '_autoBling');
+  const n2 = await _impBlingConta('blingVendasRico2', 'blingDetCache2', 'Rk PL/WL', '_autoBling2');
+  return n1 + n2;
+}
+async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   let rico = null, det = null;
-  try { rico = await loadData('blingVendasRico'); } catch (e) {}
-  try { det = await loadData('blingDetCache'); } catch (e) {}
+  try { rico = await loadData(ricoKey); } catch (e) {}
+  try { det = await loadData(detKey); } catch (e) {}
   if (!rico || !Array.isArray(rico.registros)) return 0;
   det = det || {};
   const IGNORAR = new Set(['Cancelado', 'Atualização de estoque', 'Atualização de Estoque', 'Correios']);
@@ -15830,9 +15836,9 @@ async function _autoImportBling() {
     if (!num || IGNORAR.has(String(r.situacao || ''))) return;
     const ex = pedById.get(num);
     if (ex) {
-      // JÁ existe: só ATUALIZA as que EU importei (_autoBling) e que a Bling mudou (situação/valor/frete).
-      // Assim uma venda "Em aberto" que vira "Atendido" passa a contar. NUNCA mexe em pedido manual/corrigido.
-      if (ex._autoBling) {
+      // JÁ existe: só ATUALIZA as que EU importei DESTA conta (flag) e que a Bling mudou (situação/valor/frete).
+      // NUNCA mexe em pedido manual/corrigido nem no da outra conta.
+      if (ex[flag]) {
         let mud = false;
         if (ex.situacao !== (r.situacao || '')) { ex.situacao = r.situacao || ''; mud = true; }
         if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { ex.valor = +r.valor || 0; mud = true; }
@@ -15847,15 +15853,17 @@ async function _autoImportBling() {
       const pu = +it.valor || 0, q = +it.qtd || 0;
       return { sku: it.sku || '', descricao: it.descricao || '', qtd: q, precoUnit: pu, valorLinha: +(pu * (q || 1)).toFixed(2), totalProdutos: +r.valor || 0, precoCusto: 0, frete: 0, outras: 0, desconto: 0 };
     }) : [];
-    pedidos.push({
+    const novo = {
       id: num, nome: r.cliente || '', loja: r.loja || '', situacao: r.situacao || '', vendedor: r.vendedor || '',
-      empresa: 'Rokbox', data: _d, valor: +r.valor || 0, frete: +r.frete || 0, outrasDespesas: 0, desconto: 0,
+      empresa, data: _d, valor: +r.valor || 0, frete: +r.frete || 0, outrasDespesas: 0, desconto: 0,
       dataSaida: _d, dataFechamento: null, obsInternas: '', obs: '', temNF: '', numeroDoc: '', bairro: '', cep: '',
-      cidade: '', uf: '', clienteDesde: '', linhas, _bling: true, _freteLinhas: [], _autoBling: true
-    });
+      cidade: '', uf: '', clienteDesde: '', linhas, _bling: true, _freteLinhas: []
+    };
+    novo[flag] = true;
+    pedidos.push(novo);
     pedById.set(num, pedidos[pedidos.length - 1]); add++;
   });
-  if (add || upd) { await saveData('pedidos', pedidos); console.log('[Bling] auto-import: +' + add + ' nova(s), ' + upd + ' atualizada(s)'); }
+  if (add || upd) { await saveData('pedidos', pedidos); console.log('[Bling ' + empresa + '] auto-import: +' + add + ' nova(s), ' + upd + ' atualizada(s)'); }
   return add + upd;
 }
 
