@@ -467,7 +467,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v648/09-724';
+const APP_VERSION = 'v649/09-724';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -15819,7 +15819,7 @@ function delCheckboxHeader(source) {
 async function _autoImportBling() {
   // 1a Bling (Rokbox) e 2a Bling (Rk PL/WL) — cada uma na sua chave e com sua empresa. Dedup por número (não colidem).
   const n1 = await _impBlingConta('blingVendasRico', 'blingDetCache', 'Rokbox', '_autoBling');
-  const n2 = await _impBlingConta('blingVendasRico2', 'blingDetCache2', 'Rk PL/WL', '_autoBling2');
+  const n2 = await _impBlingConta('blingVendasRico2', 'blingDetCache2', 'Rk', '_autoBling2');
   return n1 + n2;
 }
 async function _impBlingConta(ricoKey, detKey, empresa, flag) {
