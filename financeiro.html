@@ -102,6 +102,7 @@
   <div class="abas">
     <button class="aba on" data-t="fluxo" onclick="setAba('fluxo')">💰 Fluxo de Caixa</button>
     <button class="aba" data-t="balancete" onclick="setAba('balancete')">📊 Balancete</button>
+    <button class="aba" data-t="fechamento" onclick="setAba('fechamento')">📄 Fechamento</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -169,6 +170,10 @@
     <div id="balancete-conteudo"></div>
   </div>
 
+  <div id="aba-fechamento" style="display:none">
+    <div id="fechamento-conteudo"></div>
+  </div>
+
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI)</div>
 </div>
 
@@ -194,6 +199,14 @@
   table.bal tr.grp td{font-weight:800;background:var(--bg2,#141a1f)}
   table.bal tr.tot td{font-weight:800;border-top:2px solid var(--line,#233)}
   table.bal td.cat{padding-left:22px;color:var(--txt,#cfe)}
+  /* impressão do Fechamento: só o relatório sai no PDF */
+  @media print {
+    @page { margin: 10mm; }
+    body { background:#fff !important; padding:0 !important }
+    header, .abas, .foot, #gate, .no-print, #aba-fluxo, #aba-balancete { display:none !important }
+    #aba-fechamento { display:block !important }
+    #fech-doc { background:#fff !important; padding:0 !important }
+  }
 </style>
 
 <script>
@@ -264,8 +277,78 @@ function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra
   const [fy,fm]=fim.split('-').map(Number); const arr=[]; let y=2026,m=6; while(y<fy||(y===fy&&m<=fm)){ arr.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} } return arr.reverse();
 }
 function _popMesSel(){ const s=document.getElementById('mes-sel'); if(!s) return; const cur=mesSel||mesAtual(); s.innerHTML=_mesesDisponiveis().map(mm=>{ const nome=new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<option value="${mm}" ${mm===cur?'selected':''}>${nome.charAt(0).toUpperCase()+nome.slice(1)}</option>`; }).join(''); }
-function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); } // atualiza o balancete tbm se estiver aberto
-function setAba(t){ mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; if(t==='balancete') renderBalancete(); }
+function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); const f=document.getElementById('aba-fechamento'); if(f && f.style.display!=='none') renderFechamento(); } // atualiza balancete/fechamento se estiverem abertos
+function setAba(t){ mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); }
+
+// ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
+function renderFechamento(){
+  const el=document.getElementById('fechamento-conteudo'); if(!el) return;
+  const F=_FIN; if(!F){ el.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:30px">Carregando… se não aparecer, dê F5.</div>'; return; }
+  const crA=Array.isArray(F.cr)?F.cr:((F.cr&&F.cr.itens)||[]);
+  const cpA=Array.isArray(F.cp)?F.cp:((F.cp&&F.cp.itens)||[]);
+  const peds=F.pedidos||[], lc=F.lc||{}, bal=F.bal, dev=Array.isArray(F.dev)?F.dev:[], devCred=F.devCred||{};
+  const _m=v=>String(v||'').slice(0,7), mesR=mesSel||mesAtual();
+  // devolução por pedido (mesma lógica do Gestão)
+  const pedById={}; peds.forEach(p=>pedById[String(p.id)]=p);
+  const credDe=d=>{ const raw=devCred[d.pedido+'|'+d.cliente]; if(raw==='__editando__'||raw==='__vazio__')return ''; const grp=dev.filter(x=>String(x.pedido)===String(d.pedido)&&(x.cliente||'')===(d.cliente||'')); if(grp.length>1){const dist=new Set(grp.map(x=>(x.pedidoCredito||'').trim())); if(dist.size>1)return (d.pedidoCredito||'').trim()||raw||'';} return raw||d.pedidoCredito||''; };
+  const rawDev={}; dev.forEach(d=>{ const cred=String(credDe(d)).match(/\d{4,6}/g)||[]; if(!cred.length)return; const parc=+(((+d.valorPago||0)/cred.length)).toFixed(2); cred.forEach(pc=>{rawDev[pc]=+(((rawDev[pc]||0)+parc)).toFixed(2);}); });
+  const devPorPed={}; Object.keys(rawDev).forEach(pc=>{const p=pedById[pc];const cap=p?(+p.valor||0):Infinity;devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2);});
+  const NAOAP=['cancelado','em aberto'], opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'', segDe=l=>(lc[l]&&lc[l].segmento)?lc[l].segmento:'Outros';
+  const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+  const ms=new Set(); (bal&&bal.rows||[]).forEach(r=>ms.add(r.mes)); peds.forEach(p=>{const m=_m(p.data); if(m)ms.add(m);}); crA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));}); cpA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));});
+  const meses=[...ms].filter(Boolean).sort(), base0=+((bal&&+bal.base)||0);
+  const serie=meses.map(M=>{
+    let fat=0; const emp={}, seg={};
+    peds.forEach(p=>{ if(_m(p.data)!==M||!ehVT(p))return; const v=(+p.valor||0)-(devPorPed[String(p.id)]||0); fat+=v; const e=/rokbox/i.test(p.empresa||'')?'Rokbox':(/rk/i.test(p.empresa||'')?'Rk':(p.empresa||'Rokbox')); emp[e]=(emp[e]||0)+v; const sg=segDe(p.loja); seg[sg]=(seg[sg]||0)+v; });
+    const receb=crA.filter(r=>_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.recebido_liquido||0),0);
+    const pago=cpA.filter(r=>!r.cancelado&&_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.valor||0),0);
+    const crAb=crA.filter(r=>!r.data_liquidacao&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+    const cpAb=cpA.filter(r=>!r.cancelado&&!r.data_liquidacao&&!r.pago&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor||0),0);
+    const netAnt=(bal&&bal.rows||[]).filter(r=>r.mes<M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
+    const netMes=(bal&&bal.rows||[]).filter(r=>r.mes===M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
+    const saldoIni=+(base0+netAnt).toFixed(2);
+    return {mes:M,fat:+fat.toFixed(2),emp,seg,receb:+receb.toFixed(2),pago:+pago.toFixed(2),resultado:+(receb-pago).toFixed(2),crAb:+crAb.toFixed(2),cpAb:+cpAb.toFixed(2),saldoIni,saldoFim:+(saldoIni+netMes).toFixed(2)};
+  });
+  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0};
+  const nomeMes=new Date(D.mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const balRows=(bal&&bal.rows||[]).filter(r=>r.mes===D.mes), grpR={},grpD={};
+  balRows.forEach(r=>{ const t=r.tipo==='R'?grpR:grpD; t[r.grupo]=(t[r.grupo]||0)+r.valor; });
+  const totR=+Object.values(grpR).reduce((s,v)=>s+v,0).toFixed(2), totD=+Object.values(grpD).reduce((s,v)=>s+v,0).toFixed(2);
+  const kf=n=>{ const a=Math.abs(n); return (n<0?'-':'')+(a>=1000?(a/1000).toLocaleString('pt-BR',{maximumFractionDigits:0})+'k':a.toFixed(0)); };
+  const chart=(campo,titulo,cor)=>{
+    const W=Math.max(300,serie.length*58),H=175,pb=34,pt=22;
+    const vals=serie.map(s=>+s[campo]||0), max=Math.max(1,...vals.map(Math.abs)), step=W/Math.max(1,serie.length), bw=Math.min(40,step-16);
+    let b=''; serie.forEach((s,i)=>{ const v=+s[campo]||0,h=Math.abs(v)/max*(H-pb-pt),x=i*step+(step-bw)/2,y=v>=0?(H-pb-h):(H-pb),c=s.mes===D.mes?cor:cor+'80'; b+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1,h).toFixed(1)}" rx="3" fill="${c}"/><text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#111" font-weight="700">${v?kf(v):''}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-16}" text-anchor="middle" font-size="9.5" fill="#888">${s.mes.slice(5)}/${s.mes.slice(2,4)}</text>`; });
+    return `<div style="flex:1;min-width:230px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;font-size:13px;color:#111;margin-bottom:2px">${titulo}</div><svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${b}</svg></div>`;
+  };
+  const linTab=o=>Object.entries(o).filter(([,v])=>Math.abs(v)>0.005).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td style="padding:3px 0">${k}</td><td style="text-align:right;padding:3px 0">${brl(v)}</td></tr>`).join('')||'<tr><td>—</td></tr>';
+  const balLin=(g,tot,cor)=>Object.entries(g).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td style="padding:3px 0">${k.replace(/_/g,' ')}</td><td style="text-align:right;color:${cor};padding:3px 0">${brl(v)}</td><td style="text-align:right;padding:3px 0;color:#6b7280">${tot?Math.round(v/tot*100):0}%</td></tr>`).join('');
+  const cardsTop=[['Faturamento',D.fat,'#059669'],['Recebido no mês',D.receb,'#059669'],['Pago no mês',D.pago,'#dc2626'],['Resultado (Rec−Pago)',D.resultado,D.resultado>=0?'#059669':'#dc2626'],['A receber (em aberto)',D.crAb,'#0284c7'],['A pagar (em aberto)',D.cpAb,'#d97706'],['Saldo início do mês',D.saldoIni,'#111827'],['Saldo fim do mês',D.saldoFim,'#111827']];
+  el.innerHTML=`
+  <div id="fech-doc" style="background:#eef1f4;color:#111;border-radius:12px;padding:22px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+      <div><div style="font-size:22px;font-weight:800">Fechamento do mês</div><div style="font-size:15px;color:#374151;text-transform:capitalize">${nomeMes}</div></div>
+      <div style="text-align:right"><div style="font-weight:800;font-size:22px;color:#0ea5e9">RK</div><button onclick="window.print()" class="no-print" style="margin-top:6px;padding:8px 14px;border:0;border-radius:8px;background:#0ea5e9;color:#fff;font-weight:700;cursor:pointer">🖨️ Salvar / Imprimir PDF</button></div>
+    </div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:16px">Gerado em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px">
+      ${cardsTop.map(([l,v,c])=>`<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">${l}</div><div style="font-size:19px;font-weight:800;color:${c};margin-top:4px">${brl(v)}</div></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      <div style="flex:1;min-width:220px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por empresa</div><table style="width:100%;font-size:13px;border-collapse:collapse">${linTab(D.emp)}</table></div>
+      <div style="flex:1;min-width:220px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por segmento</div><table style="width:100%;font-size:13px;border-collapse:collapse">${linTab(D.seg)}</table></div>
+    </div>
+    <div style="font-weight:800;font-size:15px;margin:6px 0 10px">📈 Evolução dos meses</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${chart('fat','Faturamento','#059669')}${chart('resultado','Resultado (Rec − Pago)','#0ea5e9')}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">${chart('receb','Recebido','#16a34a')}${chart('pago','Pago','#dc2626')}${chart('saldoFim','Saldo em banco (fim)','#7c3aed')}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">⬆ Receitas por grupo</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">%</th></tr>${balLin(grpR,totR,'#059669')}<tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td><td style="text-align:right">${brl(totR)}</td><td></td></tr></table></div>
+      <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">⬇ Despesas por grupo</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">%</th></tr>${balLin(grpD,totD,'#dc2626')}<tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td><td style="text-align:right">${brl(totD)}</td><td></td></tr></table></div>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:#374151">Resultado do balancete = Receitas ${brl(totR)} − Despesas ${brl(totD)} = <b style="color:${(totR-totD)>=0?'#059669':'#dc2626'}">${brl(+(totR-totD).toFixed(2))}</b></div>
+    <div style="margin-top:6px;font-size:10.5px;color:#9ca3af">Faturamento = pedidos Venda+Troca − devoluções (igual à página de Vendas). Recebido/Pago = liquidados no mês. Saldo pelo movimento do banco (Balancete).</div>
+  </div>`;
+}
 
 async function carregar(){
   try{
@@ -594,7 +677,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-24.29';
+const BUILD='2026-09-24.30';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
