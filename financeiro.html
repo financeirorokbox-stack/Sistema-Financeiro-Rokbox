@@ -269,7 +269,7 @@ function setAba(t){ mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete')]);
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito')]);
     _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal};
     _popMesSel();
     const mes=mesSel||mesAtual();
@@ -472,10 +472,19 @@ async function carregar(){
     const NAOAP=['cancelado','em aberto'];
     const opDe=l=>(lc&&lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
     const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+    // devolução por pedido: MESMA lógica do Gestão (credDevolucao + devolPorPedidoMap):
+    //  - regex \d{4,6} (4 a 6 dígitos) pra NÃO pegar número de dentro de valor tipo "Estorno 407,84";
+    //  - respeita o vínculo manual (devolucaoCredito); divide o crédito entre os pedidos citados; teto no valor do pedido.
+    const _devCred = devCred || {};
+    const _devAll = Array.isArray(dev) ? dev : [];
+    const _pedById = {}; (pedidos||[]).forEach(p=>{ _pedById[String(p.id)] = p; });
+    const _credDe = d => { const raw=_devCred[d.pedido+'|'+d.cliente]; if(raw==='__editando__'||raw==='__vazio__')return ''; const grp=_devAll.filter(x=>String(x.pedido)===String(d.pedido)&&(x.cliente||'')===(d.cliente||'')); if(grp.length>1){ const dist=new Set(grp.map(x=>(x.pedidoCredito||'').trim())); if(dist.size>1) return (d.pedidoCredito||'').trim()||raw||''; } return raw||d.pedidoCredito||''; };
+    const _rawDev={};
+    _devAll.forEach(d=>{ const cred=String(_credDe(d)).match(/\d{4,6}/g)||[]; if(!cred.length)return; const parc=+(((+d.valorPago||0)/cred.length)).toFixed(2); cred.forEach(pc=>{ _rawDev[pc]=+(((_rawDev[pc]||0)+parc)).toFixed(2); }); });
     const devPorPed={};
-    (dev||[]).forEach(d=>{ (String(d.pedidoCredito||'').match(/\d{3,6}/g)||[]).forEach(pc=>{ devPorPed[pc]=(devPorPed[pc]||0)+(+d.valorPago||0); }); });
+    Object.keys(_rawDev).forEach(pc=>{ const p=_pedById[pc]; const cap=p?(+p.valor||0):Infinity; devPorPed[pc]=+Math.min(_rawDev[pc],cap).toFixed(2); });
     let baseVT=0,devAbat=0,qv=0;
-    (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes)return; if(!ehVT(p))return; baseVT+=(+p.valor||0); qv++; devAbat+=Math.min(devPorPed[String(p.id)]||0,+p.valor||0); });
+    (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes)return; if(!ehVT(p))return; baseVT+=(+p.valor||0); qv++; devAbat+=(devPorPed[String(p.id)]||0); });
     const fat=+(baseVT-devAbat).toFixed(2);
     document.getElementById('faturamento').textContent=brl(fat);
     document.getElementById('fat-detalhe').textContent=`${qv} pedidos (Venda+Troca)${devAbat>0?' − '+brl(devAbat)+' devol.':''} · igual à página de Vendas`;
@@ -585,7 +594,7 @@ function renderBalancete(){
 // entra direto se já estava liberado neste aparelho
 (function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-23.28';
+const BUILD='2026-09-24.29';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
