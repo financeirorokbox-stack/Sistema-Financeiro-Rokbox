@@ -39,7 +39,7 @@
   /* cards de total em cima */
   .tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:clamp(10px,1.2vw,18px);margin-bottom:clamp(10px,1.2vw,18px)}
   .tlab{display:flex;align-items:center;gap:9px;font-size:clamp(14px,1.3vw,20px);font-weight:800}
-  .col-tot{font-size:clamp(26px,3.4vw,54px);font-weight:800;line-height:1.02;margin:8px 0 6px;color:var(--lime)}
+  .col-tot{font-size:clamp(20px,2vw,32px);font-weight:800;line-height:1.05;margin:8px 0 6px;color:var(--lime);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .seg-atacado .col-tot{color:var(--blue)}
   .seg-pl .col-tot{color:var(--gold)}
   .seg-wl .col-tot{color:var(--pink)}
@@ -177,7 +177,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-24.17';
+const BUILD = '2026-09-24.18';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
