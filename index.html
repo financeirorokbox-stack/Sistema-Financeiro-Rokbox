@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v650/09-724';
+const APP_VERSION = 'v651/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2279,8 +2279,11 @@ function _renderKeepScroll(fn) {
 // Abre/fecha o calendário de um campo. O estado fica em _dfOpen e o dropdown é renderizado
 // JÁ ABERTO pelo dateFilterHTML — assim sobrevive a qualquer re-render (não fecha ao marcar um dia).
 function dfToggle(field) {
-  _dfOpen = (_dfOpen === field) ? null : field;
-  _dfRenderKeepScroll();
+  // Abre/fecha SÓ o dropdown no DOM, sem re-renderizar a lista inteira (deixa leve). O filtro é aplicado ao fechar.
+  const willOpen = _dfOpen !== field;
+  document.querySelectorAll('.ms-dropdown.open').forEach(d => d.classList.remove('open'));
+  _dfOpen = willOpen ? field : null;
+  if (willOpen) { const dd = document.querySelector('.ms-dropdown[data-dff="' + field + '"]'); if (dd) dd.classList.add('open'); }
 }
 function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
@@ -2351,13 +2354,13 @@ function passaData(date) {
 // HTML do filtro de data para colar na barra de filtros de qualquer aba.
 function dateFilterHTML() {
   const campo = f => {
-    const aberto = _dfOpen === f;
-    const opts = aberto ? _dfOpts(f).map(([v, lbl]) => `<label class="ms-opt"><input type="checkbox" value="${v}" ${dateFilter[f].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${f}','${v}',this.checked)"> ${lbl}</label>`).join('') : '';
+    // Opções SEMPRE no DOM (escondidas via CSS até abrir) — assim abrir/fechar NÃO re-renderiza a lista (leve).
+    const opts = _dfOpts(f).map(([v, lbl]) => `<label class="ms-opt"><input type="checkbox" value="${v}" ${dateFilter[f].includes(v) ? 'checked' : ''} onchange="dfToggleVal('${f}','${v}',this.checked)"> ${lbl}</label>`).join('');
     return `
     <span class="f-label">${{ ano: 'Ano', mes: 'Mês', dia: 'Dia' }[f]}:</span>
     <div class="ms-wrap">
       <div class="ms-btn" onclick="dfToggle('${f}')"><span class="df-lbl" data-df="${f}">${_dfLabel(f)}</span><span>▾</span></div>
-      <div class="ms-dropdown ${aberto ? 'open' : ''}" onclick="event.stopPropagation()">${opts}</div>
+      <div class="ms-dropdown ${_dfOpen === f ? 'open' : ''}" data-dff="${f}" onclick="event.stopPropagation()">${opts}</div>
     </div>`;
   };
   return ['ano', 'mes', 'dia'].map(campo).join('') +
