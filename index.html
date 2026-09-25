@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v651/09-725';
+const APP_VERSION = 'v652/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7060,7 +7060,11 @@ function renderBoletos() {
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
   const dataDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.data;
   const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp) && (!dfAtivo() || passaData(dataDoPed(b.pedido))));
-  const totalEmitidos = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])}).length;
+  const emitidosArr = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])});
+  const totalEmitidos = emitidosArr.length;
+  const somaTot = vis.reduce((s,b)=>s+(+b.valorTotal||0),0);
+  const somaEmit = emitidosArr.reduce((s,b)=>s+(+b.valorTotal||0),0);
+  const somaPend = +(somaTot - somaEmit).toFixed(2);
   const hoje0 = new Date(); hoje0.setHours(0,0,0,0);
   const diasAviso = 5; // "prestes a vencer" = vence em até 5 dias
   let nVencidos = 0, nAVencer = 0;
@@ -7077,8 +7081,8 @@ function renderBoletos() {
     })}
     <div class="cards-row">
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
-      <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div></div>
-      <div class="card red"><div class="c-label">Pendentes</div><div class="c-val">${vis.length-totalEmitidos}</div></div>
+      <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div><div class="c-sub">${fmtVal(somaEmit)}</div></div>
+      <div class="card red"><div class="c-label">Pendentes (a emitir)</div><div class="c-val">${vis.length-totalEmitidos}</div><div class="c-sub">${fmtVal(somaPend)}</div></div>
       <div class="card amber"><div class="c-label">🟡 A vencer (${diasAviso}d)</div><div class="c-val">${nAVencer}</div></div>
       <div class="card red"><div class="c-label">🔴 Vencidos</div><div class="c-val">${nVencidos}</div></div>
     </div>
