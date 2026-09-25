@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v655/09-725';
+const APP_VERSION = 'v656/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -15856,7 +15856,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   let add = 0, upd = 0;
   rico.registros.forEach(r => {
     const num = String(r.numero || r.pedido || '');
-    if (!num || IGNORAR.has(String(r.situacao || ''))) return;
+    if (!num) return;
     const ex = pedById.get(num);
     if (ex) {
       // Este pedido é DESTA conta Bling? (marca da conta, OU um Bling antigo sem marca da mesma empresa: adota)
@@ -15880,6 +15880,9 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
       }
       return;
     }
+    // Pedido NOVO: não cria para status que não são venda (Cancelado/Atualização de estoque/Correios).
+    // Se o pedido JÁ existe, o cancelamento é aplicado no bloco acima (situacao -> Cancelado, para de contar).
+    if (IGNORAR.has(String(r.situacao || ''))) return;
     const _d = r.data ? new Date(r.data + 'T03:00:00.000Z') : null;
     const d = det[num] || {};
     const linhas = Array.isArray(d.itens) ? d.itens.map(it => {
