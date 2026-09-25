@@ -194,11 +194,11 @@
     <section class="tops" id="prod-tops"></section>
     <section class="baixo">
       <div class="card lojas">
-        <h2>Mais vendidos <span>(peças · <b id="prod-per">mês</b>)</span></h2>
+        <h2>Mais vendidos <span>(top 10 · peças · <b id="prod-per">mês</b>)</span></h2>
         <div class="rank" id="prod-rank-pcs"></div>
       </div>
       <div class="card lojas">
-        <h2>Mais faturados <span>(R$ · mês)</span></h2>
+        <h2>Mais faturados <span>(top 10 · R$ · mês)</span></h2>
         <div class="rank" id="prod-rank-val"></div>
       </div>
     </section>
@@ -224,7 +224,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-25.26';
+const BUILD = '2026-09-25.27';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -445,7 +445,7 @@ function prodAgg(){
   return { vendas:Object.values(mv), brindes:Object.values(mb) };
 }
 function barrasProd(el, arr, campo){
-  if(!el) return; const lim=12; const max=arr.length?arr[0][campo]:1;
+  if(!el) return; const lim=10; const max=arr.length?arr[0][campo]:1;
   el.innerHTML = arr.slice(0,lim).map((x,i)=>{
     const nome=(x.nome||x.sku||'(sem)')+(x.sku?` <span style="color:var(--muted);font-weight:400">· ${x.sku}</span>`:'');
     const main=campo==='val'?brl(x.val):(nf(x.pcs)+' pç');
