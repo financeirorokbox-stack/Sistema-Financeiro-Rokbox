@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v653/09-725';
+const APP_VERSION = 'v654/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6102,55 +6102,67 @@ function isRedeFile(file, wb) {
       try { return JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null }).slice(0, 4)); } catch (e) { return ''; }
     }).join(' ').toLowerCase();
     return txt.includes('valor mdr descontado') || txt.includes('valor líquido da parcela') || txt.includes('valor liquido da parcela')
-      || (fn.includes('rede') && (txt.includes('valor bruto da parcela') || txt.includes('extrato para simples confer')));
+      || txt.includes('nsu/cv') || ((txt.includes('valor líquido') || txt.includes('valor liquido')) && txt.includes('bandeira'))
+      || (fn.includes('rede') && (txt.includes('valor bruto da parcela') || txt.includes('extrato para simples confer') || txt.includes('valor da venda')));
   } catch (e) { return false; }
 }
 // Lê o relatório da Rede e AGREGA por venda (mesmo nº de pedido Rede + NSU): soma as parcelas em 1 recebimento.
 // nped fica vazio (o nº da Rede não é o nº do seu pedido) → entra como "sem pedido" p/ você vincular.
 function parseRedeSheet(wb, target) {
+  // Excel guarda data como número de série → converte. Aceita Date, número (serial) ou texto.
+  const toDate = v => { if (v instanceof Date) return v; if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400 * 1000)); return parseDate(v); };
   wb.SheetNames.forEach(sn => {
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
-    // Acha a linha de cabeçalho (a que tem "valor líquido da parcela")
+    // Cabeçalho: aceita o relatório de RECEBÍVEIS ("valor líquido da parcela") E o de VENDAS ("valor líquido" + "data da venda").
     let h = -1;
-    for (let i = 0; i < Math.min(aoa.length, 6); i++) {
+    for (let i = 0; i < Math.min(aoa.length, 12); i++) {
       const row = (aoa[i] || []).map(x => String(x == null ? '' : x).toLowerCase());
-      if (row.some(c => c.includes('valor líquido da parcela') || c.includes('valor liquido da parcela'))) { h = i; break; }
+      if (row.some(c => c.includes('valor líquido') || c.includes('valor liquido') || c.includes('valor da venda'))) { h = i; break; }
     }
     if (h < 0) return;
     const head = (aoa[h] || []).map(x => String(x == null ? '' : x).toLowerCase().trim());
     const col = (...keys) => head.findIndex(c => keys.some(k => c.includes(k)));
     const ci = {
-      data: col('data do recebimento'),
-      bruto: col('valor bruto da parcela original', 'valor bruto da parcela'),
-      taxa: col('valor mdr descontado'),
-      liq: col('valor líquido da parcela', 'valor liquido da parcela'),
-      status: col('status'),
+      data: col('data do recebimento', 'data da venda'),
+      bruto: col('valor bruto da parcela original', 'valor bruto da parcela', 'valor da venda atualizado', 'valor da venda original'),
+      taxa: col('valor total das taxas descontadas', 'valor mdr descontado', 'valor mdr'),
+      liq: col('valor líquido da parcela', 'valor liquido da parcela', 'valor líquido', 'valor liquido'),
+      status: col('status da venda', 'status'),
       bandeira: col('bandeira'),
       ped: col('número do pedido', 'numero do pedido'),
-      nsu: col('nsu'),
-      parcela: col('parcela'),
-      nparc: col('número de parcelas', 'numero de parcelas')
+      nsu: col('nsu/cv', 'nsu'),
+      nparc: col('número de parcelas', 'numero de parcelas', 'parcela'),
+      modalidade: col('modalidade'),
+      idtxn: col('id transação', 'id transacao', 'id transaç')
     };
-    const grupos = {}; // chave da venda → recebimento agregado
+    const grupos = {}; // chave da venda → recebimento agregado (parcelas da mesma venda somam)
     for (let i = h + 1; i < aoa.length; i++) {
       const row = aoa[i] || [];
       const bruto = ci.bruto >= 0 ? num(row[ci.bruto]) : 0;
-      const liq = ci.liq >= 0 ? num(row[ci.liq]) : 0;
+      let liq = ci.liq >= 0 ? num(row[ci.liq]) : 0;
       if (!bruto && !liq) continue;
       const status = String(ci.status >= 0 ? (row[ci.status] || '') : '').toLowerCase();
-      if (status.includes('cancel') || status.includes('contest') || status.includes('reprovad') || status.includes('negad')) continue;
-      const taxa = ci.taxa >= 0 ? num(row[ci.taxa]) : +(bruto - liq).toFixed(2);
-      let data = ci.data >= 0 ? row[ci.data] : null;
-      if (!(data instanceof Date)) data = parseDate(data);
+      if (status.includes('cancel') || status.includes('contest') || status.includes('reprovad') || status.includes('negad') || status.includes('estornad')) continue;
+      let taxa = ci.taxa >= 0 ? num(row[ci.taxa]) : 0;
+      // Matemática exata: o líquido é a fonte da verdade. Se veio, a taxa = bruto - líquido
+      // (a coluna de taxa às vezes traz só o MDR, sem o recebimento automático).
+      // Pix/débito às vezes vêm com "valor líquido" em branco ("-"): aí sim usa a taxa pra fechar.
+      if (liq && bruto) taxa = +(bruto - liq).toFixed(2);
+      else if (bruto) liq = +(bruto - taxa).toFixed(2);
+      const data = toDate(ci.data >= 0 ? row[ci.data] : null);
       const bandeira = ci.bandeira >= 0 ? String(row[ci.bandeira] || '').trim() : '';
+      const modalidade = ci.modalidade >= 0 ? String(row[ci.modalidade] || '').trim().toLowerCase() : '';
       const redePed = ci.ped >= 0 ? String(row[ci.ped] || '').trim() : '';
-      const nsu = ci.nsu >= 0 ? String(row[ci.nsu] || '').trim() : '';
+      const idtxn = ci.idtxn >= 0 ? String(row[ci.idtxn] || '').trim() : '';
+      let nsu = ci.nsu >= 0 ? String(row[ci.nsu] || '').trim() : '';
+      if ((!nsu || nsu === '-') && idtxn && idtxn !== '-') nsu = idtxn; // Pix: usa ID Transação como identificador
       const nparc = ci.nparc >= 0 ? String(row[ci.nparc] || '').trim() : '';
-      const key = (redePed || '?') + '|' + (nsu || '?') + '|' + (bandeira || '');
+      const ehPix = modalidade.includes('pix');
+      const key = ehPix ? ('pix|' + (idtxn || nsu || i)) : ((redePed || '?') + '|' + (nsu || '?') + '|' + (bandeira || ''));
       const g = grupos[key] || (grupos[key] = {
         gateway: 'Rede', bruto: 0, taxa: 0, liq: 0, data, nped: null, nome: '',
-        tipo: bandeira ? ('Crédito ' + bandeira + (nparc && +nparc > 1 ? ' ' + nparc + 'x' : '')) : 'Crédito',
-        status: status || 'paga', _redePed: redePed, _nsu: nsu
+        tipo: ehPix ? 'Pix (Rede)' : (bandeira ? ('Crédito ' + bandeira + (nparc && +nparc > 1 ? ' ' + nparc + 'x' : '')) : 'Crédito'),
+        status: status || 'paga', _redePed: redePed, _nsu: nsu || idtxn
       });
       g.bruto = +(g.bruto + bruto).toFixed(2);
       g.taxa = +(g.taxa + taxa).toFixed(2);
