@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v654/09-725';
+const APP_VERSION = 'v655/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -15859,13 +15859,23 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     if (!num || IGNORAR.has(String(r.situacao || ''))) return;
     const ex = pedById.get(num);
     if (ex) {
-      // JÁ existe: só ATUALIZA as que EU importei DESTA conta (flag) e que a Bling mudou (situação/valor/frete).
-      // NUNCA mexe em pedido manual/corrigido nem no da outra conta.
-      if (ex[flag]) {
+      // Este pedido é DESTA conta Bling? (marca da conta, OU um Bling antigo sem marca da mesma empresa: adota)
+      const semMarca = ex._bling && !ex._autoBling && !ex._autoBling2;
+      const mesmaEmpresa = String(ex.empresa || '') === empresa || (empresa === 'Rokbox' && !ex.empresa);
+      const daConta = ex[flag] || (semMarca && mesmaEmpresa);
+      if (daConta) {
+        // Sincroniza o que a Bling mudou. NUNCA mexe em pedido da outra conta nem no que ela corrigiu na mão.
         let mud = false;
+        if (!ex[flag]) { ex[flag] = true; mud = true; } // adota o import antigo (setembro/SQL) pra sincronizar dali pra frente
         if (ex.situacao !== (r.situacao || '')) { ex.situacao = r.situacao || ''; mud = true; }
         if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { ex.valor = +r.valor || 0; mud = true; }
         if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.005) { ex.frete = +r.frete || 0; mud = true; }
+        // loja e vendedor: só quando NÃO há correção manual (lojaFixes/vendedorFixes sempre ganham)
+        // e nunca sobrescreve com valor não mapeado ("loja#"/"Vend "/"(sem)") pra não sujar a tela.
+        const lB = r.loja || '';
+        if (!lojaFixes[num] && lB && !/^loja#/.test(lB) && ex.loja !== lB) { ex.loja = lB; mud = true; }
+        const vB = r.vendedor || '';
+        if (!vendedorFixes[num] && vB && vB !== '(sem)' && !/^Vend\s/.test(vB) && ex.vendedor !== vB) { ex.vendedor = vB; mud = true; }
         if (mud) upd++;
       }
       return;
