@@ -178,7 +178,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-24.19';
+const BUILD = '2026-09-25.20';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -192,7 +192,7 @@ async function checkVersao(){
 }
 const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']); // cenário BLING conta tudo isso (inclui Em aberto)
 // cenário SISTEMA não usa esse set: conta como o TOTAL GERAL do Gestão RK = operação Venda+Troca (pela lojaCadastro), fora cancelado/em aberto, valor cheio — ver _pedToRegs/_conta.
-const OCULTAR = new Set(['Atualização de estoque','Correios']);
+const OCULTAR = new Set(['Atualização de estoque','Correios','Cancelado']);
 // Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
 const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
 const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
