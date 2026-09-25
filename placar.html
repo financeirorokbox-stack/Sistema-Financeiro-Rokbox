@@ -128,10 +128,10 @@
         <option value="Rk">Rk (PL/WL)</option>
       </select>
       <select class="empresa-sel" id="mes-sel" onchange="setMes(this.value)" title="Escolher o mês (passados vêm do Sistema, já fechados)"></select>
-      <div class="seg" id="op-seg" title="Operação: Venda fica sempre. Ligue Troca e/ou Amostra pra trazer tudo e conferir com a Bling.">
-        <button id="op-venda" class="on" onclick="toggleOp('venda')" style="cursor:default" title="Venda fica sempre ligada">Venda</button>
-        <button id="op-troca" onclick="toggleOp('troca')">+ Troca</button>
-        <button id="op-amostra" onclick="toggleOp('amostra')">+ Amostra</button>
+      <div class="seg" id="op-seg" title="Operação: ligue/desligue Venda, Troca e Amostra. Abre em Venda; pra ver só Amostra, ligue Amostra e desligue Venda.">
+        <button id="op-venda" class="on" onclick="toggleOp('venda')">Venda</button>
+        <button id="op-troca" onclick="toggleOp('troca')">Troca</button>
+        <button id="op-amostra" onclick="toggleOp('amostra')">Amostra</button>
       </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
@@ -183,7 +183,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-25.21';
+const BUILD = '2026-09-25.22';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -215,11 +215,11 @@ let empresaSel = 'ambas';
 function setEmpresa(v){ empresaSel = v; render(); }
 let mesSel = null; // null = mês vigente (Bling ao vivo); um mês passado = só Sistema (fechado)
 function setMes(v){ mesSel = v || null; render(); }
-let opSel = new Set(['venda']); // Venda fixa; abre só em Venda. Troca/Amostra entram no clique (pra conferir com a Bling).
+let opSel = new Set(['venda']); // abre só em Venda; cada operação liga/desliga (pra conferir com a Bling)
 function toggleOp(op){
-  if(op==='venda') return; // Venda é fixa, sempre entra
-  if(opSel.has(op)) opSel.delete(op); else opSel.add(op);
-  const b=document.getElementById('op-'+op); if(b) b.classList.toggle('on', opSel.has(op));
+  if(opSel.has(op)){ if(opSel.size===1) return; opSel.delete(op); } // não deixa desligar todas
+  else opSel.add(op);
+  ['venda','troca','amostra'].forEach(o=>{ const b=document.getElementById('op-'+o); if(b) b.classList.toggle('on', opSel.has(o)); });
   render();
 }
 function _popMeses(){
