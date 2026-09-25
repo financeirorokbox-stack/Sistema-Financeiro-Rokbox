@@ -38,6 +38,10 @@
   .tabs{display:flex;gap:8px;margin:0 0 16px}
   .tabs button{background:var(--card);border:1px solid var(--line);color:var(--muted);font-weight:800;font-size:clamp(13px,1.1vw,16px);padding:9px 22px;border-radius:12px;cursor:pointer;transition:.15s}
   .tabs button.on{background:var(--lime);color:#08130b;border-color:transparent}
+  #tam-pop{position:fixed;z-index:9999;display:none;background:#0d1512;border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:160px;max-width:260px;box-shadow:0 8px 30px rgba(0,0,0,.55)}
+  #tam-pop .tp-h{font-weight:800;font-size:13px;margin-bottom:7px;color:var(--txt)}
+  #tam-pop .tp-r{display:flex;justify-content:space-between;gap:16px;font-size:13px;color:var(--muted);padding:2px 0}
+  #tam-pop .tp-r b{color:var(--lime)}
   .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:20px;padding:clamp(15px,1.6vw,26px);box-shadow:var(--shadow)}
   /* cards de total em cima */
   .tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:clamp(10px,1.2vw,18px);margin-bottom:clamp(10px,1.2vw,18px)}
@@ -220,7 +224,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-25.25';
+const BUILD = '2026-09-25.26';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -397,9 +401,27 @@ function setView(v){
   const fs=document.getElementById('fonte-seg'); if(fs) fs.style.display = v==='produtos'?'none':''; // Produtos vem sempre do Sistema (só ele tem SKU)
   if(v==='produtos'){ if(!_pedidosRaw) carregarPedidos().then(renderProdutos); else renderProdutos(); }
 }
+// Nome base (sem "Tamanho:..;Cor:..;Genero:..") e o tamanho, tirados da descrição da Bling.
+function _baseNome(desc){ const i=desc.search(/\s*Tamanho:/i); if(i>=0) return desc.slice(0,i).trim(); const j=desc.indexOf(';'); return (j>=0?desc.slice(0,j):desc).trim(); }
+function _tamDe(desc){ const m=desc.match(/Tamanho:\s*([^;]+)/i); return m?m[1].trim():''; }
+function _skuBase(sku){ return String(sku||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,''); }
+const TAMORD=['PP','P','M','G','GG','XG','XGG','U','UN','ÚNICO','UNICO'];
+function _tamStr(tamObj){ const e=Object.entries(tamObj||{}).sort((a,b)=>{ const ia=TAMORD.indexOf(a[0].toUpperCase()),ib=TAMORD.indexOf(b[0].toUpperCase()); return (ia<0?99:ia)-(ib<0?99:ib); }); return e.map(([s,o])=>`${s}~${nf(o.pcs)}`).join('|'); }
+function _esc(s){ return String(s||'').replace(/"/g,'&quot;'); }
+function showTam(ev, el){
+  ev.stopPropagation();
+  let pop=document.getElementById('tam-pop'); if(!pop){ pop=document.createElement('div'); pop.id='tam-pop'; document.body.appendChild(pop); }
+  const nome=el.getAttribute('data-nome')||''; const tam=el.getAttribute('data-tam')||'';
+  pop.innerHTML=`<div class="tp-h">${nome}</div>`+(tam? tam.split('|').map(t=>{const p=t.split('~'); return `<div class="tp-r"><span>${p[0]}</span><b>${p[1]} pç</b></div>`;}).join('') : '<div class="tp-r">sem tamanho</div>');
+  pop.style.display='block';
+  const w=pop.offsetWidth||200; const x=Math.min(ev.clientX, window.innerWidth-w-12); const y=Math.min(ev.clientY+12, window.innerHeight-pop.offsetHeight-12);
+  pop.style.left=Math.max(8,x)+'px'; pop.style.top=Math.max(8,y)+'px';
+}
+document.addEventListener('click', e=>{ const p=document.getElementById('tam-pop'); if(p && p.style.display==='block' && !p.contains(e.target) && !e.target.closest('[data-tam]')) p.style.display='none'; });
+
 function prodAgg(){
   const curMes=(dados&&dados.mes)||hojeISO().slice(0,7); const mesAtivo=mesSel||curMes;
-  const mv={}, mb={}; // mv = vendas de verdade; mb = brindes (linha a R$ 0,01 dentro de vendas)
+  const mv={}, mb={}; // mv = vendas de verdade; mb = brindes (linha a R$ 0,01 dentro de vendas). Agrupa por PRODUTO BASE (soma tamanhos).
   (_pedidosRaw||[]).forEach(p=>{
     let d=p.data; if(d&&typeof d!=='string'){ try{ d=new Date(d).toISOString().slice(0,10); }catch(e){ d=''; } } else if(typeof d==='string') d=d.slice(0,10);
     if(!d || d.slice(0,7)!==mesAtivo) return;
@@ -412,9 +434,12 @@ function prodAgg(){
       const val=(+l.valorLinha || ((+l.precoUnit||0)*qtd));
       const pu = qtd>0 ? val/qtd : (+l.precoUnit||0);
       const alvo = (pu <= 0.011) ? mb : mv; // preço unitário até R$ 0,01 = brinde/cortesia (sai da venda)
-      const key=sku||desc||'(sem)';
-      const o=alvo[key]||(alvo[key]={sku,desc,pcs:0,val:0});
+      const base = _baseNome(desc) || sku || '(sem)';
+      const tam = _tamDe(desc) || '(sem)';
+      const key = base.toLowerCase();
+      const o=alvo[key]||(alvo[key]={nome:base, sku:_skuBase(sku), pcs:0, val:0, tam:{}});
       o.pcs+=qtd; o.val+=val;
+      o.tam[tam]=o.tam[tam]||{pcs:0,val:0}; o.tam[tam].pcs+=qtd; o.tam[tam].val+=val;
     });
   });
   return { vendas:Object.values(mv), brindes:Object.values(mb) };
@@ -422,10 +447,11 @@ function prodAgg(){
 function barrasProd(el, arr, campo){
   if(!el) return; const lim=12; const max=arr.length?arr[0][campo]:1;
   el.innerHTML = arr.slice(0,lim).map((x,i)=>{
-    const nome=(x.desc||x.sku||'(sem)')+(x.sku&&x.desc?` <span style="color:var(--muted);font-weight:400">· ${x.sku}</span>`:'');
+    const nome=(x.nome||x.sku||'(sem)')+(x.sku?` <span style="color:var(--muted);font-weight:400">· ${x.sku}</span>`:'');
     const main=campo==='val'?brl(x.val):(nf(x.pcs)+' pç');
     const sub=campo==='val'?(nf(x.pcs)+' pç'):brl(x.val);
-    return `<div class="row"><div class="pos">${i+1}</div><div class="bar-wrap"><div class="bar-top"><span class="nm">${nome}</span><span class="val">${main}</span></div><div class="bar"><i style="width:${Math.max(3,(x[campo]/(max||1))*100)}%"></i></div></div><div class="qt">${sub}</div></div>`;
+    const ts=_tamStr(x.tam);
+    return `<div class="row" style="cursor:pointer" data-nome="${_esc(x.nome)}" data-tam="${_esc(ts)}" onclick="showTam(event,this)" title="clique pra ver por tamanho"><div class="pos">${i+1}</div><div class="bar-wrap"><div class="bar-top"><span class="nm">${nome}</span><span class="val">${main}</span></div><div class="bar"><i style="width:${Math.max(3,(x[campo]/(max||1))*100)}%"></i></div></div><div class="qt">${sub}</div></div>`;
   }).join('') || '<div class="empty">sem vendas no período</div>';
 }
 function renderProdutos(){
@@ -442,7 +468,7 @@ function renderProdutos(){
   barrasProd(document.getElementById('prod-rank-pcs'), porPcs, 'pcs');
   barrasProd(document.getElementById('prod-rank-val'), porVal, 'val');
   let h='<thead><tr><th class="nm">Produto</th><th>SKU</th><th class="rt">Peças</th><th class="rt">R$</th></tr></thead><tbody>';
-  porPcs.forEach(x=>{ h+=`<tr><td class="nm" title="${(x.desc||'').replace(/"/g,'&quot;')}">${x.desc||'—'}</td><td>${x.sku||'—'}</td><td class="rt">${nf(x.pcs)}</td><td class="rt">${brl(x.val)}</td></tr>`; });
+  porPcs.forEach(x=>{ h+=`<tr style="cursor:pointer" data-nome="${_esc(x.nome)}" data-tam="${_esc(_tamStr(x.tam))}" onclick="showTam(event,this)" title="clique pra ver por tamanho"><td class="nm">${x.nome||'—'}</td><td>${x.sku||'—'}</td><td class="rt">${nf(x.pcs)}</td><td class="rt">${brl(x.val)}</td></tr>`; });
   h+='</tbody>';
   const tab=document.getElementById('prod-tab'); if(tab) tab.innerHTML=h;
   // Brindes (linhas a R$ 0,01 dentro de vendas)
@@ -450,7 +476,7 @@ function renderProdutos(){
   const bTot=brindes.reduce((s,x)=>s+x.pcs,0);
   const bt=document.getElementById('brinde-tot'); if(bt) bt.textContent=nf(bTot);
   let hb='<thead><tr><th class="nm">Produto</th><th>SKU</th><th class="rt">Peças (brinde)</th></tr></thead><tbody>';
-  bPorPcs.forEach(x=>{ hb+=`<tr><td class="nm" title="${(x.desc||'').replace(/"/g,'&quot;')}">${x.desc||'—'}</td><td>${x.sku||'—'}</td><td class="rt">${nf(x.pcs)}</td></tr>`; });
+  bPorPcs.forEach(x=>{ hb+=`<tr style="cursor:pointer" data-nome="${_esc(x.nome)}" data-tam="${_esc(_tamStr(x.tam))}" onclick="showTam(event,this)" title="clique pra ver por tamanho"><td class="nm">${x.nome||'—'}</td><td>${x.sku||'—'}</td><td class="rt">${nf(x.pcs)}</td></tr>`; });
   hb+='</tbody>';
   const btab=document.getElementById('brinde-tab'); if(btab) btab.innerHTML = bPorPcs.length ? hb : '<tbody><tr><td class="nm" style="color:var(--muted)">nenhum brinde (R$ 0,01) no período</td></tr></tbody>';
 }
