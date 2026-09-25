@@ -67,6 +67,7 @@
   table.vd th,table.vd td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--line)}
   table.vd th{color:var(--muted);font-weight:700;position:sticky;top:0;background:var(--card)}
   table.vd td.nm,table.vd th.nm{text-align:left;position:sticky;left:0;background:var(--card);font-weight:700;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  #prod-tab td.nm,#prod-tab th.nm,#brinde-tab td.nm,#brinde-tab th.nm{max-width:none;white-space:normal;min-width:240px;overflow:visible}
   table.vd td.z{color:var(--line)}
   table.vd tr.tot td,table.vd tr.tot th{border-top:2px solid var(--line);font-weight:800;color:var(--lime)}
   table.vd td.rt{font-weight:800;color:var(--lime)}
@@ -204,8 +205,8 @@
     </section>
     <section class="baixo">
       <div class="card lojas" style="grid-column:1/-1">
-        <h2>Produtos vendidos <span>(mês · lista completa · sem brindes)</span></h2>
-        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="prod-tab"></table></div>
+        <h2 style="cursor:pointer" onclick="toggleLista()"><span id="lista-cev">▸</span> Produtos vendidos <span>(mês · lista completa · sem brindes · clique pra abrir)</span></h2>
+        <div id="lista-body" style="display:none;overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="prod-tab"></table></div>
       </div>
     </section>
     <section class="baixo">
@@ -224,7 +225,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-25.27';
+const BUILD = '2026-09-25.28';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -444,6 +445,7 @@ function prodAgg(){
   });
   return { vendas:Object.values(mv), brindes:Object.values(mb) };
 }
+function toggleLista(){ const b=document.getElementById('lista-body'), c=document.getElementById('lista-cev'); if(!b) return; const abrir=(b.style.display==='none'); b.style.display=abrir?'':'none'; if(c) c.textContent=abrir?'▾':'▸'; }
 function barrasProd(el, arr, campo){
   if(!el) return; const lim=10; const max=arr.length?arr[0][campo]:1;
   el.innerHTML = arr.slice(0,lim).map((x,i)=>{
