@@ -200,8 +200,14 @@
     </section>
     <section class="baixo">
       <div class="card lojas" style="grid-column:1/-1">
-        <h2>Produtos vendidos <span>(mês · lista completa)</span></h2>
+        <h2>Produtos vendidos <span>(mês · lista completa · sem brindes)</span></h2>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="prod-tab"></table></div>
+      </div>
+    </section>
+    <section class="baixo">
+      <div class="card lojas" style="grid-column:1/-1">
+        <h2>🎁 Brindes <span>(cortesia a R$ 0,01 dentro de vendas · <b id="brinde-tot">0</b> peças)</span></h2>
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="brinde-tab"></table></div>
       </div>
     </section>
   </div>
@@ -214,7 +220,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-25.24';
+const BUILD = '2026-09-25.25';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -393,7 +399,7 @@ function setView(v){
 }
 function prodAgg(){
   const curMes=(dados&&dados.mes)||hojeISO().slice(0,7); const mesAtivo=mesSel||curMes;
-  const m={};
+  const mv={}, mb={}; // mv = vendas de verdade; mb = brindes (linha a R$ 0,01 dentro de vendas)
   (_pedidosRaw||[]).forEach(p=>{
     let d=p.data; if(d&&typeof d!=='string'){ try{ d=new Date(d).toISOString().slice(0,10); }catch(e){ d=''; } } else if(typeof d==='string') d=d.slice(0,10);
     if(!d || d.slice(0,7)!==mesAtivo) return;
@@ -402,13 +408,16 @@ function prodAgg(){
     if(['cancelado','em aberto'].includes(String(p.situacao||'').toLowerCase())) return;
     (Array.isArray(p.linhas)?p.linhas:[]).forEach(l=>{
       const sku=String(l.sku||'').trim(); const desc=String(l.descricao||'').trim();
+      const qtd=(+l.qtd||0);
+      const val=(+l.valorLinha || ((+l.precoUnit||0)*qtd));
+      const pu = qtd>0 ? val/qtd : (+l.precoUnit||0);
+      const alvo = (pu <= 0.011) ? mb : mv; // preço unitário até R$ 0,01 = brinde/cortesia (sai da venda)
       const key=sku||desc||'(sem)';
-      const o=m[key]||(m[key]={sku,desc,pcs:0,val:0});
-      o.pcs+=(+l.qtd||0);
-      o.val+=(+l.valorLinha || ((+l.precoUnit||0)*(+l.qtd||0)));
+      const o=alvo[key]||(alvo[key]={sku,desc,pcs:0,val:0});
+      o.pcs+=qtd; o.val+=val;
     });
   });
-  return Object.values(m);
+  return { vendas:Object.values(mv), brindes:Object.values(mb) };
 }
 function barrasProd(el, arr, campo){
   if(!el) return; const lim=12; const max=arr.length?arr[0][campo]:1;
@@ -422,20 +431,28 @@ function barrasProd(el, arr, campo){
 function renderProdutos(){
   if(view!=='produtos') return;
   if(!_pedidosRaw){ carregarPedidos().then(renderProdutos); return; }
-  const arr=prodAgg();
-  const totPcs=arr.reduce((s,x)=>s+x.pcs,0), totVal=arr.reduce((s,x)=>s+x.val,0), skus=arr.length;
+  const {vendas, brindes}=prodAgg();
+  const totPcs=vendas.reduce((s,x)=>s+x.pcs,0), totVal=vendas.reduce((s,x)=>s+x.val,0), skus=vendas.length;
   const tops=document.getElementById('prod-tops');
   if(tops) tops.innerHTML =
     `<div class="card"><div class="tlab">📦 Peças vendidas</div><div class="col-tot">${nf(totPcs)}</div><div class="tsub">${nf(skus)} produtos diferentes</div></div>`+
     `<div class="card"><div class="tlab">💰 Faturamento (itens)</div><div class="col-tot" style="color:var(--txt)">${brl(totVal)}</div><div class="tsub">ticket ${brl(totPcs?totVal/totPcs:0)} / peça</div></div>`;
-  const porPcs=[...arr].sort((a,b)=>b.pcs-a.pcs);
-  const porVal=[...arr].sort((a,b)=>b.val-a.val);
+  const porPcs=[...vendas].sort((a,b)=>b.pcs-a.pcs);
+  const porVal=[...vendas].sort((a,b)=>b.val-a.val);
   barrasProd(document.getElementById('prod-rank-pcs'), porPcs, 'pcs');
   barrasProd(document.getElementById('prod-rank-val'), porVal, 'val');
   let h='<thead><tr><th class="nm">Produto</th><th>SKU</th><th class="rt">Peças</th><th class="rt">R$</th></tr></thead><tbody>';
   porPcs.forEach(x=>{ h+=`<tr><td class="nm" title="${(x.desc||'').replace(/"/g,'&quot;')}">${x.desc||'—'}</td><td>${x.sku||'—'}</td><td class="rt">${nf(x.pcs)}</td><td class="rt">${brl(x.val)}</td></tr>`; });
   h+='</tbody>';
   const tab=document.getElementById('prod-tab'); if(tab) tab.innerHTML=h;
+  // Brindes (linhas a R$ 0,01 dentro de vendas)
+  const bPorPcs=[...brindes].sort((a,b)=>b.pcs-a.pcs);
+  const bTot=brindes.reduce((s,x)=>s+x.pcs,0);
+  const bt=document.getElementById('brinde-tot'); if(bt) bt.textContent=nf(bTot);
+  let hb='<thead><tr><th class="nm">Produto</th><th>SKU</th><th class="rt">Peças (brinde)</th></tr></thead><tbody>';
+  bPorPcs.forEach(x=>{ hb+=`<tr><td class="nm" title="${(x.desc||'').replace(/"/g,'&quot;')}">${x.desc||'—'}</td><td>${x.sku||'—'}</td><td class="rt">${nf(x.pcs)}</td></tr>`; });
+  hb+='</tbody>';
+  const btab=document.getElementById('brinde-tab'); if(btab) btab.innerHTML = bPorPcs.length ? hb : '<tbody><tr><td class="nm" style="color:var(--muted)">nenhum brinde (R$ 0,01) no período</td></tr></tbody>';
 }
 
 function cardTotal(S, regs){
