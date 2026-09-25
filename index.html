@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v652/09-725';
+const APP_VERSION = 'v653/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2279,11 +2279,16 @@ function _renderKeepScroll(fn) {
 // Abre/fecha o calendário de um campo. O estado fica em _dfOpen e o dropdown é renderizado
 // JÁ ABERTO pelo dateFilterHTML — assim sobrevive a qualquer re-render (não fecha ao marcar um dia).
 function dfToggle(field) {
-  // Abre/fecha SÓ o dropdown no DOM, sem re-renderizar a lista inteira (deixa leve). O filtro é aplicado ao fechar.
+  // ABRIR = só mostra o dropdown (sem re-render, leve). FECHAR pelo botão = aplica o filtro (uma vez).
   const willOpen = _dfOpen !== field;
   document.querySelectorAll('.ms-dropdown.open').forEach(d => d.classList.remove('open'));
-  _dfOpen = willOpen ? field : null;
-  if (willOpen) { const dd = document.querySelector('.ms-dropdown[data-dff="' + field + '"]'); if (dd) dd.classList.add('open'); }
+  if (willOpen) {
+    _dfOpen = field;
+    const dd = document.querySelector('.ms-dropdown[data-dff="' + field + '"]'); if (dd) dd.classList.add('open');
+  } else {
+    _dfOpen = null;
+    _dfRenderKeepScroll(); // fechou pelo botão → aplica o que foi marcado
+  }
 }
 function dfToggleVal(field, value, checked) {
   if (checked) { if (!dateFilter[field].includes(value)) dateFilter[field].push(value); }
