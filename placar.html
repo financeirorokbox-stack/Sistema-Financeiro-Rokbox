@@ -128,6 +128,11 @@
         <option value="Rk">Rk (PL/WL)</option>
       </select>
       <select class="empresa-sel" id="mes-sel" onchange="setMes(this.value)" title="Escolher o mês (passados vêm do Sistema, já fechados)"></select>
+      <div class="seg" id="op-seg" title="Operação: Venda fica sempre. Ligue Troca e/ou Amostra pra trazer tudo e conferir com a Bling.">
+        <button id="op-venda" class="on" onclick="toggleOp('venda')" style="cursor:default" title="Venda fica sempre ligada">Venda</button>
+        <button id="op-troca" onclick="toggleOp('troca')">+ Troca</button>
+        <button id="op-amostra" onclick="toggleOp('amostra')">+ Amostra</button>
+      </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
@@ -178,7 +183,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-25.20';
+const BUILD = '2026-09-25.21';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -195,6 +200,10 @@ const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcia
 const OCULTAR = new Set(['Atualização de estoque','Correios','Cancelado']);
 // Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
 const AMOSTRA = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
+// Operação por loja (pro filtro Venda/Troca/Amostra). O que não é Troca nem Amostra é Venda.
+const TROCA_LOJAS = new Set(['Troca','Troca Atacado']);
+const AMOSTRA_LOJAS = new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário']);
+const opDeLoja = l => TROCA_LOJAS.has(l) ? 'troca' : (AMOSTRA_LOJAS.has(l) ? 'amostra' : 'venda');
 const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
 const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
 const PL_LOJA = new Set(['Vendas PL','Parceria PL']);
@@ -206,6 +215,13 @@ let empresaSel = 'ambas';
 function setEmpresa(v){ empresaSel = v; render(); }
 let mesSel = null; // null = mês vigente (Bling ao vivo); um mês passado = só Sistema (fechado)
 function setMes(v){ mesSel = v || null; render(); }
+let opSel = new Set(['venda']); // Venda fixa; abre só em Venda. Troca/Amostra entram no clique (pra conferir com a Bling).
+function toggleOp(op){
+  if(op==='venda') return; // Venda é fixa, sempre entra
+  if(opSel.has(op)) opSel.delete(op); else opSel.add(op);
+  const b=document.getElementById('op-'+op); if(b) b.classList.toggle('on', opSel.has(op));
+  render();
+}
 function _popMeses(){
   const sel = document.getElementById('mes-sel'); if(!sel) return;
   const cur = (dados&&dados.mes) || hojeISO().slice(0,7);
@@ -344,8 +360,10 @@ function render(){
   const fEf = usarBling ? 'bling' : 'sistema'; // fonte efetiva
   const D = usarBling ? dados : dadosSistema;
   _raw.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
-  const regsMes = (fEf==='sistema') ? _raw : _raw.filter(x=>!AMOSTRA.has(x.loja));
-  const vendasMes = (fEf==='sistema') ? regsMes.filter(x=>x._conta) : regsMes.filter(x=>VENDA.has(x.situacao));
+  const regsMes = _raw.filter(x=>opSel.has(opDeLoja(x.loja))); // filtro de operação (Venda fixa + Troca/Amostra opcionais)
+  const vendasMes = (fEf==='sistema')
+    ? regsMes.filter(x=>!['cancelado','em aberto'].includes((x.situacao||'').toLowerCase()))
+    : regsMes.filter(x=>VENDA.has(x.situacao));
   const _wk = semanaRange();
   const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
   const base = vendasMes.filter(x=>inPer(x.data));
