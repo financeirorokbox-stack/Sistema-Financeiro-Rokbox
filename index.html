@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v663/09-725';
+const APP_VERSION = 'v664/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5270,6 +5270,23 @@ function addRecorrencia() {
   saveData('recorrencias', recorrencias);
   renderPagar();
 }
+// De/Até da recorrência por DROPDOWN de mês + ano (sem o seletor de mês nativo, que é ruim de mexer).
+function recMesAnoHTML(id, campo, value) {
+  const [a, m] = String(value || '').split('-');
+  const meses = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+  const anos = [2025, 2026, 2027, 2028, 2029];
+  const st = 'padding:5px 4px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface)';
+  const optM = '<option value="">mês</option>' + meses.map((mm, i) => `<option value="${mm}" ${mm === m ? 'selected' : ''}>${MESES[i].slice(0, 3)}</option>`).join('');
+  const optA = '<option value="">ano</option>' + anos.map(y => `<option value="${y}" ${String(y) === a ? 'selected' : ''}>${y}</option>`).join('');
+  return `<select id="rp-${id}-${campo}-mes" style="${st}" onchange="setRecPeriodo('${id}','${campo}')">${optM}</select><select id="rp-${id}-${campo}-ano" style="${st};margin-left:3px" onchange="setRecPeriodo('${id}','${campo}')">${optA}</select>`;
+}
+function setRecPeriodo(id, campo) {
+  const mes = (document.getElementById('rp-' + id + '-' + campo + '-mes')?.value) || '';
+  const ano = (document.getElementById('rp-' + id + '-' + campo + '-ano')?.value) || '';
+  const r = recorrencias.find(x => x.id === id); if (!r) return;
+  r[campo] = (ano && mes) ? (ano + '-' + mes) : ''; // só vale quando mês E ano estão escolhidos
+  saveData('recorrencias', recorrencias); renderPagar();
+}
 // Cria uma recorrência JÁ preenchida a partir de uma conta que existe (rápido). A conta vira o 1º mês.
 function recorrenciaDaConta(idx) {
   const c = contasPagar[idx]; if (!c) return;
@@ -5829,8 +5846,8 @@ function renderPagar() {
           <td><input class="inline-input" style="width:95px" list="rec-emp-list" value="${(r.empresa||'').replace(/"/g,'&quot;')}" onchange="updateRecorrencia('${r.id}','empresa',this.value)"></td>
           <td style="text-align:right"><input class="inline-input" style="width:100px;text-align:right" value="${r.valor?r.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" onchange="updateRecorrencia('${r.id}','valor',this.value)"></td>
           <td style="text-align:center"><input type="number" class="inline-input" style="width:55px;text-align:center" min="1" max="31" value="${r.diaVenc||''}" onchange="updateRecorrencia('${r.id}','diaVenc',this.value)"></td>
-          <td><input type="month" class="inline-input" style="width:130px" value="${r.mesIni||''}" onchange="updateRecorrencia('${r.id}','mesIni',this.value)"></td>
-          <td><input type="month" class="inline-input" style="width:130px" value="${r.mesFim||''}" onchange="updateRecorrencia('${r.id}','mesFim',this.value)"></td>
+          <td>${recMesAnoHTML(r.id,'mesIni',r.mesIni)}</td>
+          <td>${recMesAnoHTML(r.id,'mesFim',r.mesFim)}</td>
           <td style="text-align:center">${nGer ? `<button class="btn ghost sm" style="font-size:11px;padding:2px 8px" onclick="toggleRecHist('${r.id}')" title="Ver o histórico dos meses gerados">${nGer} ${_histAberto?'▾':'▸'}</button>` : '<span style="font-size:11px;color:var(--muted)">—</span>'}</td>
           <td><a href="#" onclick="removeRecorrencia('${r.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover recorrência">✕</a></td>
         </tr>${histRow}`; }).join('') : '<tr><td colspan="10" style="color:var(--muted);font-size:12px">Nenhuma recorrência. Cadastre uma abaixo.</td></tr>'}
