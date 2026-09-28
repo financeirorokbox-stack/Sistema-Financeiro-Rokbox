@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v667/09-725';
+const APP_VERSION = 'v668/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5361,8 +5361,16 @@ function competenciaConta(c) { if (c && c.competencia) return c.competencia; con
 // Filtro de categorias (múltipla seleção por checkbox) no Contas a Pagar
 let cpCatSel = new Set();
 let cpCatAberto = false; // painel de categorias (lista suspensa) aberto/fechado
-function cpCatToggle(cat, on) { if (on) cpCatSel.add(cat); else cpCatSel.delete(cat); renderPagar(); }
-function cpCatTodas(on) { cpCatSel.clear(); if (on) [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].forEach(c => cpCatSel.add(c)); renderPagar(); }
+// Re-renderiza mantendo a posição da lista de categorias (senão ela "sobe pra primeira" a cada clique) e do scroll da página.
+function _cpKeepCatScroll(fn) {
+  const win = window.scrollY || 0;
+  const sc = document.getElementById('cp-cat-scroll'); const st = sc ? sc.scrollTop : 0;
+  fn();
+  const restore = () => { const s = document.getElementById('cp-cat-scroll'); if (s) s.scrollTop = st; window.scrollTo(0, win); };
+  restore(); requestAnimationFrame(restore);
+}
+function cpCatToggle(cat, on) { if (on) cpCatSel.add(cat); else cpCatSel.delete(cat); _cpKeepCatScroll(renderPagar); }
+function cpCatTodas(on) { cpCatSel.clear(); if (on) [...new Set(contasPagar.map(catContaPagar).filter(Boolean))].forEach(c => cpCatSel.add(c)); _cpKeepCatScroll(renderPagar); }
 let cpColsOcultas = (() => { try { return JSON.parse(localStorage.getItem('cpColsOcultas') || '[]'); } catch (e) { return []; } })();
 function toggleCpCol(key) {
   if (cpColsOcultas.includes(key)) cpColsOcultas = cpColsOcultas.filter(k => k !== key);
@@ -5794,7 +5802,7 @@ function renderPagar() {
       <div class="fd-row"><span class="f-label">Empresa</span><select id="cp-emp" onchange="renderPagar()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select></div>
       <div class="fd-row" style="align-items:flex-start"><span class="f-label">Categorias</span><div style="max-width:520px;width:100%">
         <button class="btn ghost sm" style="font-size:11px" onclick="cpCatAberto=!cpCatAberto;renderPagar()">📂 ${cpCatSel.size ? cpCatSel.size + ' selecionada' + (cpCatSel.size > 1 ? 's' : '') : 'Todas as categorias'} ${cpCatAberto ? '▾' : '▸'}</button>
-        ${cpCatAberto ? `<div style="margin-top:6px;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface)">
+        ${cpCatAberto ? `<div id="cp-cat-scroll" style="margin-top:6px;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface)">
           <div style="display:flex;gap:4px;margin-bottom:6px"><button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(true)">todas</button><button class="btn ghost sm" style="font-size:10px;padding:1px 7px" onclick="cpCatTodas(false)">nenhuma</button></div>
           <div style="display:flex;flex-direction:column;gap:1px">${(()=>{
             const catGrupo={}; Object.entries(CATEGORIAS_DESPESA).forEach(([g,arr])=>arr.forEach(cc=>{catGrupo[String(cc).toUpperCase()]=g;}));
