@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v658/09-725';
+const APP_VERSION = 'v659/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2358,29 +2358,22 @@ function dfChipsMesHTML() {
   const chips = presets.map(([t, lbl, de, ate]) => `<button class="btn ${ativo(de, ate) ? 'primary' : 'ghost'} sm" onclick="dfRangePreset('${t}')">${lbl}</button>`).join('');
   const tudo = `<button class="btn ${dfAtivo() ? 'ghost' : 'primary'} sm" onclick="dfClear()" title="Mostra todo o período">Tudo</button>`;
   const hojeIso = iso(new Date());
-  const diaSel = (dateFilter.de && dateFilter.de === dateFilter.ate) ? dateFilter.de : ''; // um dia só
-  const diaBox = `<span style="font-size:12px;color:var(--muted);font-weight:700;margin-left:8px">Dia:</span>
-    <button class="btn ghost sm" onclick="dfDiaStep(-1)" title="Dia anterior">‹</button>
-    <input type="date" class="inline-input" style="width:150px" value="${diaSel}" onchange="dfSetDia(this.value)" title="Escolha um dia no calendário">
-    <button class="btn ghost sm" onclick="dfDiaStep(1)" title="Próximo dia">›</button>
-    <button class="btn ${diaSel === hojeIso ? 'primary' : 'ghost'} sm" onclick="dfSetDia('${hojeIso}')">Hoje</button>`;
+  const deD = dateFilter.de ? new Date(dateFilter.de + 'T12:00:00') : null;
+  const ateD = dateFilter.ate ? new Date(dateFilter.ate + 'T12:00:00') : null;
+  // De/Até por seleção (dia/mês/ano em dropdown, SEM digitar). Um dia só = De e Até no mesmo dia.
+  const rangeBox = `<span style="font-size:12px;color:var(--muted);font-weight:700;margin-left:8px">De</span>${dfDataHTML('de', deD)}<span style="font-size:12px;color:var(--muted);font-weight:700">até</span>${dfDataHTML('ate', ateD)}<button class="btn ghost sm" onclick="dfSetDia('${hojeIso}')" title="Filtra só o dia de hoje">Hoje</button>`;
   return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 12px">
-    <span style="font-size:12px;color:var(--muted);font-weight:700">📅 Período rápido:</span>${chips}${tudo}${diaBox}
-    ${dfAtivo() ? `<span style="font-size:11px;color:var(--muted)">${dfPeriodoLabel()}</span>` : ''}</div>`;
+    <span style="font-size:12px;color:var(--muted);font-weight:700">📅 Período:</span>${chips}${tudo}
+    <span style="flex-basis:100%;height:0"></span>
+    ${rangeBox}
+    ${dfAtivo() ? `<span style="font-size:11px;color:var(--muted)">(${dfPeriodoLabel()})</span>` : ''}</div>`;
 }
-// Filtra por UM dia (calendário). Vazio = limpa o intervalo.
+// Filtra por UM dia. Vazio = limpa o intervalo.
 function dfSetDia(v) {
   if (!v) { dateFilter.de = ''; dateFilter.ate = ''; }
   else { dateFilter.de = v; dateFilter.ate = v; }
   dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = [];
   saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn();
-}
-// Anda um dia pra trás/frente a partir do dia filtrado (ou de hoje).
-function dfDiaStep(delta) {
-  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  let base = (dateFilter.de && dateFilter.de === dateFilter.ate) ? new Date(dateFilter.de + 'T12:00:00') : new Date();
-  base.setDate(base.getDate() + delta);
-  dfSetDia(iso(base));
 }
 function dfPeriodoLabel() {
   if (dateFilter.de || dateFilter.ate) {
@@ -5774,7 +5767,7 @@ function renderPagar() {
       <div class="fd-row"><span class="f-label">Banco</span><select id="cp-conc" onchange="renderPagar()"><option value="" ${fConc===''?'selected':''}>Todos</option><option value="sim" ${fConc==='sim'?'selected':''}>🔗 Conciliados</option><option value="nao" ${fConc==='nao'?'selected':''}>Não conciliados</option></select></div>
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="cp-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Fornecedor ou descrição..." oninput="buscaPersist.pagar=this.value;debounceRender('renderPagar')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
       <div class="fd-row"><span class="f-label">Data por</span><select id="cp-datapor" onchange="renderPagar()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (pagamento)</option></select></div>
-      <div class="fd-row"><span class="f-label">${fDataPor==='liquidacao'?'Liquidação':'Vencimento'}</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div></div>
+      <div class="fd-row"><span class="f-label">Data</span><span style="font-size:12px;color:var(--muted)">O filtro de data (mês/dia, De/Até) fica na barra acima, na tela. 👆</span></div>
     </div>`; })()}
 
     <div class="cards-row">
