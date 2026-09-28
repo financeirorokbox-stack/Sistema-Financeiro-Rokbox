@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v659/09-725';
+const APP_VERSION = 'v660/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5505,7 +5505,8 @@ function relatorioContasPorBanco() {
   // Boletos a RECEBER A VENCER (ainda não pagos): o pipeline de entradas futuras. Informativo, NÃO soma no saldo de
   // hoje (é dinheiro dos próximos dias). Respeita o FILTRO DE DATA: com filtro ativo, só os boletos cujo vencimento
   // cai no período filtrado; sem filtro, os de vencimento futuro (> dia do relatório).
-  const _vencVale = v => dfAtivo() ? passaData(v) : (_toDateInput(v) > repData);
+  // "a vencer" NÃO inclui o dia do relatório (esse já aparece em "Entradas previstas — vence hoje"), pra não duplicar o boleto nem dobrar o total.
+  const _vencVale = v => _toDateInput(v) !== repData && (dfAtivo() ? passaData(v) : (_toDateInput(v) > repData));
   const _boletosVencer = (typeof getBoletosDaForma === 'function' ? getBoletosDaForma() : [])
     .filter(b => boletoStatus[b.key] && !(typeof sistemaAcordo !== 'undefined' && sistemaAcordo[b.key]) && !(boletoCobrancaStatus[b.key] && boletoCobrancaStatus[b.key].pago) && b.vencimento && _vencVale(b.vencimento))
     .map(b => ({ cliente: b.cliente || '', pedido: b.pedido || '', parcela: (b.totalParcelas > 1 ? `${b.parcela}/${b.totalParcelas}` : ''), valor: +b.valor || 0, venc: b.vencimento }));
