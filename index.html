@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v657/09-725';
+const APP_VERSION = 'v658/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2357,13 +2357,35 @@ function dfChipsMesHTML() {
   const ativo = (de, ate) => dateFilter.de === iso(de) && dateFilter.ate === iso(ate);
   const chips = presets.map(([t, lbl, de, ate]) => `<button class="btn ${ativo(de, ate) ? 'primary' : 'ghost'} sm" onclick="dfRangePreset('${t}')">${lbl}</button>`).join('');
   const tudo = `<button class="btn ${dfAtivo() ? 'ghost' : 'primary'} sm" onclick="dfClear()" title="Mostra todo o período">Tudo</button>`;
+  const hojeIso = iso(new Date());
+  const diaSel = (dateFilter.de && dateFilter.de === dateFilter.ate) ? dateFilter.de : ''; // um dia só
+  const diaBox = `<span style="font-size:12px;color:var(--muted);font-weight:700;margin-left:8px">Dia:</span>
+    <button class="btn ghost sm" onclick="dfDiaStep(-1)" title="Dia anterior">‹</button>
+    <input type="date" class="inline-input" style="width:150px" value="${diaSel}" onchange="dfSetDia(this.value)" title="Escolha um dia no calendário">
+    <button class="btn ghost sm" onclick="dfDiaStep(1)" title="Próximo dia">›</button>
+    <button class="btn ${diaSel === hojeIso ? 'primary' : 'ghost'} sm" onclick="dfSetDia('${hojeIso}')">Hoje</button>`;
   return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 12px">
-    <span style="font-size:12px;color:var(--muted);font-weight:700">📅 Período rápido:</span>${chips}${tudo}
+    <span style="font-size:12px;color:var(--muted);font-weight:700">📅 Período rápido:</span>${chips}${tudo}${diaBox}
     ${dfAtivo() ? `<span style="font-size:11px;color:var(--muted)">${dfPeriodoLabel()}</span>` : ''}</div>`;
+}
+// Filtra por UM dia (calendário). Vazio = limpa o intervalo.
+function dfSetDia(v) {
+  if (!v) { dateFilter.de = ''; dateFilter.ate = ''; }
+  else { dateFilter.de = v; dateFilter.ate = v; }
+  dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = [];
+  saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn();
+}
+// Anda um dia pra trás/frente a partir do dia filtrado (ou de hoje).
+function dfDiaStep(delta) {
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  let base = (dateFilter.de && dateFilter.de === dateFilter.ate) ? new Date(dateFilter.de + 'T12:00:00') : new Date();
+  base.setDate(base.getDate() + delta);
+  dfSetDia(iso(base));
 }
 function dfPeriodoLabel() {
   if (dateFilter.de || dateFilter.ate) {
     const f = s => s ? s.split('-').reverse().join('/') : '…';
+    if (dateFilter.de && dateFilter.de === dateFilter.ate) return 'dia ' + f(dateFilter.de);
     return f(dateFilter.de) + ' até ' + f(dateFilter.ate);
   }
   const p = [];
