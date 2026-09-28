@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v662/09-725';
+const APP_VERSION = 'v663/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5270,6 +5270,27 @@ function addRecorrencia() {
   saveData('recorrencias', recorrencias);
   renderPagar();
 }
+// Cria uma recorrência JÁ preenchida a partir de uma conta que existe (rápido). A conta vira o 1º mês.
+function recorrenciaDaConta(idx) {
+  const c = contasPagar[idx]; if (!c) return;
+  if (c._recorrenciaId) { alert('Esta conta já faz parte de uma recorrência (conta fixa).'); return; }
+  const venc = c.vencimento ? (c.vencimento instanceof Date ? c.vencimento : new Date(c.vencimento)) : null;
+  const ok = venc && !isNaN(venc);
+  const dia = ok ? venc.getDate() : 1;
+  const mes = ok ? (venc.getFullYear() + '-' + String(venc.getMonth() + 1).padStart(2, '0')) : '';
+  if (!confirm(`Transformar em conta fixa (recorrência):\n\n${c.fornecedor || '—'} · ${fmtVal(c.valor || 0)}${ok ? ' · vence dia ' + dia : ''}\n\nEsta conta vira o 1º mês. Depois é só definir o "Até" (mês final) e clicar em "Gerar contas".`)) return;
+  const r = {
+    id: 'rec_' + Date.now(), fornecedor: c.fornecedor || '', descricao: c.descricao || '',
+    categoria: catContaPagar(c) || '', empresa: c.empresa || '', valor: +c.valor || 0,
+    diaVenc: Math.min(31, Math.max(1, dia)), mesIni: mes, mesFim: '', ativa: true
+  };
+  recorrencias.push(r);
+  c._recorrenciaId = r.id; if (mes) c._recMes = mes; // liga a conta como o 1º mês (entra no histórico, não gera de novo)
+  saveData('recorrencias', recorrencias); saveData('contasPagar', contasPagar);
+  _recAberto = true; _recHistAberto = r.id;
+  renderPagar();
+  alert('✓ Recorrência criada a partir desta conta. Veja em "🔁 Recorrências" (o histórico já mostra este mês). Defina o "Até" e clique em "🔁 Gerar contas das recorrências" pra criar os próximos meses.');
+}
 function updateRecorrencia(id, field, value) {
   const r = recorrencias.find(x => x.id === id); if (!r) return;
   if (field === 'valor') { const t = String(value || '').trim(); const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t); r.valor = isNaN(n) ? 0 : +n.toFixed(2); }
@@ -5865,7 +5886,7 @@ function renderPagar() {
           const stBadge = c.pago ? '<span class="badge ok">PAGO</span>' : `<span class="badge err">EM ABERTO</span>`;
           return `<tr style="background:#f4f7fb">
             ${delCheckbox('contasPagar', realIdx)}
-            <td class="cpcol-vencimento">${c.vencimento?fmtDate(c.vencimento):'—'}</td>
+            <td class="cpcol-vencimento">${c.vencimento?fmtDate(c.vencimento):'—'}${c._recorrenciaId ? ' <span title="Faz parte de uma conta fixa (recorrência)" style="opacity:.6">🔁</span>' : ` <a href="#" title="Transformar em conta fixa (recorrência)" onclick="recorrenciaDaConta(${realIdx});return false" style="text-decoration:none;opacity:.45">🔁</a>`}</td>
             <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
             <td class="cpcol-status">${stBadge}${(_cpChaveCount[chaveContaPagar(c)]>1)?` <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--amber)" onclick="separarContaColidida(${realIdx})" title="Esta conta tem o MESMO número de outra parcela e pode estar travada/paga por engano. Clique pra dar um número próprio e soltar (o vínculo do banco fica na parcela certa).">⚠ nº repetido</button>`:''}</td>
             <td class="cpcol-empresa">${c.empresa?`<span class="badge info">${c.empresa}</span>`:'—'}</td>
@@ -5885,7 +5906,7 @@ function renderPagar() {
           const mut = '<span style="color:var(--muted)">—</span>';
           return `<tr${c.cancelado ? ' style="opacity:.5;text-decoration:line-through"' : (c._manual ? ' style="background:#fffbe6"' : (c.pago ? ' style="background:#f0faf3"' : ''))}>
             ${delCheckbox('contasPagar', realIdx)}
-            <td class="cpcol-vencimento" style="white-space:nowrap">${c.vencimento ? fmtDate(c.vencimento) : mut} <a href="#" title="Editar esta conta" onclick="_cpEdit=${realIdx};renderPagar();return false" style="text-decoration:none;opacity:.55">✏️</a></td>
+            <td class="cpcol-vencimento" style="white-space:nowrap">${c.vencimento ? fmtDate(c.vencimento) : mut} <a href="#" title="Editar esta conta" onclick="_cpEdit=${realIdx};renderPagar();return false" style="text-decoration:none;opacity:.55">✏️</a>${c._recorrenciaId ? ' <span title="Faz parte de uma conta fixa (recorrência)" style="opacity:.6">🔁</span>' : ` <a href="#" title="Transformar em conta fixa (recorrência)" onclick="recorrenciaDaConta(${realIdx});return false" style="text-decoration:none;opacity:.45">🔁</a>`}</td>
             <td class="cpcol-competencia">${compTxt}</td>
             <td class="cpcol-status">${c.cancelado ? '<span class="badge" style="background:var(--muted);color:#fff">🚫 CANCELADO</span>' : (c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
             <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
