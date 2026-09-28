@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v661/09-725';
+const APP_VERSION = 'v662/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5245,6 +5245,8 @@ function reavaliarFiltroConta(idx) {
 }
 // ── Recorrências (contas fixas que geram lançamentos mensais) ──
 let _recAberto = false;
+let _recHistAberto = null; // id da recorrência com o histórico aberto (só um por vez)
+function toggleRecHist(id) { _recHistAberto = (_recHistAberto === id) ? null : id; renderPagar(); }
 function mesesEntre(ini, fim) {
   const out = []; if (!ini || !fim) return out;
   let [y, m] = ini.split('-').map(Number); const [yf, mf] = fim.split('-').map(Number);
@@ -5791,7 +5793,15 @@ function renderPagar() {
         <div class="table-wrap" style="margin-bottom:10px"><table style="white-space:nowrap"><thead><tr>
           <th>Ativa</th><th>Fornecedor</th><th>Categoria</th><th>Empresa</th><th style="text-align:right">Valor</th><th>Dia venc.</th><th>De</th><th>Até</th><th>Geradas</th><th></th>
         </tr></thead><tbody>
-        ${recorrencias.length ? recorrencias.map(r=>{ const nGer = contasPagar.filter(c=>c._recorrenciaId===r.id).length; return `<tr>
+        ${recorrencias.length ? recorrencias.map(r=>{ const ger = contasPagar.filter(c=>c._recorrenciaId===r.id).sort((a,b)=>(a.vencimento||0)-(b.vencimento||0)); const nGer = ger.length; const _histAberto = _recHistAberto===r.id;
+          const histRow = _histAberto ? `<tr><td colspan="10" style="background:var(--bg);padding:8px 12px">
+            ${ger.length ? `<div style="font-size:12px;font-weight:700;margin-bottom:6px">📜 Histórico — ${(r.fornecedor||'conta fixa').replace(/</g,'&lt;')}</div>
+            <table style="width:auto;font-size:11.5px;white-space:nowrap"><thead><tr><th style="text-align:left">Vencimento</th><th style="text-align:right">Valor</th><th>Status</th><th style="text-align:left">Pago em</th></tr></thead><tbody>
+            ${ger.map(c=>`<tr><td>${fmtDate(c.vencimento)}</td><td style="text-align:right">${fmtVal(c.valor)}</td><td style="text-align:center">${c.cancelado?'🚫 Cancelado':(c.pago?'<span style="color:var(--green);font-weight:700">✓ Pago</span>':'<span style="color:var(--red)">Em aberto</span>')}</td><td>${c.pago&&c.dataPag?fmtDate(c.dataPag):'—'}</td></tr>`).join('')}
+            <tr style="font-weight:800;border-top:2px solid var(--border)"><td>Total (${ger.length})</td><td style="text-align:right">${fmtVal(ger.reduce((s,c)=>s+(c.valor||0),0))}</td><td colspan="2"></td></tr>
+            </tbody></table>` : '<span style="font-size:12px;color:var(--muted)">Nenhuma conta gerada ainda. Use "🔁 Gerar contas das recorrências".</span>'}
+          </td></tr>` : '';
+          return `<tr>
           <td style="text-align:center"><input type="checkbox" ${r.ativa?'checked':''} onchange="updateRecorrencia('${r.id}','ativa',this.checked)"></td>
           <td><input class="inline-input" style="width:150px" value="${(r.fornecedor||'').replace(/"/g,'&quot;')}" onchange="updateRecorrencia('${r.id}','fornecedor',this.value)"></td>
           <td><input class="inline-input" style="width:150px" list="rec-cat-list" value="${(r.categoria||'').replace(/"/g,'&quot;')}" onchange="updateRecorrencia('${r.id}','categoria',this.value)"></td>
@@ -5800,9 +5810,9 @@ function renderPagar() {
           <td style="text-align:center"><input type="number" class="inline-input" style="width:55px;text-align:center" min="1" max="31" value="${r.diaVenc||''}" onchange="updateRecorrencia('${r.id}','diaVenc',this.value)"></td>
           <td><input type="month" class="inline-input" style="width:130px" value="${r.mesIni||''}" onchange="updateRecorrencia('${r.id}','mesIni',this.value)"></td>
           <td><input type="month" class="inline-input" style="width:130px" value="${r.mesFim||''}" onchange="updateRecorrencia('${r.id}','mesFim',this.value)"></td>
-          <td style="text-align:center;font-size:11px;color:var(--muted)">${nGer||'—'}</td>
+          <td style="text-align:center">${nGer ? `<button class="btn ghost sm" style="font-size:11px;padding:2px 8px" onclick="toggleRecHist('${r.id}')" title="Ver o histórico dos meses gerados">${nGer} ${_histAberto?'▾':'▸'}</button>` : '<span style="font-size:11px;color:var(--muted)">—</span>'}</td>
           <td><a href="#" onclick="removeRecorrencia('${r.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700" title="Remover recorrência">✕</a></td>
-        </tr>`; }).join('') : '<tr><td colspan="10" style="color:var(--muted);font-size:12px">Nenhuma recorrência. Cadastre uma abaixo.</td></tr>'}
+        </tr>${histRow}`; }).join('') : '<tr><td colspan="10" style="color:var(--muted);font-size:12px">Nenhuma recorrência. Cadastre uma abaixo.</td></tr>'}
         </tbody></table></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
           <input class="inline-input" id="rec-forn" placeholder="Fornecedor (ex.: Aluguel)" style="width:170px">
