@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v660/09-725';
+const APP_VERSION = 'v661/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7109,6 +7109,8 @@ function syncBoletosToRecebimentos() {
   renderRecebimentos();
 }
 
+let _boletosEmitAberto = false; // na aba Boletos a Emitir, os JÁ emitidos começam recolhidos (tela limpa)
+function toggleBoletosEmit() { _boletosEmitAberto = !_boletosEmitAberto; renderBoletos(); }
 function renderBoletos() {
   setDateFilterRender(renderBoletos);
   const el = document.getElementById('v-boletos');
@@ -7133,6 +7135,9 @@ function renderBoletos() {
   const diasAviso = 5; // "prestes a vencer" = vence em até 5 dias
   let nVencidos = 0, nAVencer = 0;
   vis.forEach(b => getParcelas(b).forEach(p => { if (!boletoStatus[p.key] && p.vencimento) { const dd = Math.floor((p.vencimento - hoje0) / 86400000); if (dd < 0) nVencidos++; else if (dd <= diasAviso) nAVencer++; } }));
+  // Pendentes primeiro; emitidos vão pro fim e começam recolhidos.
+  const _emitSet = new Set(emitidosArr);
+  const visSorted = [...vis].sort((a, b) => (_emitSet.has(a) ? 1 : 0) - (_emitSet.has(b) ? 1 : 0));
 
   el.innerHTML = `
     ${filtrosBar({
@@ -7150,12 +7155,13 @@ function renderBoletos() {
       <div class="card amber"><div class="c-label">🟡 A vencer (${diasAviso}d)</div><div class="c-val">${nAVencer}</div></div>
       <div class="card red"><div class="c-label">🔴 Vencidos</div><div class="c-val">${nVencidos}</div></div>
     </div>
+    ${totalEmitidos ? `<div style="margin:0 0 10px"><button class="btn ghost sm" onclick="toggleBoletosEmit()" style="font-weight:700">${_boletosEmitAberto ? '▾' : '▸'} ✓ Emitidos (${totalEmitidos}) — ${fmtVal(somaEmit)} <span style="color:var(--muted);font-weight:400">(clique pra ${_boletosEmitAberto ? 'esconder' : 'mostrar'})</span></button></div>` : ''}
     <div class="table-wrap"><table><thead><tr>
       <th style="width:32px"></th>
       <th>Pedido</th><th>Cliente</th><th>Loja</th><th>Valor Total</th><th>Taxa/Juros</th>
       <th>Parcelamento</th><th>Data de Saída</th><th>Vencimentos</th><th>Ação</th>
     </tr></thead><tbody>
-    ${vis.map(ped => {
+    ${visSorted.map(ped => {
       const cfg = boletoConfig[ped.pedido]||{};
       const prazo = cfg.prazo||'';
       const dataSaida = cfg.dataSaida||'';
@@ -7169,7 +7175,7 @@ function renderBoletos() {
       const meses = ['01','02','03','04','05','06','07','08','09','10','11','12'];
       const dias = Array.from({length:31},(_,i)=>String(i+1).padStart(2,'0'));
       const idxFP = formaPagamento.findIndex(f => f.pedido === ped.pedido && (f.descricao||'').toLowerCase().includes('boleto'));
-      return `<tr>
+      return `<tr class="${allOk?'bl-emit-row':''}"${allOk && !_boletosEmitAberto ? ' style="display:none"' : ''}>
         <td style="text-align:center;padding:6px 4px"><input type="checkbox" class="del-check" data-source="formaPagamento" data-idx="${idxFP}"
           style="width:14px;height:14px;cursor:pointer" onchange="toggleDeleteRow('formaPagamento',${idxFP},this.checked)"></td>
         <td><strong>#${ped.pedido}</strong></td>
