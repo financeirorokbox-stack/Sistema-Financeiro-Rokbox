@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v664/09-725';
+const APP_VERSION = 'v665/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5284,8 +5284,9 @@ function setRecPeriodo(id, campo) {
   const mes = (document.getElementById('rp-' + id + '-' + campo + '-mes')?.value) || '';
   const ano = (document.getElementById('rp-' + id + '-' + campo + '-ano')?.value) || '';
   const r = recorrencias.find(x => x.id === id); if (!r) return;
-  r[campo] = (ano && mes) ? (ano + '-' + mes) : ''; // só vale quando mês E ano estão escolhidos
-  saveData('recorrencias', recorrencias); renderPagar();
+  if (ano && mes) { r[campo] = ano + '-' + mes; saveData('recorrencias', recorrencias); renderPagar(); }
+  else if (!ano && !mes) { if (r[campo]) { r[campo] = ''; saveData('recorrencias', recorrencias); renderPagar(); } }
+  // se só um foi escolhido: espera o outro, SEM re-renderizar (senão apagava a escolha do meio).
 }
 // Cria uma recorrência JÁ preenchida a partir de uma conta que existe (rápido). A conta vira o 1º mês.
 function recorrenciaDaConta(idx) {
