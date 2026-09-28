@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v666/09-725';
+const APP_VERSION = 'v667/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5926,7 +5926,7 @@ function renderPagar() {
           const mut = '<span style="color:var(--muted)">—</span>';
           return `<tr${c.cancelado ? ' style="opacity:.5;text-decoration:line-through"' : (c._manual ? ' style="background:#fffbe6"' : (c.pago ? ' style="background:#f0faf3"' : ''))}>
             ${delCheckbox('contasPagar', realIdx)}
-            <td class="cpcol-vencimento" style="white-space:nowrap">${c.vencimento ? fmtDate(c.vencimento) : mut} <a href="#" title="Editar esta conta" onclick="_cpEdit=${realIdx};renderPagar();return false" style="text-decoration:none;opacity:.55">✏️</a>${c._recorrenciaId ? ' <span title="Faz parte de uma conta fixa (recorrência)" style="opacity:.6">🔁</span>' : ` <a href="#" title="Transformar em conta fixa (recorrência)" onclick="recorrenciaDaConta(${realIdx});return false" style="text-decoration:none;opacity:.45">🔁</a>`}</td>
+            <td class="cpcol-vencimento" style="white-space:nowrap">${c.vencimento ? fmtDate(c.vencimento) : mut} <a href="#" title="Editar esta conta" onclick="_cpEdit=${realIdx};_renderKeepScroll(renderPagar);return false" style="text-decoration:none;opacity:.55">✏️</a>${c._recorrenciaId ? ' <span title="Faz parte de uma conta fixa (recorrência)" style="opacity:.6">🔁</span>' : ` <a href="#" title="Transformar em conta fixa (recorrência)" onclick="recorrenciaDaConta(${realIdx});return false" style="text-decoration:none;opacity:.45">🔁</a>`}</td>
             <td class="cpcol-competencia">${compTxt}</td>
             <td class="cpcol-status">${c.cancelado ? '<span class="badge" style="background:var(--muted);color:#fff">🚫 CANCELADO</span>' : (c.pago ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
             <td class="cpcol-empresa">${c.empresa ? `<span class="badge info">${c.empresa}</span>` : mut}</td>
@@ -5941,7 +5941,7 @@ function renderPagar() {
         }
         return `<tr style="box-shadow:inset 0 0 0 2px var(--accent)"${c._manual?' ':''}>
           ${delCheckbox('contasPagar', realIdx)}
-          <td class="cpcol-vencimento" style="white-space:nowrap"><input type="date" class="inline-input" style="width:118px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)" onblur="reavaliarFiltroConta(${realIdx})"> <a href="#" title="Concluir edição" onclick="_cpEdit=null;renderPagar();return false" style="text-decoration:none">✓</a></td>
+          <td class="cpcol-vencimento" style="white-space:nowrap"><input type="date" class="inline-input" style="width:118px" value="${_toDateInput(c.vencimento)}" onchange="updateContaPagar(${realIdx},'vencimento',this.value)" onblur="reavaliarFiltroConta(${realIdx})"> <a href="#" title="Concluir edição" onclick="_cpEdit=null;_renderKeepScroll(renderPagar);return false" style="text-decoration:none">✓</a></td>
           <td class="cpcol-competencia"><input type="month" class="inline-input" style="width:110px" value="${competenciaConta(c)}" title="Competência (mês da despesa, p/ DRE)" onchange="updateContaPagar(${realIdx},'competencia',this.value)"></td>
           <td class="cpcol-status"><select class="inline-input" style="width:110px;font-weight:700;color:${c.cancelado?'var(--muted)':(c.pago?'var(--green)':'var(--red)')}" onchange="setPagoConta(${realIdx},this)"><option value="aberto" ${!c.pago&&!c.cancelado?'selected':''}>Em Aberto</option><option value="pago" ${c.pago&&!c.cancelado?'selected':''}>Pago</option><option value="cancelado" ${c.cancelado?'selected':''}>🚫 Cancelado</option></select></td>
           <td class="cpcol-empresa"><input class="inline-input" style="width:95px" list="cp-emp-list" value="${(c.empresa||'').replace(/"/g,'&quot;')}" placeholder="empresa" onchange="updateContaPagar(${realIdx},'empresa',this.value)"></td>
