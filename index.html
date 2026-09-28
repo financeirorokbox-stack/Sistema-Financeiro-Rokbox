@@ -466,7 +466,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v656/09-725';
+const APP_VERSION = 'v657/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2314,6 +2314,8 @@ function dfRangePreset(tipo) {
   const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   let de = new Date(y, m, 1), ate = new Date(y, m + 1, 0);
   if (tipo === 'esteMes') { de = new Date(y, m, 1); ate = new Date(y, m + 1, 0); }
+  else if (tipo === 'mesPassado') { de = new Date(y, m - 1, 1); ate = new Date(y, m, 0); }
+  else if (tipo === 'proxMes') { de = new Date(y, m + 1, 1); ate = new Date(y, m + 2, 0); }
   else if (tipo === 'prox3') { de = new Date(y, m, 1); ate = new Date(y, m + 3, 0); }
   else if (tipo === 'ano') { de = new Date(y, 0, 1); ate = new Date(y, 11, 31); }
   dateFilter.de = iso(de); dateFilter.ate = iso(ate);
@@ -2341,6 +2343,34 @@ function dfDataHTML(qual, d) {
   return `<select id="df-${qual}-dia" onchange="dfDataSel('${qual}')" style="${st}">${dias}</select>` +
     `<select id="df-${qual}-mes" onchange="dfDataSel('${qual}')" style="${st}">${meses}</select>` +
     `<select id="df-${qual}-ano" onchange="dfDataSel('${qual}')" style="${st}">${anos}</select>`;
+}
+// Botões rápidos de mês (um clique) — pra não precisar abrir Ano/Mês/Dia na mão. Destaca o ativo.
+function dfChipsMesHTML() {
+  const hoje = new Date(); const y = hoje.getFullYear(), m = hoje.getMonth();
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const presets = [
+    ['mesPassado', 'Mês passado', new Date(y, m - 1, 1), new Date(y, m, 0)],
+    ['esteMes', 'Este mês', new Date(y, m, 1), new Date(y, m + 1, 0)],
+    ['proxMes', 'Próximo mês', new Date(y, m + 1, 1), new Date(y, m + 2, 0)],
+    ['ano', 'Este ano', new Date(y, 0, 1), new Date(y, 11, 31)],
+  ];
+  const ativo = (de, ate) => dateFilter.de === iso(de) && dateFilter.ate === iso(ate);
+  const chips = presets.map(([t, lbl, de, ate]) => `<button class="btn ${ativo(de, ate) ? 'primary' : 'ghost'} sm" onclick="dfRangePreset('${t}')">${lbl}</button>`).join('');
+  const tudo = `<button class="btn ${dfAtivo() ? 'ghost' : 'primary'} sm" onclick="dfClear()" title="Mostra todo o período">Tudo</button>`;
+  return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 12px">
+    <span style="font-size:12px;color:var(--muted);font-weight:700">📅 Período rápido:</span>${chips}${tudo}
+    ${dfAtivo() ? `<span style="font-size:11px;color:var(--muted)">${dfPeriodoLabel()}</span>` : ''}</div>`;
+}
+function dfPeriodoLabel() {
+  if (dateFilter.de || dateFilter.ate) {
+    const f = s => s ? s.split('-').reverse().join('/') : '…';
+    return f(dateFilter.de) + ' até ' + f(dateFilter.ate);
+  }
+  const p = [];
+  if (dateFilter.mes.length) p.push(dateFilter.mes.map(x => MESES[+x - 1]).join(', '));
+  if (dateFilter.ano.length) p.push(dateFilter.ano.join(', '));
+  if (dateFilter.dia.length) p.push('dia ' + dateFilter.dia.join(', '));
+  return p.join(' · ');
 }
 function dfAtivo() { return dateFilter.ano.length || dateFilter.mes.length || dateFilter.dia.length || !!dateFilter.de || !!dateFilter.ate; }
 function passaData(date) {
@@ -5686,6 +5716,7 @@ function renderPagar() {
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
       <button class="btn danger sm" onclick="if(confirm('Limpar todas as contas a pagar?')){contasPagar=[];saveData('contasPagar',contasPagar);renderPagar()}">🗑 Limpar</button>
     </div>
+    ${dfChipsMesHTML()}
     ${(()=>{ const _sd=saldoDiaDataAtual(); const _bs=_bancosSaldo(); const _diaFilt=_diaFiltradoUnico(); return `<div style="margin:0 0 12px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <span style="font-weight:700">💰 Saldo inicial do dia — por banco:</span>
