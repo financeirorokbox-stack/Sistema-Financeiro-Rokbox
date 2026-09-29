@@ -693,6 +693,54 @@ function setImposto(v){ const n = parseFloat(String(v).replace(',', '.')); _impo
 function setFixos(v){ const t=String(v||'').trim(); const n = t.includes(',') ? parseFloat(t.replace(/\./g,'').replace(',','.')) : parseFloat(t); _custosFixos = isNaN(n) ? 0 : n; renderMargem(); }
 function setMargDim(d){ _margDim = d; renderMargem(); }
 function _margToggle(tr){ const d = tr.nextElementSibling; if(d && d.classList.contains('mdet')) d.style.display = (d.style.display==='none' ? '' : 'none'); }
+// 🔍 Conferência: monta a lista de peças da linha SÓ quando clica (leve, recalcula na hora do que já está na memória)
+function _margConf(btn){
+  const tr = btn.closest('tr'); if(!tr) return;
+  const mi = tr.getAttribute('data-mi'); const tb = tr.parentElement;
+  let det = tb.querySelector('tr.mconfdet[data-mi="'+mi+'"]');
+  if(det){ det.style.display = (det.style.display==='none' ? '' : 'none'); return; }
+  det = document.createElement('tr'); det.className='mconfdet'; det.setAttribute('data-mi', mi);
+  det.innerHTML = '<td colspan="12" style="padding:2px 0 10px 24px;background:rgba(255,255,255,.02)">'+_margConfHTML(mi)+'</td>';
+  let after = tr; if(tr.nextElementSibling && tr.nextElementSibling.classList.contains('mdet')) after = tr.nextElementSibling; // fica depois da quebra por segmento (produto)
+  after.insertAdjacentElement('afterend', det);
+}
+function _margConfHTML(mi){
+  const C = window._MARGCTX; if(!C) return '<div style="color:var(--muted);font-size:12px">Recarregue o painel.</div>';
+  const dim = C.dim, alvo = C.keys[mi], lc = C.lc, precoBase = C.precoBase, custoBase = C.custoBase, pCol = C.pCol, mes = C.mes;
+  const NAOAP=['cancelado','em aberto'];
+  const opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
+  const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+  const skuBase=s=>String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim();
+  const baseNome=d=>{ const i=String(d||'').search(/\s*Tamanho:/i); return (i>=0?String(d).slice(0,i):String(d||'')).trim(); };
+  const tamDe=d=>{ const m=String(d||'').match(/Tamanho:\s*([^,;]+)/i); return m?m[1].trim():''; };
+  const segDe=l=>(lc[l]&&lc[l].segmento)?lc[l].segmento:'Outros';
+  const keyDe=(p,base,nome)=> dim==='colecao'?(pCol[base]||'(sem coleção)') : dim==='segmento'?(segDe(p.loja)||'Outros') : dim==='vendedor'?(p.vendedor||'(sem vendedor)') : dim==='produto'?nome : ('#'+p.id+(p.nome?(' · '+p.nome):''));
+  const rows=[]; let sT=0,sD=0,sV=0,sC=0;
+  (_FIN.pedidos||[]).forEach(p=>{
+    if(String(p.data||'').slice(0,7)!==mes) return; if(!ehVT(p)) return;
+    (Array.isArray(p.linhas)?p.linhas:[]).forEach(l=>{
+      const q=+l.qtd||0; const val=+l.valorLinha||((+l.precoUnit||0)*q); const pu=q>0?val/q:(+l.precoUnit||0);
+      if(pu<=0.011) return; // brinde
+      const base=skuBase(l.sku); const nome=baseNome(l.descricao)||base;
+      if(keyDe(p,base,nome)!==alvo) return;
+      const prU=precoBase[base]; const tab=(prU&&prU>0)?prU*q:val; let d=tab-val; if(d<0)d=0;
+      const cU=custoBase[base]; const custo=(cU||0)*q;
+      sT+=tab; sD+=d; sV+=val; sC+=custo;
+      rows.push({ped:p.id, loja:p.loja||'', nome, tam:tamDe(l.descricao), q, tab, val, d, pct:tab>0?d/tab*100:0, semPreco:!(prU&&prU>0), custo, semCusto:(cU==null||cU===0)});
+    });
+  });
+  rows.sort((a,b)=>b.d-a.d);
+  if(!rows.length) return '<div style="color:var(--muted);font-size:12px">Sem peças nessa linha.</div>';
+  const pc = v => v>0 ? v.toFixed(0)+'%' : '';
+  const body = rows.map(x=>`<tr>
+    <td>#${x.ped}</td><td style="color:var(--muted)">${x.loja}</td>
+    <td>${x.nome}${x.tam?` <span style="color:var(--muted)">(${x.tam})</span>`:''}${x.semPreco?' <span title="produto sem preço de tabela na Bling: o desconto pode estar por baixo" style="color:var(--amber)">⚠</span>':''}</td>
+    <td class="v">${x.q}</td><td class="v">${brl(x.tab)}</td><td class="v">${brl(x.val)}</td>
+    <td class="v" style="color:var(--amber)">${brl(x.d)}</td><td class="v" style="color:var(--muted)">${pc(x.pct)}</td>
+    <td class="v">${brl(x.custo)}${x.semCusto?' <span style="color:var(--amber)" title="sem custo na Bling">⚠</span>':''}</td></tr>`).join('');
+  const foot=`<tr style="font-weight:700;border-top:1px solid var(--line,#233)"><td colspan="4">Total · ${rows.length} peça(s)</td><td class="v">${brl(sT)}</td><td class="v">${brl(sV)}</td><td class="v" style="color:var(--amber)">${brl(sD)}</td><td class="v" style="color:var(--muted)">${sT>0?(sD/sT*100).toFixed(0)+'%':''}</td><td class="v">${brl(sC)}</td></tr>`;
+  return `<div style="font-size:11px;color:var(--muted);margin:0 0 5px">Conferência · Tabela vem do preço de lista da Bling, Vendido é o preço da linha no pedido, Desconto é a diferença.</div><table class="bal" style="width:100%;font-size:12px"><tr><th>Pedido</th><th>Loja</th><th>Produto</th><th class="v">Qtd</th><th class="v">Tabela</th><th class="v">Vendido</th><th class="v">Desc.</th><th class="v">%</th><th class="v">Custo</th></tr><tbody>${body}${foot}</tbody></table>`;
+}
 function renderMargem(){
   const el = document.getElementById('margem-conteudo'); if(!el) return;
   if(!_FIN){ el.innerHTML = '<div class="card">Carregando…</div>'; return; }
@@ -772,17 +820,21 @@ function renderMargem(){
   const lim = (_margDim==='produto'||_margDim==='pedido') ? 60 : 999;
   const linhasSel = Object.entries(dims[_margDim]||{}).sort((a,b) => b[1].margem - a[1].margem);
   const sp = (v, base) => base>0 ? ` <small style="opacity:.55;font-weight:400">${(v/base*100).toFixed(0)}%</small>` : ''; // % pequena do lado do valor
-  const rowT = (nome, o) => `<tr><td>${nome}${o.pcsSemCusto>0?` <span style="color:var(--amber);font-size:11px" title="${o.pcsSemCusto} peça(s) sem custo cadastrado — margem pode estar alta">⚠</span>`:''}</td><td class="v">${nf(o.pcs)}</td><td class="v">${brl(o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descLinha)}${sp(o.descLinha,o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descPed)}${sp(o.descPed,o.sub)}</td><td class="v">${brl(o.receita)}${sp(o.receita,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.imposto)}${sp(o.imposto,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.taxa)}${sp(o.taxa,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.comissao)}${sp(o.comissao,o.baseCom)}</td><td class="v">${brl(o.custo)}${sp(o.custo,o.tabela)}</td><td class="v" style="font-weight:800;color:${o.margem>=0?'var(--lime)':'var(--red)'}">${brl(o.margem)}${sp(o.margem,o.tabela)}</td><td class="v" style="color:var(--muted)">${brl(o.frete)}</td></tr>`;
+  const rowT = (nome, o, lead, trAttr) => `<tr${trAttr||''}><td>${lead||''}${nome}${o.pcsSemCusto>0?` <span style="color:var(--amber);font-size:11px" title="${o.pcsSemCusto} peça(s) sem custo cadastrado, margem pode estar alta">⚠</span>`:''}</td><td class="v">${nf(o.pcs)}</td><td class="v">${brl(o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descLinha)}${sp(o.descLinha,o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descPed)}${sp(o.descPed,o.sub)}</td><td class="v">${brl(o.receita)}${sp(o.receita,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.imposto)}${sp(o.imposto,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.taxa)}${sp(o.taxa,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.comissao)}${sp(o.comissao,o.baseCom)}</td><td class="v">${brl(o.custo)}${sp(o.custo,o.tabela)}</td><td class="v" style="font-weight:800;color:${o.margem>=0?'var(--lime)':'var(--red)'}">${brl(o.margem)}${sp(o.margem,o.tabela)}</td><td class="v" style="color:var(--muted)">${brl(o.frete)}</td></tr>`;
   const head = `<tr><th>__</th><th class="v">Peças</th><th class="v">Tabela</th><th class="v">Desc. linha<br><small style="opacity:.5">% s/ tabela</small></th><th class="v">Desc. pedido<br><small style="opacity:.5">% s/ subtotal</small></th><th class="v">Receita líq.<br><small style="opacity:.5">%tabela</small></th><th class="v">Imposto<br><small style="opacity:.5">alíquota</small></th><th class="v">Taxa cartão<br><small style="opacity:.5">% s/ receita</small></th><th class="v">Comissão<br><small style="opacity:.5">alíquota</small></th><th class="v">Custo<br><small style="opacity:.5">%tabela</small></th><th class="v">Margem<br><small style="opacity:.5">%tabela</small></th><th class="v">Frete*</th></tr>`;
-  const bodyRows = linhasSel.slice(0,lim).map(([k,o]) => {
-    let r = rowT(k,o);
-    if(_margDim==='produto' && prodSeg[k] && Object.keys(prodSeg[k]).length){
-      r = r.replace('<tr>', '<tr style="cursor:pointer" onclick="_margToggle(this)" title="clique pra ver por segmento (Varejo/Atacado...)">');
+  const lente = `<span onclick="event.stopPropagation();_margConf(this)" style="cursor:pointer;opacity:.55;margin-right:6px" title="conferir peça por peça">🔍</span>`;
+  const bodyRows = linhasSel.slice(0,lim).map(([k,o],i) => {
+    const temSeg = _margDim==='produto' && prodSeg[k] && Object.keys(prodSeg[k]).length;
+    let trAttr = ` data-mi="${i}"`;
+    if(temSeg) trAttr += ` style="cursor:pointer" onclick="_margToggle(this)" title="clique pra ver por segmento (Varejo/Atacado...)"`;
+    let r = rowT(k,o,lente,trAttr);
+    if(temSeg){
       const segs = Object.entries(prodSeg[k]).sort((a,b) => b[1].margem - a[1].margem);
       r += `<tr class="mdet" style="display:none"><td colspan="12" style="padding:2px 0 8px 20px"><table class="bal" style="width:100%">${head.replace('__','↳ Segmento')}<tbody>${segs.map(([sg,so]) => rowT('↳ ' + sg, so)).join('')}</tbody></table></td></tr>`;
     }
     return r;
   }).join('') || `<tr><td colspan="12" style="color:var(--muted)">Sem vendas no mês.</td></tr>`;
+  window._MARGCTX = { dim:_margDim, keys: linhasSel.slice(0,lim).map(e=>e[0]), lc, precoBase, custoBase, pCol, mes }; // contexto leve pro 🔍 (só referências, sem recalcular nada)
   const lucro = +(T.margem - (_custosFixos || 0)).toFixed(2);
   el.innerHTML = `
     <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
@@ -803,7 +855,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-29.43';
+const BUILD='2026-09-29.44';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
