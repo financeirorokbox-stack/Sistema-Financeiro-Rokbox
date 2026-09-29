@@ -690,6 +690,7 @@ let _impostoPct = 10; // % de imposto sobre a receita (editável na tela)
 let _margDim = 'colecao'; // visão da margem: colecao/segmento/vendedor/produto/pedido
 function setImposto(v){ const n = parseFloat(String(v).replace(',', '.')); _impostoPct = isNaN(n) ? 0 : n; renderMargem(); }
 function setMargDim(d){ _margDim = d; renderMargem(); }
+function _margToggle(tr){ const d = tr.nextElementSibling; if(d && d.classList.contains('mdet')) d.style.display = (d.style.display==='none' ? '' : 'none'); }
 function renderMargem(){
   const el = document.getElementById('margem-conteudo'); if(!el) return;
   if(!_FIN){ el.innerHTML = '<div class="card">Carregando…</div>'; return; }
@@ -714,6 +715,7 @@ function renderMargem(){
   const devPorPed = {}; Object.keys(rawDev).forEach(pc => { const p=pedById[pc]; const cap=p?(+p.valor||0):Infinity; devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2); });
   const comPct = l => { const v=lc[l]&&lc[l].comissao; const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n/100; };
   const dims = { colecao:{}, produto:{}, segmento:{}, vendedor:{}, pedido:{} };
+  const prodSeg = {}; // por produto -> por segmento (drill-down ao clicar no produto)
   const segDe = l => (lc[l] && lc[l].segmento) ? lc[l].segmento : 'Outros';
   let nPed = 0;
   (pedidos).forEach(p => {
@@ -752,6 +754,7 @@ function renderMargem(){
       add(dims.segmento, segDe(p.loja) || 'Outros');
       add(dims.vendedor, p.vendedor || '(sem vendedor)');
       add(dims.pedido, '#' + p.id + (p.nome ? (' · ' + p.nome) : ''));
+      if(!prodSeg[nome]) prodSeg[nome] = {}; add(prodSeg[nome], segDe(p.loja) || 'Outros'); // guarda a quebra por segmento de cada produto
     });
   });
   const T = { pcs:0, tabela:0, descLinha:0, descPed:0, receita:0, imposto:0, taxa:0, comissao:0, custo:0, frete:0, margem:0, pcsSemCusto:0 };
@@ -765,6 +768,15 @@ function renderMargem(){
   const sp = (v, base) => base>0 ? ` <small style="opacity:.55;font-weight:400">${(v/base*100).toFixed(0)}%</small>` : ''; // % pequena do lado do valor
   const rowT = (nome, o) => `<tr><td>${nome}${o.pcsSemCusto>0?` <span style="color:var(--amber);font-size:11px" title="${o.pcsSemCusto} peça(s) sem custo cadastrado — margem pode estar alta">⚠</span>`:''}</td><td class="v">${nf(o.pcs)}</td><td class="v">${brl(o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descLinha)}${sp(o.descLinha,o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descPed)}${sp(o.descPed,o.tabela)}</td><td class="v">${brl(o.receita)}${sp(o.receita,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.imposto)}${sp(o.imposto,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.taxa)}${sp(o.taxa,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.comissao)}${sp(o.comissao,o.receita)}</td><td class="v">${brl(o.custo)}${sp(o.custo,o.receita)}</td><td class="v" style="font-weight:800;color:${o.margem>=0?'var(--lime)':'var(--red)'}">${brl(o.margem)}${sp(o.margem,o.receita)}</td><td class="v" style="color:var(--muted)">${brl(o.frete)}</td></tr>`;
   const head = `<tr><th>__</th><th class="v">Peças</th><th class="v">Tabela</th><th class="v">Desc. linha<br><small style="opacity:.5">%tabela</small></th><th class="v">Desc. pedido<br><small style="opacity:.5">%tabela</small></th><th class="v">Receita líq.<br><small style="opacity:.5">%tabela</small></th><th class="v">Imposto<br><small style="opacity:.5">%receita</small></th><th class="v">Taxa cartão<br><small style="opacity:.5">%receita</small></th><th class="v">Comissão<br><small style="opacity:.5">%receita</small></th><th class="v">Custo<br><small style="opacity:.5">%receita</small></th><th class="v">Margem<br><small style="opacity:.5">%receita</small></th><th class="v">Frete*</th></tr>`;
+  const bodyRows = linhasSel.slice(0,lim).map(([k,o]) => {
+    let r = rowT(k,o);
+    if(_margDim==='produto' && prodSeg[k] && Object.keys(prodSeg[k]).length){
+      r = r.replace('<tr>', '<tr style="cursor:pointer" onclick="_margToggle(this)" title="clique pra ver por segmento (Varejo/Atacado...)">');
+      const segs = Object.entries(prodSeg[k]).sort((a,b) => b[1].margem - a[1].margem);
+      r += `<tr class="mdet" style="display:none"><td colspan="12" style="padding:2px 0 8px 20px"><table class="bal" style="width:100%">${head.replace('__','↳ Segmento')}<tbody>${segs.map(([sg,so]) => rowT('↳ ' + sg, so)).join('')}</tbody></table></td></tr>`;
+    }
+    return r;
+  }).join('') || `<tr><td colspan="12" style="color:var(--muted)">Sem vendas no mês.</td></tr>`;
   el.innerHTML = `
     <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
     <div class="card" style="margin-bottom:12px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:13px">
@@ -776,13 +788,13 @@ function renderMargem(){
       <div class="card"><div class="lab">Margem do mês</div><div class="big" style="color:${T.margem>=0?'var(--lime)':'var(--red)'}">${brl(T.margem)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">margem ${pct(T.margem,T.receita)} · imposto ${brl(T.imposto)} · taxa cartão ${brl(T.taxa)} · comissão ${brl(T.comissao)} · custo ${brl(T.custo)}</div></div>
     </div>
     <div class="abas" style="margin:2px 0 10px">${DIMS.map(([k,l])=>`<button class="aba ${_margDim===k?'on':''}" style="padding:6px 13px;font-size:13px" onclick="setMargDim('${k}')">${l}</button>`).join('')}</div>
-    <div class="card" style="overflow-x:auto"><table class="bal">${head.replace('__',dimLbl)}<tbody>${linhasSel.slice(0,lim).map(([k,o])=>rowT(k,o)).join('')||`<tr><td colspan="12" style="color:var(--muted)">Sem vendas no mês.</td></tr>`}</tbody></table>${linhasSel.length>lim?`<div style="font-size:11px;color:var(--muted);margin-top:6px">Mostrando os ${lim} maiores de ${linhasSel.length}.</div>`:''}</div>
+    <div class="card" style="overflow-x:auto"><table class="bal">${head.replace('__',dimLbl)}<tbody>${bodyRows}</tbody></table>${linhasSel.length>lim?`<div style="font-size:11px;color:var(--muted);margin-top:6px">Mostrando os ${lim} maiores de ${linhasSel.length}.</div>`:''}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:10px">* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto = (tabela + frete) − total pago na Bling. Imposto = ${_impostoPct}% da receita líquida. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = % da loja/vendedor (cadastro) sobre a base (total − frete − despesas − devolução), rateada por linha — estimativa; a oficial (faixas/metas) entra quando o mês fecha. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem — o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo.</div>`;
 }
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-29.36';
+const BUILD='2026-09-29.37';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
