@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v676/09-729';
+const APP_VERSION = 'v677/09-730';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6339,6 +6339,8 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
 function isRedeFile(file, wb) {
   if (!wb) return false;
   const fn = (file && file.name || '').toLowerCase();
+  // Arquivo da Braavo tem "valor líquido" + "bandeira", que batia com a regra da Rede por engano e desviava a Braavo pro parser errado. É Braavo, não Rede.
+  if (fn.includes('braavo')) return false;
   try {
     // Varre TODAS as abas: o relatório novo da Rede tem "capa" (resumo) na 1ª aba, e as colunas que
     // identificam o Rede ficam em "pagamentos"/"recebidos". Olhar só a 1ª aba deixava passar batido.
