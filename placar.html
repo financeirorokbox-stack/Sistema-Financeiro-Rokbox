@@ -225,7 +225,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-29.29';
+const BUILD = '2026-09-29.30';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -312,7 +312,7 @@ function _normSit(s){
 }
 function _pedToRegs(peds, mes, lc){
   // _conta = entra no TOTAL GERAL do Gestão RK: operação Venda/Troca (pela lojaCadastro) e status != cancelado/em aberto.
-  const NAOAP = ['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'];
+  const NAOAP = ['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'];
   const opDe = l => (lc && lc[l] && lc[l].operacao) ? String(lc[l].operacao).toLowerCase() : '';
   const out = [];
   (peds||[]).forEach(p=>{
@@ -428,7 +428,7 @@ function prodAgg(){
     if(!d || d.slice(0,7)!==mesAtivo) return;
     const emp=p.empresa||'Rokbox'; if(empresaSel!=='ambas' && emp!==empresaSel) return;
     if(!opSel.has(opBucket(p.loja||''))) return;
-    if(['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'].includes(String(p.situacao||'').toLowerCase())) return;
+    if(['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'].includes(String(p.situacao||'').toLowerCase())) return;
     (Array.isArray(p.linhas)?p.linhas:[]).forEach(l=>{
       const sku=String(l.sku||'').trim(); const desc=String(l.descricao||'').trim();
       const qtd=(+l.qtd||0);
@@ -508,7 +508,7 @@ function render(){
   _raw.forEach(x=>{ if(typeof x.loja==='string' && x.loja.indexOf('loja#')===0) x.loja='Sem loja'; if(x.vendedor==='(sem)' && x.loja==='Braavo Site') x.vendedor='Braavo'; if(x.vendedor==='(sem)') x.vendedor='Sem vendedor'; });
   const regsMes = _raw.filter(x=>opSel.has(opBucket(x.loja))); // filtro de operação (mesma lógica do cadastro: venda/troca/amostra)
   const vendasMes = (fEf==='sistema')
-    ? regsMes.filter(x=>!['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'].includes((x.situacao||'').toLowerCase()))
+    ? regsMes.filter(x=>!['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'].includes((x.situacao||'').toLowerCase()))
     : regsMes.filter(x=>VENDA.has(x.situacao));
   const _wk = semanaRange();
   const inPer = d => periodo==='hoje' ? d===hj : (periodo==='semana' ? (d>=_wk.de && d<=_wk.ate) : true);
