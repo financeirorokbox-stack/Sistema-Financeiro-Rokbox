@@ -714,6 +714,7 @@ function renderMargem(){
   const rawDev = {}; devAll.forEach(d => { const cred=String(credDe(d)).match(/\d{4,6}/g)||[]; if(!cred.length) return; const parc=+(((+d.valorPago||0)/cred.length)).toFixed(2); cred.forEach(pc => { rawDev[pc]=+(((rawDev[pc]||0)+parc)).toFixed(2); }); });
   const devPorPed = {}; Object.keys(rawDev).forEach(pc => { const p=pedById[pc]; const cap=p?(+p.valor||0):Infinity; devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2); });
   const comPct = l => { const v=lc[l]&&lc[l].comissao; const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n/100; };
+  const COM_SEG = { 'Site': 0.02 }; // comissão fixa por SEGMENTO (sobrepõe o % da loja) — ex: Site = 2%
   const dims = { colecao:{}, produto:{}, segmento:{}, vendedor:{}, pedido:{} };
   const prodSeg = {}; // por produto -> por segmento (drill-down ao clicar no produto)
   const segDe = l => (lc[l] && lc[l].segmento) ? lc[l].segmento : 'Outros';
@@ -730,7 +731,8 @@ function renderMargem(){
     let descPed = totVenda + frete - total; if(descPed < 0) descPed = 0; // desconto do TOTAL do pedido = (venda + frete) − total pago na Bling
     const taxaCartaoPed = taxaPed[String(p.id)] || 0;
     const outras = +p.outrasDespesas || 0, devPed = devPorPed[String(p.id)] || 0;
-    const comissaoPed = comPct(p.loja) * Math.max(0, total - frete - outras - devPed); // base = total − frete − desp − devolução
+    const _segP = segDe(p.loja); const _pctCom = (COM_SEG[_segP] != null) ? COM_SEG[_segP] : comPct(p.loja);
+    const comissaoPed = _pctCom * Math.max(0, total - frete - outras - devPed); // base = total − frete − desp − devolução; Site usa 2% fixo
     vend.forEach(x => {
       if(x.brinde) return;
       const base = skuBase(x.l.sku), nome = baseNome(x.l.descricao) || base;
@@ -789,12 +791,12 @@ function renderMargem(){
     </div>
     <div class="abas" style="margin:2px 0 10px">${DIMS.map(([k,l])=>`<button class="aba ${_margDim===k?'on':''}" style="padding:6px 13px;font-size:13px" onclick="setMargDim('${k}')">${l}</button>`).join('')}</div>
     <div class="card" style="overflow-x:auto"><table class="bal">${head.replace('__',dimLbl)}<tbody>${bodyRows}</tbody></table>${linhasSel.length>lim?`<div style="font-size:11px;color:var(--muted);margin-top:6px">Mostrando os ${lim} maiores de ${linhasSel.length}.</div>`:''}</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:10px">* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto = (tabela + frete) − total pago na Bling. Imposto = ${_impostoPct}% da receita líquida. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = % da loja/vendedor (cadastro) sobre a base (total − frete − despesas − devolução), rateada por linha — estimativa; a oficial (faixas/metas) entra quando o mês fecha. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem — o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo.</div>`;
+    <div style="font-size:11px;color:var(--muted);margin-top:10px">* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto = (tabela + frete) − total pago na Bling. Imposto = ${_impostoPct}% da receita líquida. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = % da loja/vendedor (cadastro) sobre a base (total − frete − despesas − devolução), rateada por linha — estimativa (Site = 2% fixo); a oficial (faixas/metas) entra quando o mês fecha. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem — o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo.</div>`;
 }
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-29.37';
+const BUILD='2026-09-29.38';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
