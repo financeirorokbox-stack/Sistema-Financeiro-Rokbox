@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v675/09-728';
+const APP_VERSION = 'v676/09-729';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1320,6 +1320,8 @@ const OPERACOES_SEM_RECEBIMENTO = ['amostra','brinde','bonificação','bonificac
   'ajuste de estoque','logística (correios)','logistica (correios)',
   'transferência','transferencia','uso interno','não aplicável','nao aplicavel'];
 const SITUACOES_SEM_LOJA = ['cancelado','correios','atualização de estoque','atualizacao de estoque','em aberto'];
+// Situações que NÃO aparecem na lista do Gestão RK (só no Painel RK/placar): pipeline (em aberto/em andamento) e movimentos (correios/ajuste de estoque). Não são venda realizada. O registro continua no banco, só some da lista.
+const SITUACOES_OCULTAS_GESTAO = ['cancelado','em aberto','em andamento','correios','atualização de estoque','atualizacao de estoque','sit#15'];
 const OP_OPTIONS = ['Venda','Amostra','Brinde','Troca','Devolução','Bonificação',
   'Transferência','Ajuste de Estoque','Logística (Correios)','Uso Interno','Outro'];
 const PRAZO_OPTIONS = ['30','30/60','30/60/90','30/60/90/120','45/90','45/90/135','60/90/120','60/120'];
@@ -2561,6 +2563,8 @@ document.addEventListener('click', e => {
 function getFilteredPedidos() {
   const busca = (document.getElementById('busca-vendas') ? document.getElementById('busca-vendas').value : (buscaPersist.vendas || '')).toLowerCase();
   return pedidos.filter(p => {
+    // Só venda realizada aparece no Gestão RK. Pipeline (em aberto/em andamento), movimentos (correios/ajuste de estoque) e cancelado ficam só no Painel RK (placar). O registro continua no banco, só some da lista.
+    if (SITUACOES_OCULTAS_GESTAO.includes((p.situacao || '').toLowerCase())) return false;
     if (vendasFilters.empresa.length && !vendasFilters.empresa.includes(p.empresa||'')) return false;
     if (vendasFilters.situacao.length && !vendasFilters.situacao.includes(p.situacao)) return false;
     if (vendasFilters.loja.length && !vendasFilters.loja.includes(p.loja)) return false;
@@ -2634,7 +2638,9 @@ function renderPedidosTable() {
   }
 
   const filtered = getFilteredPedidos();
-  const totalGeral = pedidos.reduce((s,p)=>s+p.valor,0);
+  // "Total geral" = só o que aparece no Gestão (venda realizada); os ocultos (pipeline/cancelado/movimentos) não entram no card nem na lista.
+  const visiveisAll = pedidos.filter(p => !SITUACOES_OCULTAS_GESTAO.includes((p.situacao||'').toLowerCase()));
+  const totalGeral = visiveisAll.reduce((s,p)=>s+p.valor,0);
   const totalFilt = filtered.reduce((s,p)=>s+p.valor,0);
   const hasFilter = dfAtivo() || Object.values(vendasFilters).some(a=>Array.isArray(a)?a.length:a) || (document.getElementById('busca-vendas')?.value||'');
 
@@ -2652,7 +2658,7 @@ function renderPedidosTable() {
 
   const cardsEl = document.getElementById('vendas-cards');
   if (cardsEl) cardsEl.innerHTML = `
-    <div class="card blue"><div class="c-label">Total geral${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(hasFilter?totalFilt:totalGeral)}</div><div class="c-sub">${hasFilter?`${filtered.length} pedidos`:`${pedidos.length} pedidos`}</div></div>
+    <div class="card blue"><div class="c-label">Total geral${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(hasFilter?totalFilt:totalGeral)}</div><div class="c-sub">${hasFilter?`${filtered.length} pedidos`:`${visiveisAll.length} pedidos`}</div></div>
     <div class="card amber"><div class="c-label">Faturamento real${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(fatReal)}</div><div class="c-sub" title="Só pedidos de Venda e Troca, menos devoluções">${baseFat>0?fmtVal(baseFat):'—'} (Venda+Troca) − ${fmtVal(baseDevol)} devol.</div></div>
     <div class="card dark"><div class="c-label">Frete${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseFrete)}</div><div class="c-sub">${pedsFat.length} pedidos</div></div>
     <div class="card red" style="cursor:pointer" onclick="toggleVendasDevol()" title="Ver os pedidos que compõem esse total"><div class="c-label">Devoluções${hasFilter?' (filtro)':''}</div><div class="c-val">${fmtVal(baseDevol)}</div><div class="c-sub">abatidas do faturamento · <span style="text-decoration:underline">ver detalhe</span></div></div>`;
