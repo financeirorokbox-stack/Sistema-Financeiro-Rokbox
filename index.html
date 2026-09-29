@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v674/09-727';
+const APP_VERSION = 'v675/09-728';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10551,6 +10551,10 @@ function renderPorPedido() {
       ${dateFilterHTML()}
       <span style="font-size:11px;color:var(--muted)">${vis.length} pedido(s)</span>
     </div>`;
+  // Pedidos com boleto JÁ EMITIDO (chave do boletoStatus = "<pedido>-<parcela>"): mostra um selinho na coluna Obs,
+  // pra ela ver na hora quem já teve boleto emitido sem abrir a aba "Boletos a Emitir".
+  const pedComBoletoEmit = new Set();
+  Object.keys(boletoStatus).forEach(k => { if (boletoStatus[k]) { const pid = String(k).split('-')[0]; if (pid) pedComBoletoEmit.add(pid); } });
   const tabela = vis.length === 0 ? '<div class="empty"><div class="e-icon">✓</div>Nenhum pedido nesta categoria</div>' : `
     <div class="table-wrap"><table><thead><tr>
       <th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Recebimentos (bruto)</th><th>Recebido</th><th>Taxas</th><th>Líquido</th><th>Diferença</th><th>Status</th><th>Obs</th>
@@ -10573,7 +10577,7 @@ function renderPorPedido() {
           ? ` <button class="btn ghost sm" style="font-size:10px" onclick="aceitarDifPedido('${l.ped.id}',null)">Desfazer</button>`
         : ''
       }</td>
-      <td><input type="text" class="inline-input" style="min-width:150px;font-size:11px" value="${(obsPedido[l.ped.id]||'').replace(/"/g,'&quot;')}" placeholder="anotar..." title="Anotação livre sobre este pedido (ex.: por que está nesse status)" onchange="setObsPedido('${l.ped.id}',this.value)"></td>
+      <td>${pedComBoletoEmit.has(String(l.ped.id)) ? '<div style="color:var(--green);font-weight:700;font-size:10px;margin-bottom:3px;white-space:nowrap" title="Este pedido já tem boleto emitido (não precisa conferir na aba Boletos a Emitir)">🧾 boleto emitido</div>' : ''}<input type="text" class="inline-input" style="min-width:150px;font-size:11px" value="${(obsPedido[l.ped.id]||'').replace(/"/g,'&quot;')}" placeholder="anotar..." title="Anotação livre sobre este pedido (ex.: por que está nesse status)" onchange="setObsPedido('${l.ped.id}',this.value)"></td>
     </tr>`).join('')}
     </tbody></table></div>`;
   cont.innerHTML = cards + head + tabela;
