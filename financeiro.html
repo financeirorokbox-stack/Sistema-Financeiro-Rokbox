@@ -298,7 +298,7 @@ function renderFechamento(){
   const credDe=d=>{ const raw=devCred[d.pedido+'|'+d.cliente]; if(raw==='__editando__'||raw==='__vazio__')return ''; const grp=dev.filter(x=>String(x.pedido)===String(d.pedido)&&(x.cliente||'')===(d.cliente||'')); if(grp.length>1){const dist=new Set(grp.map(x=>(x.pedidoCredito||'').trim())); if(dist.size>1)return (d.pedidoCredito||'').trim()||raw||'';} return raw||d.pedidoCredito||''; };
   const rawDev={}; dev.forEach(d=>{ const cred=String(credDe(d)).match(/\d{4,6}/g)||[]; if(!cred.length)return; const parc=+(((+d.valorPago||0)/cred.length)).toFixed(2); cred.forEach(pc=>{rawDev[pc]=+(((rawDev[pc]||0)+parc)).toFixed(2);}); });
   const devPorPed={}; Object.keys(rawDev).forEach(pc=>{const p=pedById[pc];const cap=p?(+p.valor||0):Infinity;devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2);});
-  const NAOAP=['cancelado','em aberto'], opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'', segDe=l=>(lc[l]&&lc[l].segmento)?lc[l].segmento:'Outros';
+  const NAOAP=['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'], opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'', segDe=l=>(lc[l]&&lc[l].segmento)?lc[l].segmento:'Outros';
   const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
   const extArr=Array.isArray(F.extB)?F.extB:[]; const _dDia=v=>{ if(!v)return ''; const d=v instanceof Date?v:new Date(v); return isNaN(d)?String(v).slice(0,10):(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); }; const _mExt=v=>_dDia(v).slice(0,7); const _mesA=mesAtual();
   const ms=new Set(); (bal&&bal.rows||[]).forEach(r=>ms.add(r.mes)); peds.forEach(p=>{const m=_m(p.data); if(m)ms.add(m);}); crA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));}); cpA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));});
@@ -561,7 +561,7 @@ async function carregar(){
     document.getElementById('res-detalhe').textContent=`Recebido ${brl(crMes)} − Pago ${brl(cpMes)}`;
     // ── FATURAMENTO REAL do mês (igual à página de Vendas: pedidos de operação Venda+Troca,
     //     tirando 'cancelado' e 'em aberto', menos as devoluções creditadas nesses pedidos) ──
-    const NAOAP=['cancelado','em aberto'];
+    const NAOAP=['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'];
     const opDe=l=>(lc&&lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
     const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
     // devolução por pedido: MESMA lógica do Gestão (credDevolucao + devolPorPedidoMap):
@@ -707,7 +707,7 @@ function _margConf(btn){
 function _margConfHTML(mi){
   const C = window._MARGCTX; if(!C) return '<div style="color:var(--muted);font-size:12px">Recarregue o painel.</div>';
   const dim = C.dim, alvo = C.keys[mi], lc = C.lc, precoBase = C.precoBase, custoBase = C.custoBase, pCol = C.pCol, mes = C.mes;
-  const NAOAP=['cancelado','em aberto'];
+  const NAOAP=['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'];
   const opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
   const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
   const skuBase=s=>String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim();
@@ -746,7 +746,7 @@ function renderMargem(){
   if(!_FIN){ el.innerHTML = '<div class="card">Carregando…</div>'; return; }
   const pedidos = _FIN.pedidos||[], lc = _FIN.lc||{}, bCustos = _FIN.bCustos||{}, pCol = _FIN.pCol||{};
   const mes = mesSel || mesAtual();
-  const NAOAP = ['cancelado','em aberto'];
+  const NAOAP = ['cancelado','em aberto','atualização de estoque','atualizacao de estoque','correios'];
   const opDe = l => (lc[l] && lc[l].operacao) ? String(lc[l].operacao).toLowerCase() : '';
   const ehVT = p => { if(NAOAP.includes(String(p.situacao||'').toLowerCase())) return false; const o = opDe(p.loja); return o==='venda'||o==='troca'; };
   const skuBase = s => String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim();
@@ -855,7 +855,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-29.44';
+const BUILD='2026-09-29.45';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
