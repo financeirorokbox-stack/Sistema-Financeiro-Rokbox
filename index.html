@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v669/09-725';
+const APP_VERSION = 'v670/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1289,6 +1289,7 @@ let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let blingCustosMap = {}; // SKU (variação) -> {custo, colecao} vindo da Bling (Edge bling-custos). Custo automático.
 let produtoColecao = {}; // SKU BASE -> nome da coleção, escolhido NA MÃO por ela (a tag da Bling não sai pela API)
+let colecaoSugerida = {}; // SKU BASE -> true quando a coleção foi SUGERIDA pelo nome (pra conferir; some quando ela confirma na mão)
 let colecoesLista = []; // lista editável de nomes de coleção (seed da planilha Coleções.xlsx)
 let condicoesPagamento = []; // prazos p/ Compras: [{id,nome,nParcelas,primeiroDias,intervaloDias}] (À vista=1/0/0; 30/60/90=3/30/30)
 let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa,obs}]
@@ -1400,8 +1401,67 @@ function _baseNomeP(desc) { const i = String(desc || '').search(/\s*Tamanho:/i);
 function colecoesTodas() { if (!colecoesLista || !colecoesLista.length) colecoesLista = COLECOES_SEED.slice(); return [...colecoesLista].sort((a, b) => a.localeCompare(b, 'pt')); }
 function addColecao() { const el = document.getElementById('pr-newcol'); const v = (el ? el.value : '').trim(); if (!v) return; if (!colecoesLista.length) colecoesLista = COLECOES_SEED.slice(); if (!colecoesLista.includes(v)) colecoesLista.push(v); saveData('colecoesLista', colecoesLista); if (el) el.value = ''; renderProdutosGestao(); }
 function removeColecao(nome) { colecoesLista = colecoesTodas().filter(c => c !== nome); saveData('colecoesLista', colecoesLista); renderProdutosGestao(); }
-function setProdutoColecao(base, col) { if (col) produtoColecao[base] = col; else delete produtoColecao[base]; saveData('produtoColecao', produtoColecao); }
+function setProdutoColecao(base, col) {
+  if (col) produtoColecao[base] = col; else delete produtoColecao[base];
+  if (colecaoSugerida[base]) { delete colecaoSugerida[base]; saveData('colecaoSugerida', colecaoSugerida); const sp = document.getElementById('sug-' + base); if (sp) sp.remove(); } // confirmou na mão: tira o selinho "sugerido"
+  saveData('produtoColecao', produtoColecao);
+}
 function _custoBaseMap() { const m = {}; Object.entries(blingCustosMap).forEach(([sku, info]) => { const b = _skuBaseP(sku); const c = +(info && info.custo) || 0; if (m[b] == null || (!m[b] && c)) m[b] = c; }); return m; }
+const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+// Palavras-chave SEGURAS: nome da coleção sem "Coleção"/mês/ano, que aponta pra UMA única coleção (>=4 letras).
+// Palavras genéricas demais (cor/comum) que aparecem em muitos nomes e dariam falso match — não usar como chave.
+const COL_GENERICAS = new Set(['black', 'white', 'sport', 'power', 'move', 'soul', 'kind', 'wave', 'icon', 'glam', 'joy', 'edge', 'basic', 'classic', 'reset', 'holiday', 'resort']);
+function _colKeywordsSeguras() {
+  const map = {};
+  colecoesTodas().forEach(full => {
+    let k = full.replace(/^cole[cç][aã]o\s+/i, '');
+    k = k.replace(/\b(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/gi, ''); // mês por extenso
+    k = k.replace(/\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\.?\s?\d{2,4}\b/gi, ''); // mar26, set 26, ago24
+    k = k.replace(/\b20\d\d\b/g, '').replace(/\b\d{2}\b/g, ''); // anos soltos
+    k = k.replace(/\s+/g, ' ').trim();
+    if (k.length < 4) return;
+    const kn = _norm(k);
+    if (COL_GENERICAS.has(kn)) return; // pula genéricas (evita falso match)
+    (map[kn] = map[kn] || { kw: kn, nomes: new Set() }).nomes.add(full);
+  });
+  return Object.values(map).filter(o => o.nomes.size === 1).map(o => ({ kw: o.kw, nome: [...o.nomes][0] }));
+}
+// Regras de sinônimo: palavra no nome do produto -> coleção (o que o nome sozinho não pega). Cresce conforme ela avisa.
+const COL_SINONIMOS = [
+  { palavras: ['faixa de cabelo', 'faixa', 'scrunchie'], colecao: 'Acessórios' },
+];
+// Preenche a coleção pelos nomes (só casos claros, só em branco, não sobrescreve o que ela marcou).
+function sugerirColecoes() {
+  const safe = _colKeywordsSeguras();
+  const colValida = new Set(colecoesTodas());
+  const sinon = COL_SINONIMOS.filter(r => colValida.has(r.colecao));
+  const prodMap = {};
+  pedidos.forEach(p => { (Array.isArray(p.linhas) ? p.linhas : []).forEach(l => { const sku = String(l.sku || '').trim(); if (!sku) return; const b = _skuBaseP(sku); if (!prodMap[b]) prodMap[b] = _baseNomeP(l.descricao) || b; }); });
+  let n = 0, amb = 0;
+  Object.entries(prodMap).forEach(([base, nome]) => {
+    if (produtoColecao[base]) return; // não sobrescreve o que já tem
+    const nn = ' ' + _norm(nome) + ' ';
+    // 1) sinônimos explícitos (ex: faixa/scrunchie -> Acessórios)
+    const sy = sinon.find(r => r.palavras.some(w => new RegExp('\\b' + _norm(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(nn)));
+    if (sy) { produtoColecao[base] = sy.colecao; colecaoSugerida[base] = true; n++; return; }
+    // 2) nome bate com uma coleção única
+    const hits = safe.filter(s => new RegExp('\\b' + s.kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(nn));
+    const uniq = [...new Set(hits.map(h => h.nome))];
+    if (uniq.length === 1) { produtoColecao[base] = uniq[0]; colecaoSugerida[base] = true; n++; }
+    else if (uniq.length > 1) amb++;
+  });
+  saveData('produtoColecao', produtoColecao); saveData('colecaoSugerida', colecaoSugerida);
+  renderProdutosGestao();
+  alert('✨ Preenchi ' + n + ' coleção(ões) pelo nome do produto (marcadas como "sugerido" pra você conferir).\n\n• Só onde o nome deixa claro (ex: "Machiatto", "Feel", "Playlist") + faixa/scrunchie = Acessórios.\n• NÃO sobrescrevi o que você já tinha marcado.\n• Palavras genéricas (black, sport...) e nomes sem coleção clara ficaram em branco.\n\nAo escolher uma coleção na mão, a marca "sugerido" some (vira confirmado). Use o filtro pra revisar.');
+}
+// Limpa só as coleções que foram SUGERIDAS (mantém as que ela confirmou na mão).
+function limparSugeridas() {
+  if (!confirm('Limpar só as coleções SUGERIDAS pelo nome? As que você escolheu na mão ficam.')) return;
+  Object.keys(colecaoSugerida).forEach(base => { if (colecaoSugerida[base]) delete produtoColecao[base]; });
+  colecaoSugerida = {};
+  saveData('produtoColecao', produtoColecao); saveData('colecaoSugerida', colecaoSugerida);
+  renderProdutosGestao();
+}
 function renderProdutosGestao() {
   const el = document.getElementById('v-produtos'); if (!el) return;
   const cols = colecoesTodas();
@@ -1436,6 +1496,8 @@ function renderProdutosGestao() {
     <div class="topbar" style="margin-bottom:10px">
       <input class="inline-input" id="pr-q" placeholder="Buscar produto ou SKU..." value="${esc(_prBusca)}" style="width:240px" oninput="_prBusca=this.value;debounceRender('renderProdutosGestao')">
       <label style="font-size:12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" ${_prSoSem ? 'checked' : ''} onchange="_prSoSem=this.checked;renderProdutosGestao()"> só sem coleção</label>
+      <button class="btn ghost sm" onclick="sugerirColecoes()" title="Preenche a coleção pelos casos que o nome deixa claro (Machiatto, Feel, Playlist...), sem sobrescrever o que você marcou. Na dúvida, deixa em branco. Você confere depois.">✨ Sugerir pelo nome</button>
+      ${Object.values(colecaoSugerida).some(Boolean) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="limparSugeridas()" title="Apaga só as sugeridas (mantém as que você confirmou na mão)">✕ limpar sugeridas</button>` : ''}
       <span style="flex:1"></span>
       <span style="font-size:12px;color:var(--muted)">${vis.length} produto(s)</span>
     </div>
@@ -1447,7 +1509,7 @@ function renderProdutosGestao() {
       <td><select class="inline-input" style="width:230px" onchange="setProdutoColecao('${escJs(p.base)}',this.value)">
         <option value="">— Sem coleção —</option>
         ${cols.map(c => `<option value="${esc(c)}" ${produtoColecao[p.base] === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-      </select></td>
+      </select>${colecaoSugerida[p.base] ? ` <span id="sug-${esc(p.base)}" style="font-size:10px;color:var(--amber);font-weight:700" title="Sugerido pelo nome — confira. Ao escolher/confirmar, esta marca some.">✨ sugerido</span>` : ''}</td>
     </tr>`).join('') : '<tr><td colspan="4" style="color:var(--muted);font-size:12px;padding:14px">Nenhum produto (importe vendas da Bling primeiro).</td></tr>'}
     </tbody></table></div>`;
 }
@@ -16094,7 +16156,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecoesLista','blingCustos'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -16160,6 +16222,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     else if (k==='crFechado') crFechado = v || {};
     else if (k==='cpFechado') cpFechado = v || {};
     else if (k==='produtoColecao') produtoColecao = v || {};
+    else if (k==='colecaoSugerida') colecaoSugerida = v || {};
     else if (k==='colecoesLista') colecoesLista = v || [];
     else if (k==='blingCustos') blingCustosMap = (v && v.map) || {};
     else if (k==='creditosCliente') creditosCliente = v || [];
