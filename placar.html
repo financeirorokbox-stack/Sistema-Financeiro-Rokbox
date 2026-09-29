@@ -225,7 +225,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-29.30';
+const BUILD = '2026-09-29.31';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -237,7 +237,7 @@ async function checkVersao(){
     if(m && m[1] && m[1] !== BUILD){ _verChk=true; location.replace(location.pathname + '?cb=' + Date.now()); }
   }catch(e){}
 }
-const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto']); // cenário BLING conta tudo isso (inclui Em aberto)
+const VENDA = new Set(['Verificado','Em separação','Atendido','Checkout parcial','Em aberto','Em andamento']); // cenário BLING conta o pipeline (inclui Em aberto e Em andamento); no SISTEMA esses dois NÃO contam (ver NAOAP)
 // cenário SISTEMA não usa esse set: conta como o TOTAL GERAL do Gestão RK = operação Venda+Troca (pela lojaCadastro), fora cancelado/em aberto, valor cheio — ver _pedToRegs/_conta.
 const OCULTAR = new Set(['Atualização de estoque','Correios','Cancelado']);
 // Lojas que NÃO entram no placar: operação Amostra + Trocas (troca nem sempre tem venda junto). Fica só venda.
@@ -254,7 +254,7 @@ function opBucket(l){
   return opDeLoja(l);
 }
 const ATACADO = new Set(['Atacado','Troca Atacado','Brinde Atacado','Marketing - Parceria At']);
-const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
+const STCOR = {'Verificado':'#7ee787','Em separação':'#ffb347','Atendido':'#39d353','Checkout parcial':'#7cc4ff','Em aberto':'#ffd76a','Em andamento':'#b9a0ff','Correios':'#8fa89a','Atualização de estoque':'#ff9ecb','Cancelado':'#e5534b'};
 const PL_LOJA = new Set(['Vendas PL','Parceria PL']);
 const WL_LOJA = new Set(['Vendas White Label','Mostruário']);
 const segDe = loja => PL_LOJA.has(loja) ? 'PL' : (WL_LOJA.has(loja) ? 'WL' : (ATACADO.has(loja) ? 'Atacado' : 'Varejo'));
@@ -307,7 +307,7 @@ async function carregar(){
 // (mesma lógica de render, só muda a fonte: assim dá pra comparar Bling cru × Sistema com as suas edições)
 function _normSit(s){
   s = (s||'').trim();
-  const m = {'atendido':'Atendido','verificado':'Verificado','em separação':'Em separação','em separacao':'Em separação','checkout parcial':'Checkout parcial','em aberto':'Em aberto','cancelado':'Cancelado','correios':'Correios','atualização de estoque':'Atualização de estoque','atualizacao de estoque':'Atualização de estoque'};
+  const m = {'atendido':'Atendido','verificado':'Verificado','em separação':'Em separação','em separacao':'Em separação','checkout parcial':'Checkout parcial','em aberto':'Em aberto','em andamento':'Em andamento','cancelado':'Cancelado','correios':'Correios','atualização de estoque':'Atualização de estoque','atualizacao de estoque':'Atualização de estoque'};
   return m[s.toLowerCase()] || s;
 }
 function _pedToRegs(peds, mes, lc){
