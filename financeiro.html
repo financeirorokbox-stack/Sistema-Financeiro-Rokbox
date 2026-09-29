@@ -361,8 +361,8 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[]};
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes')]);
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],comExc:comExc||[]};
     _popMesSel();
     const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
@@ -716,7 +716,7 @@ function renderMargem(){
   const rawDev = {}; devAll.forEach(d => { const cred=String(credDe(d)).match(/\d{4,6}/g)||[]; if(!cred.length) return; const parc=+(((+d.valorPago||0)/cred.length)).toFixed(2); cred.forEach(pc => { rawDev[pc]=+(((rawDev[pc]||0)+parc)).toFixed(2); }); });
   const devPorPed = {}; Object.keys(rawDev).forEach(pc => { const p=pedById[pc]; const cap=p?(+p.valor||0):Infinity; devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2); });
   const comPct = l => { const v=lc[l]&&lc[l].comissao; const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n/100; };
-  const COM_SEG = { 'Atacado': 0.01, 'Varejo': 0.04, 'Site': 0.02 }; // comissão fixa por SEGMENTO (sobrepõe o % da loja): Atacado 1%, Varejo 4%, Site 2%
+  const comExc = _FIN.comExc || []; // vendedores isentos de comissão (Cadastro)
   const dims = { colecao:{}, produto:{}, segmento:{}, vendedor:{}, pedido:{} };
   const prodSeg = {}; // por produto -> por segmento (drill-down ao clicar no produto)
   const segDe = l => (lc[l] && lc[l].segmento) ? lc[l].segmento : 'Outros';
@@ -733,8 +733,8 @@ function renderMargem(){
     let descPed = totVenda + frete - total; if(descPed < 0) descPed = 0; // desconto do TOTAL do pedido = (venda + frete) − total pago na Bling
     const taxaCartaoPed = taxaPed[String(p.id)] || 0;
     const outras = +p.outrasDespesas || 0, devPed = devPorPed[String(p.id)] || 0;
-    const _segP = segDe(p.loja); const _pctCom = (COM_SEG[_segP] != null) ? COM_SEG[_segP] : comPct(p.loja);
-    const comissaoPed = _pctCom * Math.max(0, total - frete - outras - devPed); // base = total − frete − desp − devolução; Site usa 2% fixo
+    const baseCom = Math.max(0, total - frete - outras - devPed); // base da comissão (igual ao sistema)
+    const comissaoPed = (comExc.includes(p.vendedor || '') ? 0 : comPct(p.loja)) * baseCom; // % da loja (Cadastro), 0 se vendedor isento
     vend.forEach(x => {
       if(x.brinde) return;
       const base = skuBase(x.l.sku), nome = baseNome(x.l.descricao) || base;
@@ -751,8 +751,10 @@ function renderMargem(){
       const freteL = totVenda>0 ? frete*(x.val/totVenda) : 0;
       const taxaCartao = totVenda>0 ? taxaCartaoPed*(x.val/totVenda) : 0;
       const comissao = totVenda>0 ? comissaoPed*(x.val/totVenda) : 0;
+      const baseComL = totVenda>0 ? baseCom*(x.val/totVenda) : 0; // base da comissão na linha (p/ mostrar a alíquota)
+      const sub = tabela - descLinha; // subtotal vendido na linha (base do % do desconto de pedido)
       const margem = receita - imposto - custo - taxaCartao - comissao;
-      const add = (o,k) => { const t = o[k] || (o[k] = { pcs:0, tabela:0, descLinha:0, descPed:0, receita:0, imposto:0, taxa:0, comissao:0, custo:0, frete:0, margem:0, pcsSemCusto:0 }); t.pcs+=x.q; t.tabela+=tabela; t.descLinha+=descLinha; t.descPed+=descPedL; t.receita+=receita; t.imposto+=imposto; t.taxa+=taxaCartao; t.comissao+=comissao; t.custo+=custo; t.frete+=freteL; t.margem+=margem; if(custoU==null||custoU===0) t.pcsSemCusto+=x.q; };
+      const add = (o,k) => { const t = o[k] || (o[k] = { pcs:0, tabela:0, descLinha:0, descPed:0, sub:0, receita:0, imposto:0, taxa:0, comissao:0, baseCom:0, custo:0, frete:0, margem:0, pcsSemCusto:0 }); t.pcs+=x.q; t.tabela+=tabela; t.descLinha+=descLinha; t.descPed+=descPedL; t.sub+=sub; t.receita+=receita; t.imposto+=imposto; t.taxa+=taxaCartao; t.comissao+=comissao; t.baseCom+=baseComL; t.custo+=custo; t.frete+=freteL; t.margem+=margem; if(custoU==null||custoU===0) t.pcsSemCusto+=x.q; };
       add(dims.colecao, col);
       add(dims.produto, nome);
       add(dims.segmento, segDe(p.loja) || 'Outros');
@@ -761,7 +763,7 @@ function renderMargem(){
       if(!prodSeg[nome]) prodSeg[nome] = {}; add(prodSeg[nome], segDe(p.loja) || 'Outros'); // guarda a quebra por segmento de cada produto
     });
   });
-  const T = { pcs:0, tabela:0, descLinha:0, descPed:0, receita:0, imposto:0, taxa:0, comissao:0, custo:0, frete:0, margem:0, pcsSemCusto:0 };
+  const T = { pcs:0, tabela:0, descLinha:0, descPed:0, sub:0, receita:0, imposto:0, taxa:0, comissao:0, baseCom:0, custo:0, frete:0, margem:0, pcsSemCusto:0 };
   Object.values(dims.colecao).forEach(o => { for(const k in T) T[k]+=o[k]; });
   const pct = (a,b) => b>0 ? (a/b*100).toFixed(1)+'%' : '—';
   const mesNome = new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
@@ -770,8 +772,8 @@ function renderMargem(){
   const lim = (_margDim==='produto'||_margDim==='pedido') ? 60 : 999;
   const linhasSel = Object.entries(dims[_margDim]||{}).sort((a,b) => b[1].margem - a[1].margem);
   const sp = (v, base) => base>0 ? ` <small style="opacity:.55;font-weight:400">${(v/base*100).toFixed(0)}%</small>` : ''; // % pequena do lado do valor
-  const rowT = (nome, o) => `<tr><td>${nome}${o.pcsSemCusto>0?` <span style="color:var(--amber);font-size:11px" title="${o.pcsSemCusto} peça(s) sem custo cadastrado — margem pode estar alta">⚠</span>`:''}</td><td class="v">${nf(o.pcs)}</td><td class="v">${brl(o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descLinha)}${sp(o.descLinha,o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descPed)}${sp(o.descPed,o.tabela)}</td><td class="v">${brl(o.receita)}${sp(o.receita,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.imposto)}${sp(o.imposto,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.taxa)}${sp(o.taxa,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.comissao)}${sp(o.comissao,o.tabela)}</td><td class="v">${brl(o.custo)}${sp(o.custo,o.tabela)}</td><td class="v" style="font-weight:800;color:${o.margem>=0?'var(--lime)':'var(--red)'}">${brl(o.margem)}${sp(o.margem,o.tabela)}</td><td class="v" style="color:var(--muted)">${brl(o.frete)}</td></tr>`;
-  const head = `<tr><th>__</th><th class="v">Peças</th><th class="v">Tabela</th><th class="v">Desc. linha<br><small style="opacity:.5">%tabela</small></th><th class="v">Desc. pedido<br><small style="opacity:.5">%tabela</small></th><th class="v">Receita líq.<br><small style="opacity:.5">%tabela</small></th><th class="v">Imposto<br><small style="opacity:.5">%tabela</small></th><th class="v">Taxa cartão<br><small style="opacity:.5">%tabela</small></th><th class="v">Comissão<br><small style="opacity:.5">%tabela</small></th><th class="v">Custo<br><small style="opacity:.5">%tabela</small></th><th class="v">Margem<br><small style="opacity:.5">%tabela</small></th><th class="v">Frete*</th></tr>`;
+  const rowT = (nome, o) => `<tr><td>${nome}${o.pcsSemCusto>0?` <span style="color:var(--amber);font-size:11px" title="${o.pcsSemCusto} peça(s) sem custo cadastrado — margem pode estar alta">⚠</span>`:''}</td><td class="v">${nf(o.pcs)}</td><td class="v">${brl(o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descLinha)}${sp(o.descLinha,o.tabela)}</td><td class="v" style="color:var(--amber)">${brl(o.descPed)}${sp(o.descPed,o.sub)}</td><td class="v">${brl(o.receita)}${sp(o.receita,o.tabela)}</td><td class="v" style="color:#e0823a">${brl(o.imposto)}${sp(o.imposto,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.taxa)}${sp(o.taxa,o.receita)}</td><td class="v" style="color:#e0823a">${brl(o.comissao)}${sp(o.comissao,o.baseCom)}</td><td class="v">${brl(o.custo)}${sp(o.custo,o.tabela)}</td><td class="v" style="font-weight:800;color:${o.margem>=0?'var(--lime)':'var(--red)'}">${brl(o.margem)}${sp(o.margem,o.tabela)}</td><td class="v" style="color:var(--muted)">${brl(o.frete)}</td></tr>`;
+  const head = `<tr><th>__</th><th class="v">Peças</th><th class="v">Tabela</th><th class="v">Desc. linha<br><small style="opacity:.5">% s/ tabela</small></th><th class="v">Desc. pedido<br><small style="opacity:.5">% s/ subtotal</small></th><th class="v">Receita líq.<br><small style="opacity:.5">%tabela</small></th><th class="v">Imposto<br><small style="opacity:.5">alíquota</small></th><th class="v">Taxa cartão<br><small style="opacity:.5">% s/ receita</small></th><th class="v">Comissão<br><small style="opacity:.5">alíquota</small></th><th class="v">Custo<br><small style="opacity:.5">%tabela</small></th><th class="v">Margem<br><small style="opacity:.5">%tabela</small></th><th class="v">Frete*</th></tr>`;
   const bodyRows = linhasSel.slice(0,lim).map(([k,o]) => {
     let r = rowT(k,o);
     if(_margDim==='produto' && prodSeg[k] && Object.keys(prodSeg[k]).length){
@@ -796,12 +798,12 @@ function renderMargem(){
     <div class="card total-geral" style="margin-bottom:10px"><div class="lab">🎯 Lucro do mês <span style="font-weight:400;text-transform:none">(sobra − custos fixos)</span></div><div class="big" style="color:${lucro>=0?'var(--lime)':'var(--red)'}">${brl(lucro)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">sobra ${brl(T.margem)} − custos fixos ${brl(_custosFixos)} ${_custosFixos>0?'· '+pct(lucro,T.tabela)+' da tabela':'· <span style="color:var(--amber)">digite os custos fixos do mês acima pra ver o lucro</span>'}</div></div>
     <div class="abas" style="margin:2px 0 10px">${DIMS.map(([k,l])=>`<button class="aba ${_margDim===k?'on':''}" style="padding:6px 13px;font-size:13px" onclick="setMargDim('${k}')">${l}</button>`).join('')}</div>
     <div class="card" style="overflow-x:auto"><table class="bal">${head.replace('__',dimLbl)}<tbody>${bodyRows}</tbody></table>${linhasSel.length>lim?`<div style="font-size:11px;color:var(--muted);margin-top:6px">Mostrando os ${lim} maiores de ${linhasSel.length}.</div>`:''}</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:10px">* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto = (tabela + frete) − total pago na Bling. Imposto = ${_impostoPct}% da receita líquida. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = alíquota por segmento (Atacado 1% · Varejo 4% · Site 2%) sobre a base (total − frete − despesas − devolução), rateada por linha — estimativa; a oficial (faixas/metas) entra quando o mês fecha. Obs: na coluna a comissão aparece como % da TABELA (fatia do preço cheio), que é menor que a alíquota porque a base é menor que a tabela. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem — o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo. <strong>Todas as % são sobre a TABELA</strong> (o preço cheio), então desconto + imposto + taxa + comissão + custo + margem = 100% da tabela.</div>`;
+    <div style="font-size:11px;color:var(--muted);margin-top:10px">* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto linha = tabela − preço vendido na linha. Desconto pedido = o desconto que aparece no total do pedido, rateado por linha. Imposto = ${_impostoPct}% da receita líquida. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = o % de cada vendedor/loja do Cadastro, sobre a base (total − frete − despesas − devolução), rateada por linha (vendedores isentos entram zerados); é estimativa, a oficial (faixas/metas) entra quando o mês fecha. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem, o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo.<br><strong>As % em cinza mostram a alíquota que está sendo usada em cada coluna:</strong> desconto linha é % sobre a tabela, desconto pedido % sobre o subtotal, imposto e taxa % sobre a receita, comissão é a alíquota do vendedor sobre a base. Receita, custo e margem aparecem como % da tabela (fatia do preço cheio).</div>`;
 }
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-29.42';
+const BUILD='2026-09-29.43';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
