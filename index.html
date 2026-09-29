@@ -364,6 +364,7 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-financeiro" onclick="setView('financeiro')">Financeiro</div>
   <div class="topnav-item" id="nav-budget" onclick="setView('budget')">📐 Budget</div>
   <div class="topnav-item" id="nav-desenv" onclick="setView('desenv')">🧵 Desenvolvimento</div>
+  <div class="topnav-item" id="nav-produtos" onclick="setView('produtos')">🏷️ Produtos</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
   <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
 </div>
@@ -408,6 +409,7 @@ tr:hover td{background:#fafaf8}
 <div id="v-rh" class="main" style="display:none"></div>
 <div id="v-budget" class="main" style="display:none"></div>
 <div id="v-desenv" class="main" style="display:none"></div>
+<div id="v-produtos" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
 
 </div><!-- /app -->
@@ -466,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v668/09-725';
+const APP_VERSION = 'v669/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -946,6 +948,7 @@ const PERM_PRINCIPAIS = [
   ['dashboard', 'Dashboard'],
   ['vendas',    'Vendas'],
   ['compras',   'Compras'],
+  ['produtos',  'Produtos'],
   ['cadastro',  'Cadastro'],
 ];
 const PERM_FIN = [
@@ -1284,6 +1287,9 @@ let _receitasCRExport = []; // receitas avulsas (rendimentos etc. lançados na c
 let _linhasCRDataPor = 'vencimento'; // tipo do filtro de data ('vencimento' | 'liquidacao') do último render de Contas a Receber
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
+let blingCustosMap = {}; // SKU (variação) -> {custo, colecao} vindo da Bling (Edge bling-custos). Custo automático.
+let produtoColecao = {}; // SKU BASE -> nome da coleção, escolhido NA MÃO por ela (a tag da Bling não sai pela API)
+let colecoesLista = []; // lista editável de nomes de coleção (seed da planilha Coleções.xlsx)
 let condicoesPagamento = []; // prazos p/ Compras: [{id,nome,nParcelas,primeiroDias,intervaloDias}] (À vista=1/0/0; 30/60/90=3/30/30)
 let fornecedoresCompras = []; // [{id,nome,whatsapp,condicaoId,categoria,empresa,obs}]
 let colecoes = []; // [{id,nome,subgrupo}] — coleções por subgrupo (CMV/CMV PL/CMV WL), base do rateio 4 níveis e do Budget
@@ -1384,12 +1390,74 @@ function _perf(nome, fn) {
     if (ms > 15) console.log('[perf] ' + nome + ': ' + ms.toFixed(0) + ' ms');
   }
 }
+// ══════════════════════════════════════════════════════════════════════
+// PRODUTOS — custo (automático da Bling) + coleção (na mão)
+// ══════════════════════════════════════════════════════════════════════
+const COLECOES_SEED = ["Acessórios","Coleção Act Run Abril26","Coleção Basic","Coleção Basic Nov 2025","Coleção Be Free","Coleção Bell","Coleção Black","Coleção Blackout Novembro 2025","Coleção Break Mar25","Coleção Celebrate Fev26","Coleção Classic","Coleção Classic outubro 2024","Coleção Cromo","Coleção Crossover","Coleção Edge Junho 2025","Coleção Element Outubro 2025","Coleção Feel Jul26","Coleção Fênix","Coleção Flex Mar26","Coleção Frenzy","Coleção Glam","Coleção Gravity Jan26","Coleção Holiday","Coleção Icon","Coleção Infinity","Coleção Joy","Coleção Kind","Coleção Love Cross","Coleção Machiatto Set26","Coleção Move","Coleção Nonstop Maio 2025","Coleção Playlist Dez25","Coleção Power","Coleção Reset","Coleção Resort","Coleção RK Push","Coleção RKBX","Coleção Rokbox Athlete Team","Coleção Roots Agosto 2025","Coleção Running","Coleção Running agosto 24","Coleção Running dezembro 2024","Coleção Running fevereiro 2025","Coleção Running Jan26","Coleção Running janeiro 2025","Coleção Running junho 24","Coleção Running outubro 2024","Coleção Sense Abril 2025","Coleção Serene Julho 2025","Coleção Soul","Coleção Special Black","Coleção Sport","Coleção Sport fevereiro 2025","Coleção Sportive Setembro 2025","Coleção TCB","Coleção Ultraviolet","Coleção Wave","Coleção Wonder Maio26","Coleção Xplosion"];
+let _prBusca = '', _prSoSem = false;
+function _skuBaseP(sku) { return String(sku || '').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i, '').trim(); }
+function _baseNomeP(desc) { const i = String(desc || '').search(/\s*Tamanho:/i); return (i >= 0 ? String(desc).slice(0, i) : String(desc || '')).trim(); }
+function colecoesTodas() { if (!colecoesLista || !colecoesLista.length) colecoesLista = COLECOES_SEED.slice(); return [...colecoesLista].sort((a, b) => a.localeCompare(b, 'pt')); }
+function addColecao() { const el = document.getElementById('pr-newcol'); const v = (el ? el.value : '').trim(); if (!v) return; if (!colecoesLista.length) colecoesLista = COLECOES_SEED.slice(); if (!colecoesLista.includes(v)) colecoesLista.push(v); saveData('colecoesLista', colecoesLista); if (el) el.value = ''; renderProdutosGestao(); }
+function removeColecao(nome) { colecoesLista = colecoesTodas().filter(c => c !== nome); saveData('colecoesLista', colecoesLista); renderProdutosGestao(); }
+function setProdutoColecao(base, col) { if (col) produtoColecao[base] = col; else delete produtoColecao[base]; saveData('produtoColecao', produtoColecao); }
+function _custoBaseMap() { const m = {}; Object.entries(blingCustosMap).forEach(([sku, info]) => { const b = _skuBaseP(sku); const c = +(info && info.custo) || 0; if (m[b] == null || (!m[b] && c)) m[b] = c; }); return m; }
+function renderProdutosGestao() {
+  const el = document.getElementById('v-produtos'); if (!el) return;
+  const cols = colecoesTodas();
+  const custoBase = _custoBaseMap();
+  const prodMap = {};
+  pedidos.forEach(p => { (Array.isArray(p.linhas) ? p.linhas : []).forEach(l => { const sku = String(l.sku || '').trim(); if (!sku) return; const b = _skuBaseP(sku); if (!prodMap[b]) prodMap[b] = { base: b, nome: _baseNomeP(l.descricao) || b, custo: custoBase[b] || 0 }; else if ((prodMap[b].nome === b) && l.descricao) prodMap[b].nome = _baseNomeP(l.descricao) || b; }); });
+  const prods = Object.values(prodMap);
+  const total = prods.length, comCol = prods.filter(p => produtoColecao[p.base]).length, comCusto = prods.filter(p => p.custo > 0).length;
+  const fQ = (_prBusca || '').toLowerCase();
+  let vis = prods.filter(p => (!fQ || (p.nome || '').toLowerCase().includes(fQ) || p.base.toLowerCase().includes(fQ)) && (!_prSoSem || !produtoColecao[p.base]));
+  vis.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  const escJs = s => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  el.innerHTML = `
+    <h2 style="margin:0 0 4px">🏷️ Produtos</h2>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">O <strong>custo</strong> vem automático da Bling (preço de custo). A <strong>coleção</strong> você escolhe na mão aqui (a Bling guarda a coleção numa <em>tag</em>, que não sai pela API). Produtos = os que já apareceram em vendas.</div>
+    <div class="cards-row">
+      <div class="card blue"><div class="c-label">Produtos (vendidos)</div><div class="c-val">${total}</div></div>
+      <div class="card green"><div class="c-label">Com custo</div><div class="c-val">${comCusto}</div><div class="c-sub">${total - comCusto} sem custo</div></div>
+      <div class="card amber"><div class="c-label">Com coleção</div><div class="c-val">${comCol}</div><div class="c-sub">${total - comCol} a preencher</div></div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;background:var(--surface)">
+      <div style="font-weight:700;margin-bottom:8px">📚 Coleções <span style="color:var(--muted);font-weight:400">(${cols.length})</span></div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <input class="inline-input" id="pr-newcol" placeholder="Nova coleção (ex: Coleção Verão 27)" style="width:260px" onkeydown="if(event.key==='Enter'){addColecao();}">
+        <button class="btn primary sm" onclick="addColecao()">+ Adicionar coleção</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;max-height:120px;overflow:auto">
+        ${cols.map(c => `<span style="background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11px">${esc(c)} <a href="#" onclick="removeColecao('${escJs(c)}');return false" style="color:var(--red);text-decoration:none" title="Remover da lista">✕</a></span>`).join('')}
+      </div>
+    </div>
+    <div class="topbar" style="margin-bottom:10px">
+      <input class="inline-input" id="pr-q" placeholder="Buscar produto ou SKU..." value="${esc(_prBusca)}" style="width:240px" oninput="_prBusca=this.value;debounceRender('renderProdutosGestao')">
+      <label style="font-size:12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" ${_prSoSem ? 'checked' : ''} onchange="_prSoSem=this.checked;renderProdutosGestao()"> só sem coleção</label>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--muted)">${vis.length} produto(s)</span>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>Produto</th><th>SKU</th><th style="text-align:right">Custo (Bling)</th><th>Coleção</th></tr></thead><tbody>
+    ${vis.length ? vis.map(p => `<tr>
+      <td>${esc(p.nome) || '—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${esc(p.base)}</td>
+      <td style="text-align:right">${p.custo > 0 ? fmtVal(p.custo) : '<span style="color:var(--amber);font-size:11px">sem custo</span>'}</td>
+      <td><select class="inline-input" style="width:230px" onchange="setProdutoColecao('${escJs(p.base)}',this.value)">
+        <option value="">— Sem coleção —</option>
+        ${cols.map(c => `<option value="${esc(c)}" ${produtoColecao[p.base] === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+      </select></td>
+    </tr>`).join('') : '<tr><td colspan="4" style="color:var(--muted);font-size:12px;padding:14px">Nenhum produto (importe vendas da Bling primeiro).</td></tr>'}
+    </tbody></table></div>`;
+}
+
 function setView(v) {
   if (!viewAllowed(v)) { const f = firstAllowedView(); if (!f) return; v = f; }
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','compras','rh','budget','desenv','financeiro','cadastro'].forEach(x => {
+  ['dashboard','vendas','compras','rh','budget','desenv','produtos','financeiro','cadastro'].forEach(x => {
     document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
@@ -1398,6 +1466,7 @@ function setView(v) {
   const _vbg = document.getElementById('v-budget'); if (_vbg) _vbg.style.display = v === 'budget' ? 'block' : 'none';
   const _vdz = document.getElementById('v-desenv'); if (_vdz) _vdz.style.display = v === 'desenv' ? 'block' : 'none';
   const _vrh = document.getElementById('v-rh'); if (_vrh) _vrh.style.display = v === 'rh' ? 'block' : 'none';
+  const _vpr = document.getElementById('v-produtos'); if (_vpr) _vpr.style.display = v === 'produtos' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
   document.getElementById('sub-fin').style.display = v === 'financeiro' ? 'flex' : 'none';
@@ -1408,6 +1477,7 @@ function setView(v) {
   if (v === 'rh') _perf('RH', renderRH);
   if (v === 'budget') _perf('Budget', renderBudget);
   if (v === 'desenv') _perf('Desenvolvimento', renderDesenv);
+  if (v === 'produtos') _perf('Produtos', renderProdutosGestao);
   if (v === 'financeiro') {
     // Não reabre a Conciliação automaticamente (evita reprocessar). Comportamento original.
     let s = currentSub === 'conc' ? 'contas' : currentSub;
@@ -16024,7 +16094,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecoesLista','blingCustos'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -16089,6 +16159,9 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
     else if (k==='crFechado') crFechado = v || {};
     else if (k==='cpFechado') cpFechado = v || {};
+    else if (k==='produtoColecao') produtoColecao = v || {};
+    else if (k==='colecoesLista') colecoesLista = v || [];
+    else if (k==='blingCustos') blingCustosMap = (v && v.map) || {};
     else if (k==='creditosCliente') creditosCliente = v || [];
     else if (k==='comissaoVendedor') comissaoVendedor = v || {};
     else if (k==='comissaoOutros') comissaoOutros = v || {};
