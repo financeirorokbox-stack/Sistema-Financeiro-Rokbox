@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v671/09-725';
+const APP_VERSION = 'v672/09-725';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1428,7 +1428,7 @@ function _colKeywordsSeguras() {
 }
 // Regras de sinônimo: palavra no nome do produto -> coleção (o que o nome sozinho não pega). Cresce conforme ela avisa.
 const COL_SINONIMOS = [
-  { palavras: ['faixa de cabelo', 'faixa', 'scrunchie', 'headband'], colecao: 'Acessórios' },
+  { palavras: ['faixa de cabelo', 'faixa', 'scrunchie', 'headband', 'necessaire', 'boné', 'meia'], colecao: 'Acessórios' },
 ];
 // Preenche a coleção pelos nomes (só casos claros, só em branco, não sobrescreve o que ela marcou).
 function sugerirColecoes() {
