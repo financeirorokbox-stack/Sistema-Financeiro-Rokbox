@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v678/09-731';
+const APP_VERSION = 'v679/09-732';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8527,7 +8527,7 @@ const DRIVE_PASTA_TOKEN = 'RK-financeiro-2026';
 const DRIVE_GRUPOS = [
   { input: 'file-pedidos',  nav: ['vendas'],                     tipos: ['Vendas'], snapshot: true },
   { input: 'file-forma',    nav: ['vendas'],                     tipos: ['Forma de Pagto'], snapshot: true },
-  { input: 'file-cr2',      nav: ['financeiro', 'contas', 'receb'],    tipos: ['Paypal', 'BraavoPay', 'Rede'] },
+  { input: 'file-cr2',      nav: ['financeiro', 'contas', 'receb'],    tipos: ['Paypal', 'BraavoPay', 'Rede', 'Pagarme'] },
   { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] },
   { input: 'file-ext',      nav: ['financeiro', 'extrato'],            tipos: ['Extratos'] }
   // Contas a Pagar e Contas a Receber são SAÍDA (exportadas do sistema) — não entram na sincronização.
@@ -8583,7 +8583,7 @@ function escolherGruposDrive(mesId, mesNome) {
   const modal = document.getElementById('drive-modal');
   if (!modal) return;
   const d = modal.querySelector('div');
-  const rotulos = ['🛍 Vendas', '💳 Forma de Pagto', '💰 Recebimentos (PayPal/Braavo/Rede)', '📄 Boletos Pagos', '🏦 Extratos'];
+  const rotulos = ['🛍 Vendas', '💳 Forma de Pagto', '💰 Recebimentos (PayPal/Braavo/Rede/Pagar.me)', '📄 Boletos Pagos', '🏦 Extratos'];
   d.innerHTML = `
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">☁ ${mesNome}</div>
     <div style="font-size:12px;color:var(--muted,#777);margin-bottom:10px">O que você quer puxar? (clica só no que subiu de novo — fica bem mais rápido)</div>
