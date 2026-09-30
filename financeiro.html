@@ -105,6 +105,7 @@
     <button class="aba" data-t="fechamento" onclick="setAba('fechamento')">📄 Fechamento</button>
     <button class="aba" data-t="margem" onclick="setAba('margem')">💰 Margem</button>
     <button class="aba" data-t="recebimentos" onclick="setAba('recebimentos')">🧾 Recebimentos</button>
+    <button class="aba" data-t="nf" onclick="setAba('nf')">📑 NF</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -182,6 +183,10 @@
 
   <div id="aba-recebimentos" style="display:none">
     <div id="recebimentos-conteudo"></div>
+  </div>
+
+  <div id="aba-nf" style="display:none">
+    <div id="nf-conteudo"></div>
   </div>
 
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI)</div>
@@ -295,8 +300,8 @@ function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra
   const [fy,fm]=fim.split('-').map(Number); const arr=[]; let y=2026,m=6; while(y<fy||(y===fy&&m<=fm)){ arr.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} } return arr.reverse();
 }
 function _popMesSel(){ const s=document.getElementById('mes-sel'); if(!s) return; const cur=mesSel||mesAtual(); s.innerHTML=_mesesDisponiveis().map(mm=>{ const nome=new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<option value="${mm}" ${mm===cur?'selected':''}>${nome.charAt(0).toUpperCase()+nome.slice(1)}</option>`; }).join(''); }
-function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); const f=document.getElementById('aba-fechamento'); if(f && f.style.display!=='none') renderFechamento(); const g=document.getElementById('aba-margem'); if(g && g.style.display!=='none') renderMargem(); const rc=document.getElementById('aba-recebimentos'); if(rc && rc.style.display!=='none') renderRecebimentos(); } // atualiza balancete/fechamento/margem/recebimentos se estiverem abertos
-function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); }
+function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); const f=document.getElementById('aba-fechamento'); if(f && f.style.display!=='none') renderFechamento(); const g=document.getElementById('aba-margem'); if(g && g.style.display!=='none') renderMargem(); const rc=document.getElementById('aba-recebimentos'); if(rc && rc.style.display!=='none') renderRecebimentos(); const nf=document.getElementById('aba-nf'); if(nf && nf.style.display!=='none') renderNF(); } // atualiza balancete/fechamento/margem/recebimentos/NF se estiverem abertos
+function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); }
 
 // ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
 function renderFechamento(){
@@ -374,8 +379,8 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],comExc:comExc||[]};
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling')]);
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],comExc:comExc||[],nfBling:nfBling||{}};
     _popMesSel();
     const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
@@ -823,6 +828,58 @@ function renderRecebimentos(){
       </table>
     </div>`;
 }
+// ══ NF — confere se cada pedido saiu com a natureza de operação CERTA na nota, e avisa quem NÃO emitiu NF ══
+// Natureza esperada = do cadastro de loja (lc[loja].naturezaNF). Natureza REAL = da lista de NFs importada da Bling
+// (chave nfNaturezaBling: { pedido: {natureza, numero, empresa} }) — enquanto não importada, a coluna fica "a conferir".
+// "Não emitiu NF": hoje detecta temNF==='Não'; com a lista da Bling, também pega os que não têm NF casada.
+function _nfNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim(); }
+let _nfFiltro='problemas'; // problemas | todos | semnf | divergente | ok | seminfo
+function setNfFiltro(v){ _nfFiltro=v; renderNF(); }
+function renderNF(){
+  const el=document.getElementById('nf-conteudo'); if(!el) return;
+  const F=_FIN; if(!F){ el.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:30px">Carregando… se não aparecer, dê F5.</div>'; return; }
+  const mes=mesSel||mesAtual(), pedidos=F.pedidos||[], lc=F.lc||{}, nfReal=F.nfBling||{};
+  const temImport=nfReal && Object.keys(nfReal).length>0;
+  const NAONF=['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15']; // não emite NF / não é venda concluída
+  const rows=[];
+  pedidos.forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; const sit=String(p.situacao||'').toLowerCase(); if(NAONF.includes(sit)) return;
+    const info=lc[p.loja]||{}; const operacao=info.operacao||'(loja sem cadastro)'; const esperada=info.naturezaNF||''; const empresa=info.empresa||p.empresa||'';
+    const temNF=String(p.temNF||'').trim(); const nf=nfReal[String(p.id)]||null; const real=nf?(nf.natureza||''):''; const numero=nf?(nf.numero||''):(String(p.numeroDoc||'').trim());
+    let status; if(temNF==='Não') status='semnf'; else if(real) status=(_nfNorm(real)===_nfNorm(esperada))?'ok':'divergente'; else if(temNF==='Sim'||numero) status='emitida'; else status='seminfo';
+    rows.push({id:String(p.id),nome:p.nome||'',empresa,loja:p.loja||'',operacao,esperada,real,temNF,numero,status}); });
+  const ordem={semnf:0,divergente:1,emitida:2,ok:3,seminfo:4};
+  rows.sort((a,b)=> (ordem[a.status]-ordem[b.status]) || a.empresa.localeCompare(b.empresa));
+  const C={semnf:0,divergente:0,ok:0,emitida:0,seminfo:0}; rows.forEach(r=>C[r.status]++);
+  const shown=rows.filter(r=>{ if(_nfFiltro==='todos') return true; if(_nfFiltro==='problemas') return r.status==='semnf'||r.status==='divergente'; return r.status===_nfFiltro; });
+  const stLbl={semnf:'<span style="color:var(--red);font-weight:800">🔴 não emitiu NF</span>',divergente:'<span style="color:var(--red);font-weight:800">❌ natureza divergente</span>',ok:'<span style="color:var(--lime)">✅ confere</span>',emitida:'<span style="color:#58a6ff">🧾 emitida · natureza a conferir</span>',seminfo:'<span style="color:var(--muted)">⚪ sem info (importar Bling)</span>'};
+  const mesNome=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const body=shown.map(r=>`<tr>
+    <td>#${r.id}${r.nome?` <span style="color:var(--muted)">· ${r.nome}</span>`:''}</td>
+    <td style="color:var(--muted)">${r.empresa}</td>
+    <td style="color:var(--muted)">${r.loja}</td>
+    <td>${r.operacao}</td>
+    <td>${r.esperada||'<span style="color:var(--amber)">(loja sem natureza)</span>'}</td>
+    <td style="color:${r.status==='divergente'?'var(--red)':(r.real?'var(--lime)':'var(--muted)')}">${r.real||(r.numero?('nº '+r.numero):'—')}</td>
+    <td style="text-align:center">${r.temNF==='Sim'?'✅':(r.temNF==='Não'?'<span style="color:var(--red);font-weight:800">Não</span>':'<span style="color:var(--muted)">?</span>')}</td>
+    <td>${stLbl[r.status]}</td></tr>`).join('') || `<tr><td colspan="8" style="color:var(--muted)">${_nfFiltro==='problemas'?'Nenhum problema de NF nesse mês. 🎉':'Nada nesse filtro.'}</td></tr>`;
+  el.innerHTML=`
+    <h2>📑 Conferência de NF <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · natureza de operação e emissão</span></h2>
+    ${temImport?'':`<div class="card" style="border:1px solid #f0a35e55;background:#f0a35e14;margin-bottom:10px;font-size:12.5px">⚠️ <b>Lista de NFs da Bling ainda não importada.</b> Por enquanto mostro a <b>natureza esperada</b> de cada pedido e sinalizo os que estão marcados como <b>temNF = Não</b> (não emitiram nota). Quando você importar a lista de NFs das <b>duas Blings</b> (Rokbox e PL/White Label), a coluna <b>Natureza na NF</b> preenche sozinha e eu marco ✅ confere / ❌ divergente, e também pego os que ficaram <b>sem NF</b> de verdade. Me manda a exportação que eu ligo a importação.</div>`}
+    <div class="grid2" style="margin-bottom:8px">
+      <div class="card"><div class="lab" style="color:var(--red)">🔴 Não emitiu NF</div><div class="big" style="color:${C.semnf>0?'var(--red)':'var(--lime)'}">${C.semnf}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">${C.divergente} com natureza divergente</div></div>
+      <div class="card"><div class="lab">Pedidos do mês (que emitem NF)</div><div class="big">${rows.length}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">✅ ${C.ok} conferem · 🧾 ${C.emitida} a conferir · ⚪ ${C.seminfo} sem info</div></div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px">
+        <div style="font-size:11px;color:var(--muted);flex:1;min-width:240px">Natureza esperada vem do cadastro de loja. Natureza na NF vem da lista importada da Bling. <b>❌ divergente</b> = saiu diferente do esperado; <b>🔴 não emitiu NF</b> = pedido sem nota.</div>
+        <label style="font-size:12.5px;font-weight:700;white-space:nowrap;color:var(--muted)">Mostrar: <select onchange="setNfFiltro(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:10px;padding:6px 10px;font-weight:700;font-size:12.5px">${[['problemas','Só problemas'],['todos','Todos'],['semnf','🔴 Sem NF'],['divergente','❌ Divergente'],['ok','✅ Confere'],['emitida','🧾 A conferir'],['seminfo','⚪ Sem info']].map(o=>`<option value="${o[0]}"${_nfFiltro===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select></label>
+      </div>
+      <table class="bal" style="width:100%;font-size:12.5px">
+        <tr><th>Pedido</th><th>Bling/Empresa</th><th>Loja</th><th>Operação</th><th>Natureza esperada</th><th>Natureza na NF</th><th style="text-align:center">temNF</th><th>Status</th></tr>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
 function renderMargem(){
   const el = document.getElementById('margem-conteudo'); if(!el) return;
   if(!_FIN){ el.innerHTML = '<div class="card">Carregando…</div>'; return; }
@@ -937,7 +994,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-30.3';
+const BUILD='2026-09-30.4';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
