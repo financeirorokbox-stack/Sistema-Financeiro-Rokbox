@@ -76,14 +76,15 @@
 
 <script>
 // ── Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador) ──
-const BUILD='2026-09-22.16';
+const BUILD='2026-09-30.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
 
 let role='vendas';
 const H_VENDAS=1886177389;   // Rkvendas*  (supervisora → só Vendas)
-const H_DIRETOR=515829727;   // Rkdiretor$ (diretor → Vendas + Financeiro)
+const H_DIRETOR=515829727;   // Rkdiretor$ (diretor → Vendas + Financeiro; no Financeiro vê só Fluxo+Balancete)
+const H_ADMIN=1056204911;    // Rkadmin$   (admin → Vendas + Financeiro COMPLETO; iframe lê rk_role=admin)
 function hash(v){ let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; return h; }
 function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -92,13 +93,14 @@ function finValid(){ try{ return localStorage.getItem('rk_gate_fin')===todayStr(
 
 function tentar(){
   const v=document.getElementById('gpass').value||''; const h=hash(v);
-  if(h===H_DIRETOR){ try{ localStorage.setItem('rk_role','diretor'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_gate_fin','1'); }catch(e){} entrar('diretor'); } // diretor: acesso total, lembrado (sem 2ª senha)
+  if(h===H_ADMIN){ try{ localStorage.setItem('rk_role','admin'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_gate_fin','1'); }catch(e){} entrar('admin'); } // admin: acesso total + Financeiro completo
+  else if(h===H_DIRETOR){ try{ localStorage.setItem('rk_role','diretor'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_gate_fin','1'); }catch(e){} entrar('diretor'); } // diretor: acesso total, lembrado (sem 2ª senha)
   else if(h===H_VENDAS){ try{ localStorage.setItem('rk_role','vendas'); localStorage.setItem('rk_gate_vendas','1'); }catch(e){} entrar('vendas'); }
   else { document.getElementById('gerr').textContent='Senha incorreta.'; }
 }
 function entrar(r){
   role=r;
-  document.getElementById('tb-f').style.display = (r==='diretor') ? '' : 'none';
+  document.getElementById('tb-f').style.display = (r==='diretor'||r==='admin') ? '' : 'none';
   document.getElementById('gate').style.display='none';
   document.getElementById('app').style.display='flex';
   const fv=document.getElementById('fv'); if(!fv.getAttribute('src')) fv.setAttribute('src','placar.html?cb='+Date.now()); // cache-buster sempre fresco (evita aba antiga em cache)
@@ -120,7 +122,7 @@ function tentarFin(){
 function setTab(t){
   const bv=document.getElementById('tb-v'), bf=document.getElementById('tb-f');
   const fv=document.getElementById('fv'), fg=document.getElementById('fingate');
-  if(t==='f' && role==='diretor'){ abrirFin(); } // diretor abre o Financeiro direto (a senha do painel já liberou tudo)
+  if(t==='f' && (role==='diretor'||role==='admin')){ abrirFin(); } // diretor/admin abrem o Financeiro direto (a senha do painel já liberou tudo)
   else {
     if(fg) fg.style.display='none';
     fv.style.display='block'; document.getElementById('ff').style.display='none';
@@ -135,7 +137,8 @@ function sair(){ try{ localStorage.removeItem('rk_role'); localStorage.removeIte
     r=localStorage.getItem('rk_role');
     if(!r){ if(localStorage.getItem('rk_gate_fin')) r='diretor'; else if(localStorage.getItem('rk_gate_vendas')==='1') r='vendas'; } // compat com versões antigas
   }catch(e){}
-  if(r==='diretor') entrar('diretor');
+  if(r==='admin') entrar('admin');
+  else if(r==='diretor') entrar('diretor');
   else if(r==='vendas') entrar('vendas');
   else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); }
 })();
