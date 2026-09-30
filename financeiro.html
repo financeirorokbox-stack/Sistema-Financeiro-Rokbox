@@ -754,13 +754,18 @@ function _margConfHTML(mi){
   const foot=`<tr style="font-weight:700;border-top:1px solid var(--line,#233)"><td colspan="4">Total · ${rows.length} peça(s)</td><td class="v">${brl(sT)}</td><td class="v">${brl(sV)}</td><td class="v" style="color:var(--amber)">${brl(sD)}</td><td class="v" style="color:var(--muted)">${sT>0?(sD/sT*100).toFixed(0)+'%':''}</td><td class="v">${brl(sC)}</td></tr>`;
   return `<div style="font-size:11px;color:var(--muted);margin:0 0 5px">Conferência · Tabela vem do preço de lista da Bling, Vendido é o preço da linha no pedido, Desconto é a diferença.</div><table class="bal" style="width:100%;font-size:12px"><tr><th>Pedido</th><th>Loja</th><th>Produto</th><th class="v">Qtd</th><th class="v">Tabela</th><th class="v">Vendido</th><th class="v">Desc.</th><th class="v">%</th><th class="v">Custo</th></tr><tbody>${body}${foot}</tbody></table>`;
 }
-// ══ RECEBIMENTOS — por pedido: valor, recebido, taxa, líquido, devolução, falta ══
+// ══ RECEBIMENTOS — por pedido: valor, recebido, taxa, líquido, devolução, falta, boleto ══
 // Cruza os pedidos (Venda/Troca) do mês com os recebimentos (PayPal/Braavo/Rede/PIX) e o crédito de troca (devolução).
 // Falta = Valor do pedido − Recebido (bruto) − Devolução. >0 falta receber; <0 recebeu a mais; ~0 quitado.
+// Coluna Boleto: pros pedidos com falta, mostra se tem boleto emitido/a emitir, o valor e o vencimento (do flatCR),
+// pra saber se está em aberto mas AINDA VAI VENCER (ok) ou já venceu (⚠).
+let _recFiltro='todos'; // filtro por status: todos | falta | quitado | parcial | aberto | amais
+function setRecFiltro(v){ _recFiltro=v; renderRecebimentos(); }
+function _recStatus(r){ if(Math.abs(r.falta)<=0.01) return 'quitado'; if(r.falta<-0.01) return 'amais'; if(r.bruto<=0.01&&r.dev<=0.01) return 'aberto'; return 'parcial'; }
 function renderRecebimentos(){
   const el=document.getElementById('recebimentos-conteudo'); if(!el) return;
   const F=_FIN; if(!F){ el.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:30px">Carregando… se não aparecer, dê F5.</div>'; return; }
-  const mes=mesSel||mesAtual(), pedidos=F.pedidos||[], lc=F.lc||{};
+  const mes=mesSel||mesAtual(), pedidos=F.pedidos||[], lc=F.lc||{}, hojeISO=todayStr();
   const NAOAP=['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'];
   const opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
   const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase())) return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
@@ -773,6 +778,11 @@ function renderRecebimentos(){
   const credDe=d=>{ const raw=devCred[d.pedido+'|'+d.cliente]; if(raw==='__editando__'||raw==='__vazio__') return ''; const grp=devAll.filter(x=>String(x.pedido)===String(d.pedido)&&(x.cliente||'')===(d.cliente||'')); if(grp.length>1){ const dist=new Set(grp.map(x=>(x.pedidoCredito||'').trim())); if(dist.size>1) return (d.pedidoCredito||'').trim()||raw||''; } return raw||d.pedidoCredito||''; };
   const rawDev={}; devAll.forEach(d=>{ const cred=String(credDe(d)).match(/\d{4,6}/g)||[]; if(!cred.length) return; const parc=+(((+d.valorPago||0)/cred.length)).toFixed(2); cred.forEach(pc=>{ rawDev[pc]=+(((rawDev[pc]||0)+parc)).toFixed(2); }); });
   const devPorPed={}; Object.keys(rawDev).forEach(pc=>{ const p=pedById[pc]; const cap=p?(+p.valor||0):Infinity; devPorPed[pc]=+Math.min(rawDev[pc],cap).toFixed(2); });
+  // Boleto EM ABERTO por pedido (do flatCR): boleto ainda não baixado (sem data_liquidacao). Guarda valor, vencimentos e se está emitido ou a emitir.
+  const boletoPorPed={};
+  (F.cr||[]).forEach(r=>{ if(r.data_liquidacao) return; if(!/boleto/i.test(String(r.canal_pagamento||''))) return; const pid=String(r.pedido||''); if(!pid) return; const t=boletoPorPed[pid]||(boletoPorPed[pid]={val:0,vencs:[],emitido:false,aEmitir:false}); t.val+=+r.valor_bruto||0; if(r.vencimento)t.vencs.push(r.vencimento); if(r.a_emitir===true)t.aEmitir=true; else t.emitido=true; });
+  const fmtD=d=>d?String(d).slice(8,10)+'/'+String(d).slice(5,7):'';
+  const cellBoleto=r=>{ if(r.falta<=0.01) return '<span style="color:var(--muted)">—</span>'; const b=boletoPorPed[r.id]; if(!b) return '<span style="color:var(--muted)">sem boleto</span>'; const vencs=b.vencs.slice().sort(); const v0=vencs[0]||''; const futuro=v0&&v0>=hojeISO; const rot=b.emitido?'🧾 emitido':'🕗 a emitir'; const venc=v0?` · vence ${fmtD(v0)}${vencs.length>1?` +${vencs.length-1}`:''}`:''; const cor=futuro?'#58a6ff':'var(--red)'; return `<span style="color:${cor}">${rot} ${brl(b.val)}${venc}${futuro?'':' ⚠ venceu'}</span>`; };
   // Linhas: um pedido por linha (Venda/Troca do mês)
   const rows=[];
   pedidos.forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; if(!ehVT(p)) return; const id=String(p.id); const rec=recPorPed[id]||{bruto:0,taxa:0,liq:0,gws:new Set()}; const valor=+p.valor||0; const dev=devPorPed[id]||0; const falta=+(valor-rec.bruto-dev).toFixed(2); rows.push({id,nome:p.nome||'',loja:p.loja||'',valor,bruto:rec.bruto,taxa:rec.taxa,liq:rec.liq,dev,falta,gws:[...(rec.gws||[])]}); });
@@ -781,7 +791,10 @@ function renderRecebimentos(){
   const st=r=>{ if(Math.abs(r.falta)<=0.01) return '<span style="color:var(--lime)">✅ quitado</span>'; if(r.falta<-0.01) return '<span style="color:#58a6ff">🔵 a mais</span>'; if(r.bruto<=0.01&&r.dev<=0.01) return '<span style="color:var(--muted)">⬜ em aberto</span>'; return '<span style="color:var(--amber)">🟡 parcial</span>'; };
   const mesNome=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const nQuit=rows.filter(r=>Math.abs(r.falta)<=0.01).length, nFalta=rows.filter(r=>r.falta>0.01).length;
-  const body=rows.map(r=>`<tr>
+  // filtro por status mexe só na tabela; os cards de resumo continuam do mês inteiro
+  const shown=rows.filter(r=>{ if(_recFiltro==='todos') return true; if(_recFiltro==='falta') return r.falta>0.01; return _recStatus(r)===_recFiltro; });
+  const S={valor:0,bruto:0,taxa:0,liq:0,dev:0,falta:0}; shown.forEach(r=>{ S.valor+=r.valor; S.bruto+=r.bruto; S.taxa+=r.taxa; S.liq+=r.liq; S.dev+=r.dev; S.falta+=r.falta; });
+  const body=shown.map(r=>`<tr>
     <td>#${r.id}${r.nome?` <span style="color:var(--muted)">· ${r.nome}</span>`:''}${r.gws.length?` <span style="color:var(--muted);font-size:10px">(${r.gws.join(', ')})</span>`:''}</td>
     <td style="color:var(--muted)">${r.loja}</td>
     <td class="v">${brl(r.valor)}</td>
@@ -790,8 +803,9 @@ function renderRecebimentos(){
     <td class="v">${r.liq>0?brl(r.liq):'—'}</td>
     <td class="v" style="color:var(--amber)">${r.dev>0?brl(r.dev):'—'}</td>
     <td class="v" style="font-weight:800;color:${Math.abs(r.falta)<=0.01?'var(--muted)':(r.falta>0?'var(--red)':'#58a6ff')}">${brl(r.falta)}</td>
-    <td>${st(r)}</td></tr>`).join('') || `<tr><td colspan="9" style="color:var(--muted)">Sem pedidos de venda no mês.</td></tr>`;
-  const foot=rows.length?`<tr class="tot"><td>TOTAL · ${rows.length} pedido(s)</td><td></td><td class="v">${brl(T.valor)}</td><td class="v" style="color:var(--lime)">${brl(T.bruto)}</td><td class="v" style="color:#e0823a">${brl(T.taxa)}</td><td class="v">${brl(T.liq)}</td><td class="v" style="color:var(--amber)">${brl(T.dev)}</td><td class="v" style="color:${T.falta>0?'var(--red)':'var(--muted)'}">${brl(T.falta)}</td><td></td></tr>`:'';
+    <td>${st(r)}</td>
+    <td>${cellBoleto(r)}</td></tr>`).join('') || `<tr><td colspan="10" style="color:var(--muted)">${_recFiltro!=='todos'?'Nenhum pedido nesse filtro. 🎉':'Sem pedidos de venda no mês.'}</td></tr>`;
+  const foot=shown.length?`<tr class="tot"><td>TOTAL · ${shown.length} pedido(s)</td><td></td><td class="v">${brl(S.valor)}</td><td class="v" style="color:var(--lime)">${brl(S.bruto)}</td><td class="v" style="color:#e0823a">${brl(S.taxa)}</td><td class="v">${brl(S.liq)}</td><td class="v" style="color:var(--amber)">${brl(S.dev)}</td><td class="v" style="color:${S.falta>0?'var(--red)':'var(--muted)'}">${brl(S.falta)}</td><td></td><td></td></tr>`:'';
   el.innerHTML=`
     <h2>🧾 Recebimentos por pedido <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
     <div class="grid2" style="margin-bottom:8px">
@@ -799,9 +813,12 @@ function renderRecebimentos(){
       <div class="card"><div class="lab">Falta receber</div><div class="big" style="color:${T.falta>0?'var(--red)':'var(--lime)'}">${brl(T.falta)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">recebido ${brl(T.bruto)} · devolução ${brl(T.dev)} · taxa ${brl(T.taxa)} · líquido ${brl(T.liq)}</div></div>
     </div>
     <div class="card" style="overflow-x:auto">
-      <div style="font-size:11px;color:var(--muted);margin:0 0 6px">Recebido = bruto que entrou (PayPal/Braavo/Rede/PIX). Taxa = tarifa do gateway. Líquido = o que caiu no banco (bruto − taxa). Devolução = crédito de troca abatido do pedido. <b>Falta = Valor − Recebido − Devolução</b> (positivo = falta receber; azul = recebeu a mais).</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px">
+        <div style="font-size:11px;color:var(--muted);flex:1;min-width:240px">Recebido = bruto que entrou. Taxa = tarifa do gateway. Líquido = o que caiu no banco. Devolução = crédito de troca abatido. <b>Falta = Valor − Recebido − Devolução</b>. Boleto (só nos que faltam): 🧾 emitido / 🕗 a emitir, com valor e vencimento; azul = ainda vai vencer, vermelho ⚠ = já venceu.</div>
+        <label style="font-size:12.5px;font-weight:700;white-space:nowrap;color:var(--muted)">Status: <select onchange="setRecFiltro(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:10px;padding:6px 10px;font-weight:700;font-size:12.5px">${[['todos','Todos'],['falta','Com falta'],['aberto','⬜ Em aberto'],['parcial','🟡 Parcial'],['quitado','✅ Quitado'],['amais','🔵 Recebeu a mais']].map(o=>`<option value="${o[0]}"${_recFiltro===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select></label>
+      </div>
       <table class="bal" style="width:100%;font-size:12.5px">
-        <tr><th>Pedido</th><th>Loja</th><th class="v">Valor</th><th class="v">Recebido</th><th class="v">Taxa</th><th class="v">Líquido</th><th class="v">Devolução</th><th class="v">Falta</th><th>Status</th></tr>
+        <tr><th>Pedido</th><th>Loja</th><th class="v">Valor</th><th class="v">Recebido</th><th class="v">Taxa</th><th class="v">Líquido</th><th class="v">Devolução</th><th class="v">Falta</th><th>Status</th><th>Boleto (a vencer)</th></tr>
         <tbody>${body}${foot}</tbody>
       </table>
     </div>`;
@@ -920,7 +937,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-30.2';
+const BUILD='2026-09-30.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
