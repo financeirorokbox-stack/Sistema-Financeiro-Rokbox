@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v677/09-730';
+const APP_VERSION = 'v678/09-731';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1909,6 +1909,21 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
         gateway: gatewayName, bruto, taxa, liq, data, nped,
         nome: r['Nome'] || '', tipo, status, _txnId: txnId, _refId: refId, _reembolso: ehReembolso
       });
+      return;
+    }
+
+    // ── Pagar.me (export CSV com ';', colunas em inglês, valores em CENTAVOS) ──
+    if ('Amount_In_Cents' in r || 'Charge_Id' in r) {
+      const st = String(r['Status'] || '').toLowerCase();
+      if (st !== 'paid' && st !== 'pago') return; // só entra o que foi PAGO (ignora falha/pendente/cancelado/estornado)
+      const _cents = v => { const n = parseInt(String(v == null ? '' : v).replace(/[^\d-]/g, ''), 10); return isNaN(n) ? 0 : n; };
+      const brutoPM = +(_cents(r['Paid_Amount_In_Cents'] || r['Amount_In_Cents']) / 100).toFixed(2);
+      if (brutoPM <= 0) return;
+      const dataPM = parseDate(r['Paid_Date'] || r['Created_Date']);
+      const pm = String(r['Payment_Method'] || '').toLowerCase();
+      const tipoPM = pm.includes('credit') ? ('Cartão' + (r['Card_Brand'] ? (' ' + r['Card_Brand']) : '')) : pm.includes('pix') ? 'Pix' : pm.includes('boleto') ? 'Boleto' : (r['Payment_Method'] || '');
+      // Este relatório da Pagar.me NÃO traz a taxa/líquido -> taxa 0 e líquido = bruto (a taxa real aparece no acerto/banco).
+      target.push({ gateway: 'Pagar.me', bruto: brutoPM, taxa: 0, liq: brutoPM, data: dataPM, nped: null, nome: r['Customer_Name'] || '', tipo: tipoPM, status: st, _txnId: String(r['Charge_Id'] || r['Transaction_Id'] || '') });
       return;
     }
 
@@ -6296,6 +6311,21 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
         gateway: gatewayName, bruto, taxa, liq, data, nped,
         nome: r['Nome'] || '', tipo, status, _txnId: txnId, _refId: refId, _reembolso: ehReembolso
       });
+      return;
+    }
+
+    // ── Pagar.me (export CSV com ';', colunas em inglês, valores em CENTAVOS) ──
+    if ('Amount_In_Cents' in r || 'Charge_Id' in r) {
+      const st = String(r['Status'] || '').toLowerCase();
+      if (st !== 'paid' && st !== 'pago') return; // só entra o que foi PAGO (ignora falha/pendente/cancelado/estornado)
+      const _cents = v => { const n = parseInt(String(v == null ? '' : v).replace(/[^\d-]/g, ''), 10); return isNaN(n) ? 0 : n; };
+      const brutoPM = +(_cents(r['Paid_Amount_In_Cents'] || r['Amount_In_Cents']) / 100).toFixed(2);
+      if (brutoPM <= 0) return;
+      const dataPM = parseDate(r['Paid_Date'] || r['Created_Date']);
+      const pm = String(r['Payment_Method'] || '').toLowerCase();
+      const tipoPM = pm.includes('credit') ? ('Cartão' + (r['Card_Brand'] ? (' ' + r['Card_Brand']) : '')) : pm.includes('pix') ? 'Pix' : pm.includes('boleto') ? 'Boleto' : (r['Payment_Method'] || '');
+      // Este relatório da Pagar.me NÃO traz a taxa/líquido -> taxa 0 e líquido = bruto (a taxa real aparece no acerto/banco).
+      target.push({ gateway: 'Pagar.me', bruto: brutoPM, taxa: 0, liq: brutoPM, data: dataPM, nped: null, nome: r['Customer_Name'] || '', tipo: tipoPM, status: st, _txnId: String(r['Charge_Id'] || r['Transaction_Id'] || '') });
       return;
     }
 
