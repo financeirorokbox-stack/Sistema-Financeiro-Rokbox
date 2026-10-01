@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v679/09-732';
+const APP_VERSION = 'v680/09-733';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3339,6 +3339,9 @@ function limparFiltrosVendas() {
 }
 function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; dateFilter.de=''; dateFilter.ate=''; saveData('dateFilters', dateFilters); } renderFluxo(); }
 function limparFiltrosComissao() { const e=document.getElementById('com-vend'); if(e) e.value=''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderComissao(); }
+// Seletor de Mês/Ano VISÍVEL (fora do drawer) da Comissão — o dropdown dentro do drawer abria cortado e não dava pra mexer.
+function setComissaoMes(v){ const df = dateFilters['renderComissao'] || (dateFilters['renderComissao']={ano:[],mes:[],dia:[]}); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); renderComissao(); }
+function setComissaoAno(v){ const df = dateFilters['renderComissao'] || (dateFilters['renderComissao']={ano:[],mes:[],dia:[]}); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); renderComissao(); }
 function setComissaoVendedor(vend, pctStr) {
   const pct = (parseFloat(String(pctStr).replace(',','.')) || 0) / 100;
   if (pct) comissaoVendedor[vend] = pct; else delete comissaoVendedor[vend];
@@ -3713,6 +3716,20 @@ function renderComissao() {
         fdRow('Vendedor', `<select id="com-vend" onchange="renderComissao()"><option value="">Todos</option>${vendedores.map(v=>`<option value="${v.replace(/"/g,'&quot;')}" ${v===fVend?'selected':''}>${v}</option>`).join('')}</select>`) +
         fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
+    ${(() => {
+      const anosPed = [...new Set(pedidos.map(p=>{const d=p.data instanceof Date?p.data:(p.data?new Date(p.data):null);return d&&!isNaN(d)?d.getFullYear():null;}).filter(Boolean))];
+      const anoNow = new Date().getFullYear();
+      const anos = [...new Set([...anosPed, anoNow, anoNow-1])].sort((a,b)=>b-a);
+      const mSel = dateFilter.mes.length===1 ? dateFilter.mes[0] : '';
+      const aSel = dateFilter.ano.length===1 ? dateFilter.ano[0] : '';
+      const selSty = 'padding:6px 9px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;background:var(--surface);color:var(--text)';
+      return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 14px">
+        <span class="f-label" style="font-weight:700">📅 Mês:</span>
+        <select onchange="setComissaoMes(this.value)" style="${selSty}"><option value="">Todos</option>${MESES.map((n,i)=>{const v=String(i+1).padStart(2,'0');return `<option value="${v}" ${mSel===v?'selected':''}>${n}</option>`;}).join('')}</select>
+        <select onchange="setComissaoAno(this.value)" style="${selSty}"><option value="">Ano</option>${anos.map(y=>`<option value="${y}" ${String(aSel)===String(y)?'selected':''}>${y}</option>`).join('')}</select>
+        ${(mSel||aSel)?`<button class="btn ghost sm" style="font-size:11px" onclick="dateFilters['renderComissao'].mes=[];dateFilters['renderComissao'].ano=[];saveData('dateFilters',dateFilters);renderComissao()">✕ limpar mês</button>`:'<span style="font-size:11px;color:var(--muted)">(escolha o mês da comissão aqui)</span>'}
+      </div>`;
+    })()}
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">Comissão</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px">O <strong>% é por loja</strong>, definido em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>. A comissão é calculada por pedido (Venda/Troca) do período.</div>
     ${lojasSemPct.length ? `<div style="font-size:12px;color:var(--amber);margin-bottom:12px">⚠ Lojas sem % cadastrado (comissão = 0): ${lojasSemPct.slice(0,8).join(', ')}${lojasSemPct.length>8?` …(+${lojasSemPct.length-8})`:''} — defina em <a href="#" onclick="setView('cadastro');return false" style="color:var(--accent)">Cadastro → Lojas</a>.</div>` : ''}
