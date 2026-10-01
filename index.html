@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v680/09-733';
+const APP_VERSION = 'v681/09-734';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -628,7 +628,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -783,7 +783,7 @@ async function zerarSistema() {
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
-    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase'];
+    'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase'];
   // 1) Sobrescreve cada chave com vazio na nuvem (garante zerar mesmo se DELETE for bloqueado)
   for (const k of KEYS) { try { await saveData(k, null); } catch(e) {} }
   // 2) Apaga as linhas desta empresa no Supabase
@@ -3424,7 +3424,11 @@ function editarDiferencaPedido(pedId) {
 }
 // ── Correção manual do frete de um pedido (só afeta a Comissão; não toca no pedido) ──
 let freteOverride = {}; // { pedidoId: valorCorrigido }
+let pctOverride = {}; // { pedidoId: fração } — % de comissão ajustado na mão (0.02 = 2%). Só afeta a comissão.
+let vendedorOverride = {}; // { pedidoId: nome } — vendedor da comissão ajustado na mão. Só afeta a comissão (não mexe no pedido em Vendas).
 function freteDoPedido(p) { return (freteOverride[p.id] != null) ? freteOverride[p.id] : (p.frete || 0); }
+function vendDoPedido(p) { return vendedorOverride[p.id] || p.vendedor || 'Sem vendedor'; }
+function pctComissaoPedido(p) { return (pctOverride[p.id] != null) ? pctOverride[p.id] : comissaoDaLoja(p.loja); }
 function editarFretePedido(pedId) {
   const p = pedidos.find(x => String(x.id) === String(pedId)); if (!p) return;
   const orig = p.frete || 0;
@@ -3439,6 +3443,42 @@ function editarFretePedido(pedId) {
     freteOverride[pedId] = +v.toFixed(2);
   }
   saveData('freteOverride', freteOverride);
+  renderComissao();
+}
+// Ajusta o % de comissão de UM pedido (só afeta a comissão; vazio volta ao % da loja).
+function editarPctPedido(pedId) {
+  const p = pedidos.find(x => String(x.id) === String(pedId)); if (!p) return;
+  const origPct = comissaoDaLoja(p.loja) * 100;
+  const atual = (pctOverride[pedId] != null) ? pctOverride[pedId] * 100 : origPct;
+  const s = prompt('% de comissão do pedido #' + pedId + '.\n% da loja (' + (p.loja || '—') + '): ' + origPct.toFixed(2) + '%\n\nDigite o % correto (ex.: 2,5) ou deixe vazio para voltar ao % da loja:', String(atual).replace('.', ','));
+  if (s === null) return;
+  const t = s.trim();
+  if (t === '') { delete pctOverride[pedId]; }
+  else {
+    const v = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t);
+    if (isNaN(v) || v < 0) { alert('% inválido.'); return; }
+    pctOverride[pedId] = +(v / 100).toFixed(4);
+  }
+  saveData('pctOverride', pctOverride);
+  renderComissao();
+}
+// Ajusta o vendedor de UM pedido PARA A COMISSÃO (não mexe no pedido em Vendas; vazio volta ao original).
+function editarVendedorPedido(pedId) {
+  const p = pedidos.find(x => String(x.id) === String(pedId)); if (!p) return;
+  const orig = p.vendedor || 'Sem vendedor';
+  const atual = vendedorOverride[pedId] || orig;
+  const lista = [...new Set([...pedidos.map(x => x.vendedor || 'Sem vendedor'), ...Object.values(vendedorOverride)])].filter(Boolean).sort();
+  const menu = lista.map((v, i) => (i + 1) + ') ' + v).join('\n');
+  const s = prompt('Vendedor do pedido #' + pedId + ' (só para a comissão, não muda em Vendas).\nAtual: ' + atual + '\nOriginal da venda: ' + orig + '\n\nDigite o NÚMERO do vendedor (ou o nome), ou vazio para voltar ao original:\n\n' + menu, '');
+  if (s === null) return;
+  const t = s.trim();
+  if (t === '') { delete vendedorOverride[pedId]; }
+  else {
+    let nome = t; const n = parseInt(t, 10);
+    if (!isNaN(n) && String(n) === t && n >= 1 && n <= lista.length) nome = lista[n - 1];
+    if (nome === orig) delete vendedorOverride[pedId]; else vendedorOverride[pedId] = nome;
+  }
+  saveData('vendedorOverride', vendedorOverride);
   renderComissao();
 }
 // ── Fechamento de comissão por vendedor → cria lançamento em Contas a Pagar ──
@@ -3456,7 +3496,7 @@ function comissaoTotalVendedor(vend) {
   const devolPorPed = devolPorPedidoMap().porPed;
   const itens = [];
   pedidos.forEach(p => {
-    if ((p.vendedor || 'Sem vendedor') !== vend) return;
+    if (vendDoPedido(p) !== vend) return;
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
     const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return;
     if (dfAtivo() && !passaData(p.data)) return;
@@ -3475,8 +3515,8 @@ function comissaoTotalVendedor(vend) {
   const ating = meta > 0 ? (baseTot / meta * 100) : 0;
   let total = 0;
   itens.forEach(it => {
-    let pct = comissaoDaLoja(it.p.loja);
-    if (meta > 0) { const pf = pctPorFaixa(getClassificacao(it.p).segmento || '', ating); if (pf != null) pct = pf; }
+    let pct = pctComissaoPedido(it.p); // % ajustado na mão, senão % da loja
+    if (meta > 0 && pctOverride[it.p.id] == null) { const pf = pctPorFaixa(getClassificacao(it.p).segmento || '', ating); if (pf != null) pct = pf; } // faixa só quando não há ajuste manual
     total += +(it.base * pct).toFixed(2);
   });
   return { total: +total.toFixed(2), qtd: itens.length };
@@ -3576,7 +3616,7 @@ function renderComissao() {
   const el = document.getElementById('v-comissao');
   if (!el) return;
   const fVend = el.querySelector('#com-vend')?.value || '';
-  const vendedores = [...new Set(pedidos.map(p => p.vendedor || 'Sem vendedor'))].sort();
+  const vendedores = [...new Set([...pedidos.map(p => p.vendedor || 'Sem vendedor'), ...Object.values(vendedorOverride)])].filter(Boolean).sort();
   // Devolução abate o PEDIDO DO CRÉDITO (com cap no valor do pedido; sobra vai ao próximo).
   const devolPorPed = devolPorPedidoMap().porPed;
   const peds = pedidos.filter(p => {
@@ -3594,9 +3634,9 @@ function renderComissao() {
     const emAbertoRaw = Math.max(0, +((p.valor || 0) - recebido).toFixed(2)); // o que realmente não foi pago
     const difAceitaP = difAceita[String(p.id)] === 'aceito'; // você aceitou não receber a diferença → ENCERRADO
     const emAberto = difAceitaP ? 0 : emAbertoRaw; // diferença ACEITA não é mais "a receber" (não fica pendente)
-    const vend = p.vendedor || 'Sem vendedor';
+    const vend = vendDoPedido(p); // vendedor (com ajuste manual, se houver)
     const isento = comissaoExcecoes.includes(vend); // vendedor que NÃO ganha comissão
-    let pct = isento ? 0 : comissaoDaLoja(p.loja); // % base vem do Cadastro → Lojas (pode virar % de faixa abaixo)
+    let pct = isento ? 0 : pctComissaoPedido(p); // % do pedido: ajuste manual, senão % da loja (pode virar % de faixa abaixo)
     // BOLETO conta cheio mesmo sem ter pago (não abate); os DEMAIS em aberto abatem a base.
     // A diferença (aceita ou ainda em aberto) abate a base → comissão sempre sobre o que REALMENTE entrou.
     const diferenca = diferencaDoPedido(p, emAbertoRaw);
@@ -3619,7 +3659,7 @@ function renderComissao() {
       if (meta > 0) { const ating = +(baseTotVend[v] / meta * 100).toFixed(1); metaInfo[v] = { meta, baseTot: baseTotVend[v], ating, faixaIdx: faixaIndex(ating) }; }
     });
     linhas.forEach(l => {
-      if (l.isento || !metaInfo[l.vend]) return;
+      if (l.isento || !metaInfo[l.vend] || pctOverride[l.p.id] != null) return; // % ajustado na mão tem prioridade sobre a faixa de meta
       const seg = getClassificacao(l.p).segmento || '';
       const pf = pctPorFaixa(seg, metaInfo[l.vend].ating);
       if (pf == null) return; // segmento sem faixa → mantém % da loja
@@ -3655,6 +3695,8 @@ function renderComissao() {
   const nFreteEdit = linhas.filter(l => freteOverride[l.p.id] != null).length;
   const nDiferEdit = linhas.filter(l => diferencaOverride[l.p.id] != null).length;
   const nBaseEdit = linhas.filter(l => baseOverride[l.p.id] != null).length;
+  const nPctEdit = linhas.filter(l => pctOverride[l.p.id] != null).length;
+  const nVendEdit = linhas.filter(l => vendedorOverride[l.p.id] != null).length;
   // Lojas sem % cadastrado que aparecem no filtro (aviso pra cadastrar).
   const lojasSemPct = [...new Set(linhas.filter(l => !l.pct).map(l => l.p.loja || '(sem loja)'))];
   _comVisIds = linhas.map(l => l.p.id); // pedidos exibidos (respeita filtro) para marcar/desmarcar todos
@@ -3768,9 +3810,9 @@ function renderComissao() {
       <td style="text-align:right;color:${l.devol?'var(--red)':'var(--muted)'}">${l.devol?fmtVal(l.devol):'—'}</td>
       <td style="text-align:right;color:${l.emAberto?'var(--amber)':'var(--muted)'}">${l.emAberto?fmtVal(l.emAberto):'—'}</td>
       <td style="text-align:right;cursor:pointer;color:${l.diferenca?'var(--red)':'var(--muted)'}" onclick="editarDiferencaPedido('${l.p.id}')" title="${diferencaOverride[l.p.id]!=null?'Diferença AJUSTADA manualmente. Clique para editar (vazio volta ao automático).':(l.difAceitaP?'Diferença ACEITA na conciliação (você aceitou não receber). Não é mais em aberto; abate a base pois a comissão é sobre o que entrou.':'Boleto conta cheio (0); demais em aberto abatem. Clique para ajustar na mão.')}">${l.diferenca?fmtVal(l.diferenca):'—'}${diferencaOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:(l.difAceitaP?` <span class="badge" style="font-size:8px;background:#ede7f6;color:#5e35b1">aceita</span>`:'')}</td>
-      <td>${l.vend}${l.isento?' <span class="badge" style="font-size:9px;background:var(--muted);color:#fff">isento</span>':''}</td>
+      <td style="cursor:pointer" onclick="editarVendedorPedido('${l.p.id}')" title="${vendedorOverride[l.p.id]!=null?('Vendedor AJUSTADO só p/ comissão (original: '+(l.p.vendedor||'Sem vendedor')+'). Clique para editar; vazio volta ao original.'):'Clique para trocar o vendedor desta comissão (não muda em Vendas).'}">${l.vend}${vendedorOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:''}${l.isento?' <span class="badge" style="font-size:9px;background:var(--muted);color:#fff">isento</span>':''}</td>
       <td>${l.p.loja||'—'}</td>
-      <td style="text-align:right;${l.pct?'':'color:var(--amber)'}" title="${l.pctFaixa?'% da faixa de meta atingida':'% da loja'}">${l.isento?'—':(l.pct*100).toFixed(2)+'%'}${l.pctFaixa?' 🎯':''}</td>
+      <td style="text-align:right;cursor:pointer;${l.pct?'':'color:var(--amber)'}" onclick="editarPctPedido('${l.p.id}')" title="${pctOverride[l.p.id]!=null?'% AJUSTADO na mão. Clique para editar; vazio volta ao % da loja.':(l.pctFaixa?'% da faixa de meta. Clique para ajustar na mão.':'% da loja. Clique para ajustar na mão.')}">${l.isento?'—':(l.pct*100).toFixed(2)+'%'}${pctOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:(l.pctFaixa?' 🎯':'')}</td>
       <td style="text-align:right;font-weight:600;cursor:pointer" onclick="editarBasePedido('${l.p.id}')" title="${baseOverride[l.p.id]!=null?'Base AJUSTADA manualmente. Clique para editar (vazio volta à automática).':'Base = Valor − Frete − Outras − Devolução − Diferença. Clique para ajustar na mão.'}">${fmtVal(l.base)}${baseOverride[l.p.id]!=null?` <span style="color:var(--amber)">✎</span>`:''}</td>
       <td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(l.comissao)}</td>
       <td style="text-align:center;background:${comConferido[l.p.id]?'#eafaf0':'var(--card)'}"><input type="checkbox" ${comConferido[l.p.id]?'checked':''} onclick="toggleComConferido('${l.p.id}',this.checked)" title="Marcar como conferido"></td>
@@ -3778,7 +3820,7 @@ function renderComissao() {
     <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total (${linhas.length})</td><td style="text-align:right">${fmtVal(totVal)}</td><td style="text-align:right">${totFrete?fmtVal(totFrete):'—'}</td><td style="text-align:right">${totOutras?fmtVal(totOutras):'—'}</td><td style="text-align:right;color:${totDevol?'var(--red)':'inherit'}">${totDevol?fmtVal(totDevol):'—'}</td><td style="text-align:right;color:${totEmAberto?'var(--amber)':'inherit'}">${totEmAberto?fmtVal(totEmAberto):'—'}</td><td style="text-align:right;color:${totDifer?'var(--red)':'inherit'}">${totDifer?fmtVal(totDifer):'—'}</td><td colspan="3"></td><td style="text-align:right">${fmtVal(totBase)}</td><td style="text-align:right;color:var(--green)">${fmtVal(totCom)}</td><td></td></tr>
     </tbody></table></div>`}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Base = Valor − Frete − Outras − Devolução − <strong>Diferença</strong> · Comissão = % × Base<br>Vlr em Aberto = o que não foi pago. Diferença (o que abate) = 0 no <strong>boleto</strong> (conta cheio mesmo sem pagar); nos demais em aberto, abate o valor não pago.</div>
-    ${(nFreteEdit || nDiferEdit || nBaseEdit) ? `<div style="font-size:11px;color:var(--amber);margin-top:6px;background:rgba(255,180,0,.08);border:1px solid var(--amber);border-radius:6px;padding:6px 10px">✎ <strong>Ajustes manuais nesta lista:</strong> ${[nFreteEdit && (nFreteEdit + ' frete'), nDiferEdit && (nDiferEdit + ' diferença'), nBaseEdit && (nBaseEdit + ' base')].filter(Boolean).join(' · ')}.${nBaseEdit ? ` Por isso o <strong>Total Base</strong> (${fmtVal(totBase)}) fica ${deltaBase < 0 ? fmtVal(deltaBase) : '+' + fmtVal(deltaBase)} em relação à fórmula automática (${fmtVal(totBaseAuto)}).` : ''}</div>` : ''}
+    ${(nFreteEdit || nDiferEdit || nBaseEdit || nPctEdit || nVendEdit) ? `<div style="font-size:11px;color:var(--amber);margin-top:6px;background:rgba(255,180,0,.08);border:1px solid var(--amber);border-radius:6px;padding:6px 10px">✎ <strong>Ajustes manuais nesta lista:</strong> ${[nVendEdit && (nVendEdit + ' vendedor'), nPctEdit && (nPctEdit + ' %'), nFreteEdit && (nFreteEdit + ' frete'), nDiferEdit && (nDiferEdit + ' diferença'), nBaseEdit && (nBaseEdit + ' base')].filter(Boolean).join(' · ')}.${nBaseEdit ? ` Por isso o <strong>Total Base</strong> (${fmtVal(totBase)}) fica ${deltaBase < 0 ? fmtVal(deltaBase) : '+' + fmtVal(deltaBase)} em relação à fórmula automática (${fmtVal(totBaseAuto)}).` : ''}</div>` : ''}
 
     <div class="section-title" style="margin-top:28px">🧾 Fechar comissão por vendedor</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Fecha o total do vendedor no período (<strong>${comPeriodoInfo().label}</strong>) e lança no campo <strong>Comissão</strong> da <a href="#" onclick="setView('rh');return false" style="color:var(--accent)">Folha (RH)</a> do funcionário. Depois, na aba RH, clique <strong>Gerar folha</strong> — a comissão vira pagamento no Contas a Pagar dia 05, junto com o salário. Use <strong>↩ Reabrir</strong> para desfazer. <em>(Filtre por 1 mês + 1 ano no Período pra habilitar.)</em></div>
@@ -3865,23 +3907,23 @@ function exportarComissao() {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao||'').toLowerCase())) return false;
     const op = (getClassificacao(p).operacao||'').toLowerCase(); if (op!=='venda'&&op!=='troca') return false;
     if (dfAtivo() && !passaData(p.data)) return false;
-    if (fVend && (p.vendedor||'Sem vendedor')!==fVend) return false;
+    if (fVend && vendDoPedido(p)!==fVend) return false;
     return true;
   }).sort((a,b)=>Number(b.id)-Number(a.id));
   const baseExp = p => { const frete=freteDoPedido(p), outras=p.outrasDespesas||0, devol=devolPorPed[String(p.id)]||0; const rec=getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0); const ab=Math.max(0,+((p.valor||0)-rec).toFixed(2)); const dif=diferencaDoPedido(p,ab); return baseDoPedido(p, +((p.valor||0)-frete-devol-outras-dif).toFixed(2)); };
   const mAnoE = dateFilter.ano.length===1?dateFilter.ano[0]:null, mMesE = dateFilter.mes.length===1?dateFilter.mes[0]:null;
   const baseVendE = {};
-  pedsExp.forEach(p => { const v=p.vendedor||'Sem vendedor'; if(!comissaoExcecoes.includes(v)) baseVendE[v]=(baseVendE[v]||0)+Math.max(0,baseExp(p)); });
+  pedsExp.forEach(p => { const v=vendDoPedido(p); if(!comissaoExcecoes.includes(v)) baseVendE[v]=(baseVendE[v]||0)+Math.max(0,baseExp(p)); });
   const atingE = v => { const meta=(mAnoE&&mMesE)?metaDoVendedor(v,mAnoE,mMesE):0; return meta>0 ? (baseVendE[v]||0)/meta*100 : null; };
   pedsExp.forEach(p => {
     const frete=freteDoPedido(p), outras=p.outrasDespesas||0, devol=devolPorPed[String(p.id)]||0;
     const recebido = getRecebimentosDoPedido(p).reduce((s,r)=>s+(r.bruto||0),0);
     const emAberto = Math.max(0, +((p.valor||0)-recebido).toFixed(2));
     const diferenca = diferencaDoPedido(p, emAberto);
-    const vend = p.vendedor||'Sem vendedor';
-    let pct = comissaoExcecoes.includes(vend) ? 0 : comissaoDaLoja(p.loja);
+    const vend = vendDoPedido(p);
+    let pct = comissaoExcecoes.includes(vend) ? 0 : pctComissaoPedido(p);
     const at = atingE(vend);
-    if (!comissaoExcecoes.includes(vend) && at != null) { const pf = pctPorFaixa(getClassificacao(p).segmento||'', at); if (pf != null) pct = pf; }
+    if (!comissaoExcecoes.includes(vend) && at != null && pctOverride[p.id] == null) { const pf = pctPorFaixa(getClassificacao(p).segmento||'', at); if (pf != null) pct = pf; }
     const base = baseDoPedido(p, +((p.valor||0)-frete-devol-outras-diferenca).toFixed(2));
     aoa.push([p.nome||'', p.id, p.valor||0, frete, outras, devol, emAberto, diferenca, vend, p.loja||'', +(pct*100).toFixed(2), base, +(Math.max(0,base)*pct).toFixed(2)]);
   });
@@ -16215,7 +16257,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -16295,6 +16337,8 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     else if (k==='freteOverride') freteOverride = v || {};
     else if (k==='diferencaOverride') diferencaOverride = v || {};
     else if (k==='baseOverride') baseOverride = v || {};
+    else if (k==='pctOverride') pctOverride = v || {};
+    else if (k==='vendedorOverride') vendedorOverride = v || {};
     else if (k==='recebPeriodoAnt') recebPeriodoAnt = v || [];
     else if (k==='diasFechados') diasFechados = v || [];
     else if (k==='mesesFechados') mesesFechados = v || [];
