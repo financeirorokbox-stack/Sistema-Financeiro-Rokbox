@@ -110,6 +110,15 @@
   </div>
 
   <div id="aba-fluxo">
+  <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;flex-wrap:wrap">
+    <span style="font-size:13px;font-weight:700;color:var(--muted)">Empresa:</span>
+    <select id="emp-sel" onchange="setEmp(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:10px;padding:7px 10px;font-size:13px;font-weight:700">
+      <option value="todas">Todas</option>
+      <option value="rokbox">Rokbox</option>
+      <option value="rkbx">Rkbx (Atacado)</option>
+      <option value="rk">Rk (PL/WL)</option>
+    </select>
+  </div>
   <h2>🏦 Saldo em banco</h2>
   <div class="card"><div class="grid-banks" id="banks"></div></div>
 
@@ -291,7 +300,11 @@ const grupoDaCategoria = cat => _GRUPO_DE_CAT_FIN[_normNomeF(cat)] || 'OUTRAS';
 // abre/fecha os subgrupos de um grupo no "Contas a pagar por categoria"
 function _togGcat(id,node){ const e=document.getElementById(id); if(!e) return; const abrir=e.style.display==='none'; e.style.display=abrir?'':'none'; try{ node.querySelector('._arw').textContent=abrir?'▾':'▸'; }catch(_){} }
 let mesSel=null;          // mês escolhido no filtro (null = mês atual)
+let empSel='todas';       // filtro de empresa do Fluxo: todas | rokbox | rkbx | rk
 let _FIN=null;            // guarda os dados carregados (pro Balancete usar sem rebuscar)
+// Normaliza a empresa (de CR/CP/pedidos) OU o nome do banco (ex "Itaú - Rkbx") num grupo. Ordem importa: rkbx antes de rk.
+function _empG(s){ const t=String(s||'').toLowerCase(); if(t.includes('rkbx')) return 'rkbx'; if(t.includes('rokbox')) return 'rokbox'; if(t.includes('rk')) return 'rk'; return ''; }
+function setEmp(v){ empSel=v; carregar(); }
 function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra frente: out/nov… aparecem), mais recente primeiro
   let fim=mesAtual();
   try{ const cr=(_FIN&&_FIN.cr)||[], cp=(_FIN&&_FIN.cp)||[]; const crA=Array.isArray(cr)?cr:(cr.itens||[]); const cpA=Array.isArray(cp)?cp:(cp.itens||[]);
@@ -389,7 +402,7 @@ async function carregar(){
     const bancos={};
     dias.forEach(d=>{ const o=sid[d]||{}; Object.keys(o).forEach(b=>{ if(o[b]!=null) bancos[b]={v:o[b],d:d}; }); });
     let totalBanco=0;
-    document.getElementById('banks').innerHTML = Object.keys(bancos).sort().map(b=>{
+    document.getElementById('banks').innerHTML = Object.keys(bancos).filter(b=>empSel==='todas'||_empG(b)===empSel).sort().map(b=>{
       totalBanco+=(+bancos[b].v||0);
       return `<div class="bank"><div class="nm">${b}</div><div class="v">${brl(bancos[b].v)}</div></div>`;
     }).join('') + `<div class="bank total-geral card" style="padding:14px 16px"><div class="nm" style="color:var(--lime)">TOTAL</div><div class="v" style="color:var(--lime)">${brl(totalBanco)}</div></div>`;
@@ -397,8 +410,10 @@ async function carregar(){
     const emMes=v=>String(v||'').slice(0,7)===mes;
     const sVal=(arr,c)=>+arr.reduce((s,r)=>s+(+r[c]||0),0).toFixed(2);
     // ── CR ──
-    const crA=Array.isArray(cr)?cr:(cr&&cr.itens||[]);
-    const extArr=Array.isArray(extB)?extB:[];
+    const crA0=Array.isArray(cr)?cr:(cr&&cr.itens||[]);
+    const crA=empSel==='todas'?crA0:crA0.filter(r=>_empG(r.empresa)===empSel);
+    const extArr0=Array.isArray(extB)?extB:[];
+    const extArr=empSel==='todas'?extArr0:extArr0.filter(r=>_empG(r.banco)===empSel);
     const _dDia=v=>{ if(!v) return ''; const d=v instanceof Date?v:new Date(v); return isNaN(d)?String(v).slice(0,10):(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
     // RECEBIDO no mês: mês VIGENTE = tudo que entrou no BANCO (extrato); mês FECHADO (passado) = recebido OFICIAL
     // da planilha (flatCR/crFechado), pra bater com o fechamento. (Combinado com a Elaine.)
@@ -414,7 +429,8 @@ async function carregar(){
     document.getElementById('cr-vencer').textContent=brl(crVencer);
     document.getElementById('cr-atraso').textContent=brl(crAtraso);
     // ── CP ──
-    const cpA=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
+    const cpA0=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
+    const cpA=empSel==='todas'?cpA0:cpA0.filter(r=>_empG(r.empresa)===empSel);
     const cpMes=cpA.filter(r=>!r.cancelado && emMes(r.data_liquidacao)).reduce((s,r)=>s+(+r.valor||0),0);
     const cpAbertoF=r=>!r.cancelado && !r.data_liquidacao && !r.pago && emMes(r.vencimento);
     const cpVencerArr=cpA.filter(r=>cpAbertoF(r) && String(r.vencimento)>=hojeStr);
@@ -436,17 +452,24 @@ async function carregar(){
     // VIGENTE (mês atual): saldo de hoje no banco + a receber a vencer − a pagar (projeção que ela já usava).
     // FUTURO: "rola" o saldo de hoje até o começo do mês escolhido e projeta dali.
     const _mesA = mesAtual();
-    const _balRows = (bal && Array.isArray(bal.rows)) ? bal.rows : null;
+    // O Balancete (saldo real de mês fechado) é CONSOLIDADO (base única, só ROKBOX/RK). Só usa com "Todas".
+    const _usarBal = (empSel==='todas') && (bal && Array.isArray(bal.rows));
+    const _balRows = _usarBal ? bal.rows : null;
     const _netBanco = filtro => (_balRows||[]).filter(filtro).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
-    const saldoRealInicio = +(((bal&&+bal.base)||0) + _netBanco(r=>r.mes < mes)).toFixed(2); // real no início do mês (= fim do mês anterior)
+    const saldoRealInicio = _usarBal ? +(((+bal.base)||0) + _netBanco(r=>r.mes < mes)).toFixed(2) : null; // real no início do mês (= fim do mês anterior)
     let saldoInicioMes, saldoFinal, _labFinal, _detTxt;
-    if (mes < _mesA && _balRows) {
+    if (mes < _mesA && _usarBal) {
       // MÊS FECHADO → tudo REAL (o que bateu no banco), sem projeção
       const netMes = +_netBanco(r=>r.mes === mes).toFixed(2);
       saldoInicioMes = saldoRealInicio;
       saldoFinal = +(saldoRealInicio + netMes).toFixed(2);
       _labFinal = '🏦 Saldo final do mês (real)';
       _detTxt = `Início do mês ${brl(saldoRealInicio)} ${netMes>=0?'+':'−'} movimento do banco ${brl(Math.abs(netMes))}`;
+    } else if (mes < _mesA) {
+      // MÊS FECHADO + empresa específica → o Balancete não separa por empresa (base consolidada)
+      saldoInicioMes = null; saldoFinal = null;
+      _labFinal = '🏦 Saldo final do mês (real)';
+      _detTxt = 'Saldo real de mês fechado não separa por empresa (o Balancete é consolidado). Por empresa, use o mês vigente.';
     } else if (mes === _mesA) {
       // MÊS VIGENTE → começa no real, fecha projetado (saldo de hoje + a vencer − a pagar)
       saldoInicioMes = _balRows ? saldoRealInicio : totalBanco;
@@ -463,7 +486,7 @@ async function carregar(){
       _labFinal = '💰 Saldo final projetado do mês';
       _detTxt = `Saldo início do mês ${brl(saldoInicioMes)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
     }
-    const sfEl=document.getElementById('saldo-final'); sfEl.textContent=brl(saldoFinal); sfEl.style.color=saldoFinal>=0?'var(--lime)':'var(--red)';
+    const sfEl=document.getElementById('saldo-final'); sfEl.textContent=(saldoFinal==null)?'—':brl(saldoFinal); sfEl.style.color=(saldoFinal==null)?'var(--muted)':(saldoFinal>=0?'var(--lime)':'var(--red)');
     const _lf=document.getElementById('saldo-final-lab'); if(_lf) _lf.textContent=_labFinal;
     document.getElementById('saldo-final-det').textContent=_detTxt;
     // ── CONTAS A PAGAR por GRUPO (CMV, PESSOAL...) → subgrupo dentro. TOTAL do mês = PAGO (liquidado no mês) + EM ABERTO (a vencer + atrasado). ──
@@ -594,7 +617,7 @@ async function carregar(){
     const devPorPed={};
     Object.keys(_rawDev).forEach(pc=>{ const p=_pedById[pc]; const cap=p?(+p.valor||0):Infinity; devPorPed[pc]=+Math.min(_rawDev[pc],cap).toFixed(2); });
     let baseVT=0,devAbat=0,qv=0;
-    (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes)return; if(!ehVT(p))return; baseVT+=(+p.valor||0); qv++; devAbat+=(devPorPed[String(p.id)]||0); });
+    (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes)return; if(!ehVT(p))return; if(empSel!=='todas' && _empG((lc&&lc[p.loja]&&lc[p.loja].empresa)||p.empresa)!==empSel)return; baseVT+=(+p.valor||0); qv++; devAbat+=(devPorPed[String(p.id)]||0); });
     const fat=+(baseVT-devAbat).toFixed(2);
     document.getElementById('faturamento').textContent=brl(fat);
     document.getElementById('fat-detalhe').textContent=`${qv} pedidos (Venda+Troca)${devAbat>0?' − '+brl(devAbat)+' devol.':''} · igual à página de Vendas`;
@@ -994,7 +1017,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-09-30.4';
+const BUILD='2026-10-01.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
