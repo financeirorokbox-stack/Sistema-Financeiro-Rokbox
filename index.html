@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v683/10-736';
+const APP_VERSION = 'v684/10-737';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -628,7 +628,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1230,6 +1230,7 @@ let recebOrfaoInfo = {};     // { nped: {nome, loja, empresa, valor} } — o que
 let receitaLinks = {};       // { extratoId: receitaId } — crédito do extrato vinculado a uma receita avulsa
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
 let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
+let recebEntrada = [];         // [recBaseKey] — recebimentos marcados como ENTRADA/sinal: contam no pedido mas NÃO baixam boleto (chave estável, sobrevive à regeneração do extrato)
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
 let mesesFechados = [];        // ['YYYY-MM'] — MÊS fechado: trava TUDO daquele mês (nada muda nem apaga). Aproveita diaFechado/contaTravadaPorFechamento (admin reabre)
 let _verPeriodoAnt = false;    // mostrar os marcados como período anterior na aba "sem pedido"
@@ -6639,6 +6640,19 @@ function removerRecebManual(idx) {
   renderRecebimentos();
   try { renderConcResult(); } catch (e) {}
 }
+// Marca/desmarca um recebimento como ENTRADA/sinal: continua recebido no pedido (conta na conciliação),
+// mas NÃO baixa boleto (o _boletoCobPago ignora recebimentos com _entrada). Pra entrada de pedido com boletos.
+function toggleRecebEntrada(idx) {
+  const r = recebimentosConsolidado[idx];
+  if (!r) return;
+  const bk = recBaseKey(r);
+  if (recebEntrada.includes(bk)) recebEntrada = recebEntrada.filter(k => k !== bk);
+  else recebEntrada.push(bk);
+  saveData('recebEntrada', recebEntrada);
+  renderRecebimentos();
+  try { renderConcResult(); } catch (e) {}
+  try { if (typeof renderCobranca === 'function') renderCobranca(); } catch (e) {}
+}
 // Corrige o VALOR de um recebimento manual (ex.: 1 pagamento de abril era p/ 2 pedidos e ficou o valor
 // cheio num só). Muda só este lançamento; nada é recriado (é manual). Resolve a "sobra" na origem.
 function editarValorRecebManual(idx) {
@@ -6890,6 +6904,7 @@ function renderRecebimentos() {
       <td>${r.tipo||'—'}</td>
       <td>${r.nome||'—'}${r.nped?` <span style="font-size:10px;color:var(--muted)">#${r.nped}</span> <span class="badge ok" style="font-size:9px" title="Já alocado a um pedido (usado/conciliado)">🔗 conciliado</span>`:' <span class="badge" style="font-size:9px;background:var(--amber);color:#222">sem pedido</span>'}
         <button class="btn ghost sm" style="font-size:10px;padding:1px 5px;margin-left:4px" onclick="editarNpedRec(${realIdx})" title="Editar nº do pedido">✏</button>
+        ${r.nped ? (() => { const _ent = recebEhEntrada(r); return ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;${_ent?'color:var(--accent);font-weight:700':'color:var(--muted)'}" onclick="toggleRecebEntrada(${realIdx})" title="${_ent?'É ENTRADA/sinal do pedido: conta como recebido mas NÃO baixa boleto. Clique pra voltar ao normal.':'Marcar como ENTRADA/sinal (conta no pedido, mas NÃO baixa boleto)'}">${_ent?'✓ entrada':'entrada'}</button>`; })() : ''}
         ${(r.bruto||0) < 0 ? (r._estornoChave
           ? ` <span class="badge ok" style="font-size:9px" title="Estorno lançado em Contas a Pagar">↳ em Contas a Pagar</span> <button class="btn ghost sm" style="font-size:9px;padding:1px 5px;color:var(--red)" onclick="desfazerEstornoPagar(${realIdx})" title="Remover de Contas a Pagar">desfazer</button>`
           : ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="estornoParaPagar(${realIdx})" title="Lançar este estorno como despesa paga em Contas a Pagar">→ Pagar</button>`) : ''}
@@ -7268,7 +7283,7 @@ function _boletoCobPago(b) {
   // 1 pagamento quita a 1ª em aberto, 2 quitam 1ª e 2ª, etc. Antes só via boleto com marca especial,
   // então boleto pago por PIX ficava eternamente "Atrasado" (ex.: #40215 2/2 paga por PIX).
   const pedStr = String(b.pedido);
-  const recs = recebimentosConsolidado.filter(r => !r._estornoChave
+  const recs = recebimentosConsolidado.filter(r => !r._estornoChave && !recebEhEntrada(r) /* entrada/sinal: conta como recebido no pedido, mas NÃO baixa boleto */
     && String(r.nped || '').split(',').map(s => s.trim()).includes(pedStr));
   const totalRecebido = recs.reduce((s, r) => s + (r.bruto || r.liq || 0), 0);
   if (totalRecebido <= 0) return null;
@@ -12120,6 +12135,7 @@ function recBaseKey(r) {
   return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0,10) : '', (r.bruto||0).toFixed(2), (r.nome||'').trim().toLowerCase()].join('|');
 }
 function recebFoiDesvinculadoManual(r) { return recebDesvinculado.includes(recBaseKey(r)); }
+function recebEhEntrada(r) { return recebEntrada.includes(recBaseKey(r)); } // entrada/sinal: não baixa boleto
 
 // ── Fechamento por dia E POR BANCO (conciliação bancária) ──
 // diasFechados guarda chaves "banco|YYYY-MM-DD". Formato ANTIGO (só "YYYY-MM-DD") = dia fechado
@@ -16314,7 +16330,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -16404,6 +16420,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     else if (k==='budgets') budgets = v || [];
     else if (k==='folhaRH') folhaRH = v || {};
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
+    else if (k==='recebEntrada') recebEntrada = v || [];
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
