@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v689/10-742';
+const APP_VERSION = 'v690/10-743';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2442,6 +2442,7 @@ function setDateFilterRender(fn) {
 // pro multi-mês/dia; a mini-barra é só o atalho de 1 mês. Mesma lógica de Comissão/Banco.
 function setDfMes(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function setDfAno(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function setDfDia(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.dia = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function limparDfMini(key) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = []; df.ano = []; df.dia = []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function dateMiniBar(key) {
   const df = dateFilters[key] || { ano: [], mes: [], dia: [] };
@@ -2450,13 +2451,16 @@ function dateMiniBar(key) {
   const anos = [...new Set([...anosData, anoNow, anoNow - 1])].sort((a, b) => b - a);
   const mSel = df.mes && df.mes.length === 1 ? df.mes[0] : '';
   const aSel = df.ano && df.ano.length === 1 ? df.ano[0] : '';
-  const nMulti = ((df.mes && df.mes.length > 1) || (df.ano && df.ano.length > 1) || (df.dia && df.dia.length) || df.de || df.ate);
+  const dSel = df.dia && df.dia.length === 1 ? df.dia[0] : '';
+  const nMulti = ((df.mes && df.mes.length > 1) || (df.ano && df.ano.length > 1) || (df.dia && df.dia.length > 1) || df.de || df.ate);
   const selSty = 'padding:6px 9px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;background:var(--surface);color:var(--text)';
   return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 14px">
     <span class="f-label" style="font-weight:700">📅 Mês:</span>
     <select onchange="setDfMes('${key}',this.value)" style="${selSty}"><option value="">Todos</option>${MESES.map((n, i) => { const v = String(i + 1).padStart(2, '0'); return `<option value="${v}" ${mSel === v ? 'selected' : ''}>${n}</option>`; }).join('')}</select>
     <select onchange="setDfAno('${key}',this.value)" style="${selSty}"><option value="">Ano</option>${anos.map(y => `<option value="${y}" ${String(aSel) === String(y) ? 'selected' : ''}>${y}</option>`).join('')}</select>
-    ${(mSel || aSel || nMulti) ? `<button class="btn ghost sm" style="font-size:11px" onclick="limparDfMini('${key}')">✕ limpar</button>` : '<span style="font-size:11px;color:var(--muted)">(filtre por mês aqui)</span>'}
+    <span class="f-label" style="font-weight:700">Dia:</span>
+    <select onchange="setDfDia('${key}',this.value)" style="${selSty}"><option value="">Todos</option>${Array.from({ length: 31 }, (_, i) => { const v = String(i + 1).padStart(2, '0'); return `<option value="${v}" ${dSel === v ? 'selected' : ''}>${i + 1}</option>`; }).join('')}</select>
+    ${(mSel || aSel || dSel || nMulti) ? `<button class="btn ghost sm" style="font-size:11px" onclick="limparDfMini('${key}')">✕ limpar</button>` : '<span style="font-size:11px;color:var(--muted)">(filtre por mês/dia aqui)</span>'}
     ${nMulti ? '<span style="font-size:11px;color:var(--muted)">· filtro avançado ativo no ⚙ Filtros</span>' : ''}
   </div>`;
 }
