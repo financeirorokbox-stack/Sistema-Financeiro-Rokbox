@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v688/10-741';
+const APP_VERSION = 'v689/10-742';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1868,6 +1868,28 @@ function getValorConciliacaoPedido(ped) {
   return totalReceita > 0 ? totalReceita : ped.valor;
 }
 function parseRecebimentosSheet(rows, gatewayName, target) {
+  // ── Pagar.me — relatório de RECEBÍVEIS (traz a TAXA e o líquido). NÃO é venda nova:
+  // só ENRIQUECE a taxa dos recebimentos Pagar.me já importados do relatório de Transações
+  // (casa por transação: TID; valor = soma das parcelas). Estorno devolve bruto e taxa.
+  if (rows.length && ('Taxa total da operação' in rows[0] || ('ID da Transação' in rows[0] && 'Entrada líquida' in rows[0]))) {
+    const _pm = v => { const s = String(v == null ? '' : v).trim(); if (!s || s === '-') return 0; return parseFloat(s.replace(/\s/g, '').replace(',', '.')) || 0; };
+    const agg = {};
+    rows.forEach(r => {
+      const id = String(r['ID da Transação'] || r['ID da transação'] || '').trim(); if (!id) return;
+      const op = String(r['Descrição da Operação'] || '').toLowerCase();
+      const fee = _pm(r['Taxa total da operação']); // Crédito vem NEGATIVO; Estorno POSITIVO (taxa devolvida)
+      const a = agg[id] || (agg[id] = { gross: 0, net: 0, fee: 0, data: null, metodo: '' });
+      if (op.includes('estorno') || op.includes('reembol') || op.includes('charge')) {
+        a.gross += _pm(r['Saída']); a.net += _pm(r['Saida líquida'] || r['Saída líquida']); a.fee += fee;
+      } else {
+        a.gross += _pm(r['Entrada']); a.net += _pm(r['Entrada líquida']); a.fee += fee;
+        if (!a.data) a.data = parseDate(r['Data de criação'] || r['Data de pagamento']);
+        if (!a.metodo) a.metodo = String(r['Método de Pagamento'] || '');
+      }
+    });
+    Object.keys(agg).forEach(id => { const a = agg[id]; target.push({ _pmTaxaUpd: true, _tid: id, gateway: 'Pagar.me', bruto: +a.gross.toFixed(2), taxa: +Math.abs(a.fee).toFixed(2), liq: +a.net.toFixed(2), data: a.data, tipo: a.metodo }); });
+    return;
+  }
   rows.forEach(r => {
     // ── Formato oficial PayPal (export CSV: Bruto/Tarifa/Líquido) ──
     if ('Bruto' in r && 'Líquido' in r && 'ID da transação' in r) {
@@ -1924,7 +1946,7 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       const pm = String(r['Payment_Method'] || '').toLowerCase();
       const tipoPM = pm.includes('credit') ? ('Cartão' + (r['Card_Brand'] ? (' ' + r['Card_Brand']) : '')) : pm.includes('pix') ? 'Pix' : pm.includes('boleto') ? 'Boleto' : (r['Payment_Method'] || '');
       // Este relatório da Pagar.me NÃO traz a taxa/líquido -> taxa 0 e líquido = bruto (a taxa real aparece no acerto/banco).
-      target.push({ gateway: 'Pagar.me', bruto: brutoPM, taxa: 0, liq: brutoPM, data: dataPM, nped: null, nome: r['Customer_Name'] || '', tipo: tipoPM, status: st, _txnId: String(r['Charge_Id'] || r['Transaction_Id'] || '') });
+      target.push({ gateway: 'Pagar.me', bruto: brutoPM, taxa: 0, liq: brutoPM, data: dataPM, nped: null, nome: r['Customer_Name'] || '', tipo: tipoPM, status: st, _txnId: String(r['Charge_Id'] || r['Transaction_Id'] || ''), _tid: String(r['TID'] || r['NSU'] || '') });
       return;
     }
 
@@ -4451,6 +4473,15 @@ function getDataLiquidacao(l) {
   const cat = l.cat;
   const valor = l.f.valor;
 
+  // 0. Linha de PARCELA de boleto (l.f.key = "pedido-parcela"): a liquidação é a data DESSA parcela,
+  // não a última paga do pedido. Antes a #40407 1/3 (paga 04/09) mostrava 02/10 (data da 2/3).
+  if (cat === 'Boleto Itaú' && l.f && l.f.key) {
+    const cobP = boletoCobrancaStatus[l.f.key];
+    if (cobP && cobP.pago && cobP.dataPagamento) {
+      return fmtDate(_dataBancoBoleto(pedId, cobP.dataPagamento, cobP.valorPago != null ? cobP.valorPago : (valor || 0)));
+    }
+  }
+
   // 1. Conciliação (results.ok) — data do BANCO (repasse) se houver; senão a do recebimento
   const concOk = results.ok.find(x => String(x.ped.id) === pedId);
   if (concOk?.rec) { const bd = dataRepasseBanco(concOk.rec); if (bd) return fmtDate(bd); if (concOk.rec.data) return fmtDate(concOk.rec.data); }
@@ -6392,6 +6423,28 @@ function salvarRateio() {
 // RECEBIMENTOS
 // ════════════════════════════════════════════════════════════════════
 function parseRecebimentosSheet(rows, gatewayName, target) {
+  // ── Pagar.me — relatório de RECEBÍVEIS (traz a TAXA e o líquido). NÃO é venda nova:
+  // só ENRIQUECE a taxa dos recebimentos Pagar.me já importados do relatório de Transações
+  // (casa por transação: TID; valor = soma das parcelas). Estorno devolve bruto e taxa.
+  if (rows.length && ('Taxa total da operação' in rows[0] || ('ID da Transação' in rows[0] && 'Entrada líquida' in rows[0]))) {
+    const _pm = v => { const s = String(v == null ? '' : v).trim(); if (!s || s === '-') return 0; return parseFloat(s.replace(/\s/g, '').replace(',', '.')) || 0; };
+    const agg = {};
+    rows.forEach(r => {
+      const id = String(r['ID da Transação'] || r['ID da transação'] || '').trim(); if (!id) return;
+      const op = String(r['Descrição da Operação'] || '').toLowerCase();
+      const fee = _pm(r['Taxa total da operação']); // Crédito vem NEGATIVO; Estorno POSITIVO (taxa devolvida)
+      const a = agg[id] || (agg[id] = { gross: 0, net: 0, fee: 0, data: null, metodo: '' });
+      if (op.includes('estorno') || op.includes('reembol') || op.includes('charge')) {
+        a.gross += _pm(r['Saída']); a.net += _pm(r['Saida líquida'] || r['Saída líquida']); a.fee += fee;
+      } else {
+        a.gross += _pm(r['Entrada']); a.net += _pm(r['Entrada líquida']); a.fee += fee;
+        if (!a.data) a.data = parseDate(r['Data de criação'] || r['Data de pagamento']);
+        if (!a.metodo) a.metodo = String(r['Método de Pagamento'] || '');
+      }
+    });
+    Object.keys(agg).forEach(id => { const a = agg[id]; target.push({ _pmTaxaUpd: true, _tid: id, gateway: 'Pagar.me', bruto: +a.gross.toFixed(2), taxa: +Math.abs(a.fee).toFixed(2), liq: +a.net.toFixed(2), data: a.data, tipo: a.metodo }); });
+    return;
+  }
   rows.forEach(r => {
     // ── Formato oficial PayPal (export CSV: Bruto/Tarifa/Líquido) ──
     if ('Bruto' in r && 'Líquido' in r && 'ID da transação' in r) {
@@ -6448,7 +6501,7 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
       const pm = String(r['Payment_Method'] || '').toLowerCase();
       const tipoPM = pm.includes('credit') ? ('Cartão' + (r['Card_Brand'] ? (' ' + r['Card_Brand']) : '')) : pm.includes('pix') ? 'Pix' : pm.includes('boleto') ? 'Boleto' : (r['Payment_Method'] || '');
       // Este relatório da Pagar.me NÃO traz a taxa/líquido -> taxa 0 e líquido = bruto (a taxa real aparece no acerto/banco).
-      target.push({ gateway: 'Pagar.me', bruto: brutoPM, taxa: 0, liq: brutoPM, data: dataPM, nped: null, nome: r['Customer_Name'] || '', tipo: tipoPM, status: st, _txnId: String(r['Charge_Id'] || r['Transaction_Id'] || '') });
+      target.push({ gateway: 'Pagar.me', bruto: brutoPM, taxa: 0, liq: brutoPM, data: dataPM, nped: null, nome: r['Customer_Name'] || '', tipo: tipoPM, status: st, _txnId: String(r['Charge_Id'] || r['Transaction_Id'] || ''), _tid: String(r['TID'] || r['NSU'] || '') });
       return;
     }
 
@@ -7016,7 +7069,11 @@ function renderRecebimentos() {
     function finishUpload() {
       pending--;
       if (pending !== 0) return;
-      let added = 0, enriquecidos = 0;
+      let added = 0, enriquecidos = 0, taxasPM = 0;
+      // Pagar.me (relatório de recebíveis): só traz a TAXA, não é venda. Tira os marcadores das entradas
+      // novas e aplica DEPOIS de adicionar as transações (assim casa mesmo subindo os dois relatórios juntos).
+      const _pmUpds = newEntries.filter(r => r._pmTaxaUpd);
+      if (_pmUpds.length) newEntries = newEntries.filter(r => !r._pmTaxaUpd);
       const _byKey = new Map();
       recebimentosConsolidado.forEach(x => { try { _byKey.set(recKey(x), x); } catch (e) {} });
       newEntries.forEach(r => {
@@ -7029,10 +7086,22 @@ function renderRecebimentos() {
           if (ex && !ex.nped && (r.nped || r._nsite)) { if (r.nped) ex.nped = r.nped; if (r._nsite) ex._nsite = r._nsite; enriquecidos++; }
         }
       });
+      // Aplica a taxa da Pagar.me nos recebimentos (os que já existiam E os que acabaram de entrar).
+      // Casa por transação (TID) ou, pros antigos sem TID, por bruto + dia da venda. NÃO cria venda nova.
+      if (_pmUpds.length) {
+        const _dia = d => { try { return new Date(d).toISOString().slice(0, 10); } catch (e) { return ''; } };
+        const _usados = new Set(); // não deixa duas transações iguais (ex.: 279,90 em dias diferentes) casarem na mesma
+        _pmUpds.forEach(u => {
+          // 1) casa pelo TID (exato). 2) fallback pros antigos sem TID: mesmo bruto + MESMO DIA da venda.
+          let alvo = u._tid ? recebimentosConsolidado.find(x => x.gateway === 'Pagar.me' && !_usados.has(x) && x._tid && String(x._tid) === String(u._tid)) : null;
+          if (!alvo && u.data) alvo = recebimentosConsolidado.find(x => x.gateway === 'Pagar.me' && !_usados.has(x) && Math.abs((x.bruto || 0) - u.bruto) <= 0.02 && x.data && _dia(x.data) === _dia(u.data));
+          if (alvo) { _usados.add(alvo); alvo.taxa = u.taxa; alvo.liq = u.liq; if (!alvo._tid && u._tid) alvo._tid = u._tid; taxasPM++; }
+        });
+      }
       try { enriquecidos += resolverRecebPorSite(); } catch (e) {}
       saveData('recebimentosConsolidado', recebimentosConsolidado);
       const nv = autoVincularPorValor(); // grava nº do pedido (nome batendo) nos novos
-      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''})`;
+      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''}${taxasPM?`, ${taxasPM} c/ taxa Pagar.me`:''})`;
       syncBoletosToRecebimentos();
       syncExtratoToRecebimentos();
       renderRecebimentos();
