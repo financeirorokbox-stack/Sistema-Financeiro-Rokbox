@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v691/10-744';
+const APP_VERSION = 'v692/10-745';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3207,6 +3207,24 @@ function _renderContasImpl(el) {
     if (fQ && !((r.categoria || '').toLowerCase().includes(fQ) || (r.descricao || '').toLowerCase().includes(fQ))) return false;
     return true;
   });
+  // ── CR (tela): repasse de gateway recebido mas AINDA NÃO caiu no banco (mês aberto) = EM ABERTO ──
+  // O cliente pagou (continua "pago" na aba Recebimentos e na Cobrança, que usam statusForma direto — não mexo).
+  // Aqui no CR, por banco, fica "a compensar" até conciliar. Mês fechado/congelado: inalterado. Leve (O(1) por rec).
+  (() => {
+    const _repGW = { 'PayPal': 1, 'BraavoPay': 1, 'Rede': 1, 'Pagar.me': 1 };
+    const _concK4 = new Set();
+    Object.values(repasseLinks).forEach(rep => (rep.itens || []).forEach(it => { _concK4.add(String(it).split('|').slice(0, 4).join('|')); }));
+    const _rk4 = r => [r.gateway, r.data ? new Date(r.data).toISOString().slice(0, 10) : '', (r.bruto || 0).toFixed(2), (r.nome || '').trim().toLowerCase()].join('|');
+    const _recsPorPed = {};
+    recebimentosConsolidado.forEach(r => { if (r._estornoChave) return; String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean).forEach(pid => { (_recsPorPed[pid] = _recsPorPed[pid] || []).push(r); }); });
+    vis.forEach(l => {
+      if (!l.st || !l.st.recebido || !l.f) return;
+      const recs = _recsPorPed[String(l.f.pedido)];
+      if (!recs || !recs.length) return; // recebido por boleto/PIX/dinheiro (é banco) → mantém
+      const todosACompensar = recs.every(r => _repGW[r.gateway] && !_concK4.has(_rk4(r)) && !_mesCongeladoCR(r.data));
+      if (todosACompensar) l.st = { recebido: false, detalhe: 'recebido no gateway, a cair no banco (a compensar)' };
+    });
+  })();
   // Filtro de data na TELA/cards. Por LIQUIDAÇÃO: entra a linha que tem QUALQUER pagamento no período
   // (um pedido pode receber em vários dias) — assim o card líquido bate com o export e com o banco.
   if (dfAtivo()) vis = vis.filter(l => fDataPor === 'liquidacao'
@@ -4765,6 +4783,9 @@ function pagamentosDaLinha(l) {
     const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
     const _bd = dataRepasseBanco(r); // data do banco se CONCILIADO; null se ainda não caiu
     const _rep = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me'); // repasse de gateway (cai no banco depois)
+    // Repasse de gateway NÃO conciliado no banco, em mês ABERTO: ainda não caiu → NÃO é liquidado,
+    // sai da lista por Liquidação (fica em aberto até conciliar). Mês fechado/congelado: comportamento antigo.
+    if (_rep && !_bd && !_mesCongeladoCR(r.data)) return;
     out.push({ data: _bd || r.data, valor: +valor.toFixed(2), liq: +(liqTot * ratio).toFixed(2), taxa: +((r.taxa || 0) * ratio).toFixed(2), _conciliado: !!_bd, _repasse: _rep });
   });
   return out;
