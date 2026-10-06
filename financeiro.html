@@ -335,8 +335,8 @@ function renderFechamento(){
   const ms=new Set(); (bal&&bal.rows||[]).forEach(r=>ms.add(r.mes)); peds.forEach(p=>{const m=_m(p.data); if(m)ms.add(m);}); crA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));}); cpA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));});
   const meses=[...ms].filter(Boolean).sort(), base0=+((bal&&+bal.base)||0);
   const serie=meses.map(M=>{
-    let fat=0, qped=0, qpcs=0; const emp={}, seg={};
-    peds.forEach(p=>{ if(_m(p.data)!==M||!ehVT(p))return; const v=(+p.valor||0)-(devPorPed[String(p.id)]||0); const pcs=(Array.isArray(p.linhas)?p.linhas:[]).reduce((s,l)=>{ const q=+l.qtd||0; const pu=q>0?((+l.valorLinha||((+l.precoUnit||0)*q))/q):(+l.precoUnit||0); return s+(pu<=0.011?0:q); },0); fat+=v; qped++; qpcs+=pcs; const e=/rokbox/i.test(p.empresa||'')?'Rokbox':(/rk/i.test(p.empresa||'')?'Rk':(p.empresa||'Rokbox')); emp[e]=(emp[e]||0)+v; const sg=segDe(p.loja); const S=seg[sg]=seg[sg]||{fat:0,qped:0,qpcs:0}; S.fat+=v; S.qped++; S.qpcs+=pcs; });
+    let fat=0, qped=0, qpcs=0; const emp={}, seg={}, vend={};
+    peds.forEach(p=>{ if(_m(p.data)!==M||!ehVT(p))return; const v=(+p.valor||0)-(devPorPed[String(p.id)]||0); const pcs=(Array.isArray(p.linhas)?p.linhas:[]).reduce((s,l)=>{ const q=+l.qtd||0; const pu=q>0?((+l.valorLinha||((+l.precoUnit||0)*q))/q):(+l.precoUnit||0); return s+(pu<=0.011?0:q); },0); fat+=v; qped++; qpcs+=pcs; const e=/rokbox/i.test(p.empresa||'')?'Rokbox':(/rk/i.test(p.empresa||'')?'Rk':(p.empresa||'Rokbox')); emp[e]=(emp[e]||0)+v; const sg=segDe(p.loja); const S=seg[sg]=seg[sg]||{fat:0,qped:0,qpcs:0}; S.fat+=v; S.qped++; S.qpcs+=pcs; const vd=(p.vendedor||'').trim()||'(sem vendedor)'; const V=vend[vd]=vend[vd]||{fat:0,qped:0,qpcs:0}; V.fat+=v; V.qped++; V.qpcs+=pcs; });
     // Recebido: mês FECHADO = CR oficial (recebido_liquido); mês VIGENTE = o que entrou no banco (extrato), igual ao Fluxo.
     const receb=(M<_mesA)
       ? crA.filter(r=>_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
@@ -346,16 +346,19 @@ function renderFechamento(){
     const cpAb=cpA.filter(r=>!r.cancelado&&!r.data_liquidacao&&!r.pago&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor||0),0);
     const netAnt=(bal&&bal.rows||[]).filter(r=>r.mes<M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
     const netMes=(bal&&bal.rows||[]).filter(r=>r.mes===M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
-    let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg, _qped=qped, _qpcs=qpcs;
+    let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg, _vend=vend, _qped=qped, _qpcs=qpcs;
     let saldoIni=+(base0+netAnt).toFixed(2);
     let saldoFim=+(saldoIni+netMes).toFixed(2);
     let resultado=+(_receb-_pago).toFixed(2);
     // Antes de 06/26 (≤05/26) não havia essa informação ainda → zera o mês inteiro (todos os gráficos e cards do Fechamento ficam zerados).
-    if(M<='2026-05'){ _fat=0; _receb=0; _pago=0; _crAb=0; _cpAb=0; _emp={}; _seg={}; resultado=0; saldoIni=0; saldoFim=0; _qped=0; _qpcs=0; }
+    if(M<='2026-05'){ _fat=0; _receb=0; _pago=0; _crAb=0; _cpAb=0; _emp={}; _seg={}; _vend={}; resultado=0; saldoIni=0; saldoFim=0; _qped=0; _qpcs=0; }
     const ticket=_qped>0?+(_fat/_qped).toFixed(2):0;
-    return {mes:M,fat:_fat,emp:_emp,seg:_seg,receb:_receb,pago:_pago,resultado,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim,qped:_qped,qpcs:_qpcs,ticket};
+    return {mes:M,fat:_fat,emp:_emp,seg:_seg,vend:_vend,receb:_receb,pago:_pago,resultado,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim,qped:_qped,qpcs:_qpcs,ticket};
   });
-  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0,qped:0,qpcs:0,ticket:0};
+  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},vend:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0,qped:0,qpcs:0,ticket:0};
+  // Taxas de gateway pagas no mês (custo de receber): soma taxa e bruto por gateway dos recebimentos do mês. Zera ≤05/26.
+  const gwTax={}; if(D.mes>'2026-05') (Array.isArray(F.receb)?F.receb:[]).forEach(r=>{ if(_m(r.data)!==D.mes) return; const g=(r.gateway||'Outro').trim()||'Outro'; const o=gwTax[g]=gwTax[g]||{bruto:0,taxa:0}; o.bruto+=+r.bruto||0; o.taxa+=+r.taxa||0; });
+  const gwTot={bruto:+Object.values(gwTax).reduce((s,o)=>s+o.bruto,0).toFixed(2), taxa:+Object.values(gwTax).reduce((s,o)=>s+o.taxa,0).toFixed(2)};
   const nomeMes=new Date(D.mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   // Receitas/Despesas por grupo E por EMPRESA (rateio), igual ao Balancete. Zera ≤05/26 (sem informação ainda).
   const balRows=(D.mes<='2026-05')?[]:(bal&&bal.rows||[]).filter(r=>r.mes===D.mes), grpR={},grpD={};
@@ -393,6 +396,10 @@ function renderFechamento(){
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
       <div style="flex:1;min-width:220px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por empresa</div><table style="width:100%;font-size:13px;border-collapse:collapse">${linTab(D.emp)}</table></div>
       <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por segmento</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Segmento</th><th style="text-align:right">Fat.</th><th style="text-align:right">Ticket médio</th><th style="text-align:right">Peças</th></tr>${segTab(D.seg)}</table></div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por vendedor</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Vendedor</th><th style="text-align:right">Fat.</th><th style="text-align:right">Ticket médio</th><th style="text-align:right">Peças</th></tr>${segTab(D.vend)}</table></div>
+      <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Taxas de gateway <span style="font-weight:400;color:#6b7280;font-size:12px">(custo de receber)</span></div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Gateway</th><th style="text-align:right">Recebido</th><th style="text-align:right">Taxa</th><th style="text-align:right">%</th></tr>${Object.entries(gwTax).sort((a,b)=>b[1].taxa-a[1].taxa).map(([g,o])=>`<tr><td style="padding:3px 0">${g}</td><td style="text-align:right">${brl(o.bruto)}</td><td style="text-align:right;color:#dc2626">${brl(o.taxa)}</td><td style="text-align:right;color:#6b7280">${o.bruto>0?(o.taxa/o.bruto*100).toFixed(1).replace('.',','):'0,0'}%</td></tr>`).join('')||'<tr><td style="color:#9ca3af;padding:3px 0">—</td><td></td><td></td><td></td></tr>'}<tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td><td style="text-align:right">${brl(gwTot.bruto)}</td><td style="text-align:right;color:#dc2626">${brl(gwTot.taxa)}</td><td style="text-align:right">${gwTot.bruto>0?(gwTot.taxa/gwTot.bruto*100).toFixed(1).replace('.',','):'0,0'}%</td></tr></table></div>
     </div>
     <div style="font-weight:800;font-size:15px;margin:6px 0 10px">📈 Evolução dos meses</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${chart('fat','Faturamento','#059669')}${chart('resultado','Resultado (Rec − Pago)','#0ea5e9')}</div>
@@ -1046,7 +1053,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-06.6';
+const BUILD='2026-10-06.7';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
