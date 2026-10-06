@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v685/10-738';
+const APP_VERSION = 'v686/10-739';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13043,9 +13043,24 @@ function cbLancarDespesa(extId, alvo) {
   // Antes de CRIAR, vê se já existe uma conta IGUAL (mesmo valor e categoria) SEM vínculo no banco.
   // Se existir, oferece CONCILIAR a ela em vez de criar outra (evita duplicar no Contas a Pagar).
   const _linkedCh = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => _linkedCh.add(it.chave)));
-  const existente = contasPagar.find(c => !c.cancelado && !_linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
+  const _candidatas = contasPagar.filter(c => !c.cancelado && !_linkedCh.has(chaveContaPagar(c)) && !c._origemEstorno
     && Math.abs((c.valor || 0) - alvoVal) <= 0.02
     && (catContaPagar(c) || '').toUpperCase() === (categoria || '').toUpperCase());
+  // Só oferece conciliar a uma conta do MESMO MÊS do débito (a de vencimento mais próximo). Assim um débito
+  // de setembro NUNCA pega uma conta idêntica de outro mês (ex.: tarifa de R$1 de setembro pegando a de junho).
+  // Sem conta do mesmo mês → NÃO sugere a de outro mês; cria uma nova com a data do extrato (abaixo).
+  let existente = null;
+  if (_candidatas.length && t && t.data) {
+    const _mesDeb = String(t.data).slice(0, 7);
+    const _debMs = +new Date(t.data);
+    let _bd = Infinity;
+    _candidatas.forEach(c => {
+      const v = _vencISOconta(c);
+      if (!v || String(v).slice(0, 7) !== _mesDeb) return; // só mesmo mês do débito
+      const d = Math.abs(+new Date(v) - _debMs);
+      if (d < _bd) { _bd = d; existente = c; }
+    });
+  }
   if (existente) {
     if (confirm(`Já existe uma conta SEM vínculo igual a essa no Contas a Pagar:\n\n` +
         `• ${existente.fornecedor || existente.descricao || 'conta'} — ${fmtVal(existente.valor || 0)}  [${catContaPagar(existente) || '-'}]\n\n` +
