@@ -359,7 +359,9 @@ function renderFechamento(){
   // Gráficos e evolução PARAM no mês do relatório (não mostram meses depois do selecionado).
   const serieC=serie.filter(s=>s.mes<=D.mes);
   // Taxas de gateway pagas no mês (custo de receber): soma taxa e bruto por gateway dos recebimentos do mês. Zera ≤05/26.
-  const gwTax={}; if(D.mes>'2026-05') (Array.isArray(F.receb)?F.receb:[]).forEach(r=>{ if(_m(r.data)!==D.mes) return; const g=(r.gateway||'Outro').trim()||'Outro'; const o=gwTax[g]=gwTax[g]||{bruto:0,taxa:0}; o.bruto+=+r.bruto||0; o.taxa+=+r.taxa||0; });
+  // Só GATEWAYS de verdade (que cobram taxa): PayPal, Braavo, Rede, Pagar.me. Fora: PIX, Boleto, Desconto em Folha, Transferência (não têm taxa de gateway).
+  const _ehGateway=g=>/paypal|braavo|rede|pagar/i.test(g);
+  const gwTax={}; if(D.mes>'2026-05') (Array.isArray(F.receb)?F.receb:[]).forEach(r=>{ if(_m(r.data)!==D.mes) return; const g=(r.gateway||'Outro').trim()||'Outro'; if(!_ehGateway(g)) return; const o=gwTax[g]=gwTax[g]||{bruto:0,taxa:0}; o.bruto+=+r.bruto||0; o.taxa+=+r.taxa||0; });
   const gwTot={bruto:+Object.values(gwTax).reduce((s,o)=>s+o.bruto,0).toFixed(2), taxa:+Object.values(gwTax).reduce((s,o)=>s+o.taxa,0).toFixed(2)};
   // Evolução por vendedor MÊS A MÊS: linhas = vendedor, colunas = meses com dado (>05/26), células = faturamento.
   const _serieByMes={}; serie.forEach(s=>_serieByMes[s.mes]=s);
@@ -1070,7 +1072,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-06.10';
+const BUILD='2026-10-06.11';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
