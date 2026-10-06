@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v692/10-745';
+const APP_VERSION = 'v693/10-746';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3288,6 +3288,7 @@ function _renderContasImpl(el) {
       ${nF?`<button class="btn ghost sm" onclick="limparFiltrosContas()" title="Limpa todos os filtros">✕ limpar</button>`:''}
       <span style="flex:1"></span>
       <button class="btn ghost sm" onclick="exportarModeloCR()" title="Exporta o Contas a Receber (o que está filtrado) para Excel. Recebido = LÍQUIDO, com coluna Liquidação (data do banco). Filtre 'Data por: Liquidação' + o mês para bater com os Créditos da Conciliação.">📤 Exportar</button>
+      <button class="btn ghost sm" onclick="exportarConciliadoBanco('cr')" title="NOVO: monta o relatório A PARTIR DO EXTRATO (cada crédito do banco é um grupo com os títulos que o compõem). Abas: Contas a Receber, Contas a Pagar, Checagem (por dia) e Pendências. Filtre o mês na barra de Data. Não altera nada (só lê).">📤 Exportar conciliado (banco)</button>
       <button class="btn ghost sm" onclick="reprocessarTudo()" title="Recalcula conciliação e contas a receber com os dados atuais; remove pareamentos antigos">🔄 Atualizar tudo</button>
     </div>
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
@@ -6040,6 +6041,324 @@ function exportarContasPagar() {
   XLSX.utils.book_append_sheet(wb, ws, 'Contas a Pagar');
   XLSX.writeFile(wb, `contas_a_pagar_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`);
 }
+// ============================================================================
+// NOVO MODO: "Exportar conciliado (banco)" — ADITIVO e SÓ LEITURA.
+// Não altera NENHUMA função/helper existente nem muta qualquer global/lista/objeto.
+// Monta o relatório a partir do EXTRATO (cada lançamento é um grupo: crédito->CR,
+// débito->CP), com as mesmas colunas dos exports atuais + colunas do banco no fim.
+// buildConciliadoBanco é SÓ LEITURA: trabalha sobre CÓPIAS (slice) e tem ESPELHOS
+// privados dos helpers (recKeyGlobal/dataRepasseBanco/alocRecebGateway/... ) para
+// não depender de nem tocar o estado compartilhado. Mesmo corpo do harness de teste.
+// ============================================================================
+function buildConciliadoBanco(G) {
+  const EB = (G.extratoBancario || []);
+  const RL = (G.repasseLinks || {});
+  const XL = (G.extratoLinks || {});
+  const DL = (G.debitoLinks || {});
+  const RC = (G.recebimentosConsolidado || []);
+  const CP = (G.contasPagar || []);
+  const PED = (G.pedidos || []);
+  const FP = (G.formaPagamento || []);
+  const MF = (G.mesesFechados || []);
+  const CRF = (G.crFechado || {});
+  const CPF = (G.cpFechado || {});
+  const inPeriod = G.inPeriod; // (dateLike) => boolean  (mesmo filtro da tela)
+
+  const toDate = v => v == null ? null : (v instanceof Date ? v : new Date(v));
+  const iso10 = v => { const d = toDate(v); return d && !isNaN(d) ? (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) : null; };
+  const brDate = v => { const d = toDate(v); return d && !isNaN(d) ? (String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear()) : ''; };
+  const comp = v => { const d = toDate(v); return d && !isNaN(d) ? ('01/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear()) : ''; };
+  const ma = v => { const d = toDate(v); return d && !isNaN(d) ? (String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear()) : ''; };
+  const r2 = n => +(+n || 0).toFixed(2);
+
+  const pedById = new Map(); PED.forEach(p => pedById.set(String(p.id), p));
+
+  // ---- espelhos read-only dos helpers do app ----
+  function classificaForma(descricao) {
+    const d = String(descricao || '').trim(); const dl = d.toLowerCase();
+    if (dl.startsWith('online - paypal')) return { categoria: 'PayPal', isReceita: true };
+    if (dl.startsWith('braavo pay')) return { categoria: 'BraavoPay', isReceita: true };
+    if (dl === 'boleto itaú' || dl.startsWith('boleto')) return { categoria: 'Boleto Itaú', isReceita: true };
+    if (dl === 'pix' || dl === 'pix ' || dl.match(/^pix$/i)) return { categoria: 'Pix (Extrato/OFX)', isReceita: true };
+    if (dl === '-' || dl === '') return { categoria: 'Não aplicável', isReceita: false };
+    if (dl.startsWith('devoluç') || dl.startsWith('devolu') || dl.includes('devolução de mercadoria')) return { categoria: 'Devolução', isReceita: true };
+    if (dl.startsWith('crédito cliente') || dl.startsWith('credito cliente')) return { categoria: 'Crédito Cliente', isReceita: true };
+    if (dl.startsWith('online -') || dl.startsWith('online-')) return { categoria: 'Cartão', isReceita: true };
+    if (dl === 'dinheiro' || dl.startsWith('dinheiro')) return { categoria: 'Dinheiro', isReceita: true };
+    if (dl.startsWith('depós') || dl.startsWith('depos')) return { categoria: 'Depósito', isReceita: true };
+    if (dl.includes('desconto em folha') || dl.includes('desconto folha') || dl.includes('desc. folha') || dl.includes('desc folha')) return { categoria: 'Desconto em Folha', isReceita: true };
+    return { categoria: 'Não é recebimento', isReceita: false };
+  }
+  function getValorConciliacaoPedido(ped) {
+    if (!FP.length) return ped.valor;
+    const linhasPed = FP.filter(f => String(f.pedido) === String(ped.id));
+    if (!linhasPed.length) return ped.valor;
+    const totalReceita = linhasPed.filter(f => { const c = classificaForma(f.descricao); return c.isReceita && c.categoria !== 'Devolução' && c.categoria !== 'Crédito Cliente'; }).reduce((s, f) => s + f.valor, 0);
+    return totalReceita > 0 ? totalReceita : ped.valor;
+  }
+  function alocRecebGateway(r, pedido) {
+    const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+    const idx = peds.indexOf(String(pedido));
+    if (idx < 0) return 0;
+    const total = r.bruto || r.liq || 0;
+    if (peds.length === 1) return total;
+    const valorPed = pid => { const p = pedById.get(String(pid)); return p ? getValorConciliacaoPedido(p) : 0; };
+    let remaining = total;
+    for (let k = 0; k < peds.length; k++) { const aloc = Math.min(valorPed(peds[k]), Math.max(0, remaining)); if (k === idx) return +aloc.toFixed(2); remaining -= aloc; }
+    return 0;
+  }
+  function recKeyGlobal(r) { return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0, 10) : '', (r.bruto || 0).toFixed(2), (r.nome || '').trim().toLowerCase(), r.nped || ''].join('|'); }
+  function dataRepasseBanco(rec) {
+    if (!rec) return null;
+    let recK; try { recK = recKeyGlobal(rec); } catch (e) { recK = null; }
+    const recK4 = recK ? recK.split('|').slice(0, 4).join('|') : null;
+    for (const extId in RL) {
+      const rep = RL[extId]; const items = rep.itens || [];
+      const bate = (recK && items.includes(recK)) || (recK4 && items.some(k => k.split('|').slice(0, 4).join('|') === recK4));
+      if (bate) { const t = EB.find(x => x.id === extId); if (t && t.data) return t.data; if (rep.data) return new Date(rep.data); }
+    }
+    return null;
+  }
+  function debLinkItens(link) {
+    if (!link) return [];
+    if (Array.isArray(link.itens)) return link.itens;
+    return link.chave ? [{ chave: link.chave, fornecedor: link.fornecedor, valor: link.valor, setPago: link.setPago }] : [];
+  }
+  function vencISOconta(c) { return c.vencimento instanceof Date ? c.vencimento.toISOString().slice(0, 10) : (c.vencimento || ''); }
+  function chaveContaPagar(c) { const venc = vencISOconta(c), emp = (c.empresa || '').trim(); return c.numero ? [c.numero, venc, emp].join('§') : [c.fornecedor, venc, (c.valor || 0).toFixed(2), emp].join('|'); }
+  function dataLiquidacaoConta(c) {
+    if (!c) return null;
+    const chave = chaveContaPagar(c);
+    const _alvo = c.dataPag || c.vencimento; const _alvoMs = _alvo ? +new Date(_alvo) : null;
+    let _melhor = null, _dist = Infinity;
+    for (const extId in DL) {
+      if (debLinkItens(DL[extId]).some(it => it.chave === chave)) {
+        const t = EB.find(x => x.id === extId);
+        if (t && t.data) { if (_alvoMs == null) return t.data; const d = Math.abs(+new Date(t.data) - _alvoMs); if (d < _dist) { _dist = d; _melhor = t.data; } }
+      }
+    }
+    if (_melhor) return _melhor;
+    if ((String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno) return c.dataPag || null;
+    return null;
+  }
+  function catContaPagar(c) { return (c.categoria || '').trim() || (c.descricao || '').trim(); }
+  function mesKeyOf(v) { const k = iso10(v); return k ? k.slice(0, 7) : null; }
+  function mesCongelado(v) { const m = mesKeyOf(v); if (!m) return false; if (MF.includes(m)) return true; if (CRF[m] || CPF[m]) return true; return false; }
+
+  // índice recebimento por recKey (e por chave sem nped) — SÓ LEITURA
+  const recByKey = new Map(); const recByKey4 = new Map();
+  RC.forEach(r => { let k; try { k = recKeyGlobal(r); } catch (e) { k = null; } if (!k) return; if (!recByKey.has(k)) recByKey.set(k, r); const k4 = k.split('|').slice(0, 4).join('|'); if (!recByKey4.has(k4)) recByKey4.set(k4, r); });
+  const findRecByItem = item => { if (recByKey.has(item)) return recByKey.get(item); const i4 = item.split('|').slice(0, 4).join('|'); return recByKey4.get(i4) || null; };
+  const isCharge = rec => /charge|chargeback|disputa/i.test((rec.nome || '') + ' ' + (rec.tipo || '') + ' ' + (rec._estornoChave || ''));
+  const isRendimento = memo => /rentab\.?\s*invest|rend\.?\s*pago\s*aplic|rendimento|aplic(?:a|ação|acao)\s*aut|resgate\s*aplic/i.test(memo || '');
+  const pagadorDoMemo = memo => { let s = String(memo || '').replace(/\s+/g, ' ').trim(); s = s.replace(/^(PIX RECEBIDO|PIX ENVIADO|TED RECEBIDO|TED|DOC|RECEBIMENTO|TRANSFER[EÊ]NCIA|CR[EÉ]DITO|REM:|DES:)\s*/i, ''); s = s.replace(/\b\d{2}\/\d{2}\b/g, ' '); s = s.replace(/\b\d[\d.\-\/]{6,}\b/g, ' '); return s.replace(/\s+/g, ' ').trim().slice(0, 60) || String(memo || '').slice(0, 60); };
+
+  // cabeçalhos
+  const CR_HEAD = ['Liquidação', 'Data de vencimento', 'Número', 'Nome', 'Situação', 'Competência', 'Valor', 'Acréscimo', 'Juros', 'Desconto', 'Recebido', 'Taxa aliquota', 'Taxa fixa', 'Descrição', 'Observações', 'Categoria', 'Mês_Despesa', 'Mês_Liquidado', 'Valor', 'Data FCX', 'Empresa', 'ID do lançamento bancário', 'Data no banco', 'Descrição no extrato', 'Valor no banco', 'Tipo de linha', 'Venda de origem'];
+  const CP_HEAD = ['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa', 'ID do lançamento bancário', 'Data no banco', 'Descrição no extrato', 'Valor no banco', 'Tipo de linha', 'Venda/crédito de origem'];
+
+  const crRows = [CR_HEAD];
+  const cpRows = [CP_HEAD];
+  const pend = []; // {aba, tipo, ...}
+
+  // acumuladores por dia
+  const dayAgg = {}; // dia -> {credBanco, debBanco, crLiq, cpSoma, comp}
+  const dAg = dia => (dayAgg[dia] = dayAgg[dia] || { credBanco: 0, debBanco: 0, crLiq: 0, cpSoma: 0, comp: 0 });
+
+  // lançamentos do período (cópia ordenada p/ determinismo — NÃO muta EB)
+  const extPer = EB.filter(t => inPeriod(t.data)).slice().sort((a, b) => (+toDate(a.data) || 0) - (+toDate(b.data) || 0) || String(a.id).localeCompare(String(b.id)));
+
+  // ===== CRÉDITOS (CR) =====
+  let totCredBanco = 0;
+  extPer.filter(t => (t.valor || 0) > 0).forEach(t => {
+    const dia = iso10(t.data); const ag = dAg(dia); ag.credBanco += (t.valor || 0); totCredBanco += (t.valor || 0);
+    const rep = RL[t.id];
+    const pushCR = (rec, venda, bruto, liq, taxa, tipo) => {
+      const ped = venda ? pedById.get(String(String(venda).split(',')[0].trim())) : null;
+      const nome = (ped && ped.nome) || (rec && rec.nome) || '';
+      const emp = (ped && ped.empresa) || (rec && rec.empresa) || '';
+      const cat = (rec && rec.gateway) || '';
+      crRows.push([brDate(t.data), '', (venda || ''), nome, (bruto < 0 ? tipo : 'Pago'), comp(t.data), r2(bruto), 0, 0, 0, r2(liq), 0, r2(taxa), cat, ('Conciliado no banco — ' + (t.memo || '').slice(0, 40)), cat, ma(t.data), ma(t.data), r2(bruto), brDate(t.data), emp, t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, (venda || '')]);
+      ag.crLiq += r2(liq);
+    };
+    if (rep && Array.isArray(rep.itens) && rep.itens.length) {
+      rep.itens.forEach(item => {
+        const rec = findRecByItem(item);
+        if (!rec) { pend.push({ aba: 'CR', tipo: 'item de repasse sem recebimento', extId: t.id, data: dia, detalhe: item, valor: 0 }); return; }
+        const bruto = (rec.bruto != null ? rec.bruto : (rec.liq || 0));
+        const liqRec = (rec.liq != null ? rec.liq : bruto);
+        const taxa = (rec.taxa || 0);
+        // Valor que CAIU NO BANCO por item: PayPal/Braavo/Rede/Pagar.me = líquido (bruto − taxa);
+        // Boleto Itaú (e PIX/dinheiro, taxa 0) = o BRUTO (o lote "BOLETOS RECEBIDOS" credita o bruto;
+        // o campo liq do boleto é net de entrada/crédito de troca, não bate com o extrato). Assim o grupo fecha.
+        const bankVal = (rec.gateway === 'Boleto Itaú') ? bruto : liqRec;
+        const tipo = bruto < 0 ? (isCharge(rec) ? 'chargeback' : 'estorno') : 'título';
+        pushCR(rec, rec.nped || '', bruto, bankVal, taxa, tipo);
+        // juros/entrada do boleto (diferença entre o campo liq e o que caiu no banco): informativo em Observações
+        if (rec.gateway === 'Boleto Itaú' && Math.abs(bankVal - liqRec) > 0.005) crRows[crRows.length - 1][14] += ' · ajuste boleto (entrada/juros): ' + r2(bankVal - liqRec);
+      });
+    } else if (XL[t.id] && XL[t.id].pedido) {
+      // PIX recebido vinculado a pedido(s)
+      const venda = String(XL[t.id].pedido);
+      const ped = pedById.get(String(venda.split(',')[0].trim()));
+      pushCR(null, venda, t.valor, t.valor, 0, 'título');
+      crRows[crRows.length - 1][3] = (ped && ped.nome) || crRows[crRows.length - 1][3]; // nome do pedido
+      crRows[crRows.length - 1][13] = 'PIX (Extrato)'; crRows[crRows.length - 1][15] = 'PIX (Extrato)';
+    } else {
+      // Crédito do extrato SEM título (nem repasse, nem PIX de pedido): tem lastro no banco → entra como
+      // RECEITA no CR, no grupo do próprio crédito (líquido = valor do crédito, taxa 0). Não vai mais p/ Pendências.
+      const rend = isRendimento(t.memo);
+      const tipo = rend ? 'rendimento' : 'receita avulsa';
+      const cat = rend ? 'RENDIMENTOS' : 'OUTRAS RECEITAS';
+      const pagador = rend ? 'Rendimento de aplicação' : pagadorDoMemo(t.memo);
+      crRows.push([brDate(t.data), '', '', pagador, 'Pago', comp(t.data), r2(t.valor), 0, 0, 0, r2(t.valor), 0, 0, (t.memo || ''), ('Conciliado no banco — ' + (t.memo || '').slice(0, 60)), cat, ma(t.data), ma(t.data), r2(t.valor), brDate(t.data), '', t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, '']);
+      ag.crLiq += r2(t.valor);
+    }
+  });
+
+  // ===== DÉBITOS (CP) =====
+  let totDebBanco = 0;
+  const inferCatMemo = memo => { const m = (memo || '').toLowerCase(); if (/tarifa|tar\/|custas|cesta|pacote|manut/i.test(m)) return 'TARIFA BANCÁRIA'; if (/\biof\b/i.test(m)) return 'IOF'; if (/juro|multa/i.test(m)) return 'JUROS/MULTA'; if (/pix enviado|ted|transfer|doc /i.test(m)) return 'PAGAMENTO'; if (/rendiment/i.test(m)) return 'RENDIMENTO'; return 'AJUSTE'; };
+  extPer.filter(t => (t.valor || 0) < 0).forEach(t => {
+    const dia = iso10(t.data); const ag = dAg(dia); const absV = Math.abs(t.valor || 0); ag.debBanco += absV; totDebBanco += absV;
+    const link = DL[t.id]; const items = debLinkItens(link);
+    const pushCP = (numero, nome, valor, cat, obs, tipo, origem, foraSoma) => {
+      cpRows.push([brDate(t.data), (numero || ''), (nome || ''), r2(valor), '', '', r2(valor), 'Pago', comp(t.data), (cat || ''), (obs || ''), brDate(t.data), '', t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, (origem || '')]);
+      if (!foraSoma) ag.cpSoma += r2(valor);
+    };
+    if (items.length) {
+      items.forEach(it => {
+        const conta = CP.find(c => chaveContaPagar(c) === it.chave) || null;
+        const valor = (it.valor != null ? it.valor : (conta ? conta.valor : 0));
+        const nome = it.fornecedor || (conta && conta.fornecedor) || '';
+        const numero = (conta && conta.numero) || '';
+        const cat = conta ? catContaPagar(conta) : '';
+        let tipo = 'título';
+        const txt = (cat + ' ' + nome).toLowerCase();
+        if (it.criada && /juro|multa/.test(txt)) tipo = 'juros-multa';
+        else if (/tarifa|tar\/|custas/.test(txt)) tipo = 'tarifa';
+        else if (it.criada) tipo = 'ajuste';
+        pushCP(numero, nome, valor, cat, (conta && conta.observacao) || '', tipo, '', false);
+      });
+      const cred = +((link && link.credito) || 0);
+      if (cred > 0.005) pushCP('', 'Crédito de cartão' + (t.memo ? ' — ' + t.memo.slice(0, 30) : ''), -cred, 'CRÉDITO CARTÃO', 'Crédito abatido na fatura', 'ajuste', '', false);
+    } else {
+      // débito sem título vinculado → linha 'ajuste' (categoria do memo), soma = valor do débito; e vai pra Pendências
+      pushCP('', (t.memo || 'Lançamento sem título').slice(0, 60), absV, inferCatMemo(t.memo), 'Débito do extrato sem conta vinculada', 'ajuste', '', false);
+      pend.push({ aba: 'CP', tipo: 'débito do extrato sem título vinculado', extId: t.id, data: dia, detalhe: (t.memo || ''), valor: absV, banco: t.banco || '' });
+    }
+  });
+
+  // ===== 9 estornos (compensação no repasse) =====
+  // Já abatidos no crédito do gateway (os negativos em repasseLinks já reduzem o CR líquido).
+  // Aqui aparecem como linhas MARCADAS e FORA da soma (CR e CP), p/ não contar em dobro.
+  const estornos = CP.filter(c => !c.cancelado && (String(c.categoria || '').toUpperCase().includes('ESTORNO')) && c.pago && inPeriod(c.dataPag));
+  let totEstorno = 0;
+  estornos.forEach(c => {
+    const v = r2(c.valor || 0); totEstorno += v;
+    const dia = iso10(c.dataPag); const ag = dAg(dia); ag.comp += v;
+    const origem = (c.fornecedor || '') + (/(#\w+)/.test(c.descricao || '') ? ' ' + (c.descricao.match(/#\w+/) || [''])[0] : '');
+    const obsEst = 'Compensação no repasse — já abatida no crédito do gateway (FORA da soma)';
+    // linha negativa informativa no CR (bloco de estornos)
+    crRows.push([brDate(c.dataPag), '', '', (c.fornecedor || ''), 'estorno', comp(c.dataPag), -v, 0, 0, 0, -v, 0, 0, (c.descricao || 'Estorno'), obsEst, 'ESTORNO', ma(c.dataPag), ma(c.dataPag), -v, brDate(c.dataPag), (c.empresa || ''), '(estornos abatidos no repasse)', brDate(c.dataPag), 'Compensação no repasse', -v, 'estorno', origem]);
+    // linha no CP marcada 'compensação no repasse' FORA da soma
+    cpRows.push([brDate(c.dataPag), '', (c.fornecedor || ''), -v, '', '', -v, 'Compensação', comp(c.dataPag), (c.categoria || 'ESTORNO'), obsEst, brDate(c.dataPag), (c.empresa || ''), '(compensação no repasse)', brDate(c.dataPag), 'Compensação no repasse', 0, 'compensação no repasse', origem]);
+  });
+
+  // ===== Pendências adicionais =====
+  // Correios R$0,01 (id 20260910003): banco -7.802,91 x conta 7.802,90
+  const correios = EB.find(t => t.id === '20260910003');
+  if (correios && inPeriod(correios.data)) pend.push({ aba: 'CP', tipo: 'diferença de arredondamento (Correios R$0,01)', extId: correios.id, data: iso10(correios.data), detalhe: (correios.memo || ''), valor: 0.01, banco: correios.banco || '' });
+  // CP pago no período SEM vínculo bancário (e não estorno)
+  const chavesConc = new Set(); Object.keys(DL).forEach(id => debLinkItens(DL[id]).forEach(it => chavesConc.add(it.chave)));
+  CP.filter(c => !c.cancelado && c.pago && inPeriod(c.dataPag) && !(String(c.categoria || '').toUpperCase().includes('ESTORNO')) && !c._origemEstorno).forEach(c => {
+    if (!chavesConc.has(chaveContaPagar(c))) pend.push({ aba: 'CP', tipo: 'conta paga sem vínculo no banco', extId: '', data: iso10(c.dataPag), detalhe: (c.fornecedor || '') + ' — ' + (catContaPagar(c) || ''), valor: r2(c.valor), banco: '' });
+  });
+
+  // ===== Checagem por dia =====
+  const checHead = ['Dia', 'Créditos banco', 'CR líquido', 'Compensações (estorno)', 'Dif. crédito', 'Débitos banco', 'CP soma', 'Dif. débito'];
+  const chRows = [checHead];
+  const dias = Object.keys(dayAgg).sort();
+  let somaCred = 0, somaCrLiq = 0, somaComp = 0, somaDeb = 0, somaCp = 0;
+  const difDias = [];
+  dias.forEach(d => {
+    const a = dayAgg[d];
+    const difC = r2(a.credBanco - a.crLiq);
+    const difD = r2(a.debBanco - a.cpSoma);
+    chRows.push([d, r2(a.credBanco), r2(a.crLiq), r2(a.comp), difC, r2(a.debBanco), r2(a.cpSoma), difD]);
+    somaCred += a.credBanco; somaCrLiq += a.crLiq; somaComp += a.comp; somaDeb += a.debBanco; somaCp += a.cpSoma;
+    if (Math.abs(difC) > 0.005) difDias.push({ dia: d, lado: 'crédito', valor: difC });
+    if (Math.abs(difD) > 0.005) difDias.push({ dia: d, lado: 'débito', valor: difD });
+  });
+  chRows.push(['TOTAL', r2(somaCred), r2(somaCrLiq), r2(somaComp), r2(somaCred - somaCrLiq), r2(somaDeb), r2(somaCp), r2(somaDeb - somaCp)]);
+
+  // Saldo (por banco, a partir de saldosDiarios se houver) — informativo
+  const saldos = G.saldosDiarios || {};
+  const bancos = [...new Set(EB.filter(t => inPeriod(t.data)).map(t => t.banco || ''))];
+  const periodoAno = G.periodoAno, periodoMes = G.periodoMes; // p/ achar o último dia do mês
+  let saldoFinalBanco = 0, saldoFinalBancoOk = false;
+  if (periodoAno && periodoMes) {
+    const pref = periodoAno + '-' + String(periodoMes).padStart(2, '0');
+    bancos.forEach(b => {
+      const chavesB = Object.keys(saldos).filter(k => k.startsWith(b + '|') && k.slice(b.length + 1).startsWith(pref)).sort();
+      if (chavesB.length) { saldoFinalBanco += saldos[chavesB[chavesB.length - 1]]; saldoFinalBancoOk = true; }
+    });
+  }
+
+  const resumo = {
+    totCredBanco: r2(totCredBanco), totDebBanco: r2(totDebBanco),
+    crLinhas: crRows.length - 1, cpLinhas: cpRows.length - 1,
+    crLiquido: r2(somaCrLiq), cpSoma: r2(somaCp),
+    estornos: { n: estornos.length, total: r2(totEstorno) },
+    difCreditoTotal: r2(totCredBanco - somaCrLiq), difDebitoTotal: r2(totDebBanco - somaCp),
+    difDias, pend,
+    saldoFinalBanco: saldoFinalBancoOk ? r2(saldoFinalBanco) : null,
+    bancos
+  };
+  // resumo por gateway (bruto/taxa/líquido) — a partir das linhas CR (cópia)
+  const gwAgg = {};
+  crRows.slice(1).forEach(row => { const gw = row[15] || ''; const tipo = row[25]; if (tipo === 'estorno' || tipo === 'chargeback') { (gwAgg[gw] = gwAgg[gw] || { bruto: 0, taxa: 0, liq: 0, comp: 0 }); } });
+  crRows.slice(1).forEach(row => {
+    const gw = row[15] || '(sem)'; const g = (gwAgg[gw] = gwAgg[gw] || { bruto: 0, taxa: 0, liq: 0, comp: 0 });
+    const tipo = row[25];
+    if (row[21] === '(estornos abatidos no repasse)') { g.comp += Math.abs(row[6]); return; }
+    g.bruto += (row[6] || 0); g.taxa += (row[12] || 0); g.liq += (row[10] || 0);
+  });
+  resumo.porGateway = Object.entries(gwAgg).map(([gw, v]) => ({ gateway: gw, bruto: r2(v.bruto), taxa: r2(v.taxa), liquido: r2(v.liq), compensacoes: r2(v.comp) }));
+
+  return { crRows, cpRows, chRows, pend, resumo };
+}
+// Monta o objeto G (SÓ LEITURA) a partir dos globais atuais. Não copia os arrays
+// (o build não os muta), mas o período usa o MESMO filtro de data da tela (passaData).
+function _conciliadoBancoG() {
+  const _ano = (dateFilter.ano && dateFilter.ano.length === 1) ? +dateFilter.ano[0] : null;
+  const _mes = (dateFilter.mes && dateFilter.mes.length === 1) ? +dateFilter.mes[0] : null;
+  return {
+    extratoBancario: extratoBancario, repasseLinks: repasseLinks, extratoLinks: extratoLinks, debitoLinks: debitoLinks,
+    recebimentosConsolidado: recebimentosConsolidado, contasPagar: contasPagar, pedidos: pedidos, formaPagamento: formaPagamento,
+    mesesFechados: (typeof mesesFechados !== 'undefined' ? mesesFechados : []),
+    crFechado: (typeof crFechado !== 'undefined' ? crFechado : {}), cpFechado: (typeof cpFechado !== 'undefined' ? cpFechado : {}),
+    saldosDiarios: (typeof saldosDiarios !== 'undefined' ? saldosDiarios : {}),
+    inPeriod: d => passaData(d), periodoAno: _ano, periodoMes: _mes
+  };
+}
+// Botão "📤 Exportar conciliado (banco)" (CR e CP). lado = 'cr' | 'cp' (só muda o nome do arquivo).
+function exportarConciliadoBanco(lado) {
+  if (!dfAtivo()) { if (!confirm('Nenhum filtro de data ativo. Vou exportar TODO o período conciliado no banco. Para o fechamento mensal, feche e escolha o mês na barra de Data. Continuar assim mesmo?')) return; }
+  let out; try { out = buildConciliadoBanco(_conciliadoBancoG()); } catch (e) { alert('Falha ao montar o conciliado: ' + e.message); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(out.crRows), 'Contas a Receber');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(out.cpRows), 'Contas a Pagar');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(out.chRows), 'Checagem');
+  const pendHead = ['Aba', 'Tipo', 'ID lançamento', 'Data', 'Banco', 'Detalhe', 'Valor'];
+  const pendAoa = [pendHead].concat(out.pend.map(p => [p.aba, p.tipo, p.extId || '', p.data || '', p.banco || '', p.detalhe || '', p.valor || 0]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pendAoa), 'Pendências');
+  const mes = new Date().toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '-');
+  XLSX.writeFile(wb, `Conciliado_banco_${mes}.xlsx`);
+  const R = out.resumo;
+  const fv = n => (n == null ? '—' : 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+  alert('Exportado (conciliado pelo banco):\n\nCréditos no banco: ' + fv(R.totCredBanco) + '  (CR ' + R.crLinhas + ' linhas)\nDébitos no banco: ' + fv(R.totDebBanco) + '  (CP ' + R.cpLinhas + ' linhas)\nDif. crédito: ' + fv(R.difCreditoTotal) + ' · Dif. débito: ' + fv(R.difDebitoTotal) + '\nEstornos (fora da soma): ' + R.estornos.n + ' = ' + fv(R.estornos.total) + '\nPendências: ' + R.pend.length + ' (ver aba Pendências)');
+}
 // Cria uma conta a pagar em branco (em aberto) para preencher na mão.
 let _novaContaRef = null; // transitório (não salvo): última conta criada na mão, p/ aparecer mesmo com filtro ativo
 let _cpEdit = null; // índice da conta em modo EDIÇÃO (as demais ficam só-leitura, com ✏️ pra abrir)
@@ -6116,6 +6435,7 @@ function renderPagar() {
       <span style="flex:1"></span>
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel (modelo FCX Despesas)">📤 Exportar</button>
+      <button class="btn ghost sm" onclick="exportarConciliadoBanco('cp')" title="NOVO: monta o relatório A PARTIR DO EXTRATO (cada débito do banco é um grupo com as contas que o compõem; lote = várias contas num débito). Abas: Contas a Receber, Contas a Pagar, Checagem (por dia) e Pendências. Filtre o mês na barra de Data. Não altera nada (só lê).">📤 Exportar conciliado (banco)</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
       <button class="btn ghost sm" style="color:var(--amber)" onclick="corrigirParcelasMarcadasEngano()" title="Desfaz parcelas FUTURAS marcadas como pagas por engano (número repetido sem débito no banco) — volta pra Em Aberto">🔧 Corrigir pagas por engano</button>
       ${(_contasPagarUndo || localStorage.getItem(LS_PREFIX + 'contasPagar_undo')) ? `<button class="btn ghost sm" style="color:var(--amber)" onclick="desfazerImportContas()" title="Volta as Contas a Pagar ao estado de ANTES do último upload">↩ Desfazer importação</button>` : ''}
