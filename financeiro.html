@@ -356,12 +356,14 @@ function renderFechamento(){
     return {mes:M,fat:_fat,emp:_emp,seg:_seg,vend:_vend,receb:_receb,pago:_pago,resultado,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim,qped:_qped,qpcs:_qpcs,ticket};
   });
   const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},vend:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0,qped:0,qpcs:0,ticket:0};
+  // Gráficos e evolução PARAM no mês do relatório (não mostram meses depois do selecionado).
+  const serieC=serie.filter(s=>s.mes<=D.mes);
   // Taxas de gateway pagas no mês (custo de receber): soma taxa e bruto por gateway dos recebimentos do mês. Zera ≤05/26.
   const gwTax={}; if(D.mes>'2026-05') (Array.isArray(F.receb)?F.receb:[]).forEach(r=>{ if(_m(r.data)!==D.mes) return; const g=(r.gateway||'Outro').trim()||'Outro'; const o=gwTax[g]=gwTax[g]||{bruto:0,taxa:0}; o.bruto+=+r.bruto||0; o.taxa+=+r.taxa||0; });
   const gwTot={bruto:+Object.values(gwTax).reduce((s,o)=>s+o.bruto,0).toFixed(2), taxa:+Object.values(gwTax).reduce((s,o)=>s+o.taxa,0).toFixed(2)};
   // Evolução por vendedor MÊS A MÊS: linhas = vendedor, colunas = meses com dado (>05/26), células = faturamento.
   const _serieByMes={}; serie.forEach(s=>_serieByMes[s.mes]=s);
-  const _mesesReais=serie.map(s=>s.mes).filter(m=>m>'2026-05');
+  const _mesesReais=serieC.map(s=>s.mes).filter(m=>m>'2026-05');
   const _vendNomes=[...new Set([].concat(..._mesesReais.map(m=>Object.keys((_serieByMes[m]&&_serieByMes[m].vend)||{}))))];
   const _vFat=(v,m)=>{ const sm=_serieByMes[m]; return (sm&&sm.vend&&sm.vend[v]&&sm.vend[v].fat)||0; };
   const _vendTot={}; _vendNomes.forEach(v=>{ _vendTot[v]=+_mesesReais.reduce((s,m)=>s+_vFat(v,m),0).toFixed(2); });
@@ -379,9 +381,9 @@ function renderFechamento(){
   const totR=+Object.values(grpR).reduce((s,o)=>s+o.tot,0).toFixed(2), totD=+Object.values(grpD).reduce((s,o)=>s+o.tot,0).toFixed(2);
   const kf=n=>{ const a=Math.abs(n); return (n<0?'-':'')+(a>=1000?(a/1000).toLocaleString('pt-BR',{maximumFractionDigits:0})+'k':a.toFixed(0)); };
   const chart=(campo,titulo,cor)=>{
-    const W=Math.max(300,serie.length*58),H=175,pb=34,pt=22;
-    const vals=serie.map(s=>+s[campo]||0), max=Math.max(1,...vals.map(Math.abs)), step=W/Math.max(1,serie.length), bw=Math.min(40,step-16);
-    let b=''; serie.forEach((s,i)=>{ const v=+s[campo]||0,h=Math.abs(v)/max*(H-pb-pt),x=i*step+(step-bw)/2,y=v>=0?(H-pb-h):(H-pb),c=s.mes===D.mes?cor:cor+'80'; b+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1,h).toFixed(1)}" rx="3" fill="${c}"/><text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#111" font-weight="700">${v?kf(v):''}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-16}" text-anchor="middle" font-size="9.5" fill="#888">${s.mes.slice(5)}/${s.mes.slice(2,4)}</text>`; });
+    const W=Math.max(300,serieC.length*58),H=175,pb=34,pt=22;
+    const vals=serieC.map(s=>+s[campo]||0), max=Math.max(1,...vals.map(Math.abs)), step=W/Math.max(1,serieC.length), bw=Math.min(40,step-16);
+    let b=''; serieC.forEach((s,i)=>{ const v=+s[campo]||0,h=Math.abs(v)/max*(H-pb-pt),x=i*step+(step-bw)/2,y=v>=0?(H-pb-h):(H-pb),c=s.mes===D.mes?cor:cor+'80'; b+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1,h).toFixed(1)}" rx="3" fill="${c}"/><text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#111" font-weight="700">${v?kf(v):''}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-16}" text-anchor="middle" font-size="9.5" fill="#888">${s.mes.slice(5)}/${s.mes.slice(2,4)}</text>`; });
     return `<div style="flex:1;min-width:230px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;font-size:13px;color:#111;margin-bottom:2px">${titulo}</div><svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${b}</svg></div>`;
   };
   const linTab=o=>Object.entries(o).filter(([,v])=>Math.abs(v)>0.005).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td style="padding:3px 0">${k}</td><td style="text-align:right;padding:3px 0">${brl(v)}</td></tr>`).join('')||'<tr><td>—</td></tr>';
@@ -1068,7 +1070,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-06.8';
+const BUILD='2026-10-06.9';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
