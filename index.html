@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v687/10-740';
+const APP_VERSION = 'v688/10-741';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3361,7 +3361,9 @@ function limparFiltrosPagar() {
   ['cp-st','cp-emp','cp-conc','cp-q'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   cpCatSel.clear();
   buscaPersist.pagar = '';
-  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
+  // Limpa TAMBÉM o intervalo De/até (o período dos chips/range do Contas a Pagar); antes ele ficava
+  // segurando a lista mesmo depois de clicar "✕ limpar" (parecia que o botão não funcionava).
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; dateFilter.de = ''; dateFilter.ate = ''; saveData('dateFilters', dateFilters); }
   renderPagar();
 }
 // Limpa data + uma lista de selects/inputs + uma chave de busca, e re-renderiza. Genérico p/ as telas.
