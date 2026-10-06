@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v684/10-737';
+const APP_VERSION = 'v685/10-738';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2135,7 +2135,7 @@ function renderVendas() {
         ).join('') +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
-
+    ${dateMiniBar('renderVendas')}
     <div id="vendas-cards" class="cards-row"></div>
     <div id="vendas-diverg"></div>
     <div id="vendas-devol-detalhe"></div>
@@ -2411,6 +2411,32 @@ function setDateFilterRender(fn) {
   const key = (fn && fn.name) ? fn.name : '_';
   if (!dateFilters[key]) dateFilters[key] = { ano: [], mes: [], dia: [] };
   dateFilter = dateFilters[key];
+}
+// ── Mini-barra Mês+Ano VISÍVEL (fora do drawer) ──────────────────────────────
+// O dropdown de data (.ms-dropdown, position:absolute) abre CORTADO dentro do drawer
+// (.filtros-drawer tem overflow-y:auto + transform). <select> nativo NÃO sofre esse corte.
+// dateMiniBar(key) devolve o HTML pra colar logo após o filtrosBar de cada tela.
+// key = nome da função de render (mesma chave de dateFilters). Aditivo: o drawer continua
+// pro multi-mês/dia; a mini-barra é só o atalho de 1 mês. Mesma lógica de Comissão/Banco.
+function setDfMes(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function setDfAno(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function limparDfMini(key) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = []; df.ano = []; df.dia = []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function dateMiniBar(key) {
+  const df = dateFilters[key] || { ano: [], mes: [], dia: [] };
+  const anosData = [...new Set((typeof pedidos !== 'undefined' ? pedidos : []).map(p => { const d = p.data instanceof Date ? p.data : (p.data ? new Date(p.data) : null); return d && !isNaN(d) ? d.getFullYear() : null; }).filter(Boolean))];
+  const anoNow = new Date().getFullYear();
+  const anos = [...new Set([...anosData, anoNow, anoNow - 1])].sort((a, b) => b - a);
+  const mSel = df.mes && df.mes.length === 1 ? df.mes[0] : '';
+  const aSel = df.ano && df.ano.length === 1 ? df.ano[0] : '';
+  const nMulti = ((df.mes && df.mes.length > 1) || (df.ano && df.ano.length > 1) || (df.dia && df.dia.length) || df.de || df.ate);
+  const selSty = 'padding:6px 9px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;background:var(--surface);color:var(--text)';
+  return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 14px">
+    <span class="f-label" style="font-weight:700">📅 Mês:</span>
+    <select onchange="setDfMes('${key}',this.value)" style="${selSty}"><option value="">Todos</option>${MESES.map((n, i) => { const v = String(i + 1).padStart(2, '0'); return `<option value="${v}" ${mSel === v ? 'selected' : ''}>${n}</option>`; }).join('')}</select>
+    <select onchange="setDfAno('${key}',this.value)" style="${selSty}"><option value="">Ano</option>${anos.map(y => `<option value="${y}" ${String(aSel) === String(y) ? 'selected' : ''}>${y}</option>`).join('')}</select>
+    ${(mSel || aSel || nMulti) ? `<button class="btn ghost sm" style="font-size:11px" onclick="limparDfMini('${key}')">✕ limpar</button>` : '<span style="font-size:11px;color:var(--muted)">(filtre por mês aqui)</span>'}
+    ${nMulti ? '<span style="font-size:11px;color:var(--muted)">· filtro avançado ativo no ⚙ Filtros</span>' : ''}
+  </div>`;
 }
 function _dfOpts(field) {
   if (field === 'mes') return MESES.map((m, i) => [String(i + 1).padStart(2, '0'), m]);
@@ -3232,6 +3258,7 @@ function _renderContasImpl(el) {
       <div class="fd-row"><span class="f-label">Pesquisar</span><input type="text" id="fc-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.contas=this.value;debounceRender('renderContas')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''"></div>
       <div class="fd-row"><span class="f-label">Data</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div></div>
     </div>`; })()}
+    ${dateMiniBar('renderContas')}
     <div class="cards-row">
       <div class="card red" style="cursor:pointer" title="Seu double-check: clique pra ver TUDO que ainda não fechou (nem por dinheiro, nem troca, nem aceito). Quando zerar, está tudo certo." onclick="const e=document.getElementById('fc-st');if(e){e.value=e.value==='aberto'?'':'aberto';renderContas()}"><div class="c-label">Em Aberto${flt?' (filtro)':''} ${fSt==='aberto'?'●':'›'}</div><div class="c-val">${emAberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
       <div class="card dark"><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)} bruto · <strong style="color:var(--green)">líquido ${fmtVal(vPagoLiq)}</strong></div></div>
@@ -6875,7 +6902,7 @@ function renderRecebimentos() {
         fdRow('Pesquisar', `<input type="text" id="rr-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Nome ou pedido..." oninput="buscaPersist.receb=this.value;debounceRender('renderRecebimentos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
-
+    ${dateMiniBar('renderRecebimentos')}
     <div class="cards-row">
       ${Object.entries(byGw).map(([gw,d])=>`<div class="card blue"><div class="c-label">${gw}</div><div class="c-val">${fmtVal(d.liq)}</div><div class="c-sub">${d.n} lançamentos</div></div>`).join('')}
       <div class="card dark"><div class="c-label">Total líquido</div><div class="c-val">${fmtVal(totalLiq)}</div><div class="c-sub">Taxas: ${fmtVal(totalTaxa)}</div></div>
@@ -7494,6 +7521,7 @@ function renderBoletos() {
         fdRow('Pesquisar', `<input type="text" id="bl-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="buscaPersist.boletos=this.value;debounceRender('renderBoletos')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
+    ${dateMiniBar('renderBoletos')}
     <div class="cards-row">
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
       <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div><div class="c-sub">${fmtVal(somaEmit)}</div></div>
@@ -8175,6 +8203,7 @@ function renderCobranca() {
         fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderCobranca')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
+    ${dateMiniBar('renderCobranca')}
     ${(false) /* seção antiga "A receber fora do sistema": desligada, agora tudo está no painel único acima */ ? (() => {
       // Busca em TODOS os campos do avulso (pedido, cliente, telefone, obs, valor, datas).
       const _qav = i => { const a = boletosAvulsos[i]; return !fQ || `${a.pedido || ''} ${a.cliente || ''} ${a.fone || ''} ${a.obsCobranca || ''} ${(a.valorTitulo || 0).toFixed(2)} ${(a.valorPago || 0).toFixed(2)} ${a.vencimento ? fmtDate(a.vencimento) : ''} ${a.dataPagamento ? fmtDate(a.dataPagamento) : ''}`.toLowerCase().includes(fQ); };
@@ -9227,6 +9256,7 @@ function renderDevolucao() {
         fdRow('Pesquisar', `<input type="text" id="dev-q" value="${fQ}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderDevolucao')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
+    ${dateMiniBar('renderDevolucao')}
     <div class="cards-row">
       ${segs.map(s=>{const arr=vis.filter(d=>d.segmento===s);if(!arr.length)return '';const v=arr.reduce((a,d)=>a+d.valorPago,0);return `<div class="card amber"><div class="c-label">${s}${dfAtivo()?' (filtro)':''}</div><div class="c-val">${fmtVal(v)}</div><div class="c-sub">${arr.length} itens</div></div>`;}).join('')}
       <div class="card dark"><div class="c-label">Total${(dfAtivo()||fSeg||fEmp||fQ)?' (filtro)':''}</div><div class="c-val">${fmtVal(vis.reduce((s,d)=>s+d.valorPago,0))}</div><div class="c-sub">${vis.length} itens</div></div>
@@ -9771,6 +9801,7 @@ function renderExtrato() {
         fdRow('Pesquisar créditos', `<input type="text" id="ext-q" value="${fQraw.replace(/"/g,'&quot;')}" placeholder="Descrição ou pedido..." oninput="buscaPersist.extrato=this.value;debounceRender('renderExtrato')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
+    ${dateMiniBar('renderExtrato')}
     <div class="cards-row">
       <div class="card green"><div class="c-label">Créditos</div><div class="c-val">${creditos.length}</div><div class="c-sub">${fmtVal(creditos.reduce((s,t)=>s+t.valor,0))}</div></div>
       <div class="card red"><div class="c-label">Débitos</div><div class="c-val">${baseExt.filter(t=>t.valor<0).length}</div><div class="c-sub">${fmtVal(Math.abs(baseExt.filter(t=>t.valor<0).reduce((s,t)=>s+t.valor,0)))}</div></div>
@@ -14275,6 +14306,7 @@ function renderTaxasPP() {
     <div class="section-title" style="margin-top:0">💠 Conferência de taxa PayPal</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Descobre as <strong>parcelas</strong> pela taxa cobrada (compara com a tabela do PayPal) e confere se a <strong>taxa bate</strong>. As linhas <strong>🔴 fora da tabela</strong> vêm em cima, pra você conferir. Respeita o filtro de data.</div>
     ${filtrosBar({ nAtivos: dfAtivo() ? 1 : 0, limpar: '', acoes: `<span style="font-size:12px;color:var(--muted)">${pp.length} recebimento(s) PayPal · ${nFora} fora da tabela</span>`, campos: fdRow('Período', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`) })}
+    ${dateMiniBar('renderTaxasPP')}
     <div class="cards-row" style="margin-bottom:16px">
       <div class="card blue"><div class="c-label">Bruto (PayPal)</div><div class="c-val">${fmtVal(totBruto)}</div></div>
       <div class="card red"><div class="c-label">Taxa paga</div><div class="c-val">${fmtVal(totTaxa)}</div><div class="c-sub">${totBruto > 0 ? (totTaxa / totBruto * 100).toFixed(2) : '0'}% médio</div></div>
