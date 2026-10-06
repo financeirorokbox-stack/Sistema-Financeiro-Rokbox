@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v690/10-743';
+const APP_VERSION = 'v691/10-744';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4763,7 +4763,9 @@ function pagamentosDaLinha(l) {
     const brutoTot = r.bruto || r.liq || 0;
     const liqTot = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0));
     const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
-    out.push({ data: dataRepasseBanco(r) || r.data, valor: +valor.toFixed(2), liq: +(liqTot * ratio).toFixed(2), taxa: +((r.taxa || 0) * ratio).toFixed(2) });
+    const _bd = dataRepasseBanco(r); // data do banco se CONCILIADO; null se ainda não caiu
+    const _rep = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me'); // repasse de gateway (cai no banco depois)
+    out.push({ data: _bd || r.data, valor: +valor.toFixed(2), liq: +(liqTot * ratio).toFixed(2), taxa: +((r.taxa || 0) * ratio).toFixed(2), _conciliado: !!_bd, _repasse: _rep });
   });
   return out;
 }
@@ -4826,6 +4828,10 @@ function _crRowsAOA(semFiltro) {
     pags.forEach(pg => {
       // Estorno/reembolso (valor NEGATIVO) NÃO entra no Contas a Receber — ele é tratado como despesa no Contas a Pagar.
       if (pg.valor < 0) return;
+      // Repasse de gateway (PayPal/Braavo/Rede/Pagar.me) ainda NÃO conciliado no banco, em mês ABERTO:
+      // o dinheiro não caiu → NÃO entra como "Pago"/liquidado; vira saldo EM ABERTO (só aparece quando
+      // você conciliar no banco). Mês FECHADO (jun/jul/ago) continua igual, não mexe.
+      if (pg._repasse && !pg._conciliado && !_mesCongeladoCR(pg.data)) return;
       somaPag += pg.valor; // BRUTO (p/ calcular o que falta em aberto contra o valor do pedido)
       // Filtro por LIQUIDAÇÃO: cada pagamento cai no MÊS da sua data (data do banco) → só entra o que passa.
       if (_dfOn && _porLiq && !passaData(pg.data)) return;
@@ -4856,6 +4862,8 @@ function _crRowsAOA(semFiltro) {
       if (!_pedsNaTela.has(pid) || _pedComLinha.has(pid)) return; // só pedido da tela que não emitiu NADA
       const valor = alocRecebGateway(r, pid);
       if (valor <= 0.005) return;
+      // repasse de gateway não conciliado em mês ABERTO não entra (fica em aberto) — igual ao loop de cima; fechado não mexe
+      if (!dataRepasseBanco(r) && (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me') && !_mesCongeladoCR(r.data)) return;
       const brutoTot = r.bruto || r.liq || 0;
       const liqTot = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0));
       const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
@@ -12268,6 +12276,9 @@ function banksDoFechamento(dk) {
 // MÊS fechado ('YYYY-MM'): trava TUDO daquele mês (qualquer banco). Reaproveitado por diaFechado e contaTravadaPorFechamento.
 function mesKeyOf(date) { const k = diaKey(date); return k ? k.slice(0, 7) : null; }
 function mesEstaFechado(date) { const m = mesKeyOf(date); return !!m && mesesFechados.includes(m); }
+// Mês "congelado" p/ a exportação do CR: fechado (mesesFechados) OU com planilha oficial salva (crFechado/cpFechado).
+// Blindagem: julho tem planilha congelada mas pode NÃO estar em mesesFechados — mesmo assim não deve ser tocado.
+function _mesCongeladoCR(date) { const m = mesKeyOf(date); if (!m) return false; if (mesesFechados.includes(m)) return true; try { if ((typeof crFechado !== 'undefined' && crFechado && crFechado[m]) || (typeof cpFechado !== 'undefined' && cpFechado && cpFechado[m])) return true; } catch (e) {} return false; }
 function diaFechado(date, banco) {
   const k = diaKey(date);
   if (!k) return false;
