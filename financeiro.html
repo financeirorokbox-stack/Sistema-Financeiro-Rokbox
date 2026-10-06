@@ -335,8 +335,8 @@ function renderFechamento(){
   const ms=new Set(); (bal&&bal.rows||[]).forEach(r=>ms.add(r.mes)); peds.forEach(p=>{const m=_m(p.data); if(m)ms.add(m);}); crA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));}); cpA.forEach(r=>{if(r.data_liquidacao)ms.add(_m(r.data_liquidacao));});
   const meses=[...ms].filter(Boolean).sort(), base0=+((bal&&+bal.base)||0);
   const serie=meses.map(M=>{
-    let fat=0; const emp={}, seg={};
-    peds.forEach(p=>{ if(_m(p.data)!==M||!ehVT(p))return; const v=(+p.valor||0)-(devPorPed[String(p.id)]||0); fat+=v; const e=/rokbox/i.test(p.empresa||'')?'Rokbox':(/rk/i.test(p.empresa||'')?'Rk':(p.empresa||'Rokbox')); emp[e]=(emp[e]||0)+v; const sg=segDe(p.loja); seg[sg]=(seg[sg]||0)+v; });
+    let fat=0, qped=0, qpcs=0; const emp={}, seg={};
+    peds.forEach(p=>{ if(_m(p.data)!==M||!ehVT(p))return; const v=(+p.valor||0)-(devPorPed[String(p.id)]||0); fat+=v; qped++; qpcs+=(Array.isArray(p.linhas)?p.linhas:[]).reduce((s,l)=>{ const q=+l.qtd||0; const pu=q>0?((+l.valorLinha||((+l.precoUnit||0)*q))/q):(+l.precoUnit||0); return s+(pu<=0.011?0:q); },0); const e=/rokbox/i.test(p.empresa||'')?'Rokbox':(/rk/i.test(p.empresa||'')?'Rk':(p.empresa||'Rokbox')); emp[e]=(emp[e]||0)+v; const sg=segDe(p.loja); seg[sg]=(seg[sg]||0)+v; });
     // Recebido: mês FECHADO = CR oficial (recebido_liquido); mês VIGENTE = o que entrou no banco (extrato), igual ao Fluxo.
     const receb=(M<_mesA)
       ? crA.filter(r=>_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
@@ -346,19 +346,22 @@ function renderFechamento(){
     const cpAb=cpA.filter(r=>!r.cancelado&&!r.data_liquidacao&&!r.pago&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor||0),0);
     const netAnt=(bal&&bal.rows||[]).filter(r=>r.mes<M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
     const netMes=(bal&&bal.rows||[]).filter(r=>r.mes===M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
-    let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg;
+    let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg, _qped=qped, _qpcs=qpcs;
     let saldoIni=+(base0+netAnt).toFixed(2);
     let saldoFim=+(saldoIni+netMes).toFixed(2);
     let resultado=+(_receb-_pago).toFixed(2);
     // Antes de 06/26 (≤05/26) não havia essa informação ainda → zera o mês inteiro (todos os gráficos e cards do Fechamento ficam zerados).
-    if(M<='2026-05'){ _fat=0; _receb=0; _pago=0; _crAb=0; _cpAb=0; _emp={}; _seg={}; resultado=0; saldoIni=0; saldoFim=0; }
-    return {mes:M,fat:_fat,emp:_emp,seg:_seg,receb:_receb,pago:_pago,resultado,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim};
+    if(M<='2026-05'){ _fat=0; _receb=0; _pago=0; _crAb=0; _cpAb=0; _emp={}; _seg={}; resultado=0; saldoIni=0; saldoFim=0; _qped=0; _qpcs=0; }
+    const ticket=_qped>0?+(_fat/_qped).toFixed(2):0;
+    return {mes:M,fat:_fat,emp:_emp,seg:_seg,receb:_receb,pago:_pago,resultado,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim,qped:_qped,qpcs:_qpcs,ticket};
   });
-  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0};
+  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0,qped:0,qpcs:0,ticket:0};
   const nomeMes=new Date(D.mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  const balRows=(bal&&bal.rows||[]).filter(r=>r.mes===D.mes), grpR={},grpD={};
-  balRows.forEach(r=>{ const t=r.tipo==='R'?grpR:grpD; t[r.grupo]=(t[r.grupo]||0)+r.valor; });
-  const totR=+Object.values(grpR).reduce((s,v)=>s+v,0).toFixed(2), totD=+Object.values(grpD).reduce((s,v)=>s+v,0).toFixed(2);
+  // Receitas/Despesas por grupo E por EMPRESA (rateio), igual ao Balancete. Zera ≤05/26 (sem informação ainda).
+  const balRows=(D.mes<='2026-05')?[]:(bal&&bal.rows||[]).filter(r=>r.mes===D.mes), grpR={},grpD={};
+  const empsBal=[...new Set((bal&&bal.rows||[]).map(r=>r.emp))].sort((a,b)=> a==='(sem empresa)'?1 : b==='(sem empresa)'?-1 : (a<b?-1:1));
+  balRows.forEach(r=>{ const g=r.tipo==='R'?grpR:grpD; const o=g[r.grupo]=g[r.grupo]||{tot:0,emp:{}}; o.tot+=r.valor; o.emp[r.emp]=(o.emp[r.emp]||0)+r.valor; });
+  const totR=+Object.values(grpR).reduce((s,o)=>s+o.tot,0).toFixed(2), totD=+Object.values(grpD).reduce((s,o)=>s+o.tot,0).toFixed(2);
   const kf=n=>{ const a=Math.abs(n); return (n<0?'-':'')+(a>=1000?(a/1000).toLocaleString('pt-BR',{maximumFractionDigits:0})+'k':a.toFixed(0)); };
   const chart=(campo,titulo,cor)=>{
     const W=Math.max(300,serie.length*58),H=175,pb=34,pt=22;
@@ -367,8 +370,11 @@ function renderFechamento(){
     return `<div style="flex:1;min-width:230px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;font-size:13px;color:#111;margin-bottom:2px">${titulo}</div><svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${b}</svg></div>`;
   };
   const linTab=o=>Object.entries(o).filter(([,v])=>Math.abs(v)>0.005).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td style="padding:3px 0">${k}</td><td style="text-align:right;padding:3px 0">${brl(v)}</td></tr>`).join('')||'<tr><td>—</td></tr>';
-  const balLin=(g,tot,cor)=>Object.entries(g).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td style="padding:3px 0">${k.replace(/_/g,' ')}</td><td style="text-align:right;color:${cor};padding:3px 0">${brl(v)}</td><td style="text-align:right;padding:3px 0;color:#6b7280">${tot?Math.round(v/tot*100):0}%</td></tr>`).join('');
-  const cardsTop=[['Faturamento',D.fat,'#059669'],['Recebido no mês',D.receb,'#059669'],['Pago no mês',D.pago,'#dc2626'],['Resultado (Rec−Pago)',D.resultado,D.resultado>=0?'#059669':'#dc2626'],['A receber (em aberto)',D.crAb,'#0284c7'],['A pagar (em aberto)',D.cpAb,'#d97706'],['Saldo início do mês',D.saldoIni,'#111827'],['Saldo fim do mês',D.saldoFim,'#111827']];
+  const _n0=n=>Math.round(+n||0).toLocaleString('pt-BR');
+  const balHead=`<tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Grupo</th>${empsBal.map(e=>`<th style="text-align:right">${e}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">%</th></tr>`;
+  const balLin=(g,tot,cor)=>Object.entries(g).sort((a,b)=>b[1].tot-a[1].tot).map(([k,o])=>`<tr><td style="padding:3px 0">${k.replace(/_/g,' ')}</td>${empsBal.map(e=>`<td style="text-align:right;padding:3px 0;color:#6b7280">${o.emp[e]?brl(o.emp[e]):'—'}</td>`).join('')}<td style="text-align:right;color:${cor};padding:3px 0">${brl(o.tot)}</td><td style="text-align:right;padding:3px 0;color:#6b7280">${tot?Math.round(o.tot/tot*100):0}%</td></tr>`).join('')||`<tr><td colspan="${empsBal.length+3}" style="color:#9ca3af;padding:6px 0">—</td></tr>`;
+  const balTot=(g,tot)=>`<tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td>${empsBal.map(e=>`<td style="text-align:right">${brl(Object.values(g).reduce((s,o)=>s+(o.emp[e]||0),0))}</td>`).join('')}<td style="text-align:right">${brl(tot)}</td><td></td></tr>`;
+  const cardsTop=[['Faturamento',D.fat,'#059669'],['Pedidos',D.qped,'#111827','num'],['Ticket médio',D.ticket,'#059669'],['Peças vendidas',D.qpcs,'#111827','num'],['Recebido no mês',D.receb,'#059669'],['Pago no mês',D.pago,'#dc2626'],['Resultado (Rec−Pago)',D.resultado,D.resultado>=0?'#059669':'#dc2626'],['A receber (em aberto)',D.crAb,'#0284c7'],['A pagar (em aberto)',D.cpAb,'#d97706'],['Saldo início do mês',D.saldoIni,'#111827'],['Saldo fim do mês',D.saldoFim,'#111827']];
   el.innerHTML=`
   <div id="fech-doc" style="background:#eef1f4;color:#111;border-radius:12px;padding:22px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:4px">
@@ -377,7 +383,7 @@ function renderFechamento(){
     </div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:16px">Gerado em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px">
-      ${cardsTop.map(([l,v,c])=>`<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">${l}</div><div style="font-size:19px;font-weight:800;color:${c};margin-top:4px">${brl(v)}</div></div>`).join('')}
+      ${cardsTop.map(([l,v,c,f])=>`<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">${l}</div><div style="font-size:19px;font-weight:800;color:${c};margin-top:4px">${f==='num'?_n0(v):brl(v)}</div></div>`).join('')}
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
       <div style="flex:1;min-width:220px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por empresa</div><table style="width:100%;font-size:13px;border-collapse:collapse">${linTab(D.emp)}</table></div>
@@ -387,8 +393,8 @@ function renderFechamento(){
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${chart('fat','Faturamento','#059669')}${chart('resultado','Resultado (Rec − Pago)','#0ea5e9')}</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">${chart('receb','Recebido','#16a34a')}${chart('pago','Pago','#dc2626')}${chart('saldoFim','Saldo em banco (fim)','#7c3aed')}</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">⬆ Receitas por grupo</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">%</th></tr>${balLin(grpR,totR,'#059669')}<tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td><td style="text-align:right">${brl(totR)}</td><td></td></tr></table></div>
-      <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">⬇ Despesas por grupo</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">%</th></tr>${balLin(grpD,totD,'#dc2626')}<tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td><td style="text-align:right">${brl(totD)}</td><td></td></tr></table></div>
+      <div style="flex:1;min-width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">⬆ Receitas por grupo e empresa</div><table style="width:100%;font-size:13px;border-collapse:collapse">${balHead}${balLin(grpR,totR,'#059669')}${balTot(grpR,totR)}</table></div>
+      <div style="flex:1;min-width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">⬇ Despesas por grupo e empresa</div><table style="width:100%;font-size:13px;border-collapse:collapse">${balHead}${balLin(grpD,totD,'#dc2626')}${balTot(grpD,totD)}</table></div>
     </div>
     <div style="margin-top:10px;font-size:12px;color:#374151">Resultado do balancete = Receitas ${brl(totR)} − Despesas ${brl(totD)} = <b style="color:${(totR-totD)>=0?'#059669':'#dc2626'}">${brl(+(totR-totD).toFixed(2))}</b></div>
     <div style="margin-top:6px;font-size:10.5px;color:#9ca3af">Faturamento = pedidos Venda+Troca − devoluções (igual à página de Vendas). Recebido/Pago = liquidados no mês. Saldo pelo movimento do banco (Balancete).</div>
@@ -1027,7 +1033,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-06.3';
+const BUILD='2026-10-06.4';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
