@@ -686,7 +686,7 @@ function renderBalancete(){
   const netAntes=bal.rows.filter(r=>r.mes<mes).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
   const saldoAnt=+(( +bal.base||0)+netAntes).toFixed(2);
   // agrupa por tipo→grupo→sub, com por-empresa
-  const arv=(tipo)=>{ const g={}; rows.filter(r=>r.tipo===tipo).forEach(r=>{ const G=g[r.grupo]=g[r.grupo]||{tot:0,emp:{},sub:{}}; G.tot+=r.valor; G.emp[r.emp]=(G.emp[r.emp]||0)+r.valor; const S=G.sub[r.sub]=G.sub[r.sub]||{tot:0,emp:{}}; S.tot+=r.valor; S.emp[r.emp]=(S.emp[r.emp]||0)+r.valor; }); return g; };
+  const arv=(tipo)=>{ const g={}; rows.filter(r=>r.tipo===tipo).forEach(r=>{ const G=g[r.grupo]=g[r.grupo]||{tot:0,emp:{},sub:{}}; G.tot+=r.valor; G.emp[r.emp]=(G.emp[r.emp]||0)+r.valor; const S=G.sub[r.sub]=G.sub[r.sub]||{tot:0,emp:{},col:{}}; S.tot+=r.valor; S.emp[r.emp]=(S.emp[r.emp]||0)+r.valor; const cn=r.col||'(sem coleção)'; const C=S.col[cn]=S.col[cn]||{tot:0,emp:{}}; C.tot+=r.valor; C.emp[r.emp]=(C.emp[r.emp]||0)+r.valor; }); return g; };
   const gR=arv('R'), gD=arv('D');
   const totR=+Object.values(gR).reduce((s,x)=>s+x.tot,0).toFixed(2);
   const totD=+Object.values(gD).reduce((s,x)=>s+x.tot,0).toFixed(2);
@@ -694,7 +694,12 @@ function renderBalancete(){
   const linhaGrupo=(nome,o,base,cls)=>{
     const pct=base>0?Math.round(o.tot/base*100):0;
     let h=`<tr class="grp"><td>${nome}</td>${emps.map(e=>`<td class="v">${cell(o.emp[e])}</td>`).join('')}<td class="v" style="color:${cls}">${brl(o.tot)}</td><td class="v">${pct}%</td></tr>`;
-    if(_balExpand){ Object.entries(o.sub).sort((a,b)=>b[1].tot-a[1].tot).forEach(([sn,s])=>{ h+=`<tr><td class="cat">${sn}</td>${emps.map(e=>`<td class="v">${cell(s.emp[e])}</td>`).join('')}<td class="v">${brl(s.tot)}</td><td class="v"></td></tr>`; }); }
+    if(_balExpand){ Object.entries(o.sub).sort((a,b)=>b[1].tot-a[1].tot).forEach(([sn,s])=>{
+      h+=`<tr><td class="cat">${sn}</td>${emps.map(e=>`<td class="v">${cell(s.emp[e])}</td>`).join('')}<td class="v">${brl(s.tot)}</td><td class="v"></td></tr>`;
+      // 3º nível: coleção (só quando o subgrupo tem coleção de verdade, ex. CMV). O "(sem coleção)" também aparece pra fechar o total.
+      const cols=Object.entries(s.col||{});
+      if(cols.some(([cn])=>cn!=='(sem coleção)')){ cols.sort((a,b)=>b[1].tot-a[1].tot).forEach(([cn,c])=>{ h+=`<tr><td style="padding-left:40px;color:var(--muted);font-size:12px">↳ ${cn}</td>${emps.map(e=>`<td class="v" style="color:var(--muted)">${cell(c.emp[e])}</td>`).join('')}<td class="v" style="color:var(--muted)">${brl(c.tot)}</td><td class="v"></td></tr>`; }); }
+    }); }
     return h;
   };
   const secao=(titulo,g,tot,cls,bg)=>{
@@ -721,7 +726,7 @@ function renderBalancete(){
         </tbody>
       </table>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px">Receitas = créditos do banco · Despesas = débitos do banco, por categoria da conciliação · empresas nas colunas. Atualiza quando você clica ☁ Atualizar Power BI no sistema.</div>`;
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Receitas = créditos do banco · Despesas = débitos do banco, por categoria da conciliação · empresas nas colunas. Expanda pra ver subgrupo e, no CMV, a coleção (↳). Atualiza quando você clica ☁ Atualizar Power BI no sistema.</div>`;
 }
 
 // entra direto se já estava liberado neste aparelho
@@ -1017,7 +1022,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-01.1';
+const BUILD='2026-10-06.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

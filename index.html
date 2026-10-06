@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v686/10-739';
+const APP_VERSION = 'v687/10-740';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4980,6 +4980,10 @@ function _exportBalancete() {
   const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
   const _normEmp = e => { const s = String(e || '').toLowerCase(); if (/rokbox/.test(s)) return 'ROKBOX'; if (/rk/.test(s)) return 'RK'; return (e && String(e).trim()) || '(sem empresa)'; };
   const _mesDe = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return (dt && !isNaN(dt)) ? (dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0')) : null; };
+  // Coleção por pedido de compra (igual ao flatCP) — pra abrir o CMV por coleção no Balancete do painel.
+  const _colByPed = {};
+  (compras || []).forEach(it => { const pid = it._pedidoId; if (!pid) return; const col = (it.colecao || '').trim() || '(sem coleção)'; const vv = +totalCompra(it) || 0; (_colByPed[pid] = _colByPed[pid] || {})[col] = (_colByPed[pid][col] || 0) + vv; });
+  const _colFracsConta = conta => { const m = conta && conta._compraPedidoId && _colByPed[conta._compraPedidoId]; if (!m) return null; const ents = Object.entries(m); const soma = ents.reduce((s, [, v]) => s + v, 0) || 1; return ents.map(([nome, pv]) => ({ nome, frac: pv / soma })); };
   const rows = [];
   (extratoBancario || []).forEach(t => {
     const mes = _mesDe(t.data); if (!mes) return;
@@ -4988,7 +4992,7 @@ function _exportBalancete() {
       let grupo, sub;
       if (receitaLinks[t.id]) { const ra = receitasAvulsas.find(r => r._extratoId === t.id); sub = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros'; }
       else { const gw = categoriaLancamento(t); grupo = gw ? grupoReceitaGateway(gw) : 'Não conciliado'; sub = gw ? (SUB_REC[gw] || gw) : 'Crédito não conciliado'; }
-      rows.push({ mes, emp: _normEmp(t.banco), tipo: 'R', grupo, sub, valor: +v.toFixed(2) });
+      rows.push({ mes, emp: _normEmp(t.banco), tipo: 'R', grupo, sub, col: '(sem coleção)', valor: +v.toFixed(2) });
     } else if (v < 0) {
       const emp0 = _normEmp(t.banco); const link = debitoLinks[t.id];
       if (link && debLinkItens(link).length) {
@@ -5012,21 +5016,28 @@ function _exportBalancete() {
               const grpC = (r.grupo && String(r.grupo).trim()) || '';
               const g2 = grpC || _grupoBal(subC, grupoDespesa(subC) || subC || 'Outras despesas');
               const empC = (r.empresa && String(r.empresa).trim()) ? _normEmp(r.empresa) : empFb;
-              rows.push({ mes, emp: empC, tipo: 'D', grupo: g2, sub: subC, valor: v });
+              const colC = (r.colecao && String(r.colecao).trim()) || '(sem coleção)';
+              rows.push({ mes, emp: empC, tipo: 'D', grupo: g2, sub: subC, col: colC, valor: v });
             });
           } else {
             const g = ehEstorno ? 'ESTORNOS' : _grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas');
             const sub = ehEstorno ? ((conta && conta.fornecedor) || 'Estorno') : cat;
-            rows.push({ mes, emp: empFb, tipo: 'D', grupo: g, sub, valor: itVal });
+            const fracs = ehEstorno ? null : _colFracsConta(conta);
+            if (fracs && fracs.length) {
+              let acc = 0;
+              fracs.forEach((cf, i) => { const cv = (i === fracs.length - 1) ? +(itVal - acc).toFixed(2) : +(itVal * cf.frac).toFixed(2); if (i < fracs.length - 1) acc += cv; rows.push({ mes, emp: empFb, tipo: 'D', grupo: g, sub, col: cf.nome, valor: cv }); });
+            } else {
+              rows.push({ mes, emp: empFb, tipo: 'D', grupo: g, sub, col: '(sem coleção)', valor: itVal });
+            }
           }
           distribuido += (it.valor || 0);
         });
         const cr = +((link.credito) || 0);
-        if (cr > 0.005) { rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'CRÉDITO CARTÃO', sub: 'Crédito cartão', valor: +(-cr).toFixed(2) }); distribuido -= cr; }
+        if (cr > 0.005) { rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'CRÉDITO CARTÃO', sub: 'Crédito cartão', col: '(sem coleção)', valor: +(-cr).toFixed(2) }); distribuido -= cr; }
         const resid = +(Math.abs(v) - distribuido).toFixed(2);
-        if (Math.abs(resid) > 0.005) rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'AJUSTE (conciliação a conferir)', sub: (Math.abs(resid) > 5 ? 'débito ≠ soma das contas' : 'juros/multa/centavos'), valor: resid });
+        if (Math.abs(resid) > 0.005) rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'AJUSTE (conciliação a conferir)', sub: (Math.abs(resid) > 5 ? 'débito ≠ soma das contas' : 'juros/multa/centavos'), col: '(sem coleção)', valor: resid });
       } else {
-        rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'Não conciliado', sub: 'Débito não conciliado', valor: +Math.abs(v).toFixed(2) });
+        rows.push({ mes, emp: emp0, tipo: 'D', grupo: 'Não conciliado', sub: 'Débito não conciliado', col: '(sem coleção)', valor: +Math.abs(v).toFixed(2) });
       }
     }
   });
