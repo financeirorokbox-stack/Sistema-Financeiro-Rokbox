@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v696/10-749';
+const APP_VERSION = 'v697/10-750';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6273,8 +6273,8 @@ function buildConciliadoBanco(G) {
   });
 
   // ===== 9 estornos (compensação no repasse) =====
-  // Já abatidos no crédito do gateway (os negativos em repasseLinks já reduzem o CR líquido).
-  // Aqui aparecem como linhas MARCADAS e FORA da soma (CR e CP), p/ não contar em dobro.
+  // Já abatidos no crédito do gateway (os negativos em repasseLinks já reduzem o CR líquido = G1).
+  // Entram só no CP (linha 'compensação', FORA da soma) e na Checagem (ag.comp). NÃO no CR (evita duplicar o G1).
   const estornos = CP.filter(c => !c.cancelado && (String(c.categoria || '').toUpperCase().includes('ESTORNO')) && c.pago && inPeriod(c.dataPag));
   let totEstorno = 0;
   estornos.forEach(c => {
@@ -6285,8 +6285,7 @@ function buildConciliadoBanco(G) {
     // Empresa do estorno = da VENDA DE ORIGEM; se não achar, regra do banco do gateway (p/ não ficar sem empresa)
     let empEst = c.empresa || empVendaOrigem(c);
     if (!empEst) { const bk = bancoDoGatewayEstorno(c); empEst = empDoBanco(bk); if (empEst) empViaBanco.push({ extId: '(compensação no repasse)', data: brDate(c.dataPag), nome: (c.fornecedor || ''), cat: (c.categoria || 'ESTORNO'), valor: -v, banco: bk }); }
-    // linha negativa informativa no CR (bloco de estornos)
-    crRows.push([brDate(c.dataPag), '', '', (c.fornecedor || ''), 'estorno', comp(c.dataPag), -v, 0, 0, 0, -v, 0, 0, (c.descricao || 'Estorno'), obsEst, 'ESTORNO', ma(c.dataPag), ma(c.dataPag), -v, brDate(c.dataPag), empEst, '(estornos abatidos no repasse)', brDate(c.dataPag), 'Compensação no repasse', -v, 'estorno', origem]);
+    // NÃO entra no CR: esses estornos JÁ aparecem no CR como negativos do repasse (G1, dentro da soma). Repetir aqui duplicava (puxava o CR de 274k p/ 269k). Fica só no CP (compensação) e na Checagem (ag.comp).
     // linha no CP marcada 'compensação no repasse' FORA da soma
     cpRows.push([brDate(c.dataPag), '', (c.fornecedor || ''), -v, '', '', -v, 'Compensação', comp(c.dataPag), (c.categoria || 'ESTORNO'), obsEst, brDate(c.dataPag), empEst, '(compensação no repasse)', brDate(c.dataPag), 'Compensação no repasse', 0, 'compensação no repasse', origem]);
   });
