@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v694/10-747';
+const APP_VERSION = 'v695/10-748';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6226,8 +6226,8 @@ function buildConciliadoBanco(G) {
   extPer.filter(t => (t.valor || 0) < 0).forEach(t => {
     const dia = iso10(t.data); const ag = dAg(dia); const absV = Math.abs(t.valor || 0); ag.debBanco += absV; totDebBanco += absV;
     const link = DL[t.id]; const items = debLinkItens(link);
-    const pushCP = (numero, nome, valor, cat, obs, tipo, origem, foraSoma) => {
-      cpRows.push([brDate(t.data), (numero || ''), (nome || ''), r2(valor), '', '', r2(valor), 'Pago', comp(t.data), (cat || ''), (obs || ''), brDate(t.data), '', t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, (origem || '')]);
+    const pushCP = (numero, nome, valor, cat, obs, tipo, origem, foraSoma, empresa) => {
+      cpRows.push([brDate(t.data), (numero || ''), (nome || ''), r2(valor), '', '', r2(valor), 'Pago', comp(t.data), (cat || ''), (obs || ''), brDate(t.data), (empresa || ''), t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, (origem || '')]);
       if (!foraSoma) ag.cpSoma += r2(valor);
     };
     if (items.length) {
@@ -6242,7 +6242,7 @@ function buildConciliadoBanco(G) {
         if (it.criada && /juro|multa/.test(txt)) tipo = 'juros-multa';
         else if (/tarifa|tar\/|custas/.test(txt)) tipo = 'tarifa';
         else if (it.criada) tipo = 'ajuste';
-        pushCP(numero, nome, valor, cat, (conta && conta.observacao) || '', tipo, '', false);
+        pushCP(numero, nome, valor, cat, (conta && conta.observacao) || '', tipo, '', false, (conta && conta.empresa) || ''); // Empresa = do próprio título (igual ao export antigo c.empresa)
       });
       const cred = +((link && link.credito) || 0);
       if (cred > 0.005) pushCP('', 'Crédito de cartão' + (t.memo ? ' — ' + t.memo.slice(0, 30) : ''), -cred, 'CRÉDITO CARTÃO', 'Crédito abatido na fatura', 'ajuste', '', false);
@@ -6277,6 +6277,12 @@ function buildConciliadoBanco(G) {
   const chavesConc = new Set(); Object.keys(DL).forEach(id => debLinkItens(DL[id]).forEach(it => chavesConc.add(it.chave)));
   CP.filter(c => !c.cancelado && c.pago && inPeriod(c.dataPag) && !(String(c.categoria || '').toUpperCase().includes('ESTORNO')) && !c._origemEstorno).forEach(c => {
     if (!chavesConc.has(chaveContaPagar(c))) pend.push({ aba: 'CP', tipo: 'conta paga sem vínculo no banco', extId: '', data: iso10(c.dataPag), detalhe: (c.fornecedor || '') + ' — ' + (catContaPagar(c) || ''), valor: r2(c.valor), banco: '' });
+  });
+  // Linhas de CP que ficaram SEM empresa (título com cadastro vazio, OU linha sem título: tarifa/IOF/ajuste/crédito de cartão) → Pendências, sem preencher automaticamente.
+  cpRows.slice(1).forEach(row => {
+    if (String(row[12] || '').trim()) return; // já tem empresa
+    const _t = EB.find(x => x.id === row[13]);
+    pend.push({ aba: 'CP', tipo: 'linha sem empresa', extId: row[13] || '', data: (row[0] || ''), banco: (_t && _t.banco) || '', detalhe: (row[17] || '') + ' · ' + (row[2] || row[9] || ''), valor: Math.abs(row[16] || 0) });
   });
 
   // ===== Checagem por dia =====
