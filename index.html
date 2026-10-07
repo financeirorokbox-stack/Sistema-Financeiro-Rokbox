@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v693/10-746';
+const APP_VERSION = 'v694/10-747';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6152,6 +6152,10 @@ function buildConciliadoBanco(G) {
   const isCharge = rec => /charge|chargeback|disputa/i.test((rec.nome || '') + ' ' + (rec.tipo || '') + ' ' + (rec._estornoChave || ''));
   const isRendimento = memo => /rentab\.?\s*invest|rend\.?\s*pago\s*aplic|rendimento|aplic(?:a|ação|acao)\s*aut|resgate\s*aplic/i.test(memo || '');
   const pagadorDoMemo = memo => { let s = String(memo || '').replace(/\s+/g, ' ').trim(); s = s.replace(/^(PIX RECEBIDO|PIX ENVIADO|TED RECEBIDO|TED|DOC|RECEBIMENTO|TRANSFER[EÊ]NCIA|CR[EÉ]DITO|REM:|DES:)\s*/i, ''); s = s.replace(/\b\d{2}\/\d{2}\b/g, ' '); s = s.replace(/\b\d[\d.\-\/]{6,}\b/g, ' '); return s.replace(/\s+/g, ' ').trim().slice(0, 60) || String(memo || '').slice(0, 60); };
+  // DE-PARA de CATEGORIA — SÓ no CR, SÓ na coluna "Categoria" (grafia da aba "Categoria Fluxo de Caixa").
+  // Não toca "Tipo de linha", nem Descrição, nem CP, nem banco. Gateway desconhecido mantém o nome atual.
+  const REF_CAT_CR = { 'PayPal': 'CC PAYPAL', 'BraavoPay': 'BRAAVO PAY', 'Rede': 'CC REDE', 'Boleto Itaú': 'BOLETO ITAU', 'PIX (Extrato)': 'DEPÓSITO', 'Pagar.me': 'CC PAGARME', 'RENDIMENTOS': 'JUROS' };
+  const refCatCR = gw => (REF_CAT_CR[gw] != null ? REF_CAT_CR[gw] : gw);
 
   // cabeçalhos
   const CR_HEAD = ['Liquidação', 'Data de vencimento', 'Número', 'Nome', 'Situação', 'Competência', 'Valor', 'Acréscimo', 'Juros', 'Desconto', 'Recebido', 'Taxa aliquota', 'Taxa fixa', 'Descrição', 'Observações', 'Categoria', 'Mês_Despesa', 'Mês_Liquidado', 'Valor', 'Data FCX', 'Empresa', 'ID do lançamento bancário', 'Data no banco', 'Descrição no extrato', 'Valor no banco', 'Tipo de linha', 'Venda de origem'];
@@ -6178,7 +6182,7 @@ function buildConciliadoBanco(G) {
       const nome = (ped && ped.nome) || (rec && rec.nome) || '';
       const emp = (ped && ped.empresa) || (rec && rec.empresa) || '';
       const cat = (rec && rec.gateway) || '';
-      crRows.push([brDate(t.data), '', (venda || ''), nome, (bruto < 0 ? tipo : 'Pago'), comp(t.data), r2(bruto), 0, 0, 0, r2(liq), 0, r2(taxa), cat, ('Conciliado no banco — ' + (t.memo || '').slice(0, 40)), cat, ma(t.data), ma(t.data), r2(bruto), brDate(t.data), emp, t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, (venda || '')]);
+      crRows.push([brDate(t.data), '', (venda || ''), nome, (bruto < 0 ? tipo : 'Pago'), comp(t.data), r2(bruto), 0, 0, 0, r2(liq), 0, r2(taxa), cat, ('Conciliado no banco — ' + (t.memo || '').slice(0, 40)), refCatCR(cat), ma(t.data), ma(t.data), r2(bruto), brDate(t.data), emp, t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, (venda || '')]);
       ag.crLiq += r2(liq);
     };
     if (rep && Array.isArray(rep.itens) && rep.itens.length) {
@@ -6203,7 +6207,7 @@ function buildConciliadoBanco(G) {
       const ped = pedById.get(String(venda.split(',')[0].trim()));
       pushCR(null, venda, t.valor, t.valor, 0, 'título');
       crRows[crRows.length - 1][3] = (ped && ped.nome) || crRows[crRows.length - 1][3]; // nome do pedido
-      crRows[crRows.length - 1][13] = 'PIX (Extrato)'; crRows[crRows.length - 1][15] = 'PIX (Extrato)';
+      crRows[crRows.length - 1][13] = 'PIX (Extrato)'; crRows[crRows.length - 1][15] = refCatCR('PIX (Extrato)');
     } else {
       // Crédito do extrato SEM título (nem repasse, nem PIX de pedido): tem lastro no banco → entra como
       // RECEITA no CR, no grupo do próprio crédito (líquido = valor do crédito, taxa 0). Não vai mais p/ Pendências.
@@ -6211,7 +6215,7 @@ function buildConciliadoBanco(G) {
       const tipo = rend ? 'rendimento' : 'receita avulsa';
       const cat = rend ? 'RENDIMENTOS' : 'OUTRAS RECEITAS';
       const pagador = rend ? 'Rendimento de aplicação' : pagadorDoMemo(t.memo);
-      crRows.push([brDate(t.data), '', '', pagador, 'Pago', comp(t.data), r2(t.valor), 0, 0, 0, r2(t.valor), 0, 0, (t.memo || ''), ('Conciliado no banco — ' + (t.memo || '').slice(0, 60)), cat, ma(t.data), ma(t.data), r2(t.valor), brDate(t.data), '', t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, '']);
+      crRows.push([brDate(t.data), '', '', pagador, 'Pago', comp(t.data), r2(t.valor), 0, 0, 0, r2(t.valor), 0, 0, (t.memo || ''), ('Conciliado no banco — ' + (t.memo || '').slice(0, 60)), refCatCR(cat), ma(t.data), ma(t.data), r2(t.valor), brDate(t.data), '', t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, '']);
       ag.crLiq += r2(t.valor);
     }
   });
