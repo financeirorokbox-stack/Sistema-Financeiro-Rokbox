@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v695/10-748';
+const APP_VERSION = 'v696/10-749';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6223,6 +6223,22 @@ function buildConciliadoBanco(G) {
   // ===== DÉBITOS (CP) =====
   let totDebBanco = 0;
   const inferCatMemo = memo => { const m = (memo || '').toLowerCase(); if (/tarifa|tar\/|custas|cesta|pacote|manut/i.test(m)) return 'TARIFA BANCÁRIA'; if (/\biof\b/i.test(m)) return 'IOF'; if (/juro|multa/i.test(m)) return 'JUROS/MULTA'; if (/pix enviado|ted|transfer|doc /i.test(m)) return 'PAGAMENTO'; if (/rendiment/i.test(m)) return 'RENDIMENTO'; return 'AJUSTE'; };
+  // Regra de EMPRESA (só no export conciliado): o nome do banco carrega o sufixo da empresa.
+  const empDoBanco = banco => { const b = String(banco || '').toLowerCase(); if (b.includes('rkbx')) return 'Rkbx'; if (b.includes('rokbox')) return 'Rokbox'; if (b.includes('rk')) return 'Rk'; return ''; };
+  // banco DOMINANTE onde cai o repasse de cada gateway (p/ empresa de estorno sem venda de origem)
+  const gwBancoCount = {}; Object.keys(RL).forEach(extId => { const l = RL[extId]; const t = EB.find(x => String(x.id) === String(extId)); if (!t) return; const gw = l.gateway || ''; const mp = (gwBancoCount[gw] = gwBancoCount[gw] || {}); mp[t.banco || ''] = (mp[t.banco || ''] || 0) + 1; });
+  const gwBancoDom = {}; Object.keys(gwBancoCount).forEach(gw => { gwBancoDom[gw] = Object.entries(gwBancoCount[gw]).sort((a, b) => b[1] - a[1])[0][0]; });
+  // empresa da VENDA DE ORIGEM de um estorno (#pedido na descrição, recebimento negativo casado, ou pedido pelo nome do cliente)
+  const empVendaOrigem = c => {
+    const m = String(c.descricao || '').match(/#(\d{3,})/); if (m) { const p = pedById.get(m[1]); if (p && p.empresa) return p.empresa; }
+    const alvo = -(c.valor || 0);
+    const rec = RC.find(r => (r.bruto || 0) < 0 && Math.abs((r.bruto || 0) - alvo) < 0.02 && (r.nome || '').trim().toLowerCase() === (c.fornecedor || '').trim().toLowerCase());
+    if (rec && rec.nped) { const p = pedById.get(String(rec.nped).split(',')[0].trim()); if (p && p.empresa) return p.empresa; }
+    const p2 = PED.find(p => p.empresa && (p.nome || '').trim().toLowerCase() === (c.fornecedor || '').trim().toLowerCase());
+    return p2 ? p2.empresa : '';
+  };
+  const bancoDoGatewayEstorno = c => { const d = String(c.descricao || '').toLowerCase(); let gw = ''; if (d.includes('paypal')) gw = 'PayPal'; else if (d.includes('rede')) gw = 'Rede'; else if (d.includes('braavo')) gw = 'BraavoPay'; else if (d.includes('boleto')) gw = 'Boleto Itaú'; return gwBancoDom[gw] || ''; };
+  const empViaBanco = []; // linhas que receberam empresa pela REGRA DO BANCO (cadastro vazio) → listadas em Pendências p/ corrigir o cadastro depois
   extPer.filter(t => (t.valor || 0) < 0).forEach(t => {
     const dia = iso10(t.data); const ag = dAg(dia); const absV = Math.abs(t.valor || 0); ag.debBanco += absV; totDebBanco += absV;
     const link = DL[t.id]; const items = debLinkItens(link);
@@ -6242,13 +6258,16 @@ function buildConciliadoBanco(G) {
         if (it.criada && /juro|multa/.test(txt)) tipo = 'juros-multa';
         else if (/tarifa|tar\/|custas/.test(txt)) tipo = 'tarifa';
         else if (it.criada) tipo = 'ajuste';
-        pushCP(numero, nome, valor, cat, (conta && conta.observacao) || '', tipo, '', false, (conta && conta.empresa) || ''); // Empresa = do próprio título (igual ao export antigo c.empresa)
+        let emp = (conta && conta.empresa) || ''; // Empresa = do próprio título (igual ao export antigo c.empresa)
+        if (!emp) { emp = empDoBanco(t.banco); if (emp) empViaBanco.push({ extId: t.id, data: brDate(t.data), nome, cat, valor, banco: t.banco || '' }); } // cadastro vazio → regra do banco
+        pushCP(numero, nome, valor, cat, (conta && conta.observacao) || '', tipo, '', false, emp);
       });
       const cred = +((link && link.credito) || 0);
-      if (cred > 0.005) pushCP('', 'Crédito de cartão' + (t.memo ? ' — ' + t.memo.slice(0, 30) : ''), -cred, 'CRÉDITO CARTÃO', 'Crédito abatido na fatura', 'ajuste', '', false);
+      if (cred > 0.005) { const empCC = empDoBanco(t.banco); if (empCC) empViaBanco.push({ extId: t.id, data: brDate(t.data), nome: 'Crédito de cartão', cat: 'CRÉDITO CARTÃO', valor: -cred, banco: t.banco || '' }); pushCP('', 'Crédito de cartão' + (t.memo ? ' — ' + t.memo.slice(0, 30) : ''), -cred, 'CRÉDITO CARTÃO', 'Crédito abatido na fatura', 'ajuste', '', false, empCC); }
     } else {
-      // débito sem título vinculado → linha 'ajuste' (categoria do memo), soma = valor do débito; e vai pra Pendências
-      pushCP('', (t.memo || 'Lançamento sem título').slice(0, 60), absV, inferCatMemo(t.memo), 'Débito do extrato sem conta vinculada', 'ajuste', '', false);
+      // débito sem título vinculado → linha 'ajuste' (categoria do memo), soma = valor do débito; empresa pela regra do banco; e vai pra Pendências
+      const empAj = empDoBanco(t.banco); if (empAj) empViaBanco.push({ extId: t.id, data: brDate(t.data), nome: (t.memo || '').slice(0, 40), cat: inferCatMemo(t.memo), valor: absV, banco: t.banco || '' });
+      pushCP('', (t.memo || 'Lançamento sem título').slice(0, 60), absV, inferCatMemo(t.memo), 'Débito do extrato sem conta vinculada', 'ajuste', '', false, empAj);
       pend.push({ aba: 'CP', tipo: 'débito do extrato sem título vinculado', extId: t.id, data: dia, detalhe: (t.memo || ''), valor: absV, banco: t.banco || '' });
     }
   });
@@ -6263,10 +6282,13 @@ function buildConciliadoBanco(G) {
     const dia = iso10(c.dataPag); const ag = dAg(dia); ag.comp += v;
     const origem = (c.fornecedor || '') + (/(#\w+)/.test(c.descricao || '') ? ' ' + (c.descricao.match(/#\w+/) || [''])[0] : '');
     const obsEst = 'Compensação no repasse — já abatida no crédito do gateway (FORA da soma)';
+    // Empresa do estorno = da VENDA DE ORIGEM; se não achar, regra do banco do gateway (p/ não ficar sem empresa)
+    let empEst = c.empresa || empVendaOrigem(c);
+    if (!empEst) { const bk = bancoDoGatewayEstorno(c); empEst = empDoBanco(bk); if (empEst) empViaBanco.push({ extId: '(compensação no repasse)', data: brDate(c.dataPag), nome: (c.fornecedor || ''), cat: (c.categoria || 'ESTORNO'), valor: -v, banco: bk }); }
     // linha negativa informativa no CR (bloco de estornos)
-    crRows.push([brDate(c.dataPag), '', '', (c.fornecedor || ''), 'estorno', comp(c.dataPag), -v, 0, 0, 0, -v, 0, 0, (c.descricao || 'Estorno'), obsEst, 'ESTORNO', ma(c.dataPag), ma(c.dataPag), -v, brDate(c.dataPag), (c.empresa || ''), '(estornos abatidos no repasse)', brDate(c.dataPag), 'Compensação no repasse', -v, 'estorno', origem]);
+    crRows.push([brDate(c.dataPag), '', '', (c.fornecedor || ''), 'estorno', comp(c.dataPag), -v, 0, 0, 0, -v, 0, 0, (c.descricao || 'Estorno'), obsEst, 'ESTORNO', ma(c.dataPag), ma(c.dataPag), -v, brDate(c.dataPag), empEst, '(estornos abatidos no repasse)', brDate(c.dataPag), 'Compensação no repasse', -v, 'estorno', origem]);
     // linha no CP marcada 'compensação no repasse' FORA da soma
-    cpRows.push([brDate(c.dataPag), '', (c.fornecedor || ''), -v, '', '', -v, 'Compensação', comp(c.dataPag), (c.categoria || 'ESTORNO'), obsEst, brDate(c.dataPag), (c.empresa || ''), '(compensação no repasse)', brDate(c.dataPag), 'Compensação no repasse', 0, 'compensação no repasse', origem]);
+    cpRows.push([brDate(c.dataPag), '', (c.fornecedor || ''), -v, '', '', -v, 'Compensação', comp(c.dataPag), (c.categoria || 'ESTORNO'), obsEst, brDate(c.dataPag), empEst, '(compensação no repasse)', brDate(c.dataPag), 'Compensação no repasse', 0, 'compensação no repasse', origem]);
   });
 
   // ===== Pendências adicionais =====
@@ -6278,7 +6300,9 @@ function buildConciliadoBanco(G) {
   CP.filter(c => !c.cancelado && c.pago && inPeriod(c.dataPag) && !(String(c.categoria || '').toUpperCase().includes('ESTORNO')) && !c._origemEstorno).forEach(c => {
     if (!chavesConc.has(chaveContaPagar(c))) pend.push({ aba: 'CP', tipo: 'conta paga sem vínculo no banco', extId: '', data: iso10(c.dataPag), detalhe: (c.fornecedor || '') + ' — ' + (catContaPagar(c) || ''), valor: r2(c.valor), banco: '' });
   });
-  // Linhas de CP que ficaram SEM empresa (título com cadastro vazio, OU linha sem título: tarifa/IOF/ajuste/crédito de cartão) → Pendências, sem preencher automaticamente.
+  // Linhas que receberam empresa pela REGRA DO BANCO (cadastro de empresa vazio) → listar p/ a Elaine corrigir o cadastro depois.
+  empViaBanco.forEach(e => pend.push({ aba: 'CP', tipo: 'empresa preenchida pela regra do banco (corrigir cadastro)', extId: e.extId || '', data: e.data || '', banco: e.banco || '', detalhe: (e.nome || '') + ' — ' + (e.cat || '') + ' → ' + empDoBanco(e.banco), valor: Math.abs(e.valor || 0) }));
+  // Rede de segurança: se ainda sobrar alguma linha de CP sem empresa, lista (não deve ocorrer).
   cpRows.slice(1).forEach(row => {
     if (String(row[12] || '').trim()) return; // já tem empresa
     const _t = EB.find(x => x.id === row[13]);
