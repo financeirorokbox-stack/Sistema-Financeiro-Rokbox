@@ -150,6 +150,7 @@
   <nav class="tabs">
     <button id="tab-placar" class="on" onclick="setView('placar')">📊 Placar</button>
     <button id="tab-produtos" onclick="setView('produtos')" style="display:none">🏆 Produtos</button>
+    <button id="tab-boletos" onclick="setView('boletos')">📋 Boletos vencidos</button>
   </nav>
 
   <div id="view-placar">
@@ -217,6 +218,8 @@
     </section>
   </div>
 
+  <div id="view-boletos" style="display:none"></div>
+
   <div class="foot" id="foot">Painel RK · Placar de vendas ao vivo</div>
 </div>
 
@@ -225,7 +228,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-09-30.1';
+const BUILD = '2026-10-07.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -391,20 +394,74 @@ const corLoja = n => { const sg=segDe(n); return sg==='Atacado'?'linear-gradient
 // ── ABA PRODUTOS (produto mais vendido; SEM custo — margem/CMV ficam no Financeiro) ──
 let view = 'placar';
 let _pedidosRaw = null; // pedidos crus com as linhas/SKU (a aba Produtos precisa do detalhe por item)
+let _crRaw = null;      // flatCR (contas a receber) pra aba Boletos vencidos
+// ── ABA BOLETOS VENCIDOS ──
+// Mostra boleto EM ABERTO (sem data_liquidacao) e vencido, mas SÓ até a ÚLTIMA BAIXA (max data_liquidacao dos boletos),
+// porque a Elaine não baixa os pagos todo dia: o que venceu DEPOIS da última baixa pode já estar pago (não baixado) → esconde.
+async function carregarCR(){
+  try{
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const cr = await gk('flatCR');
+    _crRaw = Array.isArray(cr) ? cr : ((cr&&cr.itens)||[]);
+  }catch(e){ _crRaw = _crRaw || []; }
+}
+function _hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _diasAtraso(venc,hoje){ const a=new Date(venc+'T12:00:00'), b=new Date(hoje+'T12:00:00'); return Math.round((b-a)/86400000); }
+function _brlB(n){ return 'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function renderBoletos(){
+  const el=document.getElementById('view-boletos'); if(!el) return;
+  if(!_crRaw){ el.innerHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Carregando boletos…</div>'; carregarCR().then(renderBoletos); return; }
+  const hoje=_hojeISO();
+  const bol=_crRaw.filter(r=>/boleto/i.test(r.canal_pagamento||''));
+  // corte = última baixa de boleto (data mais recente de liquidação). Se não houver baixa, usa hoje.
+  const cutoff=bol.filter(r=>r.data_liquidacao).map(r=>String(r.data_liquidacao).slice(0,10)).sort().slice(-1)[0] || hoje;
+  const venc=bol.filter(r=>!r.data_liquidacao && r.vencimento && String(r.vencimento).slice(0,10)<hoje && String(r.vencimento).slice(0,10)<=cutoff);
+  const total=venc.reduce((s,r)=>s+(+r.valor_bruto||0),0);
+  // agrupa por cliente
+  const porCli={};
+  venc.forEach(r=>{ const c=(r.cliente||'').trim()||'(sem cliente)'; const o=porCli[c]=porCli[c]||{tot:0,itens:[]}; const v=+r.valor_bruto||0; o.tot+=v; o.itens.push({pedido:r.pedido,venc:String(r.vencimento).slice(0,10),valor:v,dias:_diasAtraso(String(r.vencimento).slice(0,10),hoje)}); });
+  const clientes=Object.entries(porCli).sort((a,b)=>b[1].tot-a[1].tot);
+  // faixas de atraso (pra priorizar cobrança)
+  const faixa={a:0,b:0,c:0}; venc.forEach(r=>{ const d=_diasAtraso(String(r.vencimento).slice(0,10),hoje); if(d<=30)faixa.a+=(+r.valor_bruto||0); else if(d<=60)faixa.b+=(+r.valor_bruto||0); else faixa.c+=(+r.valor_bruto||0); });
+  const fmtD=d=>d?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(2,4):'';
+  const corDias=d=>d>60?'#ff6b6b':(d>30?'#f0a35e':'#e2c044');
+  const body = clientes.length ? clientes.map(([c,o])=>`
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="font-weight:800;font-size:15px">${c}</div>
+        <div style="font-weight:800;color:#ff6b6b">${_brlB(o.tot)} <span style="color:var(--muted);font-weight:600;font-size:12px">· ${o.itens.length} boleto(s)</span></div>
+      </div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table class="vd" style="width:100%"><thead><tr><th class="nm">Pedido</th><th>Venceu</th><th>Atraso</th><th class="rt">Valor</th></tr></thead><tbody>
+        ${o.itens.sort((a,b)=>b.dias-a.dias).map(i=>`<tr><td class="nm">#${i.pedido||'—'}</td><td>${fmtD(i.venc)}</td><td style="color:${corDias(i.dias)};font-weight:700">${i.dias} dias</td><td class="rt">${_brlB(i.valor)}</td></tr>`).join('')}
+        </tbody></table>
+      </div>
+    </div>`).join('') : '<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Nenhum boleto vencido até a última baixa 🎉</div>';
+  el.innerHTML=`
+    <section class="tops">
+      <div class="card"><div class="tlab">📋 Total vencido</div><div class="col-tot" style="color:#ff6b6b">${_brlB(total)}</div><div class="tsub">${venc.length} boleto(s) · ${clientes.length} cliente(s)</div></div>
+      <div class="card"><div class="tlab">Por tempo de atraso</div><div style="font-size:13px;line-height:1.7;margin-top:4px"><div>até 30 dias: <b>${_brlB(faixa.a)}</b></div><div style="color:#f0a35e">31 a 60 dias: <b>${_brlB(faixa.b)}</b></div><div style="color:#ff6b6b">mais de 60 dias: <b>${_brlB(faixa.c)}</b></div></div></div>
+    </section>
+    <div class="card" style="font-size:12px;color:var(--muted);margin:10px 0">Mostrando boletos vencidos e em aberto <b>até ${fmtD(cutoff)}</b> (sua última baixa). Os que venceram depois disso ficam de fora porque podem já estar pagos e ainda não baixados. Atualiza quando você clica ☁ Atualizar Power BI no sistema.</div>
+    ${body}`;
+}
 function ehAdmin(){ try{ return localStorage.getItem('rk_role')==='admin'; }catch(e){ return false; } }
 // A aba Produtos é SÓ-ADMIN: some pra diretor/vendas e não abre por atalho.
 function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; if(!admin && view==='produtos') setView('placar'); }
 function setView(v){
   if(v==='produtos' && !ehAdmin()) v='placar';
   view = v;
-  const tp=document.getElementById('tab-placar'), tpr=document.getElementById('tab-produtos');
+  const tp=document.getElementById('tab-placar'), tpr=document.getElementById('tab-produtos'), tb=document.getElementById('tab-boletos');
   if(tp) tp.classList.toggle('on', v==='placar');
   if(tpr) tpr.classList.toggle('on', v==='produtos');
-  const vp=document.getElementById('view-placar'), vpr=document.getElementById('view-produtos');
+  if(tb) tb.classList.toggle('on', v==='boletos');
+  const vp=document.getElementById('view-placar'), vpr=document.getElementById('view-produtos'), vb=document.getElementById('view-boletos');
   if(vp) vp.style.display = v==='placar'?'':'none';
   if(vpr) vpr.style.display = v==='produtos'?'':'none';
-  const fs=document.getElementById('fonte-seg'); if(fs) fs.style.display = v==='produtos'?'none':''; // Produtos vem sempre do Sistema (só ele tem SKU)
+  if(vb) vb.style.display = v==='boletos'?'':'none';
+  const fs=document.getElementById('fonte-seg'); if(fs) fs.style.display = (v==='produtos'||v==='boletos')?'none':''; // Produtos/Boletos não usam o toggle Bling/Sistema
   if(v==='produtos'){ if(!_pedidosRaw) carregarPedidos().then(renderProdutos); else renderProdutos(); }
+  if(v==='boletos'){ renderBoletos(); }
 }
 // Nome base (sem "Tamanho:..;Cor:..;Genero:..") e o tamanho, tirados da descrição da Bling.
 function _baseNome(desc){ const i=desc.search(/\s*Tamanho:/i); if(i>=0) return desc.slice(0,i).trim(); const j=desc.indexOf(';'); return (j>=0?desc.slice(0,j):desc).trim(); }
