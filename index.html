@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v703/10-756';
+const APP_VERSION = 'v704/10-757';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -627,7 +627,7 @@ async function loadDataBulk(keys) {
 // Exportar/Importar todos os dados (backup)
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-  'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+  'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
   'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
@@ -780,7 +780,7 @@ async function zerarSistema() {
   const txt = prompt('Para confirmar, digite ZERAR (em maiúsculas):', '');
   if ((txt || '').trim().toUpperCase() !== 'ZERAR') { alert('Cancelado — nada foi apagado.'); return; }
   const KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks',
     'formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks',
     'extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','recebimentos','driveLastSync','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase'];
@@ -1208,6 +1208,7 @@ let recebimentosConsolidado = [];
 let boletoStatus = {};
 let boletoConfig = {};
 let boletoCobrancaStatus = {};
+let boletoProtesto = {}; // boleto PROTESTADO (marcação, não mexe no título): { protKey: {data, cartorio, protocolo, obs, por, em, hist:[], desfeito?} } — protKey = key do sistema OU 'av_'+_uid do avulso
 let boletosAvulsos = []; // boletos de pedidos fora do sistema (relatório Itaú): PAGOS (dataPagamento) ou EM ABERTO a receber (dataPagamento null, campo fone p/ cobrança)
 let msgCobrancaTpl = {}; // {lembrete, cobranca} — textos editáveis das mensagens de WhatsApp (aba Cobrança); vazio = usa o padrão
 let boletoAvisado = {}; // { 'pedido' : 'YYYY-MM-DD' } — quando o aviso/cobrança foi enviado (marcado ao clicar 📱 Cobrar). Avulsos usam a.cobradoEm.
@@ -7758,13 +7759,16 @@ function _diaVencTxt(venc) {
 // Mensagens padrão do WhatsApp (a usuária pode editar na aba Cobrança). Marcadores: {cliente} {itens} {ref}
 const MSG_TPL_DEFAULT = {
   lembrete: 'Olá, {cliente}! 😊\n\nPassando só pra lembrar do vencimento{ref}:\n\n{itens}\n\nQualquer dúvida, estou à disposição. Obrigada! 🧡',
-  cobranca: 'Olá, {cliente}! 😊\n\nTudo bem? Passando pra avisar sobre boleto(s) em aberto{ref}:\n\n{itens}\n\nConsegue regularizar? Se já pagou, pode desconsiderar 🙏 Qualquer dúvida, estou à disposição. Obrigada! 🧡'
+  cobranca: 'Olá, {cliente}! 😊\n\nTudo bem? Passando pra avisar sobre boleto(s) em aberto{ref}:\n\n{itens}\n\nConsegue regularizar? Se já pagou, pode desconsiderar 🙏 Qualquer dúvida, estou à disposição. Obrigada! 🧡',
+  // PROTESTADO: marcadores {cliente} {pedido} {vencimento} {valor} e {protesto} (= "em DATA no cartório X, protocolo Y",
+  // omite cartório/protocolo vazios). Também disponíveis separados: {dataProtesto} {cartorio} {protocolo} e {itens}.
+  protesto: 'Olá, {cliente}, o título referente ao pedido {pedido}, vencido em {vencimento}, no valor de {valor}, foi protestado {protesto}. O pagamento agora deve ser feito diretamente no cartório. Em caso de dúvidas, estamos à disposição.'
 };
 function getTplCob(tipo) { return (msgCobrancaTpl && msgCobrancaTpl[tipo]) || MSG_TPL_DEFAULT[tipo]; }
 function setTplCob(tipo, val) { msgCobrancaTpl[tipo] = val; saveData('msgCobrancaTpl', msgCobrancaTpl); }
 let _tplFoco = 'lembrete'; // qual textarea de mensagem está em foco (p/ inserir emoji)
 function inserirEmojiTpl(e) {
-  const tipo = (_tplFoco === 'cobranca') ? 'cobranca' : 'lembrete';
+  const tipo = (_tplFoco === 'cobranca' || _tplFoco === 'protesto') ? _tplFoco : 'lembrete';
   const ta = document.getElementById('tpl-' + tipo); if (!ta) return;
   const s = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
   const en = ta.selectionEnd != null ? ta.selectionEnd : ta.value.length;
@@ -7772,13 +7776,58 @@ function inserirEmojiTpl(e) {
   const pos = s + e.length; ta.focus(); ta.setSelectionRange(pos, pos);
   setTplCob(tipo, ta.value);
 }
-// Monta a mensagem: LEMBRETE se está a vencer, COBRANÇA se já venceu (decide pela data), usando o template da usuária.
-function montarMsgCobranca(cliente, refTxt, itens) {
+// Monta a mensagem: PROTESTO se o boleto está protestado; senão LEMBRETE (a vencer) ou COBRANÇA (vencido). Template da usuária.
+function montarMsgCobranca(cliente, refTxt, itens, protesto) {
+  const ref = refTxt ? ' (' + refTxt + ')' : '';
+  if (protesto && !protesto.desfeito) {
+    const linhas = itens.map(it => `• ${it.label}${it.venc ? ' — venc. ' + fmtDate(it.venc) : ''} — ${fmtVal(it.valor || 0)}`).join('\n');
+    const it0 = itens[0] || {};
+    const ped = protesto.pedido || (refTxt ? String(refTxt).replace(/[^0-9]/g, '') : '') || '';
+    const dP = protesto.data ? fmtDate(protesto.data + 'T12:00:00') : '—';
+    // "em DATA no cartório X, protocolo Y" — omite cartório/protocolo vazios.
+    const pTxt = 'em ' + dP + (protesto.cartorio ? ' no cartório ' + protesto.cartorio : '') + (protesto.protocolo ? ', protocolo ' + protesto.protocolo : '');
+    return getTplCob('protesto')
+      .replace(/{cliente}/g, cliente || '').replace(/{ref}/g, ref).replace(/{itens}/g, linhas)
+      .replace(/{pedido}/g, ped).replace(/{vencimento}/g, it0.venc ? fmtDate(it0.venc) : '').replace(/{valor}/g, fmtVal(it0.valor || 0))
+      .replace(/{protesto}/g, pTxt).replace(/{dataProtesto}/g, protesto.data ? dP : '')
+      .replace(/{cartorio}/g, protesto.cartorio || '').replace(/{protocolo}/g, protesto.protocolo || '');
+  }
   let algumVencido = false;
   const linhas = itens.map(it => { const info = _diaVencTxt(it.venc); if (info.vencido) algumVencido = true; return `• ${it.label}${it.venc ? ' — venc. ' + fmtDate(it.venc) : ''} — ${fmtVal(it.valor || 0)}${info.txt}`; }).join('\n');
-  const ref = refTxt ? ' (' + refTxt + ')' : '';
   return getTplCob(algumVencido ? 'cobranca' : 'lembrete')
     .replace(/{cliente}/g, cliente || '').replace(/{ref}/g, ref).replace(/{itens}/g, linhas);
+}
+// ── PROTESTO (marcação; NÃO mexe no título) ──────────────────────────────────────────────────────────────
+// protKey = key do boleto do sistema OU 'av_'+_uid do avulso. Ativo = existe e não foi desfeito.
+function _protestoAtivo(pk) { const p = pk && boletoProtesto[pk]; return (p && !p.desfeito) ? p : null; }
+function protestarBoleto(pk, pedido, cliente) {
+  if (!pk) return;
+  if (_protestoAtivo(pk)) { alert('Este boleto já está marcado como protestado.'); return; }
+  const dRaw = prompt('Data do PROTESTO (obrigatória) — dd/mm/aaaa:', _toDateInput(new Date()).split('-').reverse().join('/'));
+  if (dRaw == null) return;
+  const m = String(dRaw).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/) || String(dRaw).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  let dataISO = null;
+  if (m) dataISO = m[3].length === 4 ? (m[3] + '-' + String(m[2]).padStart(2,'0') + '-' + String(m[1]).padStart(2,'0')) : (m[1] + '-' + m[2] + '-' + m[3]);
+  if (!dataISO || isNaN(new Date(dataISO + 'T12:00:00'))) { alert('Data inválida. Use dd/mm/aaaa.'); return; }
+  const cartorio = (prompt('Cartório (opcional):', '') || '').trim();
+  const protocolo = (prompt('Nº do protocolo (opcional):', '') || '').trim();
+  const obs = (prompt('Observação (opcional):', '') || '').trim();
+  const agora = new Date().toISOString();
+  boletoProtesto[pk] = { data: dataISO, cartorio, protocolo, obs, pedido: pedido || '', cliente: cliente || '', por: 'Gestão', em: agora, hist: [{ acao: 'protestado', em: agora, por: 'Gestão', data: dataISO, cartorio, protocolo }] };
+  saveData('boletoProtesto', boletoProtesto);
+  _reRenderCob();
+  alert('⚖ Boleto marcado como PROTESTADO em ' + fmtDate(dataISO + 'T12:00:00') + (cartorio ? ' (cartório ' + cartorio + ')' : '') + '.\n\nA cobrança continua, mas a mensagem passa a informar o protesto.');
+}
+function desprotestarBoleto(pk) {
+  const p = _protestoAtivo(pk); if (!p) return;
+  const motivo = prompt('Desfazer o protesto. Motivo (obrigatório — ex.: marcação errada, protesto cancelado):', '');
+  if (motivo == null) return;
+  if (!String(motivo).trim()) { alert('Informe o motivo pra desfazer.'); return; }
+  const agora = new Date().toISOString();
+  p.desfeito = { em: agora, por: 'Gestão', motivo: String(motivo).trim() };
+  (p.hist = p.hist || []).push({ acao: 'desfeito', em: agora, por: 'Gestão', motivo: String(motivo).trim() });
+  saveData('boletoProtesto', boletoProtesto);
+  _reRenderCob();
 }
 function _abrirWpp(fone, msg) {
   const f = String(fone || '').replace(/\D/g, '');
@@ -7811,7 +7860,8 @@ function cobrarBoletoWpp(pedidoId, parcelaKey) {
   }
   if (!alvo.length) alvo = todas;
   const itens = alvo.map(p => ({ label: `Parcela ${p.parcela}/${p.totalParcelas}`, venc: p.vencimento, valor: p.valor }));
-  _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens));
+  const prot = alvo.map(p => _protestoAtivo(p.key)).find(Boolean) || null; // protestado? → mensagem de protesto
+  _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens, prot));
   marcarAvisadoBoleto(ped.pedido);
 }
 // ENVIAR o boleto ao cliente (tela Boletos a Emitir) — mensagem de ENTREGA (não de cobrança/atraso).
@@ -7822,6 +7872,7 @@ function enviarBoletoWpp(pedidoId) {
   const cfg = boletoConfig[ped.pedido] || {};
   const parcelas = getParcelas(ped);
   if (!parcelas.length) { alert('Configure o prazo/data do boleto antes de enviar.'); return; }
+  if (parcelas.some(p => _protestoAtivo(p.key)) && !confirm('Este boleto foi protestado. Confirma o envio do boleto original?')) return;
   const linhas = parcelas.map(p => `• Parcela ${p.parcela}/${p.totalParcelas}${p.vencimento ? ' — vence em ' + fmtDate(p.vencimento) : ''} — ${fmtVal(p.valor || 0)}`).join('\n');
   const nome1 = (ped.cliente || '').split(' ')[0];
   const total = parcelas.reduce((s, p) => s + (p.valor || 0), 0);
@@ -8350,13 +8401,14 @@ function toggleCobSisSel(key, on) { if (on) _cobSisSel.add(key); else _cobSisSel
 // Cobra de uma vez os boletos marcados (avulsos + emitidos pelo sistema) — agrupa por CLIENTE: 1 mensagem por cliente, com TODOS os boletos dele.
 function cobrarSelecionados() {
   const grupos = {}; // clienteKey -> { cliente, fone, itens[], avulsoIdx[], pedidos:Set, refs:Set }
-  const grp = nome => { const k = (nome || '(sem nome)').trim().toLowerCase(); return grupos[k] = grupos[k] || { cliente: nome || '(sem nome)', fone: '', itens: [], avulsoIdx: [], pedidos: new Set(), refs: new Set() }; };
+  const grp = nome => { const k = (nome || '(sem nome)').trim().toLowerCase(); return grupos[k] = grupos[k] || { cliente: nome || '(sem nome)', fone: '', itens: [], avulsoIdx: [], pedidos: new Set(), refs: new Set(), prot: null }; };
   [..._cobAvSel].forEach(i => {
     const a = boletosAvulsos[i]; if (!a || a.dataPagamento) return;
     const g = grp(a.cliente);
     g.itens.push({ label: 'Boleto' + (a.pedido ? ' #' + a.pedido : ''), venc: a.vencimento, valor: a.valorTitulo || 0 });
     if (a.fone && !g.fone) g.fone = a.fone;
     if (a.pedido) g.refs.add('#' + a.pedido);
+    const pr = _protestoAtivo('av_' + a._uid); if (pr && !g.prot) g.prot = pr;
     g.avulsoIdx.push(i);
   });
   const sisMap = {}; try { getBoletosDaForma().forEach(b => { sisMap[b.key] = b; }); } catch (e) {}
@@ -8367,6 +8419,7 @@ function cobrarSelecionados() {
     g.itens.push({ label: `Parcela ${b.parcela}/${b.totalParcelas}`, venc: b.vencimento, valor: b.valor || 0 });
     const cfg = boletoConfig[b.pedido] || {}; if (cfg.fone && !g.fone) g.fone = cfg.fone;
     if (b.pedido) { g.refs.add('#' + b.pedido); g.pedidos.add(b.pedido); }
+    const pr = _protestoAtivo(b.key); if (pr && !g.prot) g.prot = pr;
   });
   const keys = Object.keys(grupos);
   if (!keys.length) { alert('Marque ao menos um boleto (caixinha à esquerda) — nos avulsos ou na tabela de baixo.'); return; }
@@ -8375,7 +8428,7 @@ function cobrarSelecionados() {
     const g = grupos[k];
     const refs = [...g.refs];
     const refTxt = refs.length ? ('pedido' + (refs.length > 1 ? 's' : '') + ' ' + refs.join(', ')) : '';
-    _abrirWpp(g.fone, montarMsgCobranca(g.cliente, refTxt, g.itens));
+    _abrirWpp(g.fone, montarMsgCobranca(g.cliente, refTxt, g.itens, g.prot));
     g.avulsoIdx.forEach(i => { if (boletosAvulsos[i]) boletosAvulsos[i].cobradoEm = _hojeISO(); });
     g.pedidos.forEach(p => { boletoAvisado[String(p)] = _hojeISO(); });
   });
@@ -8387,12 +8440,14 @@ function cobrarSelecionados() {
 // Cobrança por WhatsApp de um boleto avulso em aberto
 function cobrarAvulsoWpp(i) {
   const a = boletosAvulsos[i]; if (!a) return;
-  _abrirWpp(a.fone, montarMsgCobranca(a.cliente, a.pedido ? 'pedido #' + a.pedido : '', [{ label: 'Boleto', venc: a.vencimento, valor: a.valorTitulo || 0 }]));
+  const prot = _protestoAtivo('av_' + a._uid); // protestado? → mensagem de protesto
+  _abrirWpp(a.fone, montarMsgCobranca(a.cliente, a.pedido ? 'pedido #' + a.pedido : '', [{ label: 'Boleto', venc: a.vencimento, valor: a.valorTitulo || 0 }], prot));
   marcarAvisadoAvulso(i);
 }
 // ENVIAR o boleto avulso (mensagem de ENTREGA, não de cobrança/atraso). Serve p/ parcela de acordo também.
 function enviarAvulsoWpp(i) {
   const a = boletosAvulsos[i]; if (!a) return;
+  if (_protestoAtivo('av_' + a._uid) && !confirm('Este boleto foi protestado. Confirma o envio do boleto original?')) return;
   const nome1 = (a.cliente || '').split(' ')[0];
   const ref = a._acordoCod ? ` (acordo ${a._acordoCod}${a._acordoParcN ? ' — parcela ' + a._acordoParcN : ''})` : (a.pedido ? ' do pedido #' + a.pedido : '');
   const msg = `Olá ${nome1}! 🧡 Segue o seu boleto${ref} no valor de ${fmtVal(a.valorTitulo || 0)}${a.vencimento ? `, com vencimento em ${fmtDate(a.vencimento)}` : ''}.\n\nO boleto está em anexo. 📎 Assim que efetuar o pagamento é só me avisar. Qualquer dúvida, estou à disposição! 🧡`;
@@ -8727,7 +8782,7 @@ function renderCobranca() {
       limpar: 'limparFiltrosCobranca()',
       campos:
         fdRow('Empresa', `<select id="cob-emp" onchange="renderCobranca()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
-        fdRow('Status', `<select id="cob-st" onchange="renderCobranca()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option><option value="atrasado" ${fSt==='atrasado'?'selected':''}>Atrasado</option><option value="avencer" ${fSt==='avencer'?'selected':''}>A Vencer</option></select>`) +
+        fdRow('Status', `<select id="cob-st" onchange="renderCobranca()"><option value="" ${fSt===''?'selected':''}>Todos</option><option value="pago" ${fSt==='pago'?'selected':''}>Pago</option><option value="atrasado" ${fSt==='atrasado'?'selected':''}>Atrasado</option><option value="avencer" ${fSt==='avencer'?'selected':''}>A Vencer</option><option value="protestado" ${fSt==='protestado'?'selected':''}>⚖ Protestado</option></select>`) +
         fdRow('Data por', `<select id="cob-datapor" onchange="renderCobranca()"><option value="vencimento" ${fDataPor==='vencimento'?'selected':''}>Vencimento</option><option value="liquidacao" ${fDataPor==='liquidacao'?'selected':''}>Liquidação (pagamento)</option></select>`) +
         fdRow('Pesquisar', `<input type="text" id="cob-q" value="${fQ.replace(/"/g,'&quot;')}" placeholder="Pedido ou cliente..." oninput="debounceRender('renderCobranca')" onclick="event.stopPropagation()" onfocus="this.dataset.focused='1'" onblur="this.dataset.focused=''">`) +
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
@@ -8824,12 +8879,13 @@ function renderCobranca() {
       // pedido/telefone/obs/valor, remover). Respeita os filtros (Status/Empresa/Busca). Substitui as 3 listas antigas.
       const _st = (venc, pago) => pago ? ['Pago', 'ok'] : (venc && new Date(venc) < today ? ['Atrasado', 'err'] : ['A Vencer', 'warn']);
       const _esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
-      const _sis = emitidos.map(b => { const _c = _boletoCobPago(b); return { t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pc: `${b.parcela}/${b.totalParcelas}`, pago: !!(_c && _c.pago), dpag: _c && _c.dataPagamento, emp: empresaDoPed(b.pedido) || '', avis: boletoAvisado[b.pedido] }; });
-      const _av = boletosAvulsos.map((a, i) => ({ a, i })).filter(x => !x.a._acordoId).map(x => ({ t: 'av', a: x.a, ped: x.a.pedido || '', cli: x.a.cliente || '—', val: ((x.a.valorPago != null && x.a.valorPago > 0) ? x.a.valorPago : (x.a.valorTitulo || 0)), venc: x.a.vencimento, idx: x.i, cod: x.a._acordoCod, pago: !!x.a.dataPagamento, dpag: x.a.dataPagamento, emp: x.a.empresa || '' }));
+      const _sis = emitidos.map(b => { const _c = _boletoCobPago(b); return { t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pk: b.key, prot: _protestoAtivo(b.key), pc: `${b.parcela}/${b.totalParcelas}`, pago: !!(_c && _c.pago), dpag: _c && _c.dataPagamento, emp: empresaDoPed(b.pedido) || '', avis: boletoAvisado[b.pedido] }; });
+      const _av = boletosAvulsos.map((a, i) => ({ a, i })).filter(x => !x.a._acordoId).map(x => ({ t: 'av', a: x.a, ped: x.a.pedido || '', cli: x.a.cliente || '—', val: ((x.a.valorPago != null && x.a.valorPago > 0) ? x.a.valorPago : (x.a.valorTitulo || 0)), venc: x.a.vencimento, idx: x.i, pk: 'av_' + x.a._uid, prot: _protestoAtivo('av_' + x.a._uid), cod: x.a._acordoCod, pago: !!x.a.dataPagamento, dpag: x.a.dataPagamento, emp: x.a.empresa || '' }));
       let _all = [..._sis, ..._av];
       if (fSt === 'pago') _all = _all.filter(r => r.pago);
       else if (fSt === 'atrasado') _all = _all.filter(r => !r.pago && r.venc && new Date(r.venc) < today);
       else if (fSt === 'avencer') _all = _all.filter(r => !r.pago && (!r.venc || new Date(r.venc) >= today));
+      else if (fSt === 'protestado') _all = _all.filter(r => r.prot);
       if (fEmp) _all = _all.filter(r => r.emp === fEmp);
       if (fQ) _all = _all.filter(r => `${r.ped} ${r.cli} ${(r.val || 0).toFixed(2)} ${r.venc ? fmtDate(r.venc) : ''}`.toLowerCase().includes(fQ));
       _all.sort((a, b) => (a.venc ? new Date(a.venc).getTime() : 8.64e15) - (b.venc ? new Date(b.venc).getTime() : 8.64e15));
@@ -8868,7 +8924,12 @@ function renderCobranca() {
               ? `<button class="btn ghost sm" onclick="removerBoletoAvulso(${r.idx})" title="Remover">🗑</button>`
               : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="enviarAvulsoWpp(${r.idx})" title="Enviar o boleto em PDF">📎 Enviar</button><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${r.idx})">📱 ${r.a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${r.a.cobradoEm ? ` <a href="#" onclick="desmarcarAvisadoAvulso(${r.idx});return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${r.idx})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${r.idx})" title="Remover">🗑</button></div>`;
           }
-          return `<tr${sel ? ' style="background:var(--green-bg)"' : (atras ? ' style="background:#fff4f4"' : '')}><td style="text-align:center">${chk}</td><td>${vencCell}</td><td>${cliCell}</td><td>${pedCell}</td><td>${origem}</td><td style="text-align:right">${valCell}</td><td><span class="badge ${st[1]}">${st[0]}</span></td><td>${pagCell}</td><td>${acoes}</td></tr>`;
+          // ⚖ PROTESTO: selo na coluna Status (não muda o status) + botão Protestar/Desfazer nas ações. Cobrança segue normal.
+          const _seloProt = r.prot ? `<br><span class="badge" style="background:#5b3a9e;color:#fff;font-size:9px;margin-top:3px;display:inline-block" title="Protestado em ${r.prot.data ? fmtDate(r.prot.data + 'T12:00:00') : ''}${r.prot.cartorio ? ' — cartório ' + _esc(r.prot.cartorio) : ''}${r.prot.protocolo ? ' — protocolo ' + _esc(r.prot.protocolo) : ''}${r.prot.obs ? ' — ' + _esc(r.prot.obs) : ''} — pagamento no cartório">⚖ Protestado${r.prot.data ? ' ' + fmtDate(r.prot.data + 'T12:00:00') : ''}</span>${r.prot.cartorio ? `<br><span style="font-size:9px;color:var(--muted)">cartório ${_esc(r.prot.cartorio)}</span>` : ''}` : '';
+          const _btnProt = r.pago ? '' : (r.prot
+            ? `<a href="#" onclick="desprotestarBoleto('${r.pk}');return false" title="Desfazer protesto (pede o motivo)" style="text-decoration:none;color:#5b3a9e;font-size:11px">⚖↩ desfazer protesto</a>`
+            : `<button class="btn ghost sm" style="color:#5b3a9e;border-color:#5b3a9e" onclick="protestarBoleto('${r.pk}','${_esc(r.ped)}')" title="Marcar como protestado (pagamento no cartório). A cobrança continua.">⚖ Protestar</button>`);
+          return `<tr${sel ? ' style="background:var(--green-bg)"' : (atras ? ' style="background:#fff4f4"' : '')}><td style="text-align:center">${chk}</td><td>${vencCell}</td><td>${cliCell}</td><td>${pedCell}</td><td>${origem}</td><td style="text-align:right">${valCell}</td><td><span class="badge ${st[1]}">${st[0]}</span>${_seloProt}</td><td>${pagCell}</td><td>${acoes}${_btnProt ? `<div style="margin-top:3px">${_btnProt}</div>` : ''}</td></tr>`;
         }).join('')}
       </tbody></table></div>`}
       </div>`;
@@ -8885,6 +8946,9 @@ function renderCobranca() {
         <textarea id="tpl-lembrete" onfocus="_tplFoco='lembrete'" onchange="setTplCob('lembrete',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('lembrete').replace(/</g,'&lt;')}</textarea>
         <label style="display:block;font-weight:700;margin:10px 0 2px">🔴 Vencido (cobrança)</label>
         <textarea id="tpl-cobranca" onfocus="_tplFoco='cobranca'" onchange="setTplCob('cobranca',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('cobranca').replace(/</g,'&lt;')}</textarea>
+        <label style="display:block;font-weight:700;margin:10px 0 2px">⚖ Protestado</label>
+        <p style="margin:0 0 4px;color:var(--muted);font-size:11px">Usada no "Cobrar" quando o boleto está protestado. Marcadores: <strong>{cliente}</strong> · <strong>{pedido}</strong> · <strong>{vencimento}</strong> · <strong>{valor}</strong> · <strong>{protesto}</strong> (= "em DATA no cartório X, protocolo Y", omite os vazios) · também <strong>{dataProtesto}</strong> · <strong>{cartorio}</strong> · <strong>{protocolo}</strong>.</p>
+        <textarea id="tpl-protesto" onfocus="_tplFoco='protesto'" onchange="setTplCob('protesto',this.value)" style="width:100%;box-sizing:border-box;min-height:88px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px">${getTplCob('protesto').replace(/</g,'&lt;')}</textarea>
         <button class="btn ghost sm" style="margin-top:8px" onclick="if(confirm('Voltar as duas mensagens ao texto padrão?')){msgCobrancaTpl={};saveData('msgCobrancaTpl',msgCobrancaTpl);renderCobranca()}">↩ Restaurar padrão</button>
       </div>` : ''}
     </div>
@@ -16973,7 +17037,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
 
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -16995,6 +17059,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
       Object.entries(v).forEach(([kk,vv])=>{boletoCobrancaStatus[kk]={...vv,dataPagamento:vv.dataPagamento?new Date(vv.dataPagamento):null};});
     }
     else if (k==='boletosAvulsos') boletosAvulsos = (v||[]).map(a=>({...a,dataPagamento:a.dataPagamento?new Date(a.dataPagamento):null,vencimento:a.vencimento?new Date(a.vencimento):null}));
+    else if (k==='boletoProtesto') boletoProtesto = v || {};
     else if (k==='msgCobrancaTpl') msgCobrancaTpl = v || {};
     else if (k==='boletoAvisado') boletoAvisado = v || {};
     else if (k==='extratoBancario') extratoBancario = v.map(t=>({...t,data:t.data?new Date(t.data):null}));
