@@ -223,13 +223,29 @@
   table.bal tr.grp td{font-weight:800;background:var(--bg2,#141a1f)}
   table.bal tr.tot td{font-weight:800;border-top:2px solid var(--line,#233)}
   table.bal td.cat{padding-left:22px;color:var(--txt,#cfe)}
-  /* impressão do Fechamento: só o relatório sai no PDF */
+  /* ── Impressão do Fechamento: PDF A4 retrato, sem cortes, boa leitura ── */
   @media print {
-    @page { margin: 10mm; }
-    body { background:#fff !important; padding:0 !important }
-    header, .abas, .foot, #gate, .no-print, #aba-fluxo, #aba-balancete { display:none !important }
+    @page { size: A4 portrait; margin: 12mm; @bottom-center { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #888 } }
+    html, body { background:#fff !important; margin:0 !important; padding:0 !important }
+    body, #fech-doc, #fech-doc * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important }
+    header, .abas, .foot, #gate, .no-print, #aba-fluxo, #aba-balancete, #aba-recebimentos, #aba-nf, #aba-margem { display:none !important }
     #aba-fechamento { display:block !important }
-    #fech-doc { background:#fff !important; padding:0 !important }
+    #fech-doc { background:#fff !important; color:#111 !important; padding:0 !important; border-radius:0 !important; box-shadow:none !important }
+    /* ajusta à largura da página: nada cortado na lateral, sem rolagem */
+    #fech-doc [style*="overflow-x"] { overflow:visible !important }
+    #fech-doc [style*="min-width"] { min-width:0 !important }
+    #fech-doc table { width:100% !important; border-collapse:collapse }
+    #fech-doc table, #fech-doc td, #fech-doc th { font-size:9.5pt !important }
+    #fech-doc [style*="font-size:11px"], #fech-doc [style*="font-size:10.5px"], #fech-doc [style*="font-size:12px"] { font-size:9pt !important }
+    #fech-doc [style*="font-size:19px"] { font-size:13pt !important }
+    #fech-doc [style*="font-size:22px"] { font-size:15pt !important }
+    /* tabela: não quebrar a linha no meio da página e repetir o cabeçalho (quando em thead) */
+    #fech-doc tr { page-break-inside:avoid; break-inside:avoid }
+    #fech-doc thead { display:table-header-group }
+    /* cada bloco/card inteiro na mesma página; evita título de seção órfão */
+    #fech-doc .card, #fech-doc [style*="border:1px solid #e5e7eb"] { page-break-inside:avoid; break-inside:avoid }
+    #fech-doc .fech-sec { page-break-after:avoid; break-after:avoid }
+    #fech-doc [style*="grid-template-columns"] { gap:8px !important }
   }
 </style>
 
@@ -402,7 +418,7 @@ function renderFechamento(){
   el.innerHTML=`
   <div id="fech-doc" style="background:#eef1f4;color:#111;border-radius:12px;padding:22px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:4px">
-      <div><div style="font-size:22px;font-weight:800">Fechamento do mês</div><div style="font-size:15px;color:#374151;text-transform:capitalize">${nomeMes}</div></div>
+      <div><div style="font-size:22px;font-weight:800">Relatório de Fechamento</div><div style="font-size:15px;color:#374151;text-transform:capitalize">${nomeMes} · Rokbox + Rk</div></div>
       <div style="text-align:right"><div style="font-weight:800;font-size:22px;color:#0ea5e9">RK</div><button onclick="window.print()" class="no-print" style="margin-top:6px;padding:8px 14px;border:0;border-radius:8px;background:#0ea5e9;color:#fff;font-weight:700;cursor:pointer">🖨️ Salvar / Imprimir PDF</button></div>
     </div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:16px">Gerado em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
@@ -413,7 +429,7 @@ function renderFechamento(){
       <div style="flex:1;min-width:220px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por empresa</div><table style="width:100%;font-size:13px;border-collapse:collapse">${linTab(D.emp)}</table></div>
       <div style="flex:1;min-width:260px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-weight:700;margin-bottom:4px">Faturamento por segmento</div><table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="color:#6b7280;font-size:11px"><th style="text-align:left">Segmento</th><th style="text-align:right">Fat.</th><th style="text-align:right">Ticket médio</th><th style="text-align:right">Peças</th></tr>${segTab(D.seg)}</table></div>
     </div>
-    <div style="font-weight:800;font-size:15px;margin:6px 0 10px">📈 Evolução dos meses</div>
+    <div class="fech-sec" style="font-weight:800;font-size:15px;margin:6px 0 10px">📈 Evolução dos meses</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${chart('fat','Faturamento','#059669')}${chart('resultado','Resultado (Rec − Pago)','#0ea5e9')}</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">${chart('receb','Recebido','#16a34a')}${chart('pago','Pago','#dc2626')}${chart('saldoFim','Saldo em banco (fim)','#7c3aed')}</div>
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:18px;overflow-x:auto">
@@ -1074,7 +1090,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-08.1';
+const BUILD='2026-10-08.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
