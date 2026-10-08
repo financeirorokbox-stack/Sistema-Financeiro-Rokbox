@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v698/10-751';
+const APP_VERSION = 'v699/10-752';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -16784,13 +16784,38 @@ function delCheckboxHeader(source) {
 // ════════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════════
-// AUTO-IMPORT BLING → pedidos: a cada abertura, puxa o blingVendasRico (o mesmo que o placar usa, atualizado
-// pelo cron 2x/dia) e ADICIONA no `pedidos` as vendas que ainda não estão (dedup por número, no formato dela,
-// com linhas/SKU do blingDetCache). SÓ ADICIONA (nunca mexe/apaga o que já existe — preserva suas correções).
+// ── Sincronização Bling (BLING = FONTE DA VERDADE do pedido de venda) — helpers ──
+// Data-calendário SEM fuso: o pedido guarda "...T03:00:00.000Z"; comparar/gravar pela data pura evita falso ±1 dia.
+function _diaCalBling(v) {
+  if (!v) return null;
+  if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
+  const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1];
+  const d = new Date(v); return isNaN(d) ? null : d.toISOString().slice(0, 10);
+}
+// Mês fechado/travado (jun/jul/ago + o que estiver em crFechado/cpFechado/mesesFechados) — reusa _mesCongeladoCR.
+function _mesFechadoBling(v) { try { const d = (v instanceof Date) ? v : new Date(_diaCalBling(v) + 'T03:00:00.000Z'); return _mesCongeladoCR(d); } catch (e) { return false; } }
+function _pedTemRecebimentoBling(num) { try { return recebimentosConsolidado.some(r => String(r.nped || '').split(',').map(s => s.trim()).includes(String(num))); } catch (e) { return false; } }
+// LOG de toda alteração vinda do Bling (pedido, campo, de→para, aplicado/bloqueado, motivo) + Pendências.
+let _blingLogBuf = [], _blingPendBuf = [], _lojaFixesMud = false, _vendFixesMud = false;
+function _blingLog(e) { _blingLogBuf.push(Object.assign({ ts: new Date().toISOString(), origem: 'polling' }, e)); }
+function _blingPend(e) { _blingPendBuf.push(Object.assign({ ts: new Date().toISOString() }, e)); }
+async function _flushBlingLogs() {
+  try {
+    if (_blingLogBuf.length) { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log = log.concat(_blingLogBuf); if (log.length > 3000) log = log.slice(log.length - 3000); await saveData('blingSyncLog', log); }
+    if (_blingPendBuf.length) { let p = (await loadData('blingPendencias')) || []; if (!Array.isArray(p)) p = []; p = p.concat(_blingPendBuf); if (p.length > 800) p = p.slice(p.length - 800); await saveData('blingPendencias', p); }
+    if (_lojaFixesMud) { await saveData('lojaFixes', lojaFixes); _lojaFixesMud = false; } // Bling venceu correção manual de loja → persiste a remoção do override
+    if (_vendFixesMud) { await saveData('vendedorFixes', vendedorFixes); _vendFixesMud = false; }
+  } catch (e) { console.warn('flush bling logs falhou:', e.message); }
+  _blingLogBuf = []; _blingPendBuf = [];
+}
+// AUTO-IMPORT BLING → pedidos: a cada abertura, puxa o blingVendasRico (atualizado pelo cron) e ESPELHA o Bling
+// nos pedidos de MESES ABERTOS (data/situação/valor/frete/loja/vendedor), além de ADICIONAR os novos. Mês fechado
+// é protegido. Correções manuais de loja/vendedor continuam ganhando. Nunca toca Empresa/Categoria. Loga tudo.
 async function _autoImportBling() {
   // 1a Bling (Rokbox) e 2a Bling (Rk PL/WL) — cada uma na sua chave e com sua empresa. Dedup por número (não colidem).
   const n1 = await _impBlingConta('blingVendasRico', 'blingDetCache', 'Rokbox', '_autoBling');
   const n2 = await _impBlingConta('blingVendasRico2', 'blingDetCache2', 'Rk', '_autoBling2');
+  await _flushBlingLogs();
   return n1 + n2;
 }
 async function _impBlingConta(ricoKey, detKey, empresa, flag) {
@@ -16812,18 +16837,44 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
       const mesmaEmpresa = String(ex.empresa || '') === empresa || (empresa === 'Rokbox' && !ex.empresa);
       const daConta = ex[flag] || (semMarca && mesmaEmpresa);
       if (daConta) {
-        // Sincroniza o que a Bling mudou. NUNCA mexe em pedido da outra conta nem no que ela corrigiu na mão.
+        // BLING = FONTE DA VERDADE: espelha o que a Bling mudou. NUNCA mexe em pedido da outra conta.
+        const acct = (flag === '_autoBling2') ? 2 : 1;
+        // PROTEÇÃO 1: mês fechado/travado (origem) → não altera NADA. Só loga se há divergência.
+        if (_mesFechadoBling(ex.data)) {
+          const difSit = ex.situacao !== (r.situacao || ''), difData = _diaCalBling(ex.data) !== _diaCalBling(r.data);
+          if (difSit || difData) _blingLog({ pedido: num, conta: empresa, campo: difData ? 'data' : 'situacao', de: difData ? _diaCalBling(ex.data) : (ex.situacao || ''), para: difData ? _diaCalBling(r.data) : (r.situacao || ''), resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          return;
+        }
         let mud = false;
         if (!ex[flag]) { ex[flag] = true; mud = true; } // adota o import antigo (setembro/SQL) pra sincronizar dali pra frente
-        if (ex.situacao !== (r.situacao || '')) { ex.situacao = r.situacao || ''; mud = true; }
-        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { ex.valor = +r.valor || 0; mud = true; }
+        if (ex._blingAcct !== acct) { ex._blingAcct = acct; mud = true; } // vínculo: guarda a conta Bling (1=Rokbox, 2=Rk/PL)
+        // DATA (comparação por DATA-CALENDÁRIO; PROTEÇÃO 2: bloqueia se o destino cair em mês fechado).
+        const dNovo = _diaCalBling(r.data), dAtual = _diaCalBling(ex.data);
+        if (dNovo && dAtual && dNovo !== dAtual) {
+          if (_mesFechadoBling(new Date(dNovo + 'T03:00:00.000Z'))) {
+            _blingLog({ pedido: num, conta: empresa, campo: 'data', de: dAtual, para: dNovo, resultado: 'bloqueado', motivo: 'destino em mês fechado' });
+          } else {
+            _blingLog({ pedido: num, conta: empresa, campo: 'data', de: dAtual, para: dNovo, resultado: 'aplicado', motivo: '' });
+            ex.data = new Date(dNovo + 'T03:00:00.000Z'); mud = true;
+          }
+        }
+        // SITUAÇÃO (inclui Cancelado: atualiza a situação, NÃO apaga o pedido; marca e manda pra Pendências se tiver recebimento).
+        if (ex.situacao !== (r.situacao || '')) {
+          _blingLog({ pedido: num, conta: empresa, campo: 'situacao', de: ex.situacao || '', para: r.situacao || '', resultado: 'aplicado', motivo: '' });
+          ex.situacao = r.situacao || ''; mud = true;
+          if (/cancelad/i.test(ex.situacao)) { ex._canceladoBling = true; if (_pedTemRecebimentoBling(num)) _blingPend({ pedido: num, conta: empresa, tipo: 'cancelado no Bling com recebimento/estorno vinculado', valor: +ex.valor || 0 }); }
+          else if (ex._canceladoBling) { ex._canceladoBling = false; }
+        }
+        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'aplicado', motivo: '' }); ex.valor = +r.valor || 0; mud = true; }
         if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.005) { ex.frete = +r.frete || 0; mud = true; }
-        // loja e vendedor: só quando NÃO há correção manual (lojaFixes/vendedorFixes sempre ganham)
-        // e nunca sobrescreve com valor não mapeado ("loja#"/"Vend "/"(sem)") pra não sujar a tela.
+        // LOJA e VENDEDOR: BLING VENCE, inclusive sobre correção manual (Elaine: Bling é a fonte da verdade).
+        // ÚNICA exceção TÉCNICA: valor NÃO-MAPEADO ("loja#<id>"/"Vend <id>"/"(sem)") não sobrescreve — a tabela de
+        // tradução da Edge ainda não conhece essa loja/vendedor, então vem o id cru, não um nome. Ao vencer, remove
+        // a correção manual (senão o load — linha ~17003 — reaplicaria e reverteria o Bling).
         const lB = r.loja || '';
-        if (!lojaFixes[num] && lB && !/^loja#/.test(lB) && ex.loja !== lB) { ex.loja = lB; mud = true; }
+        if (lB && !/^loja#/.test(lB) && ex.loja !== lB) { _blingLog({ pedido: num, conta: empresa, campo: 'loja', de: ex.loja || '', para: lB, resultado: 'aplicado', motivo: (lojaFixes[num] != null ? 'Bling vence correção manual' : '') }); ex.loja = lB; mud = true; if (lojaFixes[num] != null) { delete lojaFixes[num]; _lojaFixesMud = true; } }
         const vB = r.vendedor || '';
-        if (!vendedorFixes[num] && vB && vB !== '(sem)' && !/^Vend\s/.test(vB) && ex.vendedor !== vB) { ex.vendedor = vB; mud = true; }
+        if (vB && vB !== '(sem)' && !/^Vend\s/.test(vB) && ex.vendedor !== vB) { _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'aplicado', motivo: (vendedorFixes[num] != null ? 'Bling vence correção manual' : '') }); ex.vendedor = vB; mud = true; if (vendedorFixes[num] != null) { delete vendedorFixes[num]; _vendFixesMud = true; } }
         if (mud) upd++;
       }
       return;
