@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v700/10-753';
+const APP_VERSION = 'v701/10-754';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -16795,6 +16795,8 @@ function _diaCalBling(v) {
 // Mês fechado/travado (jun/jul/ago + o que estiver em crFechado/cpFechado/mesesFechados) — reusa _mesCongeladoCR.
 function _mesFechadoBling(v) { try { const d = (v instanceof Date) ? v : new Date(_diaCalBling(v) + 'T03:00:00.000Z'); return _mesCongeladoCR(d); } catch (e) { return false; } }
 function _pedTemRecebimentoBling(num) { try { return recebimentosConsolidado.some(r => String(r.nped || '').split(',').map(s => s.trim()).includes(String(num))); } catch (e) { return false; } }
+// Cliente "bate" pra adoção: nomes iguais OU um é começo do outro (ex.: Bling trunca o sobrenome).
+function _blingClienteBate(a, b) { const x = String(a || '').trim().toLowerCase().replace(/\s+/g, ' '), y = String(b || '').trim().toLowerCase().replace(/\s+/g, ' '); if (!x || !y) return false; return x === y || x.startsWith(y) || y.startsWith(x); }
 // LOG de toda alteração vinda do Bling (pedido, campo, de→para, aplicado/bloqueado, motivo) + Pendências.
 let _blingLogBuf = [], _blingPendBuf = [], _lojaFixesMud = false, _vendFixesMud = false, _blingUnmapSeen = new Set();
 function _blingLog(e) { _blingLogBuf.push(Object.assign({ ts: new Date().toISOString(), origem: 'polling' }, e)); }
@@ -16834,12 +16836,21 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     const ex = pedById.get(num);
     if (ex) {
       // Este pedido é DESTA conta Bling? (marca da conta, OU um Bling antigo sem marca da mesma empresa: adota)
+      const acct = (flag === '_autoBling2') ? 2 : 1;
       const semMarca = ex._bling && !ex._autoBling && !ex._autoBling2;
       const mesmaEmpresa = String(ex.empresa || '') === empresa || (empresa === 'Rokbox' && !ex.empresa);
-      const daConta = ex[flag] || (semMarca && mesmaEmpresa);
+      let daConta = ex[flag] || (semMarca && mesmaEmpresa);
+      // ADOÇÃO (Elaine): pedido SEM marca que casa conta+número+empresa+CLIENTE(prefixo) → adota. Valor dentro de
+      // R$0,05 adota (corrige pro total do Bling); diferença maior → Pendências, não adota. Só mês aberto. Loga "adotado".
+      if (!daConta && !ex._autoBling && !ex._autoBling2 && mesmaEmpresa && _blingClienteBate(ex.nome, r.cliente)) {
+        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) <= 0.05) {
+          if (!_mesFechadoBling(ex.data)) { ex[flag] = true; ex._blingAcct = acct; daConta = true; _blingLog({ pedido: num, conta: empresa, campo: 'adoção', de: '(sem marca)', para: 'adotado', resultado: 'adotado', motivo: 'conta+número+empresa+cliente' }); }
+        } else {
+          _blingPend({ chave: 'valor-difere|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Pedido sem marca: cliente bate mas valor difere do Bling (revisar)', detalhe: 'Gestão ' + (+ex.valor || 0).toFixed(2) + ' x Bling ' + (+r.valor || 0).toFixed(2) });
+        }
+      }
       if (daConta) {
         // BLING = FONTE DA VERDADE: espelha o que a Bling mudou. NUNCA mexe em pedido da outra conta.
-        const acct = (flag === '_autoBling2') ? 2 : 1;
         // PROTEÇÃO 1: mês fechado/travado (origem) → não altera NADA. Só loga se há divergência.
         if (_mesFechadoBling(ex.data)) {
           const difSit = ex.situacao !== (r.situacao || ''), difData = _diaCalBling(ex.data) !== _diaCalBling(r.data);
