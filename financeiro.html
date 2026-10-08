@@ -256,7 +256,7 @@ const DEV='rokbox_financeiro';
 const HASH_FIN=515829727; // senha do diretor (djb2) — Rkdiretor$
 const HASH_ADMIN=1056204911; // senha admin (djb2) = Rkadmin$ ; admin vê TODAS as abas
 // Abas que o DIRETOR enxerga. O que não estiver aqui é só-admin (toda aba nova nasce só-admin).
-const ABAS_DIRETOR=['fluxo','balancete'];
+const ABAS_DIRETOR=['fluxo','balancete','fechamento'];
 function ehAdmin(){ try{ return localStorage.getItem('rk_role')==='admin'; }catch(e){ return false; } }
 const brl=n=>'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const AMOSTRA=new Set(['Marketing - Parceria','Retirada Funcionários','Brinde','Envio de Planos','Brinde Atacado','Marketing - Parceria At','Parceria PL','Mostruário','Troca','Troca Atacado']);
@@ -1090,7 +1090,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-08.2';
+const BUILD='2026-10-08.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
