@@ -477,7 +477,7 @@ async function carregar(){
       const d=bancos[b].d, atrasado=(d<maxD)||(d<ontemStr); if(atrasado) algumAtrasado=true;
       return `<div class="bank"><div class="nm">${b}</div><div class="v">${brl(bancos[b].v)}</div><div style="font-size:10px;margin-top:2px;color:${atrasado?'var(--amber)':'var(--muted)'}" title="${atrasado?'extrato atrasado desta conta':'data do último extrato'}">${atrasado?'⚠ ':''}${_fd(d)}</div></div>`;
     }).join('') + `<div class="bank total-geral card" style="padding:14px 16px"><div class="nm" style="color:var(--lime)">TOTAL</div><div class="v" style="color:var(--lime)">${brl(totalBanco)}</div></div>`;
-    const _bh2=document.getElementById('banks-h2'); if(_bh2) _bh2.innerHTML=`🏦 Saldo em banco <span style="font-weight:400;color:var(--muted);font-size:.65em">atual, em ${_fd(maxD)}${algumAtrasado?' · <span style="color:var(--amber)">⚠ alguma conta com extrato atrasado</span>':''}</span>`;
+    const _bh2=document.getElementById('banks-h2'); if(_bh2) _bh2.innerHTML=`🏦 Saldo em banco <span style="font-weight:400;color:var(--muted);font-size:.65em">hoje, ${_fd(hojeStr)}${algumAtrasado?' · <span style="color:var(--amber)">⚠ alguma conta com extrato atrasado</span>':''}</span>`;
     // Em aberto do mês, dividido: A VENCER (hoje → fim do mês) e ATRASADO (venceu de 01 até ontem, ainda em aberto).
     const emMes=v=>String(v||'').slice(0,7)===mes;
     const sVal=(arr,c)=>+arr.reduce((s,r)=>s+(+r[c]||0),0).toFixed(2);
@@ -1096,7 +1096,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-08.4';
+const BUILD='2026-10-08.5';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
