@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v699/10-752';
+const APP_VERSION = 'v700/10-753';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -16796,13 +16796,13 @@ function _diaCalBling(v) {
 function _mesFechadoBling(v) { try { const d = (v instanceof Date) ? v : new Date(_diaCalBling(v) + 'T03:00:00.000Z'); return _mesCongeladoCR(d); } catch (e) { return false; } }
 function _pedTemRecebimentoBling(num) { try { return recebimentosConsolidado.some(r => String(r.nped || '').split(',').map(s => s.trim()).includes(String(num))); } catch (e) { return false; } }
 // LOG de toda alteração vinda do Bling (pedido, campo, de→para, aplicado/bloqueado, motivo) + Pendências.
-let _blingLogBuf = [], _blingPendBuf = [], _lojaFixesMud = false, _vendFixesMud = false;
+let _blingLogBuf = [], _blingPendBuf = [], _lojaFixesMud = false, _vendFixesMud = false, _blingUnmapSeen = new Set();
 function _blingLog(e) { _blingLogBuf.push(Object.assign({ ts: new Date().toISOString(), origem: 'polling' }, e)); }
 function _blingPend(e) { _blingPendBuf.push(Object.assign({ ts: new Date().toISOString() }, e)); }
 async function _flushBlingLogs() {
   try {
     if (_blingLogBuf.length) { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log = log.concat(_blingLogBuf); if (log.length > 3000) log = log.slice(log.length - 3000); await saveData('blingSyncLog', log); }
-    if (_blingPendBuf.length) { let p = (await loadData('blingPendencias')) || []; if (!Array.isArray(p)) p = []; p = p.concat(_blingPendBuf); if (p.length > 800) p = p.slice(p.length - 800); await saveData('blingPendencias', p); }
+    if (_blingPendBuf.length) { let p = (await loadData('blingPendencias')) || []; if (!Array.isArray(p)) p = []; const _ex = new Set(p.map(x => x.chave).filter(Boolean)); const _nv = _blingPendBuf.filter(x => !x.chave || !_ex.has(x.chave)); if (_nv.length) { p = p.concat(_nv); if (p.length > 800) p = p.slice(p.length - 800); await saveData('blingPendencias', p); } } // dedup por chave (ex.: loja não-mapeada não repete)
     if (_lojaFixesMud) { await saveData('lojaFixes', lojaFixes); _lojaFixesMud = false; } // Bling venceu correção manual de loja → persiste a remoção do override
     if (_vendFixesMud) { await saveData('vendedorFixes', vendedorFixes); _vendFixesMud = false; }
   } catch (e) { console.warn('flush bling logs falhou:', e.message); }
@@ -16812,6 +16812,7 @@ async function _flushBlingLogs() {
 // nos pedidos de MESES ABERTOS (data/situação/valor/frete/loja/vendedor), além de ADICIONAR os novos. Mês fechado
 // é protegido. Correções manuais de loja/vendedor continuam ganhando. Nunca toca Empresa/Categoria. Loga tudo.
 async function _autoImportBling() {
+  _blingUnmapSeen.clear(); // a cada rodada, loga cada loja/vendedor não-mapeado uma vez só
   // 1a Bling (Rokbox) e 2a Bling (Rk PL/WL) — cada uma na sua chave e com sua empresa. Dedup por número (não colidem).
   const n1 = await _impBlingConta('blingVendasRico', 'blingDetCache', 'Rokbox', '_autoBling');
   const n2 = await _impBlingConta('blingVendasRico2', 'blingDetCache2', 'Rk', '_autoBling2');
@@ -16873,8 +16874,10 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
         // a correção manual (senão o load — linha ~17003 — reaplicaria e reverteria o Bling).
         const lB = r.loja || '';
         if (lB && !/^loja#/.test(lB) && ex.loja !== lB) { _blingLog({ pedido: num, conta: empresa, campo: 'loja', de: ex.loja || '', para: lB, resultado: 'aplicado', motivo: (lojaFixes[num] != null ? 'Bling vence correção manual' : '') }); ex.loja = lB; mud = true; if (lojaFixes[num] != null) { delete lojaFixes[num]; _lojaFixesMud = true; } }
+        else if (lB && /^loja#/.test(lB) && !_blingUnmapSeen.has('loja|' + lB)) { _blingUnmapSeen.add('loja|' + lB); _blingLog({ pedido: num, conta: empresa, campo: 'loja', de: ex.loja || '', para: lB, resultado: 'bloqueado', motivo: 'loja nova NÃO mapeada na tabela da Edge (incluir no bling-sync)' }); _blingPend({ chave: 'loja-nao-mapeada|' + lB, conta: empresa, pedido: num, tipo: 'Loja nova não mapeada na Edge (incluir ' + lB + ' no bling-sync)', detalhe: lB }); }
         const vB = r.vendedor || '';
         if (vB && vB !== '(sem)' && !/^Vend\s/.test(vB) && ex.vendedor !== vB) { _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'aplicado', motivo: (vendedorFixes[num] != null ? 'Bling vence correção manual' : '') }); ex.vendedor = vB; mud = true; if (vendedorFixes[num] != null) { delete vendedorFixes[num]; _vendFixesMud = true; } }
+        else if (vB && /^Vend\s/.test(vB) && !_blingUnmapSeen.has('vend|' + vB)) { _blingUnmapSeen.add('vend|' + vB); _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'bloqueado', motivo: 'vendedor novo NÃO mapeado na tabela da Edge (incluir no bling-sync)' }); _blingPend({ chave: 'vend-nao-mapeado|' + vB, conta: empresa, pedido: num, tipo: 'Vendedor novo não mapeado na Edge (incluir ' + vB + ' no bling-sync)', detalhe: vB }); }
         if (mud) upd++;
       }
       return;
