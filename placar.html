@@ -150,7 +150,7 @@
   <nav class="tabs">
     <button id="tab-placar" class="on" onclick="setView('placar')">📊 Placar</button>
     <button id="tab-produtos" onclick="setView('produtos')" style="display:none">🏆 Produtos</button>
-    <button id="tab-boletos" onclick="setView('boletos')">📋 Boletos vencidos</button>
+    <button id="tab-boletos" onclick="setView('boletos')" style="display:none">📋 Boletos vencidos</button>
   </nav>
 
   <div id="view-placar">
@@ -228,7 +228,7 @@ const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-07.1';
+const BUILD = '2026-10-08.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -447,9 +447,9 @@ function renderBoletos(){
 }
 function ehAdmin(){ try{ return localStorage.getItem('rk_role')==='admin'; }catch(e){ return false; } }
 // A aba Produtos é SÓ-ADMIN: some pra diretor/vendas e não abre por atalho.
-function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; if(!admin && view==='produtos') setView('placar'); }
+function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; const tb=document.getElementById('tab-boletos'); if(tb) tb.style.display = admin ? '' : 'none'; if(!admin && (view==='produtos'||view==='boletos')) setView('placar'); }
 function setView(v){
-  if(v==='produtos' && !ehAdmin()) v='placar';
+  if((v==='produtos'||v==='boletos') && !ehAdmin()) v='placar';
   view = v;
   const tp=document.getElementById('tab-placar'), tpr=document.getElementById('tab-produtos'), tb=document.getElementById('tab-boletos');
   if(tp) tp.classList.toggle('on', v==='placar');
