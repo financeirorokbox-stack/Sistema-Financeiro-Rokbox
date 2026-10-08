@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v697/10-750';
+const APP_VERSION = 'v698/10-751';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5007,7 +5007,19 @@ async function _syncPowerBI() {
   // Mês aberto e linhas em aberto (sem data de liquidação) seguem vivas. Assim o Power BI não drifa no passado.
   const _mesCR = Object.keys(crFechado || {});
   if (_mesCR.length) {
-    crFlat = crFlat.filter(r => !(r.data_liquidacao && _mesCR.includes(String(r.data_liquidacao).slice(0, 7))));
+    // Pedidos presentes em cada planilha oficial (a oficial é a VERDADE do mês fechado). Normaliza "357.0"→"357".
+    const _normPed = p => String(p == null ? '' : p).replace(/\.0+$/, '').trim();
+    const _oficialPed = {}; _mesCR.forEach(m => { const s = new Set(); (crFechado[m] || []).forEach(r => { const np = _normPed(r.pedido); if (np) s.add(np); }); _oficialPed[m] = s; });
+    crFlat = crFlat.filter(r => {
+      // 1) tira as REALIZADAS do mês fechado (substituídas pela planilha oficial logo abaixo).
+      if (r.data_liquidacao && _mesCR.includes(String(r.data_liquidacao).slice(0, 7))) return false;
+      // 2) tira FANTASMA "em aberto": sem liquidação, com vencimento num mês fechado, cujo pedido JÁ consta na planilha
+      //    oficial daquele mês. A reconstrução reabria esses pedidos (ex.: #357 pago, mas sem a baixa casada), inflando
+      //    o A Receber/Power BI/placar. A oficial já representa o pedido no mês → o "em aberto" é espúrio. NÃO recalcula
+      //    o mês fechado (não mexe nas linhas oficiais nem no total realizado); só remove a linha fantasma.
+      if (!r.data_liquidacao && r.pedido) { const vm = String(r.vencimento || '').slice(0, 7); if (_oficialPed[vm] && _oficialPed[vm].has(_normPed(r.pedido))) return false; }
+      return true;
+    });
     _mesCR.forEach(m => (crFechado[m] || []).forEach(r => crFlat.push(r)));
   }
   const _mesCP = Object.keys(cpFechado || {});
