@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v702/10-755';
+const APP_VERSION = 'v703/10-756';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5128,7 +5128,7 @@ function _exportBalancete() {
   // pelos _origemEstorno (mesma base do export conciliado). Só MESES ABERTOS (mês fechado/travado não muda).
   try {
     (contasPagar || []).forEach(c => {
-      if (c.cancelado || !c.pago || !c._origemEstorno) return;
+      if (!c.pago || !_ehEstornoNetado(c)) return; // critério ÚNICO (mesmo do export conciliado)
       const mesE = _mesDe(c.dataPag); if (!mesE) return;
       if (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(c.dataPag)) return; // mês fechado não muda
       const v = +(+c.valor || 0).toFixed(2); if (!(v > 0.005)) return;
@@ -5574,6 +5574,14 @@ function updateContaPagar(idx, field, value) {
     }
   } else {
     c[field] = value; semRerender = true; // texto (fornecedor/categoria/obs): salva sem recarregar, não perde o cursor
+  }
+  // Nova conta manual virando ESTORNO: se casa um recebimento NEGATIVO do gateway, marca _origemEstorno (netado →
+  // entra no Balancete/export); senão avisa (uma vez) que o estorno netado deve ser lançado pelo "→ Pagar".
+  if ((field === 'categoria' || field === 'valor') && /estorno/i.test(c.categoria || '') && !c._origemEstorno) {
+    if (!_marcarEstornoNetadoManual(c) && (+c.valor || 0) > 0.005) {
+      const _k = chaveContaPagar(c);
+      if (!_estornoAvisado.has(_k)) { _estornoAvisado.add(_k); setTimeout(() => alert('⚠ Estorno NETADO no repasse (PayPal/Rede)?\n\nO jeito certo é lançar pelo botão "→ Pagar" na tela de Recebimentos (ele marca, usa o líquido e aí entra no Balancete). Não achei recebimento negativo do gateway com este valor — se for estorno DIRETO do banco (com débito próprio), pode deixar assim.'), 60); }
+    }
   }
   const _chaveDepois = chaveContaPagar(c);
   if (_chaveDepois !== _chaveAntes) _remapChaveConta(_chaveAntes, _chaveDepois); // mantém a conciliação mesmo editando
@@ -6307,9 +6315,9 @@ function buildConciliadoBanco(G) {
   // ===== estornos NETADOS (compensação no repasse) =====
   // Já abatidos no crédito do gateway (os negativos em repasseLinks já reduzem o CR líquido = G1).
   // Entram só no CP (linha 'compensação', FORA da soma) e na Checagem (ag.comp). NÃO no CR (evita duplicar o G1).
-  // Identifica pelos _origemEstorno (lançados a partir de Recebimentos) — assim a Tarifa Maquina (categoria TARIFAS,
-  // não ESTORNO) continua aparecendo como compensação, com a categoria dela. Mantém CP compensação = CR = base.
-  const estornos = CP.filter(c => !c.cancelado && (c._origemEstorno || String(c.categoria || '').toUpperCase().includes('ESTORNO')) && c.pago && inPeriod(c.dataPag));
+  // Identifica pelo critério ÚNICO _ehEstornoNetado (marca _origemEstorno) — MESMO do Balancete, pra não divergir.
+  // Assim a Tarifa Maquina (categoria TARIFAS, não ESTORNO) continua como compensação, com a categoria dela.
+  const estornos = CP.filter(c => _ehEstornoNetado(c) && c.pago && inPeriod(c.dataPag));
   let totEstorno = 0;
   estornos.forEach(c => {
     const v = r2(c.valor || 0); totEstorno += v;
@@ -7235,17 +7243,36 @@ function desfazerEstornoManual(idx) {
   saveData('contasPagar', contasPagar);
   renderRecebimentos();
 }
+// ── Estorno/tarifa NETADO no repasse (sem débito próprio no banco) ──────────────────────────────────────────
+// CRITÉRIO ÚNICO usado pelo Balancete (_exportBalancete) E pelo export conciliado (buildConciliadoBanco), pra não
+// divergirem: é o que foi lançado a partir de um recebimento (marca _origemEstorno via "→ Pagar" ou via Nova conta
+// quando casa um recebimento negativo). Estorno DIRETO do banco (com débito) NÃO tem a marca e segue pelo débito.
+function _ehEstornoNetado(c) { return !!(c && !c.cancelado && c._origemEstorno); }
+const _estornoAvisado = new Set(); // evita repetir o aviso da Nova conta
+// Nova conta manual: se virou categoria ESTORNO e casa um recebimento NEGATIVO do gateway (netado), marca
+// _origemEstorno (entra no Balancete/export igual ao "→ Pagar"). Devolve true se marcou.
+function _marcarEstornoNetadoManual(c) {
+  if (!c || c._origemEstorno) return false;
+  if (!/estorno/i.test(c.categoria || '')) return false;
+  const v = +c.valor || 0; if (!(v > 0.005)) return false;
+  const neg = recebimentosConsolidado.find(r => (r.bruto || 0) < 0 && /PayPal|Rede/i.test(r.gateway || '') && !r._estornoChave && Math.abs(Math.abs(r.liq != null ? r.liq : (r.bruto || 0)) - v) < 0.02);
+  if (neg) { c._origemEstorno = true; return true; }
+  return false;
+}
 function estornoParaPagar(idx) {
   const r = recebimentosConsolidado[idx];
   if (!r) return;
   // Usa o LÍQUIDO (o que o banco realmente abateu — o gateway devolve a taxa junto). Pelo bruto, a taxa inflava a despesa e não batia com o banco.
   const valor = Math.abs(r.liq != null ? r.liq : (r.bruto || 0));
   if (!valor) { alert('Sem valor para lançar.'); return; }
-  if (!confirm(`Lançar o estorno de ${fmtVal(valor)} (${r.nome||'cliente'}) em Contas a Pagar como DESPESA já paga (categoria ESTORNO)?`)) return;
+  // TARIFA netada do gateway (ex.: "Tarifa Maquina" da Rede) → categoria TARIFAS (não ESTORNO). Marca _origemEstorno igual.
+  const ehTarifa = /tarifa/i.test(r.nome || '');
+  const _cat = ehTarifa ? 'TARIFAS' : 'ESTORNO';
+  if (!confirm(`Lançar ${ehTarifa ? 'a tarifa' : 'o estorno'} de ${fmtVal(valor)} (${r.nome||'cliente'}) em Contas a Pagar como DESPESA já paga (categoria ${_cat})?`)) return;
   const conta = {
-    numero: '', fornecedor: r.nome || (r.gateway + ' (estorno)'),
-    descricao: 'Estorno ' + (r.gateway || '') + (r.nped ? ' — pedido #' + r.nped : ''),
-    categoria: 'ESTORNO', observacao: 'Estorno lançado a partir de Recebimentos', empresa: r.empresa || '', rateio: [],
+    numero: '', fornecedor: r.nome || (r.gateway + (ehTarifa ? ' (tarifa)' : ' (estorno)')),
+    descricao: (ehTarifa ? 'Tarifa ' : 'Estorno ') + (r.gateway || '') + (r.nped ? ' — pedido #' + r.nped : ''),
+    categoria: _cat, observacao: 'Estorno lançado a partir de Recebimentos', empresa: r.empresa || '', rateio: [],
     vencimento: r.data || null, dataPag: r.data || null,
     valor, situacao: 'Pago', pago: true, _origemEstorno: true
   };
