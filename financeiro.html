@@ -730,10 +730,8 @@ function renderBalancete(){
   if(!bal||!Array.isArray(bal.rows)){ el.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:30px">Balancete ainda não gerado. No sistema, clique em <b>☁ Atualizar Power BI</b> pra criar, depois volte aqui.</div>'; return; }
   const mes=mesSel||mesAtual();
   const nomeMes=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  // Estornos do mês (do CP) — a MAIORIA é PayPal, que já desconta do repasse (entram como receita menor no banco),
-  // por isso NÃO aparecem como despesa aqui. Mostro o valor numa linha à parte, sem mexer no resultado.
-  const _cpBal=Array.isArray(_FIN.cp)?_FIN.cp:((_FIN.cp&&_FIN.cp.itens)||[]);
-  const estMes=+_cpBal.filter(r=>!r.cancelado && /estorno/i.test(r.categoria||'') && String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.valor||0),0).toFixed(2);
+  // Estornos netados agora ENTRAM no Balancete (receita de volta no gateway + despesa ESTORNOS/TARIFAS), gerados
+  // pelo _exportBalancete do sistema. A linha provisória "Estornos no mês" foi removida (não é mais necessária).
   const rows=bal.rows.filter(r=>r.mes===mes);
   const emps=[...new Set(bal.rows.map(r=>r.emp))].sort((a,b)=> a==='(sem empresa)'?1 : b==='(sem empresa)'?-1 : (a<b?-1:1));
   // saldo anterior = base + movimento do banco (R−D) ANTES do mês
@@ -780,7 +778,6 @@ function renderBalancete(){
         </tbody>
       </table>
     </div>
-    ${estMes>0?`<div style="font-size:12px;margin-top:10px;background:rgba(224,130,60,.1);border:1px solid rgba(224,130,60,.35);border-radius:8px;padding:9px 11px"><b>💸 Estornos no mês: ${brl(estMes)}</b> <span style="color:var(--muted)">(do Contas a Pagar, em geral estornos de PayPal). Não entram nas despesas acima porque o PayPal já desconta o estorno do repasse, então já estão abatidos dentro da receita, incluir de novo contaria em dobro.</span></div>`:''}
     <div style="font-size:11px;color:var(--muted);margin-top:8px">Receitas = créditos do banco · Despesas = débitos do banco, por categoria da conciliação · empresas nas colunas. Expanda pra ver subgrupo e, no CMV, a coleção (↳). Atualiza quando você clica ☁ Atualizar Power BI no sistema.</div>`;
 }
 
@@ -1077,7 +1074,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-06.12';
+const BUILD='2026-10-08.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

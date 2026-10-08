@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v701/10-754';
+const APP_VERSION = 'v702/10-755';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5120,6 +5120,26 @@ function _exportBalancete() {
       }
     }
   });
+  // ── ESTORNOS NETADOS no repasse (PayPal/Rede, sem débito próprio no banco) ──────────────────────────────────
+  // O gateway já abateu o estorno DENTRO do crédito (a receita entrou menor). Pra ele APARECER como despesa no
+  // Balancete (igual ao CP/Fluxo/export conciliado "Compensação no repasse") SEM contar 2x: soma o valor de VOLTA
+  // na receita do gateway (CC PayPal/CC Rede) E lança a MESMA despesa na categoria da conta (ESTORNO → grupo
+  // ESTORNOS; outra categoria, ex.: TARIFAS, vai pro grupo dela). Resultado e saldo do banco NÃO mudam. Identifica
+  // pelos _origemEstorno (mesma base do export conciliado). Só MESES ABERTOS (mês fechado/travado não muda).
+  try {
+    (contasPagar || []).forEach(c => {
+      if (c.cancelado || !c.pago || !c._origemEstorno) return;
+      const mesE = _mesDe(c.dataPag); if (!mesE) return;
+      if (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(c.dataPag)) return; // mês fechado não muda
+      const v = +(+c.valor || 0).toFixed(2); if (!(v > 0.005)) return;
+      const gw = /rede/i.test(c.descricao || '') ? 'Rede' : 'PayPal';
+      const empE = _normEmp(c.empresa || 'Rokbox');
+      const cat = (c.categoria || 'ESTORNO').trim();
+      const ehEst = /estorno/i.test(cat);
+      rows.push({ mes: mesE, emp: empE, tipo: 'R', grupo: grupoReceitaGateway(gw) || 'Outros', sub: SUB_REC[gw] || gw, col: '(sem coleção)', valor: v });
+      rows.push({ mes: mesE, emp: empE, tipo: 'D', grupo: ehEst ? 'ESTORNOS' : (_grupoBal(cat, grupoDespesa(cat) || cat || 'Outras despesas')), sub: ehEst ? (c.fornecedor || 'Estorno') : cat, col: '(sem coleção)', valor: v });
+    });
+  } catch (e) { console.warn('gross-up estornos Balancete falhou:', e.message); }
   // saldo anterior por mês = base dos saldos iniciais + movimento do banco ANTES do mês
   const base = Object.values(saldosIniciais || {}).reduce((s, c) => s + (+c.valor || 0), 0);
   return { rows, base };
@@ -6284,10 +6304,12 @@ function buildConciliadoBanco(G) {
     }
   });
 
-  // ===== 9 estornos (compensação no repasse) =====
+  // ===== estornos NETADOS (compensação no repasse) =====
   // Já abatidos no crédito do gateway (os negativos em repasseLinks já reduzem o CR líquido = G1).
   // Entram só no CP (linha 'compensação', FORA da soma) e na Checagem (ag.comp). NÃO no CR (evita duplicar o G1).
-  const estornos = CP.filter(c => !c.cancelado && (String(c.categoria || '').toUpperCase().includes('ESTORNO')) && c.pago && inPeriod(c.dataPag));
+  // Identifica pelos _origemEstorno (lançados a partir de Recebimentos) — assim a Tarifa Maquina (categoria TARIFAS,
+  // não ESTORNO) continua aparecendo como compensação, com a categoria dela. Mantém CP compensação = CR = base.
+  const estornos = CP.filter(c => !c.cancelado && (c._origemEstorno || String(c.categoria || '').toUpperCase().includes('ESTORNO')) && c.pago && inPeriod(c.dataPag));
   let totEstorno = 0;
   estornos.forEach(c => {
     const v = r2(c.valor || 0); totEstorno += v;
