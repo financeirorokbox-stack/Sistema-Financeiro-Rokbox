@@ -78,7 +78,8 @@
   <div class="gbox">
     <div class="lock">🔒</div>
     <h1>Painel Financeiro</h1>
-    <p>Acesso restrito. Digite a senha do diretor.</p>
+    <p>Acesso restrito. Entre com e-mail e senha (ou a senha do diretor).</p>
+    <input id="gmail" type="email" placeholder="e-mail (login seguro)" autocomplete="username" onkeydown="if(event.key==='Enter')tentar()" style="margin-bottom:8px">
     <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()" style="padding-left:40px;padding-right:40px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
     <button onclick="tentar()">Entrar</button>
     <div class="gerr" id="gerr"></div>
@@ -253,6 +254,33 @@
 const SUPA_URL='https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV='rokbox_financeiro';
+// ── Login no Supabase Auth (passo 1: opcional, com fallback pra chave anônima) ──
+let _sbSess=null; try{ _sbSess=JSON.parse(localStorage.getItem('rk_sb_sess')||'null'); }catch(e){}
+let _sbRefreshing=null;
+function _sbSalvarSess(){ try{ localStorage.setItem('rk_sb_sess',JSON.stringify(_sbSess)); }catch(e){} }
+function _sbSelo(){}
+function _sbClear(){ _sbSess=null; try{ localStorage.removeItem('rk_sb_sess'); }catch(e){} }
+async function _sbLogin(email,senha){
+  const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`,{method:'POST',headers:{apikey:SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password:senha})});
+  const j=await r.json();
+  if(!r.ok||!j.access_token) throw new Error(j.error_description||j.msg||j.error||'login falhou');
+  const meta=(j.user&&j.user.app_metadata)||{};
+  _sbSess={access_token:j.access_token,refresh_token:j.refresh_token,expires_at:Date.now()+(j.expires_in||3600)*1000,email:(j.user&&j.user.email)||email,role:meta.role||null};
+  _sbSalvarSess(); return j.user||{email};
+}
+async function _sbRefresh(){
+  if(!_sbSess||!_sbSess.refresh_token) return null;
+  if(_sbRefreshing) return _sbRefreshing;
+  _sbRefreshing=(async()=>{ try{
+    const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=refresh_token`,{method:'POST',headers:{apikey:SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:_sbSess.refresh_token})});
+    const j=await r.json();
+    if(!r.ok||!j.access_token){ _sbClear(); return null; }
+    _sbSess={access_token:j.access_token,refresh_token:j.refresh_token||_sbSess.refresh_token,expires_at:Date.now()+(j.expires_in||3600)*1000,email:_sbSess.email,role:_sbSess.role};
+    _sbSalvarSess(); return _sbSess.access_token;
+  } finally{ _sbRefreshing=null; } })();
+  return _sbRefreshing;
+}
+async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 const HASH_FIN=515829727; // senha do diretor (djb2) — Rkdiretor$
 const HASH_ADMIN=1056204911; // senha admin (djb2) = Rkadmin$ ; admin vê TODAS as abas
 // Abas que o DIRETOR enxerga. O que não estiver aqui é só-admin (toda aba nova nasce só-admin).
@@ -264,8 +292,18 @@ const VENDA=new Set(['Verificado','Em separação','Atendido','Checkout parcial'
 function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
 function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function tentar(){
+async function tentar(){
+  const email=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim();
   const v=document.getElementById('gpass').value||'';
+  // Login seguro (Supabase) quando for e-mail; senão, senha de porta (djb2).
+  if(email.includes('@')){
+    try{
+      const u=await _sbLogin(email,v);
+      const meta=(u&&u.app_metadata)||{}; const role=(meta.role==='diretor')?'diretor':'admin';
+      try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',role);}catch(e){}
+      abrir(); return;
+    }catch(e){ document.getElementById('gerr').textContent='E-mail ou senha incorretos.'; return; }
+  }
   const h=djb2(v);
   if(h===HASH_ADMIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role','admin');}catch(e){} abrir(); } // admin: vê tudo
   else if(h===HASH_FIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role','diretor');}catch(e){} abrir(); } // diretor libera os DOIS paineis, lembrado (sem pedir de novo)
@@ -281,7 +319,8 @@ function toggleFull(){ try{ const el=document.documentElement; if(!document.full
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair':'⛶ Tela cheia'; });
 
 async function gk(chave){
-  const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+  const _b=(await _sbToken())||SUPA_KEY;
+  const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_b}});
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
@@ -1094,7 +1133,7 @@ function renderMargem(){
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-08.6';
+const BUILD='2026-10-09.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

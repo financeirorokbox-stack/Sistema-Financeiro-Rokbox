@@ -280,7 +280,7 @@ tr:hover td{background:#fafaf8}
     <div id="login-setup-msg" style="display:none;font-size:11px;color:var(--blue);background:var(--blue-bg);border:1px solid #c8d8f0;border-radius:6px;padding:8px;margin-bottom:12px">
       Primeiro acesso: defina usuário e senha.
     </div>
-    <input id="login-user" placeholder="Usuário" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px;outline:none">
+    <input id="login-user" placeholder="Usuário ou e-mail" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px;outline:none">
     <input id="login-pass" type="password" placeholder="Senha" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:14px;outline:none"
       onkeydown="if(event.key==='Enter')doLogin()">
     <button class="run-btn" style="margin-top:0" onclick="doLogin()">Entrar</button>
@@ -464,11 +464,52 @@ const SUPABASE_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const SUPABASE_TABLE = 'sistema_dados';
 
+// ── Login no Supabase Auth (passo 1: opcional, com fallback pra chave anônima) ──
+// Quando logada, as chamadas ao banco usam o TOKEN do usuário (a anon vira só "apikey").
+// Sem sessão, cai na anon (comportamento de hoje). Preparado p/ vários usuários:
+// o papel vem de app_metadata.role. No passo 3 o fallback anon sai (exige login).
+let _sbSess = null;
+try { _sbSess = JSON.parse(localStorage.getItem('rk_sb_sess') || 'null'); } catch (e) {}
+let _sbRefreshing = null;
+function _sbSalvarSess() { try { localStorage.setItem('rk_sb_sess', JSON.stringify(_sbSess)); } catch (e) {} }
+function _sbLogada() { return !!(_sbSess && _sbSess.access_token); }
+function _sbSelo() { try { const e = document.getElementById('app-version'); if (e) e.textContent = APP_VERSION + (_sbLogada() ? ' · 🔒 ' + (_sbSess.email || 'logada') : ''); } catch (e) {} }
+function _sbClear() { _sbSess = null; try { localStorage.removeItem('rk_sb_sess'); } catch (e) {} _sbSelo(); }
+async function _sbLogin(email, senha) {
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: senha }) });
+  const j = await r.json();
+  if (!r.ok || !j.access_token) throw new Error(j.error_description || j.msg || j.error || 'login falhou');
+  const meta = (j.user && j.user.app_metadata) || {};
+  _sbSess = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: (j.user && j.user.email) || email, role: meta.role || null };
+  _sbSalvarSess(); _sbSelo();
+  return j.user || { email };
+}
+async function _sbRefresh() {
+  if (!_sbSess || !_sbSess.refresh_token) return null;
+  if (_sbRefreshing) return _sbRefreshing;
+  _sbRefreshing = (async () => {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: _sbSess.refresh_token }) });
+      const j = await r.json();
+      if (!r.ok || !j.access_token) { _sbClear(); return null; }
+      _sbSess = { access_token: j.access_token, refresh_token: j.refresh_token || _sbSess.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: _sbSess.email, role: _sbSess.role };
+      _sbSalvarSess();
+      return _sbSess.access_token;
+    } finally { _sbRefreshing = null; }
+  })();
+  return _sbRefreshing;
+}
+async function _sbToken() {
+  if (!_sbSess || !_sbSess.access_token) return null;
+  if (Date.now() > _sbSess.expires_at - 60000) return await _sbRefresh();
+  return _sbSess.access_token;
+}
+
 // ID fixo da empresa — todos os dispositivos compartilham os mesmos dados
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v706/10-759';
+const APP_VERSION = 'v707/10-760';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -486,11 +527,12 @@ function rowId(key) {
 
 async function sbFetch(method, body = null, extraPath = '') {
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${extraPath}`;
+  const _bearer = (await _sbToken()) || SUPABASE_KEY; // token do usuário logado, senão anon (passo 1)
   const opts = {
     method,
     headers: {
       'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Authorization': `Bearer ${_bearer}`,
       'Content-Type': 'application/json',
       'Prefer': method === 'POST' ? 'resolution=merge-duplicates' : ''
     }
@@ -1147,6 +1189,21 @@ async function doLogin() {
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('login-error');
   if (!user || !pass) return;
+
+  // Login seguro (Supabase Auth) quando for e-mail: guarda a sessão e usa o token nas chamadas.
+  if (user.includes('@')) {
+    try {
+      const u = await _sbLogin(user, pass);
+      const meta = (u && u.app_metadata) || {};
+      const local = (await getUsuarios() || []).find(x => (x.user || '').toLowerCase() === user.toLowerCase());
+      currentUser = local || { user: (u && u.email) || user, admin: (meta.role ? meta.role === 'admin' : true), perms: [], _sb: true };
+      loginAs(currentUser);
+      return;
+    } catch (e) {
+      errEl.textContent = 'E-mail ou senha incorretos.'; errEl.style.display = 'block';
+      return;
+    }
+  }
 
   let list = await getUsuarios();
 
@@ -17165,6 +17222,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   // Mostra a versão carregada no topo
   const _vEl = document.getElementById('app-version');
   if (_vEl) _vEl.textContent = APP_VERSION;
+  try { _sbSelo(); } catch (e) {} // mostra "🔒 logada" no selo quando há sessão Supabase
   // Auth tratada ao final do init (exige login por sessão)
 
   // Carrega dados salvos

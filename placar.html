@@ -112,7 +112,8 @@
   <div style="background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)">
     <div style="font-size:40px;margin-bottom:8px">🔒</div>
     <div style="font-size:20px;font-weight:800;margin-bottom:4px">Placar de Vendas</div>
-    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Digite a senha de Vendas.</div>
+    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Entre com e-mail e senha (ou a senha de Vendas).</div>
+    <input id="gmail" type="email" placeholder="e-mail (login seguro)" autocomplete="username" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:15px;text-align:center;margin-bottom:10px">
     <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px 40px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
     <button onclick="tentarGate()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer">Entrar</button>
     <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
@@ -227,8 +228,35 @@
 const SUPA_URL = 'https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
 const DEV = 'rokbox_financeiro';
+// ── Login no Supabase Auth (passo 1: opcional, com fallback pra chave anônima) ──
+let _sbSess=null; try{ _sbSess=JSON.parse(localStorage.getItem('rk_sb_sess')||'null'); }catch(e){}
+let _sbRefreshing=null; let _bearer=SUPA_KEY;
+function _sbSalvarSess(){ try{ localStorage.setItem('rk_sb_sess',JSON.stringify(_sbSess)); }catch(e){} }
+function _sbClear(){ _sbSess=null; try{ localStorage.removeItem('rk_sb_sess'); }catch(e){} }
+async function _sbLogin(email,senha){
+  const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`,{method:'POST',headers:{apikey:SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password:senha})});
+  const j=await r.json();
+  if(!r.ok||!j.access_token) throw new Error(j.error_description||j.msg||j.error||'login falhou');
+  const meta=(j.user&&j.user.app_metadata)||{};
+  _sbSess={access_token:j.access_token,refresh_token:j.refresh_token,expires_at:Date.now()+(j.expires_in||3600)*1000,email:(j.user&&j.user.email)||email,role:meta.role||null};
+  _sbSalvarSess(); return j.user||{email};
+}
+async function _sbRefresh(){
+  if(!_sbSess||!_sbSess.refresh_token) return null;
+  if(_sbRefreshing) return _sbRefreshing;
+  _sbRefreshing=(async()=>{ try{
+    const r=await fetch(`${SUPA_URL}/auth/v1/token?grant_type=refresh_token`,{method:'POST',headers:{apikey:SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:_sbSess.refresh_token})});
+    const j=await r.json();
+    if(!r.ok||!j.access_token){ _sbClear(); return null; }
+    _sbSess={access_token:j.access_token,refresh_token:j.refresh_token||_sbSess.refresh_token,expires_at:Date.now()+(j.expires_in||3600)*1000,email:_sbSess.email,role:_sbSess.role};
+    _sbSalvarSess(); return _sbSess.access_token;
+  } finally{ _sbRefreshing=null; } })();
+  return _sbRefreshing;
+}
+async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
+async function _syncBearer(){ _bearer=(await _sbToken())||SUPA_KEY; }
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-08.1';
+const BUILD = '2026-10-09.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -298,7 +326,7 @@ function perLabel(){ return periodo==='hoje'?'hoje':(periodo==='semana'?'semana'
 
 async function carregar(){
   try{
-    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer}}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
     const [d1, d2] = await Promise.all([gk('blingVendasRico'), gk('blingVendasRico2')]);
     const tag = (D, emp) => { if(D&&Array.isArray(D.registros)) D.registros.forEach(x=>{ if(!x.empresa) x.empresa=emp; }); return D; };
     if(d1) dados = tag(d1,'Rokbox');
@@ -332,7 +360,7 @@ function _pedToRegs(peds, mes, lc){
 }
 async function carregarPedidos(){
   try{
-    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
     const [peds, lc] = await Promise.all([gk('pedidos'), gk('lojaCadastro')]);
     _pedidosRaw = peds||[]; // guarda os pedidos crus (com as linhas/SKU) pra aba Produtos
     _lojaCad = lc || {}; // cadastro de lojas -> operação real (mesma lógica do Gestão)
@@ -351,7 +379,7 @@ function setFonte(f){
 // ── Prospecção · Varejo (CRM por vendedora) — lê o que o robozinho da planilha grava no banco ──
 async function carregarProsp(){
   try{
-    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.prospeccaoVarejo&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'});
+    const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.prospeccaoVarejo&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'});
     const j = await r.json();
     renderProsp((Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : null);
   }catch(e){}
@@ -400,7 +428,7 @@ let _crRaw = null;      // flatCR (contas a receber) pra aba Boletos vencidos
 // porque a Elaine não baixa os pagos todo dia: o que venceu DEPOIS da última baixa pode já estar pago (não baixado) → esconde.
 async function carregarCR(){
   try{
-    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
+    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
     const cr = await gk('flatCR');
     _crRaw = Array.isArray(cr) ? cr : ((cr&&cr.itens)||[]);
   }catch(e){ _crRaw = _crRaw || []; }
@@ -629,11 +657,11 @@ function renderVendedorDia(vendas){
   el.innerHTML=h;
 }
 // ── cadeado do painel de Vendas (senha) ──
-function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); aplicarPapel(); carregar(); carregarProsp(); carregarPedidos().then(render); setInterval(()=>{ carregar(); carregarProsp(); carregarPedidos().then(render); }, 3600000); } // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
+async function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); await _syncBearer(); aplicarPapel(); carregar(); carregarProsp(); carregarPedidos().then(render); setInterval(async ()=>{ await _syncBearer(); carregar(); carregarProsp(); carregarPedidos().then(render); }, 3600000); } // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
-function tentarGate(){ const v=document.getElementById('gpass').value||''; let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; let papel=null; if(h===1056204911) papel='admin'; else if(h===515829727) papel='diretor'; else if(h===1886177389) papel='vendas'; if(papel){ try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // Admin (Rkadmin$) vê a aba Produtos; diretor (Rkdiretor$) e vendas (Rkvendas*) não
+async function tentarGate(){ const email=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim(); const v=document.getElementById('gpass').value||''; if(email.includes('@')){ try{ const u=await _sbLogin(email,v); const meta=(u&&u.app_metadata)||{}; const papel=(meta.role==='diretor')?'diretor':(meta.role==='vendas')?'vendas':'admin'; try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); return; }catch(e){ document.getElementById('gerr').textContent='E-mail ou senha incorretos.'; return; } } let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; let papel=null; if(h===1056204911) papel='admin'; else if(h===515829727) papel='diretor'; else if(h===1886177389) papel='vendas'; if(papel){ try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // Admin (Rkadmin$) vê a aba Produtos; diretor (Rkdiretor$) e vendas (Rkvendas*) não
 (function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
 checkVersao(); setInterval(checkVersao, 5*60000); // checa versão nova ao abrir e a cada 5 min
 </script>
