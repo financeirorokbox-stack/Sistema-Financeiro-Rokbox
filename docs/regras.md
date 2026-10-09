@@ -91,7 +91,13 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 14. Dados e backup
 - Dados só são alterados com aprovação da Elaine, backup e prévia antes.
-- Backup diário. Hoje: IndexedDB local (14 dias, por aparelho). Em andamento: também no Supabase, incluindo mesesFechados (ver plano de backup).
+- Backup em 3 camadas (v705/10-758):
+  - Nuvem (Supabase), diário, compactado (gzip). Retenção 7 diários + 8 semanais + 6 mensais, com poda. Sobrevive à perda do aparelho.
+  - Local diário (IndexedDB), 14 dias, por aparelho.
+  - Semanal (IndexedDB), 12 semanas, + aviso pra baixar o .json e guardar fora do sistema (Drive/pendrive).
+  - Teste de restauração na telinha 🕘: ida-e-volta numa chave separada, não toca em nada.
+  - A BACKUP_KEYS inclui mesesFechados, crFechado, cpFechado, diasFechados e os *Links (extrato/debito/repasse/receita). Ficam de fora (recriáveis): flat*, caches/servidor do Bling, e o legado recebimentos.
+- Backup no servidor por cron (sem depender de abrir o Gestão) = Nível 2, pendente.
 
 ## 15. Comportamentos atuais a corrigir (atalhos a blindar)
 Pontos que hoje marcam pago/recebido ou editam sem checar a trava de mês fechado. Devem ser blindados (checar _mesCongeladoCR/diaFechado e registrar no histórico):
