@@ -468,7 +468,7 @@ const SUPABASE_TABLE = 'sistema_dados';
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v704/10-757';
+const APP_VERSION = 'v705/10-758';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -628,7 +628,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -732,24 +732,26 @@ async function autoBackupDiario() {
 function _fmtDiaBR(d) { const [a, m, dd] = String(d).split('-'); return dd && m && a ? `${dd}/${m}/${a}` : d; }
 // Telinha pra ver, restaurar e baixar os backups automáticos
 async function abrirAutoBackups() {
-  const dias = await _abpListaDias();
+  const [dias, nuvem, semanas] = await Promise.all([_abpListaDias(), _bkpListarNuvem(), _semLista()]);
   const old = document.getElementById('abp-modal'); if (old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'abp-modal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
-  const linhas = dias.length
-    ? dias.map(d => `<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600">📅 ${_fmtDiaBR(d)}${d === new Date().toISOString().slice(0,10) ? ' <span style="font-size:10px;color:var(--green)">(hoje)</span>' : ''}</span>
-        <span style="display:flex;gap:6px">
-          <button class="btn ghost sm" onclick="baixarAutoBackup('${d}')" title="Baixar como arquivo .json">⬇ Baixar</button>
-          <button class="btn primary sm" onclick="restaurarAutoBackup('${d}')" title="Voltar o sistema pra esse dia">↩ Restaurar</button>
-        </span>
-      </div>`).join('')
-    : '<div style="color:var(--muted);font-size:13px;padding:12px 0">Ainda não há backups automáticos. O primeiro é salvo hoje sozinho.</div>';
-  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:22px;max-width:420px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:80vh;overflow:auto">
-      <div style="font-size:16px;font-weight:800;margin-bottom:4px">🕘 Backups automáticos</div>
-      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:14px">O sistema salva uma cópia por dia sozinho (últimos ${AUTOBKP_MANTER} dias). É a sua rede de segurança. Restaurar volta o sistema pra aquele dia.</div>
-      ${linhas}
+  const hoje = new Date().toISOString().slice(0, 10);
+  const selo = d => d === hoje ? ' <span style="font-size:10px;color:var(--green)">(hoje)</span>' : '';
+  const linha = (icone, rotulo, btns) => `<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:7px 4px;border-bottom:1px solid var(--border)"><span style="font-weight:600">${icone} ${rotulo}</span><span style="display:flex;gap:6px">${btns}</span></div>`;
+  const lNuvem = nuvem.map(d => linha('☁', _fmtDiaBR(d) + selo(d), `<button class="btn ghost sm" onclick="baixarBackupNuvem('${d}')" title="Baixar .json">⬇</button><button class="btn primary sm" onclick="restaurarBackupNuvem('${d}')">↩ Restaurar</button>`)).join('');
+  const lLocal = dias.map(d => linha('📅', _fmtDiaBR(d) + selo(d), `<button class="btn ghost sm" onclick="baixarAutoBackup('${d}')" title="Baixar .json">⬇</button><button class="btn primary sm" onclick="restaurarAutoBackup('${d}')">↩ Restaurar</button>`)).join('');
+  const lSem = semanas.map(s => linha('🗓', s, `<button class="btn ghost sm" onclick="baixarBackupSemanal('${s}')" title="Baixar .json">⬇</button><button class="btn primary sm" onclick="restaurarBackupSemanal('${s}')">↩ Restaurar</button>`)).join('');
+  const vazio = '<div style="color:var(--muted);font-size:12px;padding:6px 0">(ainda vazio, é criado sozinho)</div>';
+  const sec = (tit, sub, linhas) => `<div style="font-weight:800;margin:14px 0 2px">${tit}</div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">${sub}</div>${linhas || vazio}`;
+  ov.innerHTML = `<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:22px;max-width:460px;width:94%;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:84vh;overflow:auto">
+      <div style="font-size:16px;font-weight:800;margin-bottom:2px">🕘 Backups</div>
+      <div style="font-size:12px;color:var(--muted,#777);margin-bottom:8px">Restaurar volta o sistema para aquele ponto; os outros continuam guardados. Guarde também o .json semanal fora do sistema.</div>
+      <button class="btn ok sm" style="width:100%;margin:4px 0 2px" onclick="testarRestauroBackup()">🧪 Testar restauração (não altera nada)</button>
+      ${sec('☁ Nuvem (Supabase)', 'automático, compactado. 7 diários + 8 semanais + 6 mensais', lNuvem)}
+      ${sec('📅 Local diário (este aparelho, ' + AUTOBKP_MANTER + ' dias)', 'rede de segurança local', lLocal)}
+      ${sec('🗓 Semanal (este aparelho, ' + BKP_SEM_MANTER + ' semanas)', 'baixe o .json e guarde fora do sistema', lSem)}
       <button class="btn ghost sm" style="margin-top:16px;width:100%" onclick="document.getElementById('abp-modal').remove()">Fechar</button>
     </div>`;
   document.body.appendChild(ov);
@@ -771,6 +773,136 @@ async function restaurarAutoBackup(dia) {
   for (const [k, v] of Object.entries(snap.dados)) { try { await saveData(k, v); } catch (e) {} }
   alert('Backup restaurado! Recarregando...');
   location.reload();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BACKUP NA NUVEM (Supabase) + CÓPIA SEMANAL — Nível 1 (aditivo)
+// Diário: snapshot COMPACTADO (gzip) na chave backupDiario_AAAA-MM-DD no Supabase,
+//   gravado DIRETO (sem passar pelo localStorage, p/ não estourar a cota local).
+//   Retenção: 7 diários + 8 semanais (segunda) + 6 mensais (dia 01); poda o resto.
+// Semanal: 1x/semana guarda cópia no IndexedDB (12 semanas) e oferece baixar .json
+//   (cópia fora do Supabase). Tudo em try/catch; nunca quebra o app.
+// ════════════════════════════════════════════════════════════════════
+const BKP_CLOUD_PREFIX = 'backupDiario_';
+const BKP_SEM_DB = 'rk_bkp_sem', BKP_SEM_STORE = 'sem', BKP_SEM_MANTER = 12;
+
+// gzip -> base64 (em pedaços), com fallback sem compressão se o navegador não tiver.
+async function _bkpComprimir(obj) {
+  const s = JSON.stringify(obj);
+  try {
+    if (typeof CompressionStream === 'undefined') return { z: 0, n: s.length, d: s };
+    const buf = await new Response(new Blob([s]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+    const bytes = new Uint8Array(buf); let bin = ''; const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    return { z: 1, n: s.length, d: btoa(bin) };
+  } catch (e) { return { z: 0, n: s.length, d: s }; }
+}
+async function _bkpDescomprimir(pack) {
+  try {
+    if (!pack || typeof pack !== 'object' || pack.d == null) return null;
+    if (!pack.z) return JSON.parse(pack.d);
+    const bin = atob(pack.d); const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    return JSON.parse(new TextDecoder().decode(buf));
+  } catch (e) { console.warn('descomprimir backup falhou:', e && e.message); return null; }
+}
+// Nuvem RAW (sem localStorage): grava/lê/apaga direto no Supabase.
+async function _bkpNuvemGravar(key, pack) { await sbFetch('POST', { id: rowId(key), device_id: getDeviceId(), chave: key, valor: JSON.stringify(pack), atualizado_em: new Date().toISOString() }); }
+async function _bkpNuvemLer(key) { const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`); return rows && rows[0] && rows[0].valor ? JSON.parse(rows[0].valor) : null; }
+async function _bkpNuvemApagar(key) { try { await sbFetch('DELETE', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}`); } catch (e) {} }
+async function _bkpListarNuvem() {
+  try {
+    const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=like.${BKP_CLOUD_PREFIX}*&select=chave`);
+    return (rows || []).map(r => r.chave.slice(BKP_CLOUD_PREFIX.length)).filter(Boolean).sort().reverse();
+  } catch (e) { return []; }
+}
+function _bkpDiasManter(dias) { // 7 recentes + 8 segundas + 6 dia-01 (dias: 'AAAA-MM-DD' desc)
+  const keep = new Set();
+  dias.slice(0, 7).forEach(d => keep.add(d));
+  dias.filter(d => new Date(d + 'T12:00:00').getDay() === 1).slice(0, 8).forEach(d => keep.add(d));
+  dias.filter(d => d.slice(8) === '01').slice(0, 6).forEach(d => keep.add(d));
+  return keep;
+}
+async function backupNuvemDiario() {
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const dias = await _bkpListarNuvem();
+    if (!dias.includes(hoje)) {
+      const dados = _montarBackup();
+      if (dados && Object.keys(dados).length) {
+        const pack = await _bkpComprimir(dados);
+        await _bkpNuvemGravar(BKP_CLOUD_PREFIX + hoje, pack);
+        console.log('☁ Backup nuvem:', hoje, (pack.d.length / 1024).toFixed(0) + 'KB' + (pack.z ? ' gzip' : ''));
+      }
+    }
+    const todos = await _bkpListarNuvem();
+    const keep = _bkpDiasManter(todos);
+    for (const d of todos.filter(x => !keep.has(x))) { await _bkpNuvemApagar(BKP_CLOUD_PREFIX + d); }
+  } catch (e) { console.warn('backup nuvem falhou (não crítico):', e && e.message); }
+}
+async function baixarBackupNuvem(dia) { const dados = await _bkpDescomprimir(await _bkpNuvemLer(BKP_CLOUD_PREFIX + dia)); if (!dados) { alert('Não achei esse backup.'); return; } _bkpBaixarDados(dados, `backup_rokbox_${String(dia).split('-').reverse().join('-')}.json`); }
+async function restaurarBackupNuvem(dia) { const dados = await _bkpDescomprimir(await _bkpNuvemLer(BKP_CLOUD_PREFIX + dia)); if (!dados) { alert('Não achei esse backup.'); return; } if (!confirm(`Restaurar o sistema para o backup da nuvem de ${_fmtDiaBR(dia)}?\n\nO estado de agora será substituído.`)) return; for (const [k, v] of Object.entries(dados)) { try { await saveData(k, v); } catch (e) {} } alert('Backup restaurado! Recarregando...'); location.reload(); }
+
+// ── Cópia semanal (IndexedDB próprio, 12 semanas) + oferta de .json ──
+function _semIso(dt) { const d = new Date(Date.UTC(dt.getFullYear(), dt.getMonth(), dt.getDate())); const dn = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - dn); const y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)); const w = Math.ceil((((d - y0) / 864e5) + 1) / 7); return d.getUTCFullYear() + '-W' + String(w).padStart(2, '0'); }
+function _semDB() { return new Promise((res, rej) => { try { const rq = indexedDB.open(BKP_SEM_DB, 1); rq.onupgradeneeded = () => { const db = rq.result; if (!db.objectStoreNames.contains(BKP_SEM_STORE)) db.createObjectStore(BKP_SEM_STORE, { keyPath: 'sem' }); }; rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); } catch (e) { rej(e); } }); }
+async function _semLista() { try { const db = await _semDB(); return await new Promise(r => { const q = db.transaction(BKP_SEM_STORE, 'readonly').objectStore(BKP_SEM_STORE).getAllKeys(); q.onsuccess = () => r((q.result || []).map(String).sort().reverse()); q.onerror = () => r([]); }); } catch (e) { return []; } }
+async function _semGet(sem) { try { const db = await _semDB(); return await new Promise(r => { const q = db.transaction(BKP_SEM_STORE, 'readonly').objectStore(BKP_SEM_STORE).get(sem); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch (e) { return null; } }
+async function backupSemanal() {
+  try {
+    const sem = _semIso(new Date());
+    const tem = await _semLista();
+    if (!tem.includes(sem)) {
+      const dados = _montarBackup();
+      if (dados && Object.keys(dados).length) {
+        const db = await _semDB();
+        await new Promise((res, rej) => { const t = db.transaction(BKP_SEM_STORE, 'readwrite'); t.objectStore(BKP_SEM_STORE).put({ sem, ts: new Date().toISOString(), dados }); t.oncomplete = res; t.onerror = () => rej(t.error); });
+        const todas = await _semLista();
+        const apagar = todas.slice(BKP_SEM_MANTER);
+        if (apagar.length) { const db2 = await _semDB(); const st = db2.transaction(BKP_SEM_STORE, 'readwrite').objectStore(BKP_SEM_STORE); apagar.forEach(s => { try { st.delete(s); } catch (e) {} }); }
+        try { localStorage.setItem(LS_PREFIX + '_bkpSemOferta', sem); } catch (e) {}
+        console.log('🗓 Backup semanal salvo:', sem);
+      }
+    }
+    _bkpOfertarSemanal();
+  } catch (e) { console.warn('backup semanal falhou (não crítico):', e && e.message); }
+}
+function _bkpBaixarDados(dados, nome) { try { const blob = new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome; a.click(); } catch (e) {} }
+async function baixarBackupSemanal(sem) { const s = sem || (await _semLista())[0]; const snap = await _semGet(s); if (!snap || !snap.dados) { alert('Não achei o backup da semana.'); return; } _bkpBaixarDados(snap.dados, `backup_rokbox_semana_${s}.json`); _bkpAdiarSemanal(); }
+async function restaurarBackupSemanal(sem) { const snap = await _semGet(sem); if (!snap || !snap.dados) { alert('Não achei esse backup.'); return; } if (!confirm(`Restaurar o sistema para o backup semanal ${sem}?\n\nO estado de agora será substituído.`)) return; for (const [k, v] of Object.entries(snap.dados)) { try { await saveData(k, v); } catch (e) {} } alert('Backup restaurado! Recarregando...'); location.reload(); }
+function _bkpAdiarSemanal() { try { localStorage.removeItem(LS_PREFIX + '_bkpSemOferta'); } catch (e) {} const b = document.getElementById('bkp-sem-banner'); if (b) b.remove(); }
+function _bkpOfertarSemanal() {
+  try {
+    if (!localStorage.getItem(LS_PREFIX + '_bkpSemOferta')) return;
+    if (document.getElementById('bkp-sem-banner')) return;
+    const bar = document.createElement('div'); bar.id = 'bkp-sem-banner';
+    bar.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:9998;background:var(--surface,#fff);color:var(--text,#222);border:1px solid var(--border,#ddd);border-radius:12px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.2);max-width:320px;font-size:13px';
+    bar.innerHTML = `🗓 <strong>Backup da semana pronto.</strong><br>Guarde uma cópia fora do sistema (Drive, pendrive).<div style="margin-top:8px;display:flex;gap:6px"><button class="btn primary sm" onclick="baixarBackupSemanal()">⬇ Baixar .json</button><button class="btn ghost sm" onclick="_bkpAdiarSemanal()">Depois</button></div>`;
+    document.body.appendChild(bar);
+  } catch (e) {}
+}
+
+// ── Teste de restauração: dry-run + ida-e-volta REAL numa chave separada (não toca em nada) ──
+async function testarRestauroBackup() {
+  try {
+    const dias = await _bkpListarNuvem();
+    if (!dias.length) { alert('Ainda não há backup na nuvem pra testar (ele é criado hoje sozinho).'); return; }
+    const dia = dias[0];
+    const pack = await _bkpNuvemLer(BKP_CLOUD_PREFIX + dia);
+    const restaurado = await _bkpDescomprimir(pack);
+    if (!restaurado) { alert('❌ Não consegui descompactar o backup de ' + _fmtDiaBR(dia) + '.'); return; }
+    const atual = _montarBackup();
+    const linhas = ['Backup testado: ' + _fmtDiaBR(dia), 'Chaves no backup: ' + Object.keys(restaurado).length + ' | hoje: ' + Object.keys(atual).length];
+    const chaveTeste = '_bkpTesteRestauro';
+    await _bkpNuvemGravar(chaveTeste, pack);
+    const voltaDados = await _bkpDescomprimir(await _bkpNuvemLer(chaveTeste));
+    const igual = voltaDados && JSON.stringify(voltaDados) === JSON.stringify(restaurado);
+    await _bkpNuvemApagar(chaveTeste);
+    linhas.push('Ida-e-volta na chave separada "' + chaveTeste + '": ' + (igual ? '✅ idêntico ao original' : '❌ diferente'));
+    linhas.push(igual ? '\n✅ O backup está íntegro e restaurável. Nenhum dado real foi tocado.' : '\n⚠ A ida-e-volta não bateu, me avise.');
+    alert('🧪 Teste de restauração\n\n' + linhas.join('\n'));
+  } catch (e) { alert('🧪 Teste de restauração falhou: ' + (e && e.message)); }
 }
 
 // 🧨 Zera TODOS os dados (local + Supabase) para começar do zero. Preserva usuários/login. Só admin.
@@ -17142,6 +17274,8 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   try { autoVincularPorValor(); } catch(e) {} // grava nº nos recebimentos por valor (nome batendo)
   try { atualizarSaude(); } catch(e) {}
   try { autoBackupDiario(); } catch(e) {} // 🕘 salva 1 backup por dia sozinho (rede de segurança)
+  try { backupNuvemDiario(); } catch(e) {} // ☁ snapshot diário compactado na nuvem (sobrevive à perda do aparelho)
+  try { backupSemanal(); } catch(e) {}     // 🗓 cópia semanal no aparelho + oferta de baixar .json (fora do Supabase)
 
   // Testa conexão Supabase
   try {
