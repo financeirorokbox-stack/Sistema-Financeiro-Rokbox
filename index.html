@@ -509,7 +509,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v707/10-760';
+const APP_VERSION = 'v708/10-761';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7191,10 +7191,38 @@ function isRedeFile(file, wb) {
     const txt = wb.SheetNames.map(sn => {
       try { return JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null }).slice(0, 4)); } catch (e) { return ''; }
     }).join(' ').toLowerCase();
+    // Braavo/Zoop pelo CONTEÚDO (o arquivo às vezes se chama "vendas-...", sem "braavo" no nome):
+    // essas colunas existem na Braavo e NÃO existem no relatório da Rede, então NÃO é Rede.
+    if (txt.includes('id de referência') || txt.includes('id de referencia') || txt.includes('chave pix') || txt.includes('qrcode emv do pix') || txt.includes('valor capturado') || txt.includes('provedor do pix')) return false;
     return txt.includes('valor mdr descontado') || txt.includes('valor líquido da parcela') || txt.includes('valor liquido da parcela')
       || txt.includes('nsu/cv') || ((txt.includes('valor líquido') || txt.includes('valor liquido')) && txt.includes('bandeira'))
       || (fn.includes('rede') && (txt.includes('valor bruto da parcela') || txt.includes('extrato para simples confer') || txt.includes('valor da venda')));
   } catch (e) { return false; }
+}
+// Identifica o gateway de um relatório de recebíveis pelo CONTEÚDO (colunas/cabeçalho), não pelo nome do arquivo.
+// Retorna 'PayPal' | 'BraavoPay' | 'Rede' | 'Pagar.me' | 'Barte' | null (não reconhecido → a tela pergunta).
+function _gatewayPorColunas(wb, csvRows) {
+  let txt = '';
+  try {
+    if (csvRows && csvRows.length) txt = Object.keys(csvRows[0] || {}).join(' ');
+    else if (wb) txt = wb.SheetNames.map(sn => { try { return JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null }).slice(0, 4)); } catch (e) { return ''; } }).join(' ');
+  } catch (e) {}
+  txt = txt.toLowerCase();
+  if (!txt.trim()) return null;
+  // Ordem importa: a Braavo tem "Valor bruto/líquido" e "ID da transação" iguais a outras, então vem primeiro pelas colunas EXCLUSIVAS dela.
+  if (txt.includes('id de referência') || txt.includes('id de referencia') || txt.includes('chave pix') || txt.includes('qrcode emv do pix') || txt.includes('valor capturado') || txt.includes('provedor do pix')) return 'BraavoPay';
+  if (txt.includes('valor mdr descontado') || txt.includes('valor líquido da parcela') || txt.includes('valor liquido da parcela') || txt.includes('nsu/cv')) return 'Rede';
+  if (txt.includes('amount_in_cents') || txt.includes('charge_id') || txt.includes('taxa total da operação') || (txt.includes('id da transação') && txt.includes('entrada líquida'))) return 'Pagar.me';
+  if (txt.includes('identificadorcobranca') || txt.includes('statuscobranca')) return 'Barte';
+  if ((txt.includes('bruto') && (txt.includes('líquido') || txt.includes('liquido'))) && txt.includes('id da transação')) return 'PayPal';
+  return null;
+}
+// Não reconheceu o gateway pelas colunas: pergunta à usuária (em vez de assumir Rede ou o nome do arquivo).
+function _perguntarGatewayReceb(nomeArq) {
+  const esc = (prompt('Não reconheci o gateway deste arquivo pelas colunas' + (nomeArq ? ' (' + nomeArq + ')' : '') + '.\n\nDe qual gateway é? Digite uma opção:\nPayPal, BraavoPay, Rede, Pagar.me ou Barte\n\n(deixe em branco para cancelar)', '') || '').trim();
+  if (!esc) return null;
+  const m = { 'paypal': 'PayPal', 'braavo': 'BraavoPay', 'braavopay': 'BraavoPay', 'braavo pay': 'BraavoPay', 'rede': 'Rede', 'pagar.me': 'Pagar.me', 'pagarme': 'Pagar.me', 'pagar me': 'Pagar.me', 'barte': 'Barte', 'boleto': 'Boleto' };
+  return m[esc.toLowerCase()] || esc;
 }
 // Lê o relatório da Rede e AGREGA por venda (mesmo nº de pedido Rede + NSU): soma as parcelas em 1 recebimento.
 // nped fica vazio (o nº da Rede não é o nº do seu pedido) → entra como "sem pedido" p/ você vincular.
@@ -7671,8 +7699,9 @@ function renderRecebimentos() {
     files.forEach(file => {
       readSpreadsheetFile(file, ({csvRows, wb}) => {
         if (csvRows) {
-          const isPayPal = csvRows.length && 'Bruto' in csvRows[0] && 'Líquido' in csvRows[0];
-          parseRecebimentosSheet(csvRows, isPayPal?'PayPal':file.name.replace(/\.[^.]+$/,''), newEntries);
+          let gw = _gatewayPorColunas(null, csvRows); // identifica pelo CONTEÚDO (colunas), não pelo nome
+          if (!gw) { gw = _perguntarGatewayReceb(file.name); if (gw === null) { finishUpload(); return; } }
+          parseRecebimentosSheet(csvRows, gw, newEntries);
         } else if (file.name.toLowerCase().endsWith('.ofx') || file.name.toLowerCase().endsWith('.qfx')) {
           const reader = new FileReader();
           reader.onload = ev => {
@@ -7688,15 +7717,17 @@ function renderRecebimentos() {
         } else if (isBoletoRecebidoFile(file, wb)) {
           processCobrancaWorkbook(wb);
         } else {
+          // Identifica o gateway pelo CONTEÚDO (colunas), não pelo nome do arquivo. Se não reconhecer, PERGUNTA.
+          let gw = _gatewayPorColunas(wb, null);
+          if (!gw) {
+            gw = _perguntarGatewayReceb(file.name);
+            if (gw === null) { finishUpload(); return; }        // cancelado
+            if (gw === 'Rede') { parseRedeSheet(wb, newEntries); finishUpload(); return; }
+            if (gw === 'Boleto') { processCobrancaWorkbook(wb); finishUpload(); return; }
+          }
           wb.SheetNames.forEach(sn => {
             const rows = sheetToRows(wb, sn);
-            if (!rows.length) return;
-            const isPayPal = 'Bruto' in rows[0] && 'Líquido' in rows[0];
-            const fn = file.name.toLowerCase();
-            let gw = sn;
-            if (isPayPal) gw = 'PayPal';
-            else if (wb.SheetNames.length===1) { if(fn.includes('braavo')||fn.includes('vendas'))gw='BraavoPay'; else gw=file.name.replace(/\.[^.]+$/,''); }
-            parseRecebimentosSheet(rows, gw, newEntries);
+            if (rows.length) parseRecebimentosSheet(rows, gw, newEntries);
           });
         }
         finishUpload();
