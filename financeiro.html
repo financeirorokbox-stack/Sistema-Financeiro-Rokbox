@@ -1140,17 +1140,198 @@ function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 // ── Margem PL: custo e margem por REF, da chave planilhasCustoCompras.fichas (só-admin) ──
 let _plMargemPk = null, _plMargemLoaded = false;
 let _plMargemMin = 50; // padrão; carregado da chave parametrosMargemPL (Supabase) ao abrir a aba
+let _plParams = { impostoPct: 0, cartaoPct: 0, comissaoPct: 0, outrosPct: 0 }; // deduções % padrão (parametrosMargemPL)
+let _plVista = 'colecao';           // 'colecao' (orçado × realizado + margem líquida) | 'ref' (tabela antiga)
+let _plCompras = [], _plColPL = [];  // realizado (compras) e cadastro de coleções PL
+let _plExpand = {}, _plExpandRef = {}, _plEditCol = ''; // estados de expandir/editar
 let _plFCliente = '', _plFArquivo = '', _plFSoAviso = false;
+// Balde do "realizado" a partir da categoria de compras (CORTE/Encaixe = Desenvolvimento; Mão de obra = só MÃO DE OBRA).
+function _bucketCat(cat) {
+  const s = String(cat || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+  if (!s) return 'outros';
+  if (s.indexOf('TECIDO') === 0 || s.indexOf('MALHA') === 0) return 'tecidos';
+  if (s.indexOf('AVIAMENTO') === 0) return 'aviamentos';
+  if (s.indexOf('SACOLA') === 0 || s.indexOf('EMBALAGEM') >= 0 || s.indexOf('EMBALAGENS') >= 0 || s.indexOf('CABIDE') >= 0) return 'embalagem';
+  if (s.indexOf('MAO DE OBRA') === 0 || s === 'COSTURA' || s === 'CASEADO') return 'maoDeObra';
+  if (s.indexOf('ESTAMPARIA') === 0 || s.indexOf('TRANSFER') === 0) return 'estamparia';
+  if (s.indexOf('MODELAGEM') === 0 || s.indexOf('PILOTAGEM') === 0 || s.indexOf('PILOTO') === 0 || s.indexOf('CORTE') === 0 || s.indexOf('ENCAIXE') >= 0) return 'desenvolvimento';
+  if (s.indexOf('LOGISTICA') === 0 || s.indexOf('FRETE') === 0) return 'logistica';
+  return 'outros';
+}
 function _escHpl(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function _rowIdPL(ch) { const s = DEV + '|' + ch; let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h; }
 async function _skPL(ch, val) { try { const b = (await _sbToken()) || SUPA_KEY; await fetch(`${SUPA_URL}/rest/v1/sistema_dados`, { method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + b, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: _rowIdPL(ch), device_id: DEV, chave: ch, valor: JSON.stringify(val), atualizado_em: new Date().toISOString() }) }); } catch (e) {} }
-function setPlMargemMin(v) { _plMargemMin = Math.max(0, Math.min(100, +v || 0)); _skPL('parametrosMargemPL', { margemMin: _plMargemMin }); renderMargemPL(); }
+function _salvarParamsPL() { _skPL('parametrosMargemPL', Object.assign({ margemMin: _plMargemMin }, _plParams)); }
+function setPlParam(k, v) { if (k === 'margemMin') _plMargemMin = Math.max(0, Math.min(100, +v || 0)); else _plParams[k] = Math.max(0, +v || 0); _salvarParamsPL(); renderMargemPL(); }
+function setPlMargemMin(v) { setPlParam('margemMin', v); }
+function setPlVista(v) { _plVista = v; renderMargemPL(); }
 function setPlF(campo, v) { if (campo === 'cli') _plFCliente = v; else if (campo === 'arq') _plFArquivo = v; else _plFSoAviso = !!v; renderMargemPL(); }
 function recarregarMargemPL() { _plMargemLoaded = false; renderMargemPL(); }
+function togglePlCol(cod) { _plExpand[cod] = !_plExpand[cod]; renderMargemPL(); }
+function togglePlRef(ref) { _plExpandRef[ref] = !_plExpandRef[ref]; renderMargemPL(); }
+function editPlCol(cod) { _plEditCol = (_plEditCol === cod ? '' : cod); renderMargemPL(); }
+function _colPLdoPainel(cod) { return (_plColPL || []).find(c => String(c.codigo || '').toUpperCase() === String(cod || '').toUpperCase()) || null; }
+// Parâmetro efetivo de uma coleção: o dela, ou o padrão. Devolve {val, fonte:'colecao'|'padrao'}.
+function _parColPL(entry, k) { const v = (entry && entry[k] !== '' && entry[k] != null) ? +entry[k] : null; return v != null ? { val: v, fonte: 'colecao' } : { val: (+_plParams[k] || 0), fonte: 'padrao' }; }
+function setColParamPL(cod, k, v) { const e = _colPLdoPainel(cod); if (!e) return; e[k] = (v === '' ? '' : Math.max(0, +v || 0)); _skPL('colecoesPL', _plColPL); renderMargemPL(); }
+function colFixoAddPL(cod) { const e = _colPLdoPainel(cod); if (!e) return; e.fixos = e.fixos || []; e.fixos.push({ descricao: '', valor: 0 }); _skPL('colecoesPL', _plColPL); renderMargemPL(); }
+function colFixoSetPL(cod, i, campo, v) { const e = _colPLdoPainel(cod); if (!e || !e.fixos || !e.fixos[i]) return; e.fixos[i][campo] = campo === 'valor' ? (+v || 0) : v; _skPL('colecoesPL', _plColPL); renderMargemPL(); }
+function colFixoDelPL(cod, i) { const e = _colPLdoPainel(cod); if (!e || !e.fixos) return; e.fixos.splice(i, 1); _skPL('colecoesPL', _plColPL); renderMargemPL(); }
+// ── Visão "Por coleção": orçado (fichas) × realizado (compras) + margem líquida ──
+function _renderMargemPLcolecao(el, pk) {
+  const fichas = (pk.fichas || []).slice();
+  const comp = f => ({ tecidos: +f.tecidos || 0, aviamentos: +f.aviamentos || 0, embalagem: +f.embalagem || 0, maoDeObra: +f.maoDeObra || 0, estamparia: +f.estamparia || 0, desenvolvimento: +f.desenvolvimento || 0, logistica: +f.logistica || 0 });
+  const cmvDe = f => { if (f.cmv != null && f.cmv !== '') return +f.cmv || 0; const c = comp(f); return +(c.tecidos + c.aviamentos + c.embalagem + c.maoDeObra + c.estamparia + c.desenvolvimento + c.logistica).toFixed(2); };
+  const codDe = f => String((f.ref || '').split('.')[1] || '').toUpperCase();
+  const fp = v => (v == null || v === '' || !isFinite(v)) ? '—' : (+v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pc = x => (x == null || !isFinite(x)) ? '—' : (x * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
+  const COMPB = [['tecidos', 'Tecido'], ['aviamentos', 'Aviam.'], ['embalagem', 'Embal.'], ['maoDeObra', 'Mão obra'], ['estamparia', 'Estamp.'], ['desenvolvimento', 'Desenv.'], ['logistica', 'Logíst.'], ['outros', 'Outros']];
+
+  const grupos = {};
+  fichas.forEach(f => { const cod = codDe(f); if (!cod) return; (grupos[cod] = grupos[cod] || []).push(f); });
+  const realPorCod = {}; let ratearTot = 0, ratearN = 0;
+  (_plCompras || []).forEach(c => {
+    if ((c.status || '') === 'recusado') return;
+    const v = (+c.custoTotal || 0) + (+c.frete || 0);
+    if (c.rateioPL) { ratearTot += v; ratearN++; return; }
+    const cod = String(c.codColPL || '').toUpperCase(); if (!cod) return;
+    const g = realPorCod[cod] || (realPorCod[cod] = { total: 0, n: 0, buckets: {} });
+    g.total += v; g.n++; const b = _bucketCat(c.categoria); g.buckets[b] = (g.buckets[b] || 0) + v;
+  });
+
+  function metricas(cod) {
+    const refs = grupos[cod] || [];
+    const entry = _colPLdoPainel(cod);
+    const nome = (entry && entry.nome) || ('PL ' + cod);
+    const pecas = refs.reduce((s, f) => s + (+f.qtd || 0), 0);
+    const orcadoCMV = refs.reduce((s, f) => s + cmvDe(f) * (+f.qtd || 0), 0);
+    const compB = {}; COMPB.forEach(([k]) => compB[k] = 0);
+    refs.forEach(f => { const c = comp(f), q = +f.qtd || 0, cv = cmvDe(f); ['tecidos', 'aviamentos', 'embalagem', 'maoDeObra', 'estamparia', 'desenvolvimento', 'logistica'].forEach(k => compB[k] += c[k] * q); const somaC = c.tecidos + c.aviamentos + c.embalagem + c.maoDeObra + c.estamparia + c.desenvolvimento + c.logistica; compB.outros += Math.max(0, cv - somaC) * q; });
+    const nComVend = refs.filter(f => (+f.valorVendido || 0) > 0).length;
+    const vendCompleto = refs.length > 0 && nComVend === refs.length;
+    const receita = vendCompleto ? refs.reduce((s, f) => s + (+f.valorVendido || 0) * (+f.qtd || 0), 0) : null;
+    const imp = _parColPL(entry, 'impostoPct'), car = _parColPL(entry, 'cartaoPct'), com = _parColPL(entry, 'comissaoPct'), out = _parColPL(entry, 'outrosPct');
+    const dedPct = (imp.val + car.val + com.val + out.val) / 100;
+    const fixosTot = ((entry && entry.fixos) || []).reduce((s, x) => s + (+x.valor || 0), 0);
+    const fixosPorPeca = pecas > 0 ? fixosTot / pecas : 0;
+    let liqTot = null;
+    if (vendCompleto) liqTot = refs.reduce((s, f) => { const vd = +f.valorVendido || 0, q = +f.qtd || 0, cv = cmvDe(f); return s + (vd - vd * dedPct - cv - fixosPorPeca) * q; }, 0);
+    const margBruta = (vendCompleto && receita > 0) ? (receita - orcadoCMV) / receita : null;
+    const margLiq = (vendCompleto && receita > 0) ? liqTot / receita : null;
+    const real = realPorCod[cod] ? realPorCod[cod].total : 0;
+    const pctReal = orcadoCMV > 0 ? real / orcadoCMV : null;
+    const margReal = vendCompleto ? (receita - real) : null;
+    const margRealPct = (vendCompleto && receita > 0) ? (receita - real) / receita : null;
+    return { cod, nome, entry, refs, pecas, orcadoCMV, compB, nComVend, vendCompleto, receita, imp, car, com, out, dedPct, fixosTot, fixosPorPeca, margBruta, margLiq, real, pctReal, margReal, margRealPct, semFicha: !!(entry && entry.semFicha), buckets: (realPorCod[cod] || {}).buckets || {} };
+  }
+
+  const cods = [...new Set([...Object.keys(grupos), ...Object.keys(realPorCod), ...(_plColPL || []).map(c => String(c.codigo || '').toUpperCase())])].filter(Boolean);
+  let metr = cods.map(metricas);
+  metr.sort((a, b) => (a.semFicha ? 1 : 0) - (b.semFicha ? 1 : 0) || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+
+  const compl = metr.filter(m => m.vendCompleto);
+  const foraN = metr.filter(m => m.refs.length > 0 && !m.vendCompleto).length;
+  const TG = compl.reduce((a, m) => ({ rec: a.rec + (m.receita || 0), cmv: a.cmv + m.orcadoCMV, real: a.real + m.real, liq: a.liq + (m.liqTot || 0) }), { rec: 0, cmv: 0, real: 0, liq: 0 });
+  const tgMargB = TG.rec > 0 ? (TG.rec - TG.cmv) / TG.rec : null;
+  const tgMargL = TG.rec > 0 ? TG.liq / TG.rec : null;
+
+  // editor de parâmetros/fixos de uma coleção (⚙)
+  function editorHTML(m) {
+    const cod = m.cod;
+    const campo = (k, lbl, p) => `<label style="font-size:11px">${lbl} <span style="color:var(--muted)">(${p.fonte === 'colecao' ? 'desta coleção' : 'padrão'})</span><br><input type="number" step="0.1" value="${m.entry && m.entry[k] !== '' && m.entry[k] != null ? m.entry[k] : ''}" placeholder="${(+_plParams[k] || 0)}" onchange="setColParamPL('${cod}','${k}',this.value)" style="width:70px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:4px 6px;text-align:right"></label>`;
+    const fixos = ((m.entry && m.entry.fixos) || []).map((f, i) => `<tr><td style="padding:2px"><input value="${_escHpl(f.descricao)}" onchange="colFixoSetPL('${cod}',${i},'descricao',this.value)" style="width:150px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px"></td><td style="padding:2px"><input type="number" value="${f.valor == null ? '' : f.valor}" onchange="colFixoSetPL('${cod}',${i},'valor',this.value)" style="width:90px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px;text-align:right"></td><td style="padding:2px"><button class="aba" style="padding:2px 7px;font-size:11px" onclick="colFixoDelPL('${cod}',${i})">✕</button></td></tr>`).join('');
+    return `<tr><td colspan="9" style="padding:10px 14px;background:rgba(255,255,255,.03)">
+      <div style="font-weight:700;margin-bottom:6px">⚙ ${_escHpl(m.nome)} — parâmetros ${m.entry ? '' : '<span style="color:var(--amber)">(coleção não está no cadastro; abra o cadastro no Gestão)</span>'}</div>
+      ${m.entry ? `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">${campo('impostoPct', 'Imposto %', m.imp)}${campo('cartaoPct', 'Cartão %', m.car)}${campo('comissaoPct', 'Comissão %', m.com)}${campo('outrosPct', 'Outros %', m.out)}</div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">Custos fixos (R$) · ${fp(m.fixosTot)} ÷ ${nf(m.pecas)} pç = ${fp(m.fixosPorPeca)}/pç</div>
+      <table style="border-collapse:collapse;font-size:12px"><tbody>${fixos || '<tr><td style="color:var(--muted);padding:2px">Nenhum.</td></tr>'}</tbody></table>
+      <button class="aba" style="padding:3px 9px;font-size:11px;margin-top:6px" onclick="colFixoAddPL('${cod}')">+ custo fixo</button>` : ''}
+    </td></tr>`;
+  }
+  // tabela de REFs de uma coleção
+  function refsHTML(m) {
+    const linhas = m.refs.slice().sort((a, b) => String(a.ref).localeCompare(String(b.ref))).map(f => {
+      const vd = +f.valorVendido || 0, q = +f.qtd || 0, cv = cmvDe(f);
+      const impR = vd * m.imp.val / 100, carR = vd * m.car.val / 100, comR = vd * m.com.val / 100, outR = vd * m.out.val / 100;
+      const liq = vd - (impR + carR + comR + outR) - cv - m.fixosPorPeca;
+      const mb = vd > 0 ? (vd - cv) / vd : null, ml = vd > 0 ? liq / vd : null;
+      const baixa = ml != null && ml * 100 < _plMargemMin;
+      const c = comp(f);
+      const compRow = _plExpandRef[f.ref] ? `<tr><td colspan="11" style="padding:4px 10px 8px 26px;color:var(--muted);font-size:11px">Composição do CMV (unit.): ${COMPB.filter(([k]) => k !== 'outros').map(([k, l]) => `${l} ${fp(c[k])}`).join(' · ')} · <b>CMV ${fp(cv)}</b></td></tr>` : '';
+      return `<tr style="cursor:pointer" onclick="togglePlRef('${_escHpl(f.ref)}')">
+        <td style="padding-left:20px">${_plExpandRef[f.ref] ? '▾' : '▸'} ${_escHpl(f.ref)}</td>
+        <td style="text-align:right">${nf(q)}</td><td style="text-align:right">${fp(vd)}</td><td style="text-align:right">${fp(cv)}</td>
+        <td style="text-align:right">${fp(impR)}</td><td style="text-align:right">${fp(carR)}</td><td style="text-align:right">${fp(comR)}</td><td style="text-align:right">${fp(outR)}</td>
+        <td style="text-align:right">${fp(m.fixosPorPeca)}</td><td style="text-align:right">${pc(mb)}</td>
+        <td style="text-align:right;${baixa ? 'color:var(--red)' : 'color:var(--lime)'}">${pc(ml)}</td></tr>${compRow}`;
+    }).join('');
+    return `<tr><td colspan="9" style="padding:6px 10px 10px"><table class="bal" style="width:100%;font-size:11px;white-space:nowrap"><thead><tr style="color:var(--muted)">
+      <th style="text-align:left">REF (clique: composição)</th><th style="text-align:right">Qtd</th><th style="text-align:right">Vendido</th><th style="text-align:right">CMV</th><th style="text-align:right">Imposto</th><th style="text-align:right">Cartão</th><th style="text-align:right">Comissão</th><th style="text-align:right">Outros</th><th style="text-align:right">Fixos/pç</th><th style="text-align:right">Marg. bruta</th><th style="text-align:right">Marg. líq.</th>
+    </tr></thead><tbody>${linhas || '<tr><td colspan="11" style="color:var(--muted)">Sem fichas (coleção só de realizado).</td></tr>'}</tbody></table></td></tr>`;
+  }
+
+  const linhasCol = metr.map(m => {
+    const st = m.refs.length === 0 ? '<span style="color:var(--muted);font-size:11px">só realizado</span>' : (m.vendCompleto ? `<span style="color:var(--muted);font-size:11px">${m.refs.length} REFs</span>` : `<span style="color:var(--amber);font-size:11px" title="Receita/margem só com vendido completo">vendido incompleto (${m.nComVend} de ${m.refs.length})</span>`);
+    const realAlto = m.orcadoCMV > 0 && m.real > m.orcadoCMV;
+    const baixaL = m.margLiq != null && m.margLiq * 100 < _plMargemMin;
+    let out = `<tr style="cursor:pointer;border-top:1px solid var(--line,#233)" onclick="togglePlCol('${m.cod}')">
+      <td style="font-weight:700">${_plExpand[m.cod] ? '▾' : '▸'} ${_escHpl(m.nome)} <span style="color:var(--muted);font-weight:400;font-size:11px">${m.cod}</span>${m.semFicha ? ' <span style="color:var(--amber);font-size:10px">sem ficha</span>' : ''} ${st}</td>
+      <td style="text-align:right">${nf(m.pecas)}</td>
+      <td style="text-align:right">${m.refs.length ? fp(m.orcadoCMV) : '—'}</td>
+      <td style="text-align:right;${realAlto ? 'color:var(--red)' : ''}"${realAlto ? ' title="Realizado acima do orçado"' : ''}>${fp(m.real)}</td>
+      <td style="text-align:right">${pc(m.pctReal)}</td>
+      <td style="text-align:right">${m.vendCompleto ? fp(m.receita) : '—'}</td>
+      <td style="text-align:right">${pc(m.margBruta)}</td>
+      <td style="text-align:right;font-weight:700;${baixaL ? 'color:var(--red)' : (m.margLiq != null ? 'color:var(--lime)' : '')}"${baixaL ? ` title="Margem líquida abaixo do mínimo (${_plMargemMin}%)"` : ''}>${pc(m.margLiq)}</td>
+      <td style="text-align:center"><span onclick="event.stopPropagation();editPlCol('${m.cod}')" style="cursor:pointer" title="Parâmetros e custos fixos desta coleção">⚙</span></td></tr>`;
+    if (_plEditCol === m.cod) out += editorHTML(m);
+    if (_plExpand[m.cod]) out += refsHTML(m);
+    return out;
+  }).join('');
+
+  const ratearRow = ratearN ? `<tr style="border-top:1px solid var(--line,#233);color:var(--muted)"><td>A ratear <span style="font-size:11px">(${ratearN} lançamento(s) de várias coleções)</span></td><td></td><td style="text-align:right">—</td><td style="text-align:right">${fp(ratearTot)}</td><td colspan="5"></td></tr>` : '';
+
+  el.innerHTML = `
+    <h2>🧵 Margem PL <span style="color:var(--muted);font-weight:400;font-size:.8em">por coleção · orçado × realizado · margem líquida</span></h2>
+    <div class="card" style="margin-bottom:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">
+      <div style="display:inline-flex;border:1px solid var(--line,#233);border-radius:8px;overflow:hidden">
+        <span onclick="setPlVista('colecao')" class="aba" style="padding:5px 11px;font-size:12px;${_plVista === 'colecao' ? 'background:var(--lime);color:#000' : ''};cursor:pointer">Por coleção</span>
+        <span onclick="setPlVista('ref')" class="aba" style="padding:5px 11px;font-size:12px;cursor:pointer">Por REF</span>
+      </div>
+      <span style="color:var(--muted)">Deduções padrão:</span>
+      <label style="font-size:12px">Imposto <input type="number" step="0.1" value="${_plParams.impostoPct}" onchange="setPlParam('impostoPct',this.value)" style="width:56px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 7px;text-align:right">%</label>
+      <label style="font-size:12px">Cartão <input type="number" step="0.1" value="${_plParams.cartaoPct}" onchange="setPlParam('cartaoPct',this.value)" style="width:56px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 7px;text-align:right">%</label>
+      <label style="font-size:12px">Comissão <input type="number" step="0.1" value="${_plParams.comissaoPct}" onchange="setPlParam('comissaoPct',this.value)" style="width:56px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 7px;text-align:right">%</label>
+      <label style="font-size:12px">Outros <input type="number" step="0.1" value="${_plParams.outrosPct}" onchange="setPlParam('outrosPct',this.value)" style="width:56px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 7px;text-align:right">%</label>
+      <label style="font-size:12px">Margem mín. <input type="number" step="1" value="${_plMargemMin}" onchange="setPlParam('margemMin',this.value)" style="width:52px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 7px;text-align:right">%</label>
+      <span style="flex:1"></span><button class="aba" style="padding:5px 11px;font-size:12px" onclick="recarregarMargemPL()">↻ Atualizar</button>
+    </div>
+    <div class="card" style="margin-bottom:12px;display:flex;gap:26px;flex-wrap:wrap;align-items:center">
+      <div><div style="font-size:11px;color:var(--muted)">Venda (PL completas)</div><div style="font-size:18px;font-weight:800">${fp(TG.rec)}</div></div>
+      <div><div style="font-size:11px;color:var(--muted)">CMV orçado</div><div style="font-size:18px;font-weight:800">${fp(TG.cmv)}</div></div>
+      <div><div style="font-size:11px;color:var(--muted)">Realizado</div><div style="font-size:18px;font-weight:800">${fp(TG.real)}</div></div>
+      <div><div style="font-size:11px;color:var(--muted)">Margem bruta</div><div style="font-size:18px;font-weight:800;color:${tgMargB != null && tgMargB * 100 < _plMargemMin ? 'var(--red)' : 'var(--lime)'}">${pc(tgMargB)}</div></div>
+      <div><div style="font-size:11px;color:var(--muted)">Margem líquida</div><div style="font-size:18px;font-weight:800;color:${tgMargL != null && tgMargL * 100 < _plMargemMin ? 'var(--red)' : 'var(--lime)'}">${pc(tgMargL)}</div></div>
+      <div style="font-size:11px;color:var(--muted)">${compl.length} coleção(ões) completas${foraN ? ` · ${foraN} fora (vendido incompleto)` : ''}</div>
+    </div>
+    <div class="card" style="overflow-x:auto"><table class="bal" style="font-size:12px;white-space:nowrap;width:100%"><thead><tr>
+      <th style="text-align:left">Coleção (clique: REFs)</th><th style="text-align:right">Peças</th><th style="text-align:right">Orçado</th><th style="text-align:right">Realizado</th><th style="text-align:right" title="Realizado ÷ orçado">% real.</th><th style="text-align:right">Receita</th><th style="text-align:right">Marg. bruta</th><th style="text-align:right">Marg. líq.</th><th style="text-align:center">⚙</th>
+    </tr></thead><tbody>${linhasCol || '<tr><td colspan="9" style="padding:14px;color:var(--muted)">Nenhuma coleção PL ainda. Semeie no Gestão (abra Compras) e rode a Unificar.</td></tr>'}${ratearRow}</tbody></table></div>
+  `;
+}
+
 async function renderMargemPL() {
   const el = document.getElementById('margempl-conteudo'); if (!el) return;
-  if (!_plMargemLoaded) { el.innerHTML = '<div class="card" style="padding:18px;color:var(--muted)">Carregando planilhas…</div>'; try { _plMargemPk = await gk('planilhasCustoCompras'); } catch (e) { _plMargemPk = null; } try { const par = await gk('parametrosMargemPL'); if (par && par.margemMin != null) _plMargemMin = +par.margemMin || 50; } catch (e) {} _plMargemLoaded = true; }
+  if (!_plMargemLoaded) {
+    el.innerHTML = '<div class="card" style="padding:18px;color:var(--muted)">Carregando planilhas…</div>';
+    try { _plMargemPk = await gk('planilhasCustoCompras'); } catch (e) { _plMargemPk = null; }
+    try { const par = await gk('parametrosMargemPL'); if (par) { if (par.margemMin != null) _plMargemMin = +par.margemMin || 50; ['impostoPct', 'cartaoPct', 'comissaoPct', 'outrosPct'].forEach(k => { if (par[k] != null) _plParams[k] = +par[k] || 0; }); } } catch (e) {}
+    try { const cp = await gk('compras'); _plCompras = Array.isArray(cp) ? cp : []; } catch (e) { _plCompras = []; }
+    try { const cl = await gk('colecoesPL'); _plColPL = Array.isArray(cl) ? cl : []; } catch (e) { _plColPL = []; }
+    _plMargemLoaded = true;
+  }
   const pk = _plMargemPk || {};
+  if (_plVista === 'colecao') { _renderMargemPLcolecao(el, pk); return; }
   const fichas = (pk.fichas || []).slice();
   const comp = f => ({ tecidos: +f.tecidos || 0, aviamentos: +f.aviamentos || 0, embalagem: +f.embalagem || 0, maoDeObra: +f.maoDeObra || 0, estamparia: +f.estamparia || 0, desenvolvimento: +f.desenvolvimento || 0, logistica: +f.logistica || 0 });
   const cmvDe = f => { if (f.cmv != null && f.cmv !== '') return +f.cmv || 0; const c = comp(f); return +(c.tecidos + c.aviamentos + c.embalagem + c.maoDeObra + c.estamparia + c.desenvolvimento + c.logistica).toFixed(2); };
@@ -1192,6 +1373,10 @@ async function renderMargemPL() {
   el.innerHTML = `
     <h2>🧵 Margem PL <span style="color:var(--muted);font-weight:400;font-size:.8em">custo e margem por REF (planilhas)</span></h2>
     <div class="card" style="margin-bottom:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">
+      <div style="display:inline-flex;border:1px solid var(--line,#233);border-radius:8px;overflow:hidden">
+        <span onclick="setPlVista('colecao')" class="aba" style="padding:5px 11px;font-size:12px;cursor:pointer">Por coleção</span>
+        <span onclick="setPlVista('ref')" class="aba" style="padding:5px 11px;font-size:12px;background:var(--lime);color:#000;cursor:pointer">Por REF</span>
+      </div>
       ${pk.geradoEm ? `<span style="color:var(--muted)">Sincronizado: ${(() => { try { return new Date(pk.geradoEm).toLocaleString('pt-BR'); } catch (e) { return pk.geradoEm; } })()}</span>` : '<span style="color:var(--amber)">Sem dados de planilha ainda.</span>'}
       <label>Margem mínima: <input type="number" step="1" value="${_plMargemMin}" onchange="setPlMargemMin(this.value)" style="width:58px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px;text-align:right">%</label>
       <select onchange="setPlF('cli',this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px"><option value="">Todos clientes</option>${clientes.map(c => `<option ${c === _plFCliente ? 'selected' : ''}>${_escHpl(c)}</option>`).join('')}</select>
@@ -1216,7 +1401,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-14.1';
+const BUILD='2026-10-14.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
