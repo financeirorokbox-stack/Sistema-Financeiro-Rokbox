@@ -509,7 +509,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v708/10-761';
+const APP_VERSION = 'v709/10-762';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14183,9 +14183,9 @@ function removeBanco(i) { bancosCadastro.splice(i, 1); saveData('bancosCadastro'
 // ════════════════════════════════════════════════════════════════════
 // COMPRAS (requisição → aprovação → pedido → recebimento → Contas a Pagar)
 // ════════════════════════════════════════════════════════════════════
-const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''] };
+const COMPRA_ST = { pendente: ['Pendente', 'err'], aprovado: ['Aprovado', 'ok'], pedido: ['Pedido', 'info'], recebido: ['Recebido', 'neu'], rejeitado: ['Rejeitado', ''], recusado: ['Recusado', 'err'] };
 // Colunas da tabela de Compras (chips 👁 mostram/ocultam; escolha fica salva no aparelho)
-const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['emp','Empresa'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
+const CMP_COLS = [['data','Data'],['forn','Fornecedor'],['emp','Empresa'],['insumo','Insumo'],['un','Un'],['qtd','Qtd'],['consumo','Consumo tot.'],['estoque','Estoque'],['custou','Custo un.'],['total','Total'],['frete','Frete'],['desc','Desc.'],['totalg','Total geral'],['datafat','Data Fatur.'],['colecao','Coleção/PL'],['cat','Categoria'],['solic','Solicitante'],['status','Status']];
 let cmpColsOcultas = (() => { try { const v = localStorage.getItem('cmpColsOcultas'); return v ? JSON.parse(v) : ['un','solic']; } catch (e) { return ['un','solic']; } })();
 // Aba (etapa do fluxo) selecionada em Compras — lembrada no aparelho
 let cmpTab = (() => { try { return localStorage.getItem('cmpTab') || ''; } catch (e) { return ''; } })();
@@ -14265,8 +14265,129 @@ function renderComprasColecoes(el) {
     + `<div style="font-size:12px;color:var(--muted);margin-bottom:14px">💰 Custo por coleção (todas as etapas, menos as rejeitadas). Pra corrigir a coleção/categoria de um item, vá na aba da etapa dele e edite a coluna.</div>`
     + cardsHTML + barsHTML + detailHTML;
 }
+// ════════════════════════════════════════════════════════════════════
+// INTEGRAÇÃO PLANILHAS "Custo e Compras" (Drive → Supabase → tela Compras)
+// Lê a chave planilhasCustoCompras (gravada pelo Apps Script) e faz o MERGE dos
+// itens de compra como PENDENTES. Mexe SÓ em itens origem='planilha'. O id do item
+// é o 'plan_...' da planilha (o script usa ele pra gravar o status de volta).
+// ════════════════════════════════════════════════════════════════════
+let planilhasCustoCompras = null;                 // pacote completo (carregado só ao abrir Compras/Painel)
+let _planilhasCarregou = false, _planilhasCarregando = false;
+let _planilhaMergeEm = (() => { try { return localStorage.getItem('planilhaMergeEm') || ''; } catch (e) { return ''; } })();
+let cmpOrigem = (() => { try { return localStorage.getItem('cmpOrigem') || ''; } catch (e) { return ''; } })();
+function setCmpOrigem(v) { cmpOrigem = v; try { localStorage.setItem('cmpOrigem', v); } catch (e) {} renderCompras(); }
+const _escH = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function _normUP(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase(); }
+function _catDaSecaoPlanilha(secao) {
+  const s = _normUP(secao);
+  if (s === 'TECIDOS' || s === 'TECIDO') return 'TECIDO PL';
+  if (s === 'AVIAMENTOS' || s === 'AVIAMENTO') return 'AVIAMENTOS PL';
+  if (s === 'EMBALAGENS' || s === 'EMBALAGEM') return 'SACOLAS/ EMBALAGENS/ CABIDES';
+  return String(secao || '').trim();
+}
+function _fornExistente(nome) { const n = _normUP(nome); if (!n) return null; const f = (fornecedoresCompras || []).find(x => _normUP(x.nome) === n); return f ? f.nome : null; }
+// Marca a data da mudança de status (p/ a planilha mostrar "APROVADO 14/10"). Só itens de planilha.
+function _marcarStatusEm(c) { if (c && c.origem === 'planilha') { (c._statusEm = c._statusEm || {})[c.status] = new Date().toISOString(); } }
+// Carrega o pacote das planilhas (SOB DEMANDA) e faz o merge em compras.
+async function carregarPlanilhasCompras(forcar) {
+  try { planilhasCustoCompras = await loadData('planilhasCustoCompras'); } catch (e) {}
+  _planilhasCarregou = true;
+  const mudou = mergePlanilhasEmCompras(!!forcar);
+  if (mudou) { try { saveData('compras', compras); } catch (e) {} }
+  return planilhasCustoCompras;
+}
+// Merge dos itens de compra da planilha em `compras`. Retorna true se mudou algo.
+function mergePlanilhasEmCompras(forcar) {
+  const pk = planilhasCustoCompras;
+  if (!pk || !Array.isArray(pk.compras)) return false;
+  const geradoEm = pk.geradoEm || '';
+  if (!forcar && geradoEm && geradoEm === _planilhaMergeEm) return false; // geradoEm DIFERENTE do último merge (comparação de string, não de data) → só aí re-faz o merge
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const porId = new Map(compras.map(c => [c.id, c]));
+  const idsPlan = new Set(pk.compras.map(x => x.id));
+  let mudou = false;
+  pk.compras.forEach(p => {
+    if (!p || !p.id) return;
+    const forn = _fornExistente(p.fornecedor);
+    const _plan = { arquivoId: p.arquivoId, arquivo: p.arquivo, arquivoUrl: p.arquivoUrl, linha: p.linha, valorUnit: p.valorUnit, qtdTotal: p.qtdTotal, estoque: p.estoque, avisos: p.avisos || [], sincronizadoEm: geradoEm };
+    const insumo = ((p.insumo || '') + (p.cor ? ' - ' + p.cor : '')).trim();
+    const ex = porId.get(p.id);
+    if (!ex) {
+      compras.push({
+        id: p.id, status: 'pendente', solicitante: 'Planilha', origem: 'planilha', dataSolic: hoje,
+        insumo, fornecedor: forn || (p.fornecedor || ''), fornecedorNaoCadastrado: forn ? undefined : true,
+        unidade: '', qtd: +p.qtdComprar || 0, custoUnit: +p.custoUnitConsumo || 0, custoTotal: +p.custoComprar || 0, frete: 0, desconto: 0,
+        colecao: (p.cliente || p.arquivo || ''), categoria: _catDaSecaoPlanilha(p.secao), empresa: '', dataLimite: '', dataFatur: '',
+        _planilha: _plan, _statusEm: {}
+      });
+      mudou = true;
+    } else if ((ex.status || 'pendente') === 'pendente') {
+      ex.qtd = +p.qtdComprar || 0; ex.custoUnit = +p.custoUnitConsumo || 0; ex.custoTotal = +p.custoComprar || 0; ex.insumo = insumo;
+      if (forn) { ex.fornecedor = forn; delete ex.fornecedorNaoCadastrado; } else { ex.fornecedor = p.fornecedor || ex.fornecedor; ex.fornecedorNaoCadastrado = true; }
+      ex._planilha = _plan; delete ex._removidoPlanilha; delete ex._alteradoPlanilha;
+      mudou = true;
+    } else {
+      const difQtd = Math.abs((+ex.qtd || 0) - (+p.qtdComprar || 0)) > 0.001;
+      const difTot = Math.abs((+ex.custoTotal || 0) - (+p.custoComprar || 0)) > 0.01;
+      if (difQtd || difTot) { ex._alteradoPlanilha = { qtd: +p.qtdComprar || 0, custoUnit: +p.custoUnitConsumo || 0, custoTotal: +p.custoComprar || 0, em: geradoEm }; mudou = true; }
+      if (ex._planilha) { ex._planilha.arquivoUrl = p.arquivoUrl; ex._planilha.avisos = p.avisos || []; ex._planilha.qtdTotal = p.qtdTotal; ex._planilha.estoque = p.estoque; }
+    }
+  });
+  compras.forEach(c => { if (c.origem === 'planilha' && (c.status || 'pendente') === 'pendente' && !idsPlan.has(c.id) && !c._removidoPlanilha) { c._removidoPlanilha = true; mudou = true; } });
+  _planilhaMergeEm = geradoEm; try { localStorage.setItem('planilhaMergeEm', geradoEm); } catch (e) {}
+  return mudou;
+}
+function atualizarComprasDasPlanilhas() {
+  const btn = document.getElementById('cmp-sync-planilhas'); if (btn) { btn.disabled = true; btn.textContent = '⏳ Atualizando...'; }
+  carregarPlanilhasCompras(true).then(() => renderCompras()).catch(() => renderCompras());
+}
+function recusarCompra(id) {
+  const c = compras.find(x => x.id === id); if (!c) return;
+  if (c.origem !== 'planilha') { alert('Recusar é só para itens vindos da planilha.'); return; }
+  if (!confirm('Recusar este item da planilha?\n\nSai dos pendentes, mas continua visível no filtro Origem: Planilha. Você pode reabrir depois.')) return;
+  c.status = 'recusado'; _marcarStatusEm(c); saveData('compras', compras); renderCompras();
+}
+// Painel recolhível "Avisos das planilhas", agrupado por arquivo.
+function _painelAvisosPlanilhas() {
+  const pk = planilhasCustoCompras; if (!pk) return '';
+  const porArq = {};
+  (pk.arquivos || []).forEach(a => { porArq[a.id] = { nome: a.nome || a.id, url: a.url || '', erros: (a.erros || []).slice(), avisos: (a.avisos || []).slice() }; });
+  (pk.fichas || []).forEach(f => { if ((f.avisos || []).length) { const g = porArq[f.arquivoId] || (porArq[f.arquivoId] = { nome: f.arquivo, url: '', erros: [], avisos: [] }); (f.avisos || []).forEach(av => g.avisos.push((f.ref ? f.ref + ': ' : '') + av)); } });
+  (pk.compras || []).forEach(p => { if ((p.avisos || []).length) { const g = porArq[p.arquivoId] || (porArq[p.arquivoId] = { nome: p.arquivo, url: p.arquivoUrl || '', erros: [], avisos: [] }); (p.avisos || []).forEach(av => g.avisos.push((p.insumo ? p.insumo + (p.cor ? ' ' + p.cor : '') + ': ' : '') + av)); } });
+  const grupos = Object.values(porArq).filter(g => g.erros.length || g.avisos.length);
+  if (!grupos.length) return '';
+  const totErros = grupos.reduce((s, g) => s + g.erros.length, 0), totAvisos = grupos.reduce((s, g) => s + g.avisos.length, 0);
+  let aberto = false; try { aberto = localStorage.getItem('avisosPlanilhaAberto') === '1'; } catch (e) {}
+  return `<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:12px;background:var(--surface)">
+    <div onclick="toggleAvisosPlanilha()" style="cursor:pointer;padding:9px 12px;font-weight:700;display:flex;align-items:center;gap:8px">
+      <span>${aberto ? '▾' : '▸'} ⚠ Avisos das planilhas</span>
+      ${totErros ? `<span class="badge err">${totErros} erro(s)</span>` : ''}${totAvisos ? `<span class="badge" style="background:var(--amber);color:#000">${totAvisos} aviso(s)</span>` : ''}
+    </div>
+    <div style="display:${aberto ? 'block' : 'none'};padding:0 12px 10px">
+      ${grupos.map(g => `<div style="margin-top:8px">
+        <div style="font-weight:600;font-size:12px">📄 ${_escH(g.nome)}${g.url ? ` · <a href="${_escH(g.url)}" target="_blank" style="color:var(--accent)">abrir</a>` : ''}</div>
+        ${g.erros.map(e => `<div style="font-size:11px;color:var(--red)">• ${_escH(e)}</div>`).join('')}
+        ${g.avisos.map(a => `<div style="font-size:11px;color:var(--amber)">• ${_escH(a)}</div>`).join('')}
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+function toggleAvisosPlanilha() { let a = false; try { a = localStorage.getItem('avisosPlanilhaAberto') === '1'; } catch (e) {} try { localStorage.setItem('avisosPlanilhaAberto', a ? '0' : '1'); } catch (e) {} renderCompras(); }
+// Selos de um item vindo da planilha (aviso, alterado, removido, fornecedor não cadastrado).
+function _selosPlanilha(c) {
+  let s = '';
+  const av = (c._planilha && c._planilha.avisos) || [];
+  if (av.length) s += ` <span class="badge" style="background:var(--amber);color:#000;cursor:help" title="${_escH(av.join(' | '))}">⚠ ${av.length}</span>`;
+  if (c._alteradoPlanilha) s += ` <span class="badge" style="background:#fde68a;color:#7c5e10;cursor:help" title="A planilha mudou depois de aprovado. Novo: qtd ${(+c._alteradoPlanilha.qtd || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} · total ${fmtVal(c._alteradoPlanilha.custoTotal)}">✎ Alterado na planilha</span>`;
+  if (c._removidoPlanilha) s += ` <span class="badge err" title="Sumiu da planilha. Decida manter ou remover.">⌫ Removido da planilha</span>`;
+  if (c.fornecedorNaoCadastrado) s += ` <span class="badge" style="background:#e5e7eb;color:#555;cursor:help" title="Fornecedor não encontrado no Cadastro de fornecedores.">forn. não cadastrado</span>`;
+  return s;
+}
+
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
+  // Carrega as planilhas 1x ao abrir Compras (sob demanda, não no F5) e faz o merge.
+  if (!_planilhasCarregou && !_planilhasCarregando) { _planilhasCarregando = true; carregarPlanilhasCompras(false).then(() => { _planilhasCarregando = false; renderCompras(); }).catch(() => { _planilhasCarregando = false; }); }
   if (cmpTab === '__col') { renderComprasColecoes(el); return; } // aba "Custo por Coleção" (dashboard) tem render próprio
   // Guarda a posição da rolagem (vertical e da tabela) pra tela NÃO pular quando re-renderiza
   const _sy = window.scrollY, _sl = el.querySelector('.table-wrap')?.scrollLeft || 0;
@@ -14278,6 +14399,8 @@ function renderCompras() {
   if (fSt) vis = vis.filter(c => (c.status || 'pendente') === fSt);
   if (fForn) vis = vis.filter(c => c.fornecedor === fForn);
   if (fQ) vis = vis.filter(c => (c.insumo || '').toLowerCase().includes(fQ) || (c.fornecedor || '').toLowerCase().includes(fQ) || (c.colecao || '').toLowerCase().includes(fQ) || (c.categoria || '').toLowerCase().includes(fQ) || String(c.nfNumero || '').toLowerCase().includes(fQ) || String(c._pedidoNum || '').toLowerCase().includes(fQ));
+  if (cmpOrigem === 'planilha') { vis = vis.filter(c => c.origem === 'planilha'); vis.sort((a, b) => (a.fornecedor || '').localeCompare(b.fornecedor || '') || (a.insumo || '').localeCompare(b.insumo || '')); }
+  else if (cmpOrigem === 'manual') vis = vis.filter(c => c.origem !== 'planilha');
   const cnt = st => compras.filter(c => (c.status || 'pendente') === st).length;
   const somaVis = vis.reduce((s, c) => s + totalCompra(c), 0);
   const somaQtdVis = vis.reduce((s, c) => s + (+c.qtd || 0), 0);
@@ -14298,11 +14421,12 @@ function renderCompras() {
     </div>
     <!-- Abas por ETAPA do fluxo: cada compra caminha Pendente → Aprovado → Pedido → Conferido -->
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px;border-bottom:2px solid var(--border);padding-bottom:8px">
-      ${[['', 'Todos'], ['pendente', '🕐 Pendentes'], ['aprovado', '✅ Aprovados'], ['pedido', '📦 Pedidos'], ['recebido', '📄 Conferidos'], ['rejeitado', '❌ Rejeitados']].map(([s, lbl]) =>
+      ${[['', 'Todos'], ['pendente', '🕐 Pendentes'], ['aprovado', '✅ Aprovados'], ['pedido', '📦 Pedidos'], ['recebido', '📄 Conferidos'], ['rejeitado', '❌ Rejeitados'], ['recusado', '✋ Recusados']].map(([s, lbl]) =>
         `<button class="btn ${fSt === s ? 'primary' : 'ghost'} sm" onclick="setCmpTab('${s}')">${lbl}${s ? ` (${cnt(s)})` : ''}</button>`).join('')}
       <span style="width:1px;height:22px;background:var(--border);margin:0 4px"></span>
       <button class="btn ${fSt === '__col' ? 'primary' : 'ghost'} sm" onclick="setCmpTab('__col')" title="Dashboard de custo por coleção, separado por categoria">💰 Custo por Coleção</button>
       <span style="flex:1"></span>
+      <button class="btn ok sm" id="cmp-sync-planilhas" onclick="atualizarComprasDasPlanilhas()" title="Lê as planilhas de Custo/Compras (Drive) e traz os itens novos como PENDENTES. Não duplica.">📥 Atualizar das planilhas</button>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
       <button class="btn ok sm" onclick="escolherRomaneioPDF()" title="Sobe o PDF do romaneio/pedido (grade por tamanho, ex.: oficina). Você escolhe o arquivo, confere os itens e marca o que quer lançar.">📄 Importar PDF</button>
@@ -14311,6 +14435,7 @@ function renderCompras() {
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <select class="inline-input" id="cmp-forn" onchange="renderCompras()"><option value="">Todos fornecedores</option>${forns.map(f => `<option value="${f.replace(/"/g, '&quot;')}" ${f === fForn ? 'selected' : ''}>${f}</option>`).join('')}</select>
+      <select class="inline-input" onchange="setCmpOrigem(this.value)" title="Filtra por origem do item"><option value="">Origem: todas</option><option value="planilha" ${cmpOrigem === 'planilha' ? 'selected' : ''}>Planilha</option><option value="manual" ${cmpOrigem === 'manual' ? 'selected' : ''}>Manual</option></select>
       <input class="inline-input" id="cmp-q" value="${fQ.replace(/"/g, '&quot;')}" placeholder="🔍 Buscar (insumo, fornecedor, NF, pedido...)" oninput="debounceRender('renderCompras')" style="width:250px">
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-aprovar-sel" onclick="aprovarComprasSel()" ${comprasSel.size ? '' : 'disabled'} title="Aprova de uma vez todos os itens marcados nos quadradinhos">✅ Aprovar${comprasSel.size ? ` (${comprasSel.size})` : ''}</button>
@@ -14318,6 +14443,8 @@ function renderCompras() {
       <button class="btn ghost sm" style="color:var(--red)" onclick="desfazerUltimaImportacaoCompras()" title="Remove de uma vez TODOS os itens da última planilha importada (só os pendentes dessa importação).">↩ Desfazer última importação</button>
       <span id="cmp-sel-soma" style="font-weight:700;color:var(--accent);font-size:12px">${comprasSel.size ? 'Σ ' + fmtVal(_comprasSelSoma()) + ' · qtd ' + _fmtQtd([...comprasSel].reduce((s, id) => { const c = compras.find(x => x.id === id); return s + (c ? +c.qtd || 0 : 0); }, 0)) : ''}</span>
     </div>
+    ${planilhasCustoCompras && planilhasCustoCompras.geradoEm ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">🧵 Última sincronização das planilhas: <strong>${(() => { try { return new Date(planilhasCustoCompras.geradoEm).toLocaleString('pt-BR'); } catch (e) { return planilhasCustoCompras.geradoEm; } })()}</strong> · ${(planilhasCustoCompras.compras || []).length} item(ns) de compra</div>` : ''}
+    ${_painelAvisosPlanilhas()}
     ${fornsAprov.length && (fSt === '' || fSt === 'aprovado') ? `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;background:var(--surface)">
       <div style="font-weight:700;margin-bottom:8px">📦 Fazer pedido — itens aprovados por fornecedor</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Escolha a <strong>condição de pagamento</strong> e a <strong>Data de Faturamento</strong> (o prazo conta a partir dela) → gera as parcelas <strong>em aberto</strong> no Contas a Pagar (previstas no Fluxo).</div>
@@ -14352,7 +14479,7 @@ function renderCompras() {
       ${cmpColsOcultas.map(k=>`.cmp-tbl .cmpcol-${k}{display:none}`).join('')}
     </style>
     <div class="table-wrap"><table class="cmp-tbl"><thead><tr>
-      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th class="cmpcol-data">Data</th><th class="cmpcol-forn">Fornecedor</th><th class="cmpcol-emp">Empresa</th><th class="cmpcol-insumo">Insumo</th><th class="cmpcol-un">Un</th><th class="cmpcol-qtd" style="text-align:right">Qtd</th><th class="cmpcol-custou" style="text-align:right">Custo un.</th><th class="cmpcol-total" style="text-align:right">Total</th><th class="cmpcol-frete" style="text-align:right">Frete</th><th class="cmpcol-desc" style="text-align:right">Desc.</th><th class="cmpcol-totalg" style="text-align:right">Total geral</th><th class="cmpcol-datafat">Data Fatur.</th><th class="cmpcol-colecao">Coleção/PL/WL</th><th class="cmpcol-cat">Categoria</th><th class="cmpcol-solic">Solicitante</th><th class="cmpcol-status">Status</th><th>Ações</th>
+      <th style="text-align:center"><input type="checkbox" onclick="toggleCompraSelTodos(this.checked)" title="Marcar/desmarcar todos os pendentes"></th><th class="cmpcol-data">Data</th><th class="cmpcol-forn">Fornecedor</th><th class="cmpcol-emp">Empresa</th><th class="cmpcol-insumo">Insumo</th><th class="cmpcol-un">Un</th><th class="cmpcol-qtd" style="text-align:right">Qtd</th><th class="cmpcol-consumo" style="text-align:right" title="Consumo total do produto (informativo, vem da planilha)">Consumo tot.</th><th class="cmpcol-estoque" style="text-align:right" title="Estoque (informativo, vem da planilha)">Estoque</th><th class="cmpcol-custou" style="text-align:right">Custo un.</th><th class="cmpcol-total" style="text-align:right">Total</th><th class="cmpcol-frete" style="text-align:right">Frete</th><th class="cmpcol-desc" style="text-align:right">Desc.</th><th class="cmpcol-totalg" style="text-align:right">Total geral</th><th class="cmpcol-datafat">Data Fatur.</th><th class="cmpcol-colecao">Coleção/PL/WL</th><th class="cmpcol-cat">Categoria</th><th class="cmpcol-solic">Solicitante</th><th class="cmpcol-status">Status</th><th>Ações</th>
     </tr></thead><tbody>
     ${vis.map(c => { const st = c.status || 'pendente'; const ro = st === 'pedido' || st === 'recebido'; return `<tr${st === 'rejeitado' ? ' style="opacity:.5"' : ''}>
       <td style="text-align:center">${st === 'pendente' ? `<input type="checkbox" class="cmp-selbox" data-id="${c.id}" ${comprasSel.has(c.id) ? 'checked' : ''} onchange="toggleCompraSel('${c.id}',this.checked)">` : ''}</td>
@@ -14362,6 +14489,8 @@ function renderCompras() {
       <td class="cmpcol-insumo">${ro ? `<div class="cmp-ell" title="${(c.insumo || '').replace(/"/g, '&quot;')}">${c.insumo || '—'}</div>` : `<input class="inline-input" style="width:180px" value="${(c.insumo || '').replace(/"/g, '&quot;')}" title="${(c.insumo || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','insumo',this.value)">`}</td>
       <td class="cmpcol-un">${ro ? (c.unidade || '') : `<input class="inline-input" style="width:40px" value="${(c.unidade || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','unidade',this.value)">`}</td>
       <td class="cmpcol-qtd" style="text-align:right">${ro ? ((c.qtdRecebida != null && c.qtdRecebida !== (c.qtd || 0)) ? `<span title="Pedido ${c.qtd||0} · Recebido ${c.qtdRecebida}"><span style="color:var(--muted);text-decoration:line-through">${c.qtd||0}</span> → <strong style="color:var(--amber)">${c.qtdRecebida}</strong></span>` : (c.qtd || '')) : `<input class="inline-input" style="width:55px;text-align:right" value="${c.qtd || ''}" onchange="updateCompra('${c.id}','qtd',this.value)">`}</td>
+      <td class="cmpcol-consumo" style="text-align:right;color:var(--muted)">${c._planilha && c._planilha.qtdTotal != null ? (+c._planilha.qtdTotal || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : ''}</td>
+      <td class="cmpcol-estoque" style="text-align:right;color:var(--muted)">${c._planilha && c._planilha.estoque != null ? (+c._planilha.estoque || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : ''}</td>
       <td class="cmpcol-custou" style="text-align:right">${ro ? fmtVal(c.custoUnit || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.custoUnit || ''}" onchange="updateCompra('${c.id}','custoUnit',this.value)">`}</td>
       <td class="cmpcol-total" style="text-align:right"><strong>${fmtVal(c.custoTotal || 0)}</strong></td>
       <td class="cmpcol-frete" style="text-align:right">${ro ? fmtVal(c.frete || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.frete || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','frete',this.value)">`}</td>
@@ -14371,7 +14500,7 @@ function renderCompras() {
       <td class="cmpcol-colecao"><input class="inline-input" style="width:110px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value);renderCompras()" title="A coleção pode ser editada em qualquer etapa (inclusive conferido), pra o gasto por coleção ficar certo"></td>
       <td class="cmpcol-cat"><input class="inline-input" style="width:105px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value);renderCompras()" title="A categoria pode ser editada em qualquer etapa (inclusive conferido), pra o custo por categoria ficar certo"></td>
       <td class="cmpcol-solic">${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:90px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
-      <td class="cmpcol-status"><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}</td>
+      <td class="cmpcol-status"><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}${c.origem === 'planilha' ? _selosPlanilha(c) : ''}</td>
       <td>${acoesCompra(c)}</td>
     </tr>`; }).join('')}
     </tbody><tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:var(--bg)">
@@ -14379,6 +14508,7 @@ function renderCompras() {
       <td class="cmpcol-insumo" style="text-align:right">Total (${vis.length})</td>
       <td class="cmpcol-un"></td>
       <td class="cmpcol-qtd" style="text-align:right" title="Soma das quantidades">${_fmtQtd(somaQtdVis)}</td>
+      <td class="cmpcol-consumo"></td><td class="cmpcol-estoque"></td>
       <td class="cmpcol-custou"></td>
       <td class="cmpcol-total" style="text-align:right">${fmtVal(vis.reduce((s, c) => s + (+c.custoTotal || 0), 0))}</td>
       <td class="cmpcol-frete" style="text-align:right">${fmtVal(vis.reduce((s, c) => s + (+c.frete || 0), 0))}</td>
@@ -14402,13 +14532,14 @@ function excluirComprasSel() {
 function acoesCompra(c) {
   const st = c.status || 'pendente';
   let b = '';
-  if (st === 'pendente') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','aprovado')">✅ Aprovar</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="setStatusCompra('${c.id}','rejeitado')" title="Rejeitar">❌</button>`;
+  if (st === 'pendente') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','aprovado')">✅ Aprovar</button> ${c.origem === 'planilha' ? `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="recusarCompra('${c.id}')" title="Recusar este item da planilha (sai dos pendentes)">✋ Recusar</button> ` : ''}<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="setStatusCompra('${c.id}','rejeitado')" title="Rejeitar">❌</button>`;
   else if (st === 'aprovado') b = `<span style="font-size:10px;color:var(--muted)">use 📦 acima</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')" title="Voltar p/ pendente">↩</button>`;
   else if (st === 'pedido') b = `<button class="btn primary sm" style="font-size:10px;padding:1px 6px" onclick="abrirConferirPedido('${c._pedidoId || ''}')" title="Confere item a item: ajusta a QUANTIDADE que chegou (se veio diferente do pedido), recalcula o valor, registra a NF e marca como Recebido">📄 Conferir</button> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--amber)" onclick="desfazerPedidoCompra('${c._pedidoId || ''}')" title="Desfazer pedido: remove as parcelas em aberto e volta p/ aprovado">↩ desfazer</button>`;
   else if (st === 'recebido') b = `<span style="font-size:10px;color:var(--green)">✓ Recebido${c.nfNumero ? ' · NF ' + c.nfNumero : ''}</span> <button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pedido')" title="Voltar p/ pedido (reconferir)">↩</button>`;
-  else if (st === 'rejeitado') b = `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')">↩ reabrir</button>`;
+  else if (st === 'rejeitado' || st === 'recusado') b = `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px" onclick="setStatusCompra('${c.id}','pendente')">↩ reabrir</button>`;
   else b = `<span style="font-size:10px;color:var(--muted)">${COMPRA_ST[st][0]}</span>`;
-  return b + ` <a href="#" onclick="removerCompra('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700;margin-left:4px" title="Remover">✕</a>`;
+  const linkPlan = (c.origem === 'planilha' && c._planilha && c._planilha.arquivoUrl) ? ` <a href="${_escH(c._planilha.arquivoUrl)}" target="_blank" style="color:var(--accent);text-decoration:none" title="Abrir a planilha de origem">🧵</a>` : '';
+  return b + linkPlan + ` <a href="#" onclick="removerCompra('${c.id}');return false" style="color:var(--red);text-decoration:none;font-weight:700;margin-left:4px" title="Remover">✕</a>`;
 }
 // ── Conferir recebimento ITEM A ITEM: ajusta a quantidade que chegou (pode vir diferente do pedido),
 //    recalcula o valor, registra a NF e ajusta as parcelas do Contas a Pagar. ──
@@ -14537,7 +14668,7 @@ function salvarConferirPedido(pedidoId) {
     const parcs = contasPagar.filter(c => c._compraPedidoId === pedidoId);
     parcs.forEach((c, k) => { if (c.pago) return; const antes = chaveContaPagar(c); c.numero = parcs.length > 1 ? `${nfTxt}/${k + 1}` : nfTxt; const depois = chaveContaPagar(c); if (depois !== antes) { try { _remapChaveConta(antes, depois); } catch (e) {} } });
   }
-  itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; });
+  itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; _marcarStatusEm(c); });
   saveData('compras', compras); saveData('contasPagar', contasPagar);
   document.getElementById('conf-modal')?.remove();
   renderCompras();
@@ -14613,7 +14744,7 @@ function receberPedidoCompra(pedidoId) {
       if (depois !== antes) { try { _remapChaveConta(antes, depois); } catch (e) {} }
     });
   }
-  itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; });
+  itens.forEach(c => { c.status = 'recebido'; c.nfNumero = nfTxt; _marcarStatusEm(c); });
   saveData('contasPagar', contasPagar); saveData('compras', compras);
   renderCompras();
   const nParc = contasPagar.filter(c => c._compraPedidoId === pedidoId).length;
@@ -14627,7 +14758,7 @@ function desfazerPedidoCompra(pedidoId) {
   if (pagas) { if (!confirm(`⚠ ${pagas} parcela(s) desse pedido já estão PAGAS. Desfazer mesmo assim vai REMOVER todas as parcelas do pedido. Continuar?`)) return; }
   else if (!confirm('Desfazer o pedido? Remove as parcelas em aberto do Contas a Pagar e volta os itens para APROVADO.')) return;
   contasPagar = contasPagar.filter(c => c._compraPedidoId !== pedidoId);
-  compras.forEach(c => { if (c._pedidoId === pedidoId) { c.status = 'aprovado'; delete c._pedidoId; } });
+  compras.forEach(c => { if (c._pedidoId === pedidoId) { c.status = 'aprovado'; delete c._pedidoId; _marcarStatusEm(c); } });
   saveData('contasPagar', contasPagar); saveData('compras', compras);
   renderCompras();
 }
@@ -14835,7 +14966,7 @@ function updateCompra(id, field, value) {
   saveData('compras', compras);
   if (!semRerender) renderCompras();
 }
-function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; saveData('compras', compras); renderCompras(); }
+function setStatusCompra(id, st) { const c = compras.find(x => x.id === id); if (!c) return; c.status = st; _marcarStatusEm(c); saveData('compras', compras); renderCompras(); }
 // Seleção múltipla p/ aprovar vários pedidos de uma vez (quadradinhos)
 function _comprasSelSoma() { return [...comprasSel].reduce((s, id) => { const c = compras.find(x => x.id === id); return s + (c ? totalCompra(c) : 0); }, 0); }
 function toggleCompraSel(id, on) {
@@ -14851,7 +14982,9 @@ function toggleCompraSel(id, on) {
 function toggleCompraSelTodos(on) { document.querySelectorAll('.cmp-selbox').forEach(cb => { cb.checked = on; toggleCompraSel(cb.dataset.id, on); }); }
 function aprovarComprasSel() {
   const ids = [...comprasSel]; if (!ids.length) { alert('Marque ao menos um item (quadradinho) para aprovar.'); return; }
-  let n = 0; ids.forEach(id => { const c = compras.find(x => x.id === id); if (c && (c.status || 'pendente') === 'pendente') { c.status = 'aprovado'; n++; } });
+  const comAviso = ids.filter(id => { const c = compras.find(x => x.id === id); return c && c._planilha && (c._planilha.avisos || []).length; }).length;
+  if (comAviso && !confirm(`${comAviso} item(ns) selecionado(s) têm aviso da planilha.\n\nAprovar assim mesmo?`)) return;
+  let n = 0; ids.forEach(id => { const c = compras.find(x => x.id === id); if (c && (c.status || 'pendente') === 'pendente') { c.status = 'aprovado'; _marcarStatusEm(c); n++; } });
   comprasSel.clear(); saveData('compras', compras); renderCompras();
   alert(`✓ ${n} item(ns) aprovado(s).` + (n ? '\nAgora gere o pedido no quadro "📦 Fazer pedido" acima.' : ''));
 }
@@ -14901,7 +15034,7 @@ function gerarPedidoCompra(fornecedor, i) {
       vencimento: p.venc, dataPag: null, valor: p.valor, situacao: 'Em Aberto', pago: false, _compraPedidoId: pedidoId
     });
   });
-  itens.forEach(c => { c.status = 'pedido'; c._pedidoId = pedidoId; c.condicaoId = condId; c.dataFatur = dataFat; c._pedidoNum = numPed; c._pedidoObs = obsPed; });
+  itens.forEach(c => { c.status = 'pedido'; c._pedidoId = pedidoId; c.condicaoId = condId; c.dataFatur = dataFat; c._pedidoNum = numPed; c._pedidoObs = obsPed; _marcarStatusEm(c); });
   saveData('contasPagar', contasPagar); saveData('compras', compras);
   renderCompras();
   alert(`✓ Pedido #${numPed} de "${fornecedor}" gerado!\n\n${parcelas.length} parcela(s) no Contas a Pagar (${fmtVal(total)}). Já aparecem no Fluxo como previstas.`);
