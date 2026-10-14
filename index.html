@@ -367,6 +367,17 @@ tr:hover td{background:#fafaf8}
   </div>
 </div>
 
+<!-- MODAL COLEÇÕES PL (cadastro) -->
+<div class="modal-overlay" id="colpl-modal">
+  <div class="modal-box" style="width:720px;max-width:96vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:14px;font-weight:800">🧷 Coleções PL</div>
+      <button onclick="fecharColecoesPL()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="padding:16px 20px;overflow:auto;max-height:76vh" id="colpl-body"></div>
+  </div>
+</div>
+
 <!-- TOPNAV -->
 <div class="topnav">
   <div class="topnav-item active" id="nav-vendas" onclick="setView('vendas')">Vendas</div>
@@ -520,7 +531,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v712/10-765';
+const APP_VERSION = 'v713/10-766';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -681,7 +692,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -14295,6 +14306,67 @@ const DEPARA_FORN_DEFAULT = {
   'TAKARA': 'COMERCIAL DE MAQUINAS TAKARA LTDA',
   'OESTE': 'COMERCIAL OESTE DE AVIAMENTOS LTDA'
 };
+// Cadastro de COLEÇÕES PL: [{codigo, nome, cliente, semFicha, apelidos:[], impostoPct, cartaoPct, comissaoPct, outrosPct, fixos:[{descricao,valor}]}]
+// codigo das fichas = as 3 letras do ref PLRK.XXX.26.nnn; PL sem ficha = coleção própria (semFicha:true), código gerado do nome.
+let colecoesPL = [];
+// Normaliza nome de coleção p/ casar: sem acento, maiúsculas, tira prefixo PL/WL e números/sufixos ("- 181", "361").
+function _normColNome(s) {
+  let n = _normUP(s);
+  n = n.replace(/^(PL|WL|W\.?L\.?)\s+/i, '').replace(/^(PL|WL)[\s\-]+/i, '');
+  n = n.replace(/[\s\-]+\d+\s*$/,'').replace(/\s+\d+\s*$/,'');
+  return n.replace(/\s+/g, ' ').trim();
+}
+// Nome oficial da coleção PL: "PL " + cliente em Title Case (só a 1ª letra de cada palavra). Ex.: "DE DICA" -> "PL De Dica".
+function _nomeOficialPL(cliente) {
+  const base = String(cliente || '').trim().replace(/^PL\s+/i, '');
+  const tc = base.split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  return ('PL ' + tc).trim();
+}
+function _colPLporCodigo(cod) { const c = _normUP(cod); if (!c) return null; return (colecoesPL || []).find(x => _normUP(x.codigo) === c) || null; }
+// Casa um texto de coleção com uma coleção do cadastro: por nome normalizado OU por apelido. Devolve a entrada ou null.
+function _colPLcasaNome(nome) {
+  const alvo = _normColNome(nome); if (!alvo) return null;
+  return (colecoesPL || []).find(x => {
+    if (_normColNome(x.nome) === alvo || _normColNome(x.cliente) === alvo) return true;
+    return (x.apelidos || []).some(a => _normColNome(a) === alvo);
+  }) || null;
+}
+// Gera um código único a partir do nome (coleção própria, sem ficha): 3 primeiras letras (AER, ARV, NXT…).
+function _slugColPL(nome) {
+  let base = _normColNome(nome).replace(/[^A-Z0-9]/g, '').slice(0, 3) || 'COL';
+  let cod = base, i = 2;
+  while ((colecoesPL || []).some(x => _normUP(x.codigo) === cod)) { cod = base + i; i++; }
+  return cod;
+}
+// Mesma coleção? (por cliente/nome normalizado) — pra não duplicar quando chega ficha de um cliente já cadastrado.
+function _colMesmoCliente(x, cli) { const a = _normColNome(cli); return !!a && (_normColNome(x.cliente) === a || _normColNome(x.nome) === a); }
+// Sincroniza as coleções das fichas. ADICIONA as novas e PROMOVE a de ficha quando o cliente já existe
+// como "sem ficha" (atualiza o código, guarda o antigo nos apelidos e religa os lançamentos). Não remove nada.
+function _sincColecoesPLdasFichas() {
+  const pk = planilhasCustoCompras; if (!pk || !Array.isArray(pk.fichas)) return 0;
+  let add = 0, remig = 0;
+  pk.fichas.forEach(f => {
+    const cod = String((f.ref || '').split('.')[1] || '').trim().toUpperCase();
+    const cli = String(f.cliente || '').trim();
+    if (!cod || !cli) return;
+    if ((colecoesPL || []).some(x => _normUP(x.codigo) === cod)) return; // já existe por código
+    const existente = (colecoesPL || []).find(x => _colMesmoCliente(x, cli)); // mesmo cliente (ex.: "sem ficha") → promove, não duplica
+    if (existente) {
+      const antigo = existente.codigo;
+      existente.codigo = cod; existente.semFicha = false; existente.nome = _nomeOficialPL(cli);
+      if (antigo && _normUP(antigo) !== cod) {
+        existente.apelidos = existente.apelidos || [];
+        if (!existente.apelidos.some(a => _normUP(a) === _normUP(antigo))) existente.apelidos.push(antigo);
+        (compras || []).forEach(c => { if (_normUP(c.codColPL) === _normUP(antigo)) { c.codColPL = cod; remig++; } }); // religa os lançamentos
+      }
+      add++; return;
+    }
+    colecoesPL.push({ codigo: cod, nome: _nomeOficialPL(cli), cliente: cli, semFicha: false, apelidos: [], impostoPct: '', cartaoPct: '', comissaoPct: '', outrosPct: '', fixos: [] });
+    add++;
+  });
+  if (remig) { try { saveData('compras', compras); } catch (e) {} } // só grava compras se religou algum código
+  return add;
+}
 let _planilhaMergeEm = (() => { try { return localStorage.getItem('planilhaMergeEm') || ''; } catch (e) { return ''; } })();
 let cmpOrigem = (() => { try { return localStorage.getItem('cmpOrigem') || ''; } catch (e) { return ''; } })();
 function setCmpOrigem(v) { cmpOrigem = v; try { localStorage.setItem('cmpOrigem', v); } catch (e) {} renderCompras(); }
@@ -14343,6 +14415,13 @@ async function carregarPlanilhasCompras(forcar) {
     if (!dp || typeof dp !== 'object' || !Object.keys(dp).length) { dp = Object.assign({}, DEPARA_FORN_DEFAULT); try { saveData('deParaFornecedores', dp); } catch (e) {} }
     deParaFornecedores = dp;
   } catch (e) { deParaFornecedores = Object.assign({}, DEPARA_FORN_DEFAULT); }
+  // Cadastro de coleções PL: carrega e SÓ ADICIONA as coleções novas que surgirem nas fichas (nunca altera/remove).
+  try {
+    const cp = await loadData('colecoesPL');
+    colecoesPL = Array.isArray(cp) ? cp : [];
+    const add = _sincColecoesPLdasFichas();
+    if (add > 0) { try { saveData('colecoesPL', colecoesPL); } catch (e) {} }
+  } catch (e) { colecoesPL = colecoesPL || []; }
   _planilhasCarregou = true;
   const mudou = mergePlanilhasEmCompras(!!forcar);
   if (mudou) { try { saveData('compras', compras); } catch (e) {} }
@@ -14363,6 +14442,8 @@ function mergePlanilhasEmCompras(forcar) {
     // Fornecedor: traduz o APELIDO da planilha pelo DE-PARA -> nome oficial. Sem de-para => "não cadastrado" (botão Vincular).
     const ofi = _fornOficial(p.fornecedor);
     const fornFinal = ofi || (p.fornecedor || '');
+    // Coleção PL: liga ao cadastro pelo cliente da ficha (codigo de 3 letras). Vazio se não casar.
+    const _ecol = _colPLcasaNome(p.cliente || ''); const codCol = _ecol ? _ecol.codigo : '';
     // custoUnit = custo por unidade de COMPRA (tecido: por kg). Fallback: custoComprar/qtdComprar, senão o de consumo.
     const cuCompra = (p.custoUnitCompra != null && p.custoUnitCompra !== '') ? (+p.custoUnitCompra || 0) : ((+p.qtdComprar || 0) > 0 ? +(((+p.custoComprar || 0) / (+p.qtdComprar || 1)).toFixed(4)) : (+p.custoUnitConsumo || 0));
     const _plan = { arquivoId: p.arquivoId, arquivo: p.arquivo, arquivoUrl: p.arquivoUrl, linha: p.linha, valorUnit: p.valorUnit, unidade: p.unidade, custoUnitCompra: p.custoUnitCompra, custoUnitConsumo: p.custoUnitConsumo, rolos: p.rolos, kgPorRolo: p.kgPorRolo, metrosPorRolo: p.metrosPorRolo, rendimento: p.rendimento, qtdTotal: p.qtdTotal, estoque: p.estoque, avisos: p.avisos || [], fornecedorPlanilha: p.fornecedor || '', sincronizadoEm: geradoEm };
@@ -14374,13 +14455,14 @@ function mergePlanilhasEmCompras(forcar) {
         id: p.id, status: 'pendente', solicitante: 'Planilha', origem: 'planilha', dataSolic: hoje,
         insumo, fornecedor: fornFinal, fornecedorNaoCadastrado: ofi ? undefined : true,
         unidade: p.unidade || '', qtd: +p.qtdComprar || 0, custoUnit: cuCompra, custoTotal: +p.custoComprar || 0, frete: 0, desconto: 0,
-        colecao: (p.cliente || p.arquivo || ''), categoria: _catDaSecaoPlanilha(p.secao), empresa: '', dataLimite: '', dataFatur: '',
+        colecao: (p.cliente || p.arquivo || ''), codColPL: codCol, categoria: _catDaSecaoPlanilha(p.secao), empresa: '', dataLimite: '', dataFatur: '',
         _planilha: _plan, _statusEm: {}, _possivelDup: _dup || undefined
       });
       mudou = true;
     } else if ((ex.status || 'pendente') === 'pendente') {
       ex.qtd = +p.qtdComprar || 0; ex.custoUnit = cuCompra; ex.custoTotal = +p.custoComprar || 0; ex.insumo = insumo; ex.unidade = p.unidade || ex.unidade;
       if (ofi) { ex.fornecedor = ofi; delete ex.fornecedorNaoCadastrado; } else { ex.fornecedor = p.fornecedor || ex.fornecedor; ex.fornecedorNaoCadastrado = true; }
+      if (codCol) ex.codColPL = codCol;
       ex._planilha = _plan; delete ex._removidoPlanilha; delete ex._alteradoPlanilha;
       mudou = true;
     } else {
@@ -14510,6 +14592,102 @@ function removerDeParaForn(ap) {
   abrirDeParaFornecedores();
 }
 function fecharDeParaFornecedores() { const m = document.getElementById('deparaforn-modal'); if (m) m.style.display = 'none'; }
+// ── Coleções PL (cadastro) ───────────────────────────────────────────
+// Edita a coleção de um item e, se bater com o cadastro PL, liga o código sozinho. Não altera lançamentos antigos sozinho (só este item, na mão).
+function setColecaoCompra(id, value) {
+  const c = (compras || []).find(x => x.id === id); if (!c) return;
+  updateCompra(id, 'colecao', value);
+  const e = _colPLcasaNome(value);
+  if (e) c.codColPL = e.codigo; else if (!value || !/^\s*(PL|WL)\b/i.test(value)) delete c.codColPL;
+  try { saveData('compras', compras); } catch (ex) {}
+  renderCompras();
+}
+function fecharColecoesPL() { const m = document.getElementById('colpl-modal'); if (m) m.style.display = 'none'; }
+function _salvarColecoesPL() { try { saveData('colecoesPL', colecoesPL); } catch (e) {} }
+// Abre o cadastro de coleções PL. Se vier um código, rola/destaca ele.
+function abrirColecoesPL(focarCod) {
+  const body = document.getElementById('colpl-body'); if (!body) return;
+  const linhas = (colecoesPL || []).slice().sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')).map(cp => {
+    const pcts = ['impostoPct', 'cartaoPct', 'comissaoPct', 'outrosPct'].map(k => cp[k] === '' || cp[k] == null ? '·' : cp[k] + '%').join(' / ');
+    const nf = cp.semFicha ? ` <span class="badge" style="background:#fef3c7;color:#92400e;font-size:9px">sem ficha</span>` : '';
+    const ap = (cp.apelidos || []).length ? ` <span style="font-size:10px;color:var(--muted)">apelidos: ${_escH((cp.apelidos || []).join(', '))}</span>` : '';
+    const fx = (cp.fixos || []).length ? `${(cp.fixos || []).length} fixo(s) · ${fmtVal((cp.fixos || []).reduce((s, f) => s + (+f.valor || 0), 0))}` : '·';
+    return `<tr id="colpl-row-${_escH(cp.codigo)}" style="border-bottom:1px solid var(--border)${_normUP(focarCod) === _normUP(cp.codigo) ? ';background:#eef2ff' : ''}">
+      <td style="padding:5px 8px;font-weight:700">${_escH(cp.codigo)}</td>
+      <td style="padding:5px 8px"><input class="inline-input" style="width:150px" value="${_escH(cp.nome)}" onchange="_colPLset('${_escH(cp.codigo)}','nome',this.value)">${nf}${ap}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px;color:var(--muted)" title="imposto / cartão / comissão / outros (vazio = usa o padrão)">${pcts}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--muted)">${fx}</td>
+      <td style="padding:5px 8px;text-align:right;white-space:nowrap">
+        <button class="btn-mini" style="font-size:10px;padding:1px 6px" onclick="_colPLeditar('${_escH(cp.codigo)}')" title="Editar % e custos fixos, apelidos">⚙</button>
+        <button class="btn-mini" style="font-size:10px;padding:1px 6px" onclick="_colPLremover('${_escH(cp.codigo)}')" title="Remover do cadastro">✕</button>
+      </td></tr>`;
+  }).join('');
+  body.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Coleções PL do cadastro. As de ficha têm orçado (CMV); as "sem ficha" só agrupam o gasto (realizado). O código liga os lançamentos de Compras a esta coleção.</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="btn ghost sm" onclick="(function(){var n=_sincColecoesPLdasFichas(); _salvarColecoesPL(); abrirColecoesPL(); renderCompras(); alert(n+' coleção(ões) de ficha adicionada(s).');})()" title="Puxa das fichas da planilha as coleções que ainda não estão no cadastro (só adiciona)">↻ Sincronizar das fichas</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
+      <thead><tr style="border-bottom:2px solid var(--border);text-align:left"><th style="padding:5px 8px">Código</th><th style="padding:5px 8px">Nome / cliente</th><th style="padding:5px 8px;text-align:center">% (imp/cart/com/out)</th><th style="padding:5px 8px">Fixos</th><th></th></tr></thead>
+      <tbody>${linhas || '<tr><td colspan="5" style="padding:8px;color:var(--muted)">Nenhuma coleção PL ainda. Abra Compras (carrega as fichas) ou adicione abaixo.</td></tr>'}</tbody>
+    </table>
+    <div style="border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Adicionar coleção própria (sem ficha)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="colpl-novo-nome" placeholder="Nome (ex.: PL Aera)" style="flex:1;min-width:160px;padding:7px;border:1px solid var(--border);border-radius:6px">
+        <input id="colpl-novo-cod" placeholder="Código (auto)" style="width:110px;padding:7px;border:1px solid var(--border);border-radius:6px" title="Deixe em branco para gerar das 3 primeiras letras">
+        <button class="btn" onclick="_colPLadd()">+ Adicionar</button>
+      </div>
+    </div>`;
+  document.getElementById('colpl-modal').style.display = 'flex';
+  if (focarCod) setTimeout(() => { const r = document.getElementById('colpl-row-' + focarCod); if (r) r.scrollIntoView({ block: 'center' }); }, 60);
+}
+function _colPLset(cod, campo, val) { const e = _colPLporCodigo(cod); if (!e) return; e[campo] = val; _salvarColecoesPL(); }
+function _colPLadd() {
+  const nome = (document.getElementById('colpl-novo-nome').value || '').trim();
+  if (!nome) { alert('Digite o nome da coleção.'); return; }
+  let cod = (document.getElementById('colpl-novo-cod').value || '').trim().toUpperCase();
+  if (!cod) cod = _slugColPL(nome);
+  if (_colPLporCodigo(cod)) { alert('Já existe uma coleção com o código ' + cod + '.'); return; }
+  const nomeOf = _nomeOficialPL(nome); const cli = nomeOf.replace(/^PL\s+/i, '');
+  colecoesPL.push({ codigo: cod, nome: nomeOf, cliente: cli, semFicha: true, apelidos: [], impostoPct: '', cartaoPct: '', comissaoPct: '', outrosPct: '', fixos: [] });
+  _salvarColecoesPL(); abrirColecoesPL(cod); renderCompras();
+}
+function _colPLremover(cod) {
+  const e = _colPLporCodigo(cod); if (!e) return;
+  const usos = (compras || []).filter(c => _normUP(c.codColPL) === _normUP(cod)).length;
+  if (!confirm('Remover a coleção ' + cod + ' (' + (e.nome || '') + ')?' + (usos ? '\n\n' + usos + ' lançamento(s) de Compras estão ligados a ela e ficarão sem código.' : ''))) return;
+  colecoesPL = colecoesPL.filter(x => _normUP(x.codigo) !== _normUP(cod));
+  _salvarColecoesPL(); abrirColecoesPL(); renderCompras();
+}
+// Painel de edição de % e fixos + apelidos de uma coleção.
+function _colPLeditar(cod) {
+  const e = _colPLporCodigo(cod); if (!e) return;
+  const body = document.getElementById('colpl-body'); if (!body) return;
+  const campo = (k, lbl) => `<label style="font-size:12px">${lbl}<br><input class="inline-input" style="width:80px" value="${e[k] === '' || e[k] == null ? '' : e[k]}" placeholder="padrão" onchange="_colPLset('${_escH(cod)}','${k}',this.value===''?'':(+this.value||0))"></label>`;
+  const fixosRows = (e.fixos || []).map((f, i) => `<tr>
+      <td style="padding:3px"><input class="inline-input" style="width:170px" value="${_escH(f.descricao)}" onchange="_colPLfixo('${_escH(cod)}',${i},'descricao',this.value)"></td>
+      <td style="padding:3px"><input class="inline-input" style="width:90px;text-align:right" value="${f.valor == null ? '' : f.valor}" onchange="_colPLfixo('${_escH(cod)}',${i},'valor',this.value)"></td>
+      <td style="padding:3px"><button class="btn-mini" style="font-size:10px" onclick="_colPLfixoDel('${_escH(cod)}',${i})">✕</button></td></tr>`).join('');
+  body.innerHTML = `
+    <button class="btn ghost sm" onclick="abrirColecoesPL('${_escH(cod)}')" style="margin-bottom:12px">‹ Voltar ao cadastro</button>
+    <div style="font-size:14px;font-weight:800;margin-bottom:2px">${_escH(e.codigo)} · ${_escH(e.nome)}${e.semFicha ? ' <span class="badge" style="background:#fef3c7;color:#92400e;font-size:9px">sem ficha</span>' : ''}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">% em branco = usa o padrão do Painel (parametrosMargemPL). Fixos são custos em R$ da coleção (rateados por peça no Painel).</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px">${campo('impostoPct', 'Imposto %')}${campo('cartaoPct', 'Cartão %')}${campo('comissaoPct', 'Comissão %')}${campo('outrosPct', 'Outros %')}</div>
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Custos fixos (R$)</div>
+    <table style="border-collapse:collapse;font-size:12px;margin-bottom:8px"><tbody>${fixosRows || '<tr><td style="color:var(--muted);padding:3px">Nenhum.</td></tr>'}</tbody></table>
+    <button class="btn-mini" style="font-size:11px" onclick="_colPLfixoAdd('${_escH(cod)}')">+ custo fixo</button>
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Apelidos (nomes alternativos pra casar lançamentos)</div>
+      <input id="colpl-apel" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px" value="${_escH((e.apelidos || []).join(', '))}" placeholder="separados por vírgula" onchange="_colPLsetApelidos('${_escH(cod)}',this.value)">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">A ferramenta Unificar também preenche isso quando você confirma uma ligação.</div>
+    </div>`;
+  document.getElementById('colpl-modal').style.display = 'flex';
+}
+function _colPLfixo(cod, i, campo, val) { const e = _colPLporCodigo(cod); if (!e || !e.fixos || !e.fixos[i]) return; e.fixos[i][campo] = campo === 'valor' ? (+val || 0) : val; _salvarColecoesPL(); }
+function _colPLfixoAdd(cod) { const e = _colPLporCodigo(cod); if (!e) return; e.fixos = e.fixos || []; e.fixos.push({ descricao: '', valor: 0 }); _salvarColecoesPL(); _colPLeditar(cod); }
+function _colPLfixoDel(cod, i) { const e = _colPLporCodigo(cod); if (!e || !e.fixos) return; e.fixos.splice(i, 1); _salvarColecoesPL(); _colPLeditar(cod); }
+function _colPLsetApelidos(cod, val) { const e = _colPLporCodigo(cod); if (!e) return; e.apelidos = String(val || '').split(',').map(s => s.trim()).filter(Boolean); _salvarColecoesPL(); }
 
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
@@ -14555,6 +14733,7 @@ function renderCompras() {
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-sync-planilhas" onclick="atualizarComprasDasPlanilhas()" title="Lê as planilhas de Custo/Compras (Drive) e traz os itens novos como PENDENTES. Não duplica.">📥 Atualizar das planilhas</button>
       <button class="btn ghost sm" onclick="abrirDeParaFornecedores()" title="Ver/editar o de-para de fornecedores: apelido da planilha → nome oficial em Compras.">🔗 Fornecedores da planilha</button>
+      <button class="btn ghost sm" onclick="abrirColecoesPL()" title="Cadastro de coleções PL (código, apelidos, % e custos fixos). O campo Coleção/PL de cada item liga por aqui.">🧷 Coleções PL</button>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
       <button class="btn ok sm" onclick="escolherRomaneioPDF()" title="Sobe o PDF do romaneio/pedido (grade por tamanho, ex.: oficina). Você escolhe o arquivo, confere os itens e marca o que quer lançar.">📄 Importar PDF</button>
@@ -14591,7 +14770,7 @@ function renderCompras() {
     ${vis.length === 0 ? '<div class="empty"><div class="e-icon">🛒</div>Nenhuma compra no filtro. Suba a planilha de requisição ou clique ➕ Nova compra.</div>' : `
     <datalist id="cmp-cat-list">${Object.values(CATEGORIAS_DESPESA).flat().map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <datalist id="cmp-forn-list">${[...new Set([...fornecedoresCompras.map(f => f.nome).filter(Boolean), ...compras.map(c => c.fornecedor).filter(Boolean), ...contasPagar.map(c => c.fornecedor).filter(Boolean)])].sort().map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
-    <datalist id="cmp-col-list">${colecoes.map(cc => `<option value="${(cc.nome || '').replace(/"/g, '&quot;')}">${(cc.subgrupo || '').replace(/"/g, '&quot;')}</option>`).join('')}${[...new Set(compras.map(c => c.colecao).filter(Boolean))].filter(n => !colecoes.some(cc => cc.nome === n)).map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
+    <datalist id="cmp-col-list">${(colecoesPL || []).map(cp => `<option value="${(cp.nome || '').replace(/"/g, '&quot;')}">PL ${(cp.codigo || '')}${cp.semFicha ? ' · sem ficha' : ''}</option>`).join('')}${colecoes.map(cc => `<option value="${(cc.nome || '').replace(/"/g, '&quot;')}">${(cc.subgrupo || '').replace(/"/g, '&quot;')}</option>`).join('')}${[...new Set(compras.map(c => c.colecao).filter(Boolean))].filter(n => !colecoes.some(cc => cc.nome === n) && !(colecoesPL || []).some(cp => cp.nome === n)).map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('')}</datalist>
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:11px">
       <span style="color:var(--muted)">👁 Colunas:</span>
       ${CMP_COLS.map(([k,lbl])=>{ const oc=cmpColsOcultas.includes(k); return `<span onclick="toggleCmpCol('${k}')" title="${oc?'Mostrar':'Ocultar'} ${lbl}" style="cursor:pointer;padding:2px 9px;border-radius:11px;user-select:none;${oc?'opacity:.5;text-decoration:line-through;background:var(--bg);border:1px solid var(--border)':'background:var(--accent);color:#fff;border:1px solid var(--accent)'}">${lbl}</span>`; }).join('')}
@@ -14625,7 +14804,7 @@ function renderCompras() {
       <td class="cmpcol-desc" style="text-align:right">${ro ? fmtVal(c.desconto || 0) : `<input class="inline-input" style="width:70px;text-align:right" value="${c.desconto || ''}" placeholder="0,00" onchange="updateCompra('${c.id}','desconto',this.value)" title="Desconto do item — subtrai do total">`}</td>
       <td class="cmpcol-totalg" style="text-align:right"><strong>${fmtVal(totalCompra(c))}</strong></td>
       <td class="cmpcol-datafat">${ro ? (c.dataFatur ? _toDateInput(new Date(c.dataFatur + 'T12:00:00')).split('-').reverse().join('/') : '—') : `<input type="date" class="inline-input" style="width:118px" value="${c.dataFatur || ''}" onchange="updateCompra('${c.id}','dataFatur',this.value)" title="Data de faturamento — o prazo das parcelas conta a partir dela">`}</td>
-      <td class="cmpcol-colecao"><input class="inline-input" style="width:110px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="updateCompra('${c.id}','colecao',this.value);renderCompras()" title="A coleção pode ser editada em qualquer etapa (inclusive conferido), pra o gasto por coleção ficar certo"></td>
+      <td class="cmpcol-colecao"><input class="inline-input" style="width:110px" list="cmp-col-list" value="${(c.colecao || '').replace(/"/g, '&quot;')}" placeholder="Coleção/PL/WL" onchange="setColecaoCompra('${c.id}',this.value)" title="A coleção pode ser editada em qualquer etapa. Se bater com uma coleção PL do cadastro, liga o código sozinho."><div style="margin-top:2px">${c.codColPL ? `<span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:9px;cursor:pointer" onclick="abrirColecoesPL('${_escH(c.codColPL)}')" title="Coleção PL: ${_escH((_colPLporCodigo(c.codColPL) || {}).nome || '')} — clique pra ver no cadastro">🧷 ${_escH(c.codColPL)}</span>` : ((c.colecao && /^\s*(PL|WL)\b/i.test(c.colecao)) ? `<span class="badge" style="background:#fef3c7;color:#92400e;font-size:9px" title="Parece PL mas não está ligada a uma coleção do cadastro. Use a ferramenta Unificar ou escolha da lista.">PL sem código</span>` : '')}</div></td>
       <td class="cmpcol-cat"><input class="inline-input" style="width:105px" list="cmp-cat-list" value="${(c.categoria || '').replace(/"/g, '&quot;')}" onchange="updateCompra('${c.id}','categoria',this.value);renderCompras()" title="A categoria pode ser editada em qualquer etapa (inclusive conferido), pra o custo por categoria ficar certo"></td>
       <td class="cmpcol-solic">${ro ? (c.solicitante || '—') : `<input class="inline-input" style="width:90px" value="${(c.solicitante || '').replace(/"/g, '&quot;')}" placeholder="solicitante" onchange="updateCompra('${c.id}','solicitante',this.value)">`}</td>
       <td class="cmpcol-status"><span class="badge ${COMPRA_ST[st][1]}">${COMPRA_ST[st][0]}</span>${c._pedidoNum ? ` <span style="font-size:10px;color:var(--muted)" title="Nº do pedido">#${c._pedidoNum}</span>` : ''}${c.origem === 'planilha' ? _selosPlanilha(c) : ''}</td>
@@ -17520,7 +17699,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL'];
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
@@ -17588,6 +17767,8 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     else if (k==='cpFechado') cpFechado = v || {};
     else if (k==='produtoColecao') produtoColecao = v || {};
     else if (k==='colecaoSugerida') colecaoSugerida = v || {};
+    else if (k==='colecoesPL') colecoesPL = Array.isArray(v) ? v : [];
+    else if (k==='deParaFornecedores') deParaFornecedores = (v && typeof v === 'object') ? v : {};
     else if (k==='colecoesLista') colecoesLista = v || [];
     else if (k==='blingCustos') blingCustosMap = (v && v.map) || {};
     else if (k==='creditosCliente') creditosCliente = v || [];
