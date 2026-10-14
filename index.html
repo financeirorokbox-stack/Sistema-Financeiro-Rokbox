@@ -531,7 +531,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v713/10-766';
+const APP_VERSION = 'v714/10-767';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14688,6 +14688,80 @@ function _colPLfixo(cod, i, campo, val) { const e = _colPLporCodigo(cod); if (!e
 function _colPLfixoAdd(cod) { const e = _colPLporCodigo(cod); if (!e) return; e.fixos = e.fixos || []; e.fixos.push({ descricao: '', valor: 0 }); _salvarColecoesPL(); _colPLeditar(cod); }
 function _colPLfixoDel(cod, i) { const e = _colPLporCodigo(cod); if (!e || !e.fixos) return; e.fixos.splice(i, 1); _salvarColecoesPL(); _colPLeditar(cod); }
 function _colPLsetApelidos(cod, val) { const e = _colPLporCodigo(cod); if (!e) return; e.apelidos = String(val || '').split(',').map(s => s.trim()).filter(Boolean); _salvarColecoesPL(); }
+// ── Ferramenta Unificar coleções (etapa 2) ───────────────────────────
+let _uniSoPL = true;
+function _pareceNaoPL(t) { return /^(WL|W\.?L\.?|WHITE LABEL|COLE[CÇ][AÃ]O|PRODUTO ACABADO)\b/i.test(t) || /^\s*(JANEIRO|FEVEREIRO|MAR[CÇ]O|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)/i.test(t); }
+// Sugere a ação pra um texto de coleção: liga ao cadastro, cria coleção própria, "a ratear" (multi) ou deixa fora.
+function _sugestaoUnificar(texto) {
+  const e = _colPLcasaNome(texto); if (e) return 'lig:' + e.codigo;
+  const semPL = String(texto || '').replace(/^\s*PL\s+/i, '');
+  const ehMulti = /,|\s\be\b\s/i.test(semPL);
+  const ehPL = /^\s*PL\b/i.test(texto || '');
+  if (ehPL && ehMulti) return 'ratear';
+  if (ehPL) return 'criar';
+  return 'fora';
+}
+function setUniSoPL(v) { _uniSoPL = !!v; abrirUnificarColecoes(); }
+function abrirUnificarColecoes() {
+  const body = document.getElementById('colpl-body'); if (!body) return;
+  const textos = {};
+  (compras || []).forEach(c => { if (c.codColPL || c.rateioPL) return; const t = (c.colecao || '').trim(); if (!t) return; textos[t] = (textos[t] || 0) + 1; });
+  let lista = Object.keys(textos).sort((a, b) => textos[b] - textos[a]);
+  if (_uniSoPL) lista = lista.filter(t => !_pareceNaoPL(t) || _colPLcasaNome(t) || /^\s*PL\b/i.test(t));
+  const optsCol = (colecoesPL || []).slice().sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+  const rows = lista.map((t, i) => {
+    const sug = _sugestaoUnificar(t);
+    const nomeCriar = _nomeOficialPL(_normColNome(t)); const codCriar = _slugColPL(t);
+    const opt = (val, lbl) => `<option value="${_escH(val)}"${sug === val ? ' selected' : ''}>${_escH(lbl)}</option>`;
+    const ligOpts = optsCol.map(c => opt('lig:' + c.codigo, `ligar → ${c.nome} (${c.codigo})${c.semFicha ? ' · sem ficha' : ''}`)).join('');
+    const criarOpt = /^\s*PL\b/i.test(t) ? opt('criar', `criar "${nomeCriar}" (${codCriar}, sem ficha)`) : '';
+    return `<tr data-uni-texto="${_escH(t)}" data-uni-i="${i}" style="border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px">${_escH(t)}</td>
+      <td style="padding:5px 8px;text-align:center;color:var(--muted)">${textos[t]}</td>
+      <td style="padding:5px 8px"><select id="uni-sel-${i}" class="inline-input" style="width:280px">
+        ${ligOpts}${criarOpt}${opt('ratear', 'a ratear (não distribui)')}${opt('fora', '— deixar fora (não é PL) —')}
+      </select></td></tr>`;
+  }).join('');
+  body.innerHTML = `
+    <div style="font-size:15px;font-weight:800;margin-bottom:4px">🧩 Unificar coleções</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Liga os lançamentos antigos de Compras ao código da coleção PL, pelo nome e pelos apelidos. Confira as sugestões e clique em Aplicar. Nada muda até você aplicar; o texto da coleção não é alterado, só o vínculo (código).</div>
+    <label style="font-size:12px;display:inline-flex;align-items:center;gap:6px;margin-bottom:10px"><input type="checkbox" ${_uniSoPL ? 'checked' : ''} onchange="setUniSoPL(this.checked)"> mostrar só os que parecem PL</label>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
+      <thead><tr style="border-bottom:2px solid var(--border);text-align:left"><th style="padding:5px 8px">Coleção (texto do lançamento)</th><th style="padding:5px 8px;text-align:center">Lanç.</th><th style="padding:5px 8px">Ação</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="3" style="padding:8px;color:var(--muted)">Nada pra unificar: todos já estão ligados.</td></tr>'}</tbody>
+    </table>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="abrirColecoesPL()">Ver cadastro</button>
+      <button class="btn" onclick="_unificarAplicar()"${rows ? '' : ' disabled'}>Aplicar selecionadas</button>
+    </div>`;
+  document.getElementById('colpl-modal').style.display = 'flex';
+}
+function _unificarAplicar() {
+  const rows = document.querySelectorAll('[data-uni-texto]');
+  let nLig = 0, nCri = 0, nRat = 0, apel = 0;
+  rows.forEach(r => {
+    const texto = r.getAttribute('data-uni-texto');
+    const sel = document.getElementById('uni-sel-' + r.getAttribute('data-uni-i'));
+    const acao = sel ? sel.value : 'fora';
+    const alvos = (compras || []).filter(c => (c.colecao || '').trim() === texto && !c.codColPL && !c.rateioPL);
+    if (acao === 'fora' || !alvos.length) return;
+    if (acao === 'ratear') { alvos.forEach(c => { c.rateioPL = true; delete c.codColPL; }); nRat += alvos.length; return; }
+    let cod = '';
+    if (acao === 'criar') {
+      let e = _colPLcasaNome(texto);
+      if (!e) { const nomeOf = _nomeOficialPL(_normColNome(texto)); e = { codigo: _slugColPL(texto), nome: nomeOf, cliente: nomeOf.replace(/^PL\s+/i, ''), semFicha: true, apelidos: [], impostoPct: '', cartaoPct: '', comissaoPct: '', outrosPct: '', fixos: [] }; colecoesPL.push(e); nCri++; }
+      cod = e.codigo;
+    } else if (acao.indexOf('lig:') === 0) { cod = acao.slice(4); }
+    if (!cod) return;
+    const e = _colPLporCodigo(cod);
+    if (e) { const alvoN = _normColNome(texto); const jaCasa = _normColNome(e.nome) === alvoN || _normColNome(e.cliente) === alvoN || (e.apelidos || []).some(a => _normColNome(a) === alvoN); if (!jaCasa) { e.apelidos = e.apelidos || []; e.apelidos.push(texto); apel++; } }
+    alvos.forEach(c => { c.codColPL = cod; delete c.rateioPL; }); nLig += alvos.length;
+  });
+  _salvarColecoesPL(); try { saveData('compras', compras); } catch (e) {}
+  renderCompras();
+  alert('Unificação aplicada:\n• ' + nLig + ' lançamento(s) ligados\n• ' + nCri + ' coleção(ões) criada(s)\n• ' + nRat + ' marcados "a ratear"\n• ' + apel + ' apelido(s) gravados');
+  abrirUnificarColecoes();
+}
 
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
@@ -14734,6 +14808,7 @@ function renderCompras() {
       <button class="btn ok sm" id="cmp-sync-planilhas" onclick="atualizarComprasDasPlanilhas()" title="Lê as planilhas de Custo/Compras (Drive) e traz os itens novos como PENDENTES. Não duplica.">📥 Atualizar das planilhas</button>
       <button class="btn ghost sm" onclick="abrirDeParaFornecedores()" title="Ver/editar o de-para de fornecedores: apelido da planilha → nome oficial em Compras.">🔗 Fornecedores da planilha</button>
       <button class="btn ghost sm" onclick="abrirColecoesPL()" title="Cadastro de coleções PL (código, apelidos, % e custos fixos). O campo Coleção/PL de cada item liga por aqui.">🧷 Coleções PL</button>
+      <button class="btn ghost sm" onclick="abrirUnificarColecoes()" title="Liga os lançamentos antigos ao código da coleção PL (por nome e apelidos). Mostra prévia antes de aplicar.">🧩 Unificar coleções</button>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
       <button class="btn ok sm" onclick="escolherRomaneioPDF()" title="Sobe o PDF do romaneio/pedido (grade por tamanho, ex.: oficina). Você escolhe o arquivo, confere os itens e marca o que quer lançar.">📄 Importar PDF</button>
