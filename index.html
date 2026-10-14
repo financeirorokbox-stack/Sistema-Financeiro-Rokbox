@@ -509,7 +509,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v710/10-763';
+const APP_VERSION = 'v711/10-764';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14324,7 +14324,9 @@ function mergePlanilhasEmCompras(forcar) {
   pk.compras.forEach(p => {
     if (!p || !p.id) return;
     const forn = _fornExistente(p.fornecedor);
-    const _plan = { arquivoId: p.arquivoId, arquivo: p.arquivo, arquivoUrl: p.arquivoUrl, linha: p.linha, valorUnit: p.valorUnit, qtdTotal: p.qtdTotal, estoque: p.estoque, avisos: p.avisos || [], sincronizadoEm: geradoEm };
+    // custoUnit = custo por unidade de COMPRA (tecido: por kg). Fallback: custoComprar/qtdComprar, senão o de consumo.
+    const cuCompra = (p.custoUnitCompra != null && p.custoUnitCompra !== '') ? (+p.custoUnitCompra || 0) : ((+p.qtdComprar || 0) > 0 ? +(((+p.custoComprar || 0) / (+p.qtdComprar || 1)).toFixed(4)) : (+p.custoUnitConsumo || 0));
+    const _plan = { arquivoId: p.arquivoId, arquivo: p.arquivo, arquivoUrl: p.arquivoUrl, linha: p.linha, valorUnit: p.valorUnit, unidade: p.unidade, custoUnitCompra: p.custoUnitCompra, custoUnitConsumo: p.custoUnitConsumo, rolos: p.rolos, kgPorRolo: p.kgPorRolo, rendimento: p.rendimento, qtdTotal: p.qtdTotal, estoque: p.estoque, avisos: p.avisos || [], sincronizadoEm: geradoEm };
     const insumo = ((p.insumo || '') + (p.cor ? ' - ' + p.cor : '')).trim();
     const ex = porId.get(p.id);
     if (!ex) {
@@ -14332,13 +14334,13 @@ function mergePlanilhasEmCompras(forcar) {
       compras.push({
         id: p.id, status: 'pendente', solicitante: 'Planilha', origem: 'planilha', dataSolic: hoje,
         insumo, fornecedor: forn || (p.fornecedor || ''), fornecedorNaoCadastrado: forn ? undefined : true,
-        unidade: '', qtd: +p.qtdComprar || 0, custoUnit: +p.custoUnitConsumo || 0, custoTotal: +p.custoComprar || 0, frete: 0, desconto: 0,
+        unidade: p.unidade || '', qtd: +p.qtdComprar || 0, custoUnit: cuCompra, custoTotal: +p.custoComprar || 0, frete: 0, desconto: 0,
         colecao: (p.cliente || p.arquivo || ''), categoria: _catDaSecaoPlanilha(p.secao), empresa: '', dataLimite: '', dataFatur: '',
         _planilha: _plan, _statusEm: {}, _possivelDup: _dup || undefined
       });
       mudou = true;
     } else if ((ex.status || 'pendente') === 'pendente') {
-      ex.qtd = +p.qtdComprar || 0; ex.custoUnit = +p.custoUnitConsumo || 0; ex.custoTotal = +p.custoComprar || 0; ex.insumo = insumo;
+      ex.qtd = +p.qtdComprar || 0; ex.custoUnit = cuCompra; ex.custoTotal = +p.custoComprar || 0; ex.insumo = insumo; ex.unidade = p.unidade || ex.unidade;
       if (forn) { ex.fornecedor = forn; delete ex.fornecedorNaoCadastrado; } else { ex.fornecedor = p.fornecedor || ex.fornecedor; ex.fornecedorNaoCadastrado = true; }
       ex._planilha = _plan; delete ex._removidoPlanilha; delete ex._alteradoPlanilha;
       mudou = true;
@@ -14398,6 +14400,7 @@ function _selosPlanilha(c) {
   if (c._removidoPlanilha) s += ` <span class="badge err" title="Sumiu da planilha. Decida manter ou remover.">⌫ Removido da planilha</span>`;
   if (c.fornecedorNaoCadastrado) s += ` <span class="badge" style="background:#e5e7eb;color:#555;cursor:help" title="Fornecedor não encontrado no Cadastro de fornecedores.">forn. não cadastrado</span>`;
   if (c._possivelDup) { const d = c._possivelDup; s += ` <span class="badge" style="background:#e0e7ff;color:#3730a3;cursor:help" title="Parecido com um lançamento que já existe → ${_escH(d.insumo)} · ${_escH(d.colecao)} · ${_escH(d.status)}${d.data ? ' · ' + _escH(d.data) : ''}">⧉ Possível duplicado</span>`; }
+  if (c._planilha && c._planilha.rolos != null && c._planilha.rolos !== '') { const pl = c._planilha; s += ` <span style="font-size:10px;color:var(--muted)" title="Compra de tecido em rolos">≈ ${(+pl.rolos || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} rolo${pl.kgPorRolo ? ' (' + (+pl.kgPorRolo || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' kg/rolo)' : ''}</span>`; }
   return s;
 }
 

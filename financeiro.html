@@ -107,6 +107,7 @@
     <button class="aba" data-t="margem" onclick="setAba('margem')">💰 Margem</button>
     <button class="aba" data-t="recebimentos" onclick="setAba('recebimentos')">🧾 Recebimentos</button>
     <button class="aba" data-t="nf" onclick="setAba('nf')">📑 NF</button>
+    <button class="aba" data-t="margempl" onclick="setAba('margempl')">🧵 Margem PL</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -197,6 +198,10 @@
 
   <div id="aba-nf" style="display:none">
     <div id="nf-conteudo"></div>
+  </div>
+
+  <div id="aba-margempl" style="display:none">
+    <div id="margempl-conteudo"></div>
   </div>
 
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI)</div>
@@ -369,7 +374,7 @@ function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra
 }
 function _popMesSel(){ const s=document.getElementById('mes-sel'); if(!s) return; const cur=mesSel||mesAtual(); s.innerHTML=_mesesDisponiveis().map(mm=>{ const nome=new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<option value="${mm}" ${mm===cur?'selected':''}>${nome.charAt(0).toUpperCase()+nome.slice(1)}</option>`; }).join(''); }
 function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); const f=document.getElementById('aba-fechamento'); if(f && f.style.display!=='none') renderFechamento(); const g=document.getElementById('aba-margem'); if(g && g.style.display!=='none') renderMargem(); const rc=document.getElementById('aba-recebimentos'); if(rc && rc.style.display!=='none') renderRecebimentos(); const nf=document.getElementById('aba-nf'); if(nf && nf.style.display!=='none') renderNF(); } // atualiza balancete/fechamento/margem/recebimentos/NF se estiverem abertos
-function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); }
+function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); }
 
 // ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
 function renderFechamento(){
@@ -1132,8 +1137,86 @@ function renderMargem(){
 }
 function nf(n){ return (n||0).toLocaleString('pt-BR'); }
 
+// ── Margem PL: custo e margem por REF, da chave planilhasCustoCompras.fichas (só-admin) ──
+let _plMargemPk = null, _plMargemLoaded = false;
+let _plMargemMin = 50; // padrão; carregado da chave parametrosMargemPL (Supabase) ao abrir a aba
+let _plFCliente = '', _plFArquivo = '', _plFSoAviso = false;
+function _escHpl(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function _rowIdPL(ch) { const s = DEV + '|' + ch; let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h; }
+async function _skPL(ch, val) { try { const b = (await _sbToken()) || SUPA_KEY; await fetch(`${SUPA_URL}/rest/v1/sistema_dados`, { method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + b, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: _rowIdPL(ch), device_id: DEV, chave: ch, valor: JSON.stringify(val), atualizado_em: new Date().toISOString() }) }); } catch (e) {} }
+function setPlMargemMin(v) { _plMargemMin = Math.max(0, Math.min(100, +v || 0)); _skPL('parametrosMargemPL', { margemMin: _plMargemMin }); renderMargemPL(); }
+function setPlF(campo, v) { if (campo === 'cli') _plFCliente = v; else if (campo === 'arq') _plFArquivo = v; else _plFSoAviso = !!v; renderMargemPL(); }
+function recarregarMargemPL() { _plMargemLoaded = false; renderMargemPL(); }
+async function renderMargemPL() {
+  const el = document.getElementById('margempl-conteudo'); if (!el) return;
+  if (!_plMargemLoaded) { el.innerHTML = '<div class="card" style="padding:18px;color:var(--muted)">Carregando planilhas…</div>'; try { _plMargemPk = await gk('planilhasCustoCompras'); } catch (e) { _plMargemPk = null; } try { const par = await gk('parametrosMargemPL'); if (par && par.margemMin != null) _plMargemMin = +par.margemMin || 50; } catch (e) {} _plMargemLoaded = true; }
+  const pk = _plMargemPk || {};
+  const fichas = (pk.fichas || []).slice();
+  const comp = f => ({ tecidos: +f.tecidos || 0, aviamentos: +f.aviamentos || 0, embalagem: +f.embalagem || 0, maoDeObra: +f.maoDeObra || 0, estamparia: +f.estamparia || 0, desenvolvimento: +f.desenvolvimento || 0, logistica: +f.logistica || 0 });
+  const cmvDe = f => { if (f.cmv != null && f.cmv !== '') return +f.cmv || 0; const c = comp(f); return +(c.tecidos + c.aviamentos + c.embalagem + c.maoDeObra + c.estamparia + c.desenvolvimento + c.logistica).toFixed(2); };
+  const clientes = [...new Set(fichas.map(f => f.cliente).filter(Boolean))].sort();
+  const arquivos = [...new Set(fichas.map(f => f.arquivo).filter(Boolean))].sort();
+  let vis = fichas;
+  if (_plFCliente) vis = vis.filter(f => f.cliente === _plFCliente);
+  if (_plFArquivo) vis = vis.filter(f => f.arquivo === _plFArquivo);
+  if (_plFSoAviso) vis = vis.filter(f => (f.avisos || []).length);
+  const nAviso = fichas.filter(f => (f.avisos || []).length).length;
+  const fp = v => (v == null || v === '') ? '—' : (+v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pc = x => (x == null || !isFinite(x)) ? '—' : (x * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
+  const COMP = [['tecidos', 'Tecidos', '#60a5fa'], ['aviamentos', 'Aviam.', '#34d399'], ['embalagem', 'Embal.', '#fbbf24'], ['maoDeObra', 'Mão obra', '#f87171'], ['estamparia', 'Estamp.', '#a78bfa'], ['desenvolvimento', 'Desenv.', '#f472b6'], ['logistica', 'Logíst.', '#38bdf8']];
+  const porCli = {};
+  vis.forEach(f => { const q = +f.qtd || 0, cmv = cmvDe(f), vend = +f.valorVendido || 0; const k = f.cliente || '(sem cliente)'; const g = porCli[k] || (porCli[k] = { rec: 0, cmv: 0, q: 0 }); g.rec += vend * q; g.cmv += cmv * q; g.q += q; });
+  const rows = vis.map(f => {
+    const q = +f.qtd || 0, cmv = cmvDe(f), vend = +f.valorVendido || 0, sug = +f.valorSugerido || 0, c = comp(f);
+    const marg = vend > 0 ? (vend - cmv) / vend : null, mk = cmv > 0 ? vend / cmv : null;
+    const difS = vend - sug, difSpc = sug > 0 ? (vend - sug) / sug : null;
+    const real = (f.custoRealFinal != null && f.custoRealFinal !== '') ? +f.custoRealFinal : null;
+    const difR = real != null ? real - cmv : null, difRpc = (real != null && cmv > 0) ? (real - cmv) / cmv : null;
+    const baixaMarg = marg != null && marg * 100 < _plMargemMin, vendBaixo = sug > 0 && vend > 0 && vend < sug, custoAlto = real != null && real > cmv;
+    const aviso = (f.avisos || []).length ? ` <span style="cursor:help" title="${_escHpl((f.avisos || []).join(' | '))}">⚠</span>` : '';
+    return `<tr>
+      <td style="font-weight:700">${_escHpl(f.ref || '')}${aviso}</td><td>${_escHpl(f.descricao || '')}</td><td>${_escHpl(f.cliente || '')}</td><td style="text-align:right">${nf(q)}</td>
+      <td style="text-align:right">${fp(c.tecidos)}</td><td style="text-align:right">${fp(c.aviamentos)}</td><td style="text-align:right">${fp(c.embalagem)}</td><td style="text-align:right">${fp(c.maoDeObra)}</td><td style="text-align:right">${fp(c.estamparia)}</td><td style="text-align:right">${fp(c.desenvolvimento)}</td><td style="text-align:right">${fp(c.logistica)}</td>
+      <td style="text-align:right;font-weight:700">${fp(cmv)}</td><td style="text-align:right">${fp(sug)}</td>
+      <td style="text-align:right;${vendBaixo ? 'color:var(--amber)' : ''}"${vendBaixo ? ' title="Vendido abaixo do sugerido"' : ''}>${fp(vend)}</td>
+      <td style="text-align:right;font-weight:700;${baixaMarg ? 'color:var(--red)' : 'color:var(--lime)'}"${baixaMarg ? ` title="Margem abaixo do mínimo (${_plMargemMin}%)"` : ''}>${pc(marg)}</td>
+      <td style="text-align:right">${mk != null ? mk.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + 'x' : '—'}</td>
+      <td style="text-align:right">${sug > 0 ? fp(difS) + ' / ' + pc(difSpc) : '—'}</td>
+      <td style="text-align:right;${custoAlto ? 'color:var(--red)' : ''}"${custoAlto ? ' title="Custo real acima do orçado (CMV)"' : ''}>${real != null ? fp(difR) + ' / ' + pc(difRpc) : '—'}</td>
+    </tr>`;
+  }).join('');
+  const maxCmv = Math.max(1, ...vis.map(cmvDe));
+  const W = 340;
+  const graf = vis.slice(0, 30).map(f => { const c = comp(f), cmv = cmvDe(f); let x = 0; const segs = COMP.map(([k, l, col]) => { const v = c[k]; const w = cmv > 0 ? (v / maxCmv) * W : 0; const r = `<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="14" fill="${col}"><title>${l}: ${fp(v)}</title></rect>`; x += w; return r; }).join(''); return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><div style="width:130px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_escHpl(f.ref || '')}">${_escHpl(f.ref || '')}</div><svg viewBox="0 0 ${W} 14" style="width:${W}px;max-width:60vw;height:14px">${segs}</svg><div style="font-size:11px;color:var(--muted)">${fp(cmv)}</div></div>`; }).join('');
+  const legenda = COMP.map(([k, l, col]) => `<span style="font-size:11px;margin-right:10px"><span style="display:inline-block;width:10px;height:10px;background:${col};border-radius:2px;margin-right:3px;vertical-align:middle"></span>${l}</span>`).join('');
+  el.innerHTML = `
+    <h2>🧵 Margem PL <span style="color:var(--muted);font-weight:400;font-size:.8em">custo e margem por REF (planilhas)</span></h2>
+    <div class="card" style="margin-bottom:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">
+      ${pk.geradoEm ? `<span style="color:var(--muted)">Sincronizado: ${(() => { try { return new Date(pk.geradoEm).toLocaleString('pt-BR'); } catch (e) { return pk.geradoEm; } })()}</span>` : '<span style="color:var(--amber)">Sem dados de planilha ainda.</span>'}
+      <label>Margem mínima: <input type="number" step="1" value="${_plMargemMin}" onchange="setPlMargemMin(this.value)" style="width:58px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px;text-align:right">%</label>
+      <select onchange="setPlF('cli',this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px"><option value="">Todos clientes</option>${clientes.map(c => `<option ${c === _plFCliente ? 'selected' : ''}>${_escHpl(c)}</option>`).join('')}</select>
+      <select onchange="setPlF('arq',this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px"><option value="">Todos arquivos</option>${arquivos.map(a => `<option ${a === _plFArquivo ? 'selected' : ''}>${_escHpl(a)}</option>`).join('')}</select>
+      <label style="cursor:pointer"><input type="checkbox" ${_plFSoAviso ? 'checked' : ''} onchange="setPlF('aviso',this.checked)"> só com aviso</label>
+      ${nAviso ? `<span style="color:var(--amber)">⚠ ${nAviso} ficha(s) com aviso</span>` : ''}
+      <span style="flex:1"></span><button class="aba" style="padding:5px 11px;font-size:12px" onclick="recarregarMargemPL()">↻ Atualizar</button>
+    </div>
+    ${vis.length === 0 ? '<div class="card" style="padding:18px;color:var(--muted)">Nenhuma ficha no filtro.</div>' : `
+    <div class="card" style="overflow-x:auto;margin-bottom:12px"><table class="bal" style="font-size:12px;white-space:nowrap"><thead><tr>
+      <th>REF</th><th>Descrição</th><th>Cliente</th><th style="text-align:right">Qtd</th>
+      <th style="text-align:right">Tecidos</th><th style="text-align:right">Aviam.</th><th style="text-align:right">Embal.</th><th style="text-align:right">Mão obra</th><th style="text-align:right">Estamp.</th><th style="text-align:right">Desenv.</th><th style="text-align:right">Logíst.</th>
+      <th style="text-align:right">CMV</th><th style="text-align:right">Sugerido</th><th style="text-align:right">Vendido</th><th style="text-align:right">Margem</th><th style="text-align:right">Markup</th><th style="text-align:right" title="Vendido − Sugerido (R$ / %)">Vend−Sug</th><th style="text-align:right" title="Custo real − orçado (CMV)">Real−Orç</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="card" style="margin-bottom:12px"><div style="font-weight:700;margin-bottom:6px">Totais por cliente <span style="font-weight:400;color:var(--muted);font-size:12px">(ponderados pela qtd)</span></div>
+      <table class="bal" style="font-size:12px"><thead><tr><th>Cliente</th><th style="text-align:right">Qtd</th><th style="text-align:right">Receita</th><th style="text-align:right">CMV</th><th style="text-align:right">Margem</th><th style="text-align:right">Margem %</th></tr></thead><tbody>
+      ${Object.keys(porCli).sort().map(cli => { const g = porCli[cli], m = g.rec - g.cmv, mp = g.rec > 0 ? m / g.rec : null; return `<tr><td>${_escHpl(cli)}</td><td style="text-align:right">${nf(g.q)}</td><td style="text-align:right">${fp(g.rec)}</td><td style="text-align:right">${fp(g.cmv)}</td><td style="text-align:right">${fp(m)}</td><td style="text-align:right;${mp != null && mp * 100 < _plMargemMin ? 'color:var(--red)' : 'color:var(--lime)'}">${pc(mp)}</td></tr>`; }).join('')}
+      </tbody></table></div>
+    <div class="card"><div style="font-weight:700;margin-bottom:6px">Composição do CMV por REF</div><div style="margin-bottom:8px">${legenda}</div>${graf}${vis.length > 30 ? `<div style="font-size:11px;color:var(--muted);margin-top:6px">Mostrando as 30 primeiras de ${vis.length}.</div>` : ''}</div>
+    `}
+  `;
+}
+
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-09.1';
+const BUILD='2026-10-14.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
