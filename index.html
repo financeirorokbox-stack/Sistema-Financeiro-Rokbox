@@ -509,7 +509,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v709/10-762';
+const APP_VERSION = 'v710/10-763';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14286,6 +14286,21 @@ function _catDaSecaoPlanilha(secao) {
   return String(secao || '').trim();
 }
 function _fornExistente(nome) { const n = _normUP(nome); if (!n) return null; const f = (fornecedoresCompras || []).find(x => _normUP(x.nome) === n); return f ? f.nome : null; }
+// Procura em compras (qualquer status/origem) um lançamento PARECIDO com o item da planilha:
+// mesmo fornecedor (um contém o outro, ex. "ROSSET" e "ROSSET & CIA") E o insumo da planilha
+// contido no insumo existente (sem acento, maiúsculas, ex. "LUMINI" dentro de "TEC. LUMINI ECRU").
+function _achaParecidoCompras(p, idIgnora) {
+  const fP = _normUP(p.fornecedor), iP = _normUP(p.insumo);
+  if (!fP || !iP) return null;
+  const c = (compras || []).find(x => {
+    if (x.id === idIgnora) return false;
+    const fx = _normUP(x.fornecedor), ix = _normUP(x.insumo);
+    if (!fx || !ix) return false;
+    const fornOk = (fx === fP) || fx.includes(fP) || fP.includes(fx);
+    return fornOk && ix.includes(iP);
+  });
+  return c ? { id: c.id, insumo: c.insumo || '', colecao: c.colecao || '', status: c.status || 'pendente', data: c.dataSolic || '' } : null;
+}
 // Marca a data da mudança de status (p/ a planilha mostrar "APROVADO 14/10"). Só itens de planilha.
 function _marcarStatusEm(c) { if (c && c.origem === 'planilha') { (c._statusEm = c._statusEm || {})[c.status] = new Date().toISOString(); } }
 // Carrega o pacote das planilhas (SOB DEMANDA) e faz o merge em compras.
@@ -14313,12 +14328,13 @@ function mergePlanilhasEmCompras(forcar) {
     const insumo = ((p.insumo || '') + (p.cor ? ' - ' + p.cor : '')).trim();
     const ex = porId.get(p.id);
     if (!ex) {
+      const _dup = _achaParecidoCompras(p, p.id); // já existe um lançamento parecido? (não bloqueia)
       compras.push({
         id: p.id, status: 'pendente', solicitante: 'Planilha', origem: 'planilha', dataSolic: hoje,
         insumo, fornecedor: forn || (p.fornecedor || ''), fornecedorNaoCadastrado: forn ? undefined : true,
         unidade: '', qtd: +p.qtdComprar || 0, custoUnit: +p.custoUnitConsumo || 0, custoTotal: +p.custoComprar || 0, frete: 0, desconto: 0,
         colecao: (p.cliente || p.arquivo || ''), categoria: _catDaSecaoPlanilha(p.secao), empresa: '', dataLimite: '', dataFatur: '',
-        _planilha: _plan, _statusEm: {}
+        _planilha: _plan, _statusEm: {}, _possivelDup: _dup || undefined
       });
       mudou = true;
     } else if ((ex.status || 'pendente') === 'pendente') {
@@ -14381,6 +14397,7 @@ function _selosPlanilha(c) {
   if (c._alteradoPlanilha) s += ` <span class="badge" style="background:#fde68a;color:#7c5e10;cursor:help" title="A planilha mudou depois de aprovado. Novo: qtd ${(+c._alteradoPlanilha.qtd || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} · total ${fmtVal(c._alteradoPlanilha.custoTotal)}">✎ Alterado na planilha</span>`;
   if (c._removidoPlanilha) s += ` <span class="badge err" title="Sumiu da planilha. Decida manter ou remover.">⌫ Removido da planilha</span>`;
   if (c.fornecedorNaoCadastrado) s += ` <span class="badge" style="background:#e5e7eb;color:#555;cursor:help" title="Fornecedor não encontrado no Cadastro de fornecedores.">forn. não cadastrado</span>`;
+  if (c._possivelDup) { const d = c._possivelDup; s += ` <span class="badge" style="background:#e0e7ff;color:#3730a3;cursor:help" title="Parecido com um lançamento que já existe → ${_escH(d.insumo)} · ${_escH(d.colecao)} · ${_escH(d.status)}${d.data ? ' · ' + _escH(d.data) : ''}">⧉ Possível duplicado</span>`; }
   return s;
 }
 
