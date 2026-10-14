@@ -356,6 +356,17 @@ tr:hover td{background:#fafaf8}
   </div>
 </div>
 
+<!-- MODAL DE-PARA FORNECEDORES (planilhas) -->
+<div class="modal-overlay" id="deparaforn-modal">
+  <div class="modal-box" style="width:560px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:14px;font-weight:800">🔗 Fornecedores da planilha (de-para)</div>
+      <button onclick="fecharDeParaFornecedores()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="padding:16px 20px;overflow:auto;max-height:70vh" id="deparaforn-body"></div>
+  </div>
+</div>
+
 <!-- TOPNAV -->
 <div class="topnav">
   <div class="topnav-item active" id="nav-vendas" onclick="setView('vendas')">Vendas</div>
@@ -509,7 +520,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v711/10-764';
+const APP_VERSION = 'v712/10-765';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -670,7 +681,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -14273,6 +14284,17 @@ function renderComprasColecoes(el) {
 // ════════════════════════════════════════════════════════════════════
 let planilhasCustoCompras = null;                 // pacote completo (carregado só ao abrir Compras/Painel)
 let _planilhasCarregou = false, _planilhasCarregando = false;
+// De-para de fornecedores: APELIDO da planilha (normalizado) -> Nome oficial em compras.
+let deParaFornecedores = {};
+const DEPARA_FORN_DEFAULT = {
+  'STA': 'SANTACONSTANCIA TECELAGEM LTDA.',
+  'ROSSET': 'ROSSET & CIA LTDA',
+  'PEMGIR': 'Ind. Com. de Malhas Pemgir Ltda',
+  'FOCUS': 'EXCIM Importacao e Exportacao Ltda.',
+  'MULTIMALHAS': 'Multimalhas Industria e Comercio',
+  'TAKARA': 'COMERCIAL DE MAQUINAS TAKARA LTDA',
+  'OESTE': 'COMERCIAL OESTE DE AVIAMENTOS LTDA'
+};
 let _planilhaMergeEm = (() => { try { return localStorage.getItem('planilhaMergeEm') || ''; } catch (e) { return ''; } })();
 let cmpOrigem = (() => { try { return localStorage.getItem('cmpOrigem') || ''; } catch (e) { return ''; } })();
 function setCmpOrigem(v) { cmpOrigem = v; try { localStorage.setItem('cmpOrigem', v); } catch (e) {} renderCompras(); }
@@ -14286,11 +14308,20 @@ function _catDaSecaoPlanilha(secao) {
   return String(secao || '').trim();
 }
 function _fornExistente(nome) { const n = _normUP(nome); if (!n) return null; const f = (fornecedoresCompras || []).find(x => _normUP(x.nome) === n); return f ? f.nome : null; }
+// Traduz o APELIDO da planilha pelo de-para -> nome oficial. Devolve null se não houver mapeamento.
+function _fornOficial(apelido) { const n = _normUP(apelido); if (!n) return null; return deParaFornecedores[n] || null; }
+// Candidatos para o Vincular: fornecedores cadastrados + nomes já usados em compras.
+function _fornecedoresConhecidos() {
+  const set = new Set();
+  (fornecedoresCompras || []).forEach(f => { if (f && f.nome) set.add(String(f.nome).trim()); });
+  (compras || []).forEach(c => { if (c && c.fornecedor) set.add(String(c.fornecedor).trim()); });
+  return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
 // Procura em compras (qualquer status/origem) um lançamento PARECIDO com o item da planilha:
 // mesmo fornecedor (um contém o outro, ex. "ROSSET" e "ROSSET & CIA") E o insumo da planilha
 // contido no insumo existente (sem acento, maiúsculas, ex. "LUMINI" dentro de "TEC. LUMINI ECRU").
-function _achaParecidoCompras(p, idIgnora) {
-  const fP = _normUP(p.fornecedor), iP = _normUP(p.insumo);
+function _achaParecidoCompras(fornNome, insumoNome, idIgnora) {
+  const fP = _normUP(fornNome), iP = _normUP(insumoNome);
   if (!fP || !iP) return null;
   const c = (compras || []).find(x => {
     if (x.id === idIgnora) return false;
@@ -14306,6 +14337,12 @@ function _marcarStatusEm(c) { if (c && c.origem === 'planilha') { (c._statusEm =
 // Carrega o pacote das planilhas (SOB DEMANDA) e faz o merge em compras.
 async function carregarPlanilhasCompras(forcar) {
   try { planilhasCustoCompras = await loadData('planilhasCustoCompras'); } catch (e) {}
+  // De-para de fornecedores (auto-semeia os padrões na 1ª vez).
+  try {
+    let dp = await loadData('deParaFornecedores');
+    if (!dp || typeof dp !== 'object' || !Object.keys(dp).length) { dp = Object.assign({}, DEPARA_FORN_DEFAULT); try { saveData('deParaFornecedores', dp); } catch (e) {} }
+    deParaFornecedores = dp;
+  } catch (e) { deParaFornecedores = Object.assign({}, DEPARA_FORN_DEFAULT); }
   _planilhasCarregou = true;
   const mudou = mergePlanilhasEmCompras(!!forcar);
   if (mudou) { try { saveData('compras', compras); } catch (e) {} }
@@ -14323,17 +14360,19 @@ function mergePlanilhasEmCompras(forcar) {
   let mudou = false;
   pk.compras.forEach(p => {
     if (!p || !p.id) return;
-    const forn = _fornExistente(p.fornecedor);
+    // Fornecedor: traduz o APELIDO da planilha pelo DE-PARA -> nome oficial. Sem de-para => "não cadastrado" (botão Vincular).
+    const ofi = _fornOficial(p.fornecedor);
+    const fornFinal = ofi || (p.fornecedor || '');
     // custoUnit = custo por unidade de COMPRA (tecido: por kg). Fallback: custoComprar/qtdComprar, senão o de consumo.
     const cuCompra = (p.custoUnitCompra != null && p.custoUnitCompra !== '') ? (+p.custoUnitCompra || 0) : ((+p.qtdComprar || 0) > 0 ? +(((+p.custoComprar || 0) / (+p.qtdComprar || 1)).toFixed(4)) : (+p.custoUnitConsumo || 0));
-    const _plan = { arquivoId: p.arquivoId, arquivo: p.arquivo, arquivoUrl: p.arquivoUrl, linha: p.linha, valorUnit: p.valorUnit, unidade: p.unidade, custoUnitCompra: p.custoUnitCompra, custoUnitConsumo: p.custoUnitConsumo, rolos: p.rolos, kgPorRolo: p.kgPorRolo, rendimento: p.rendimento, qtdTotal: p.qtdTotal, estoque: p.estoque, avisos: p.avisos || [], sincronizadoEm: geradoEm };
+    const _plan = { arquivoId: p.arquivoId, arquivo: p.arquivo, arquivoUrl: p.arquivoUrl, linha: p.linha, valorUnit: p.valorUnit, unidade: p.unidade, custoUnitCompra: p.custoUnitCompra, custoUnitConsumo: p.custoUnitConsumo, rolos: p.rolos, kgPorRolo: p.kgPorRolo, metrosPorRolo: p.metrosPorRolo, rendimento: p.rendimento, qtdTotal: p.qtdTotal, estoque: p.estoque, avisos: p.avisos || [], fornecedorPlanilha: p.fornecedor || '', sincronizadoEm: geradoEm };
     const insumo = ((p.insumo || '') + (p.cor ? ' - ' + p.cor : '')).trim();
     const ex = porId.get(p.id);
     if (!ex) {
-      const _dup = _achaParecidoCompras(p, p.id); // já existe um lançamento parecido? (não bloqueia)
+      const _dup = _achaParecidoCompras(fornFinal, p.insumo, p.id); // já existe um lançamento parecido? (usa o nome oficial; não bloqueia)
       compras.push({
         id: p.id, status: 'pendente', solicitante: 'Planilha', origem: 'planilha', dataSolic: hoje,
-        insumo, fornecedor: forn || (p.fornecedor || ''), fornecedorNaoCadastrado: forn ? undefined : true,
+        insumo, fornecedor: fornFinal, fornecedorNaoCadastrado: ofi ? undefined : true,
         unidade: p.unidade || '', qtd: +p.qtdComprar || 0, custoUnit: cuCompra, custoTotal: +p.custoComprar || 0, frete: 0, desconto: 0,
         colecao: (p.cliente || p.arquivo || ''), categoria: _catDaSecaoPlanilha(p.secao), empresa: '', dataLimite: '', dataFatur: '',
         _planilha: _plan, _statusEm: {}, _possivelDup: _dup || undefined
@@ -14341,7 +14380,7 @@ function mergePlanilhasEmCompras(forcar) {
       mudou = true;
     } else if ((ex.status || 'pendente') === 'pendente') {
       ex.qtd = +p.qtdComprar || 0; ex.custoUnit = cuCompra; ex.custoTotal = +p.custoComprar || 0; ex.insumo = insumo; ex.unidade = p.unidade || ex.unidade;
-      if (forn) { ex.fornecedor = forn; delete ex.fornecedorNaoCadastrado; } else { ex.fornecedor = p.fornecedor || ex.fornecedor; ex.fornecedorNaoCadastrado = true; }
+      if (ofi) { ex.fornecedor = ofi; delete ex.fornecedorNaoCadastrado; } else { ex.fornecedor = p.fornecedor || ex.fornecedor; ex.fornecedorNaoCadastrado = true; }
       ex._planilha = _plan; delete ex._removidoPlanilha; delete ex._alteradoPlanilha;
       mudou = true;
     } else {
@@ -14398,11 +14437,79 @@ function _selosPlanilha(c) {
   if (av.length) s += ` <span class="badge" style="background:var(--amber);color:#000;cursor:help" title="${_escH(av.join(' | '))}">⚠ ${av.length}</span>`;
   if (c._alteradoPlanilha) s += ` <span class="badge" style="background:#fde68a;color:#7c5e10;cursor:help" title="A planilha mudou depois de aprovado. Novo: qtd ${(+c._alteradoPlanilha.qtd || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} · total ${fmtVal(c._alteradoPlanilha.custoTotal)}">✎ Alterado na planilha</span>`;
   if (c._removidoPlanilha) s += ` <span class="badge err" title="Sumiu da planilha. Decida manter ou remover.">⌫ Removido da planilha</span>`;
-  if (c.fornecedorNaoCadastrado) s += ` <span class="badge" style="background:#e5e7eb;color:#555;cursor:help" title="Fornecedor não encontrado no Cadastro de fornecedores.">forn. não cadastrado</span>`;
+  if (c.fornecedorNaoCadastrado) { const ap = _escH((c._planilha && c._planilha.fornecedorPlanilha) || c.fornecedor || ''); s += ` <span class="badge" style="background:#e5e7eb;color:#555;cursor:help" title="Apelido &quot;${ap}&quot; sem de-para. Clique em Vincular para ligar ao nome oficial.">forn. não cadastrado</span> <button onclick="vincularFornecedorPlanilha('${_escH(c.id)}')" class="btn-mini" style="font-size:10px;padding:1px 6px">🔗 Vincular</button>`; }
   if (c._possivelDup) { const d = c._possivelDup; s += ` <span class="badge" style="background:#e0e7ff;color:#3730a3;cursor:help" title="Parecido com um lançamento que já existe → ${_escH(d.insumo)} · ${_escH(d.colecao)} · ${_escH(d.status)}${d.data ? ' · ' + _escH(d.data) : ''}">⧉ Possível duplicado</span>`; }
-  if (c._planilha && c._planilha.rolos != null && c._planilha.rolos !== '') { const pl = c._planilha; s += ` <span style="font-size:10px;color:var(--muted)" title="Compra de tecido em rolos">≈ ${(+pl.rolos || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} rolo${pl.kgPorRolo ? ' (' + (+pl.kgPorRolo || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' kg/rolo)' : ''}</span>`; }
+  if (c._planilha && c._planilha.rolos != null && c._planilha.rolos !== '') { const pl = c._planilha; const pr = pl.kgPorRolo ? ((+pl.kgPorRolo || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' kg/rolo') : (pl.metrosPorRolo ? ((+pl.metrosPorRolo || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' m/rolo') : ''); s += ` <span style="font-size:10px;color:var(--muted)" title="Compra de tecido em rolos">≈ ${(+pl.rolos || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} rolo${pr ? ' (' + pr + ')' : ''}</span>`; }
   return s;
 }
+// Grava um de-para e re-traduz os itens PENDENTES de planilha que usam esse apelido.
+function _salvarDeParaForn(apelido, nomeOficial) {
+  const ap = _normUP(apelido); const nome = String(nomeOficial || '').trim();
+  if (!ap || !nome) return;
+  deParaFornecedores[ap] = nome;
+  try { saveData('deParaFornecedores', deParaFornecedores); } catch (e) {}
+  (compras || []).forEach(x => {
+    if (x.origem === 'planilha' && (x.status || 'pendente') === 'pendente') {
+      const apX = _normUP((x._planilha && x._planilha.fornecedorPlanilha) || x.fornecedor);
+      if (apX === ap) { x.fornecedor = nome; delete x.fornecedorNaoCadastrado; }
+    }
+  });
+  try { saveData('compras', compras); } catch (e) {}
+}
+// Botão Vincular no selo "forn. não cadastrado": escolher o nome oficial e gravar o de-para.
+function vincularFornecedorPlanilha(id) {
+  const c = (compras || []).find(x => x.id === id); if (!c) return;
+  const apelido = (c._planilha && c._planilha.fornecedorPlanilha) || c.fornecedor || '';
+  const cand = _fornecedoresConhecidos();
+  const opts = cand.map(n => `<option value="${_escH(n)}">${_escH(n)}</option>`).join('');
+  const body = document.getElementById('deparaforn-body'); if (!body) return;
+  body.innerHTML = `
+    <div style="font-size:13px;margin-bottom:12px">Apelido da planilha: <b>${_escH(apelido) || '(vazio)'}</b></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Ligar ao fornecedor oficial (escolha um existente ou digite um novo nome):</div>
+    <input id="vinc-nome" list="vinc-lista" placeholder="Nome oficial do fornecedor" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+    <datalist id="vinc-lista">${opts}</datalist>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Isso grava no de-para e atualiza todos os itens pendentes com esse apelido.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="fecharDeParaFornecedores()" class="btn-sec">Cancelar</button>
+      <button onclick="(function(){var v=document.getElementById('vinc-nome').value.trim(); if(!v){alert('Digite ou escolha o nome oficial.');return;} _salvarDeParaForn('${_escH(apelido).replace(/'/g, "\\'")}', v); fecharDeParaFornecedores(); renderCompras();})()" class="btn">Vincular</button>
+    </div>`;
+  document.getElementById('deparaforn-modal').style.display = 'flex';
+  setTimeout(() => { const i = document.getElementById('vinc-nome'); if (i) i.focus(); }, 50);
+}
+// Tela para ver/editar o de-para (lista apelido → nome, com adicionar e remover).
+function abrirDeParaFornecedores() {
+  const body = document.getElementById('deparaforn-body'); if (!body) return;
+  const linhas = Object.keys(deParaFornecedores).sort().map(ap => `
+    <tr>
+      <td style="padding:4px 8px;font-weight:600">${_escH(ap)}</td>
+      <td style="padding:4px 8px">${_escH(deParaFornecedores[ap])}</td>
+      <td style="padding:4px 8px;text-align:right"><button onclick="removerDeParaForn('${_escH(ap).replace(/'/g, "\\'")}')" class="btn-mini" style="font-size:10px;padding:1px 6px">remover</button></td>
+    </tr>`).join('');
+  body.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Apelido da planilha → nome oficial gravado em Compras. O apelido é normalizado (sem acento, maiúsculas).</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
+      <thead><tr style="border-bottom:1px solid var(--border);text-align:left"><th style="padding:4px 8px">Apelido</th><th style="padding:4px 8px">Nome oficial</th><th></th></tr></thead>
+      <tbody>${linhas || '<tr><td colspan="3" style="padding:8px;color:var(--muted)">Nenhum de-para ainda.</td></tr>'}</tbody>
+    </table>
+    <div style="border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Adicionar</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="dep-ap" placeholder="Apelido (ex.: STA)" style="flex:1;min-width:120px;padding:7px;border:1px solid var(--border);border-radius:6px">
+        <input id="dep-nome" list="dep-lista" placeholder="Nome oficial" style="flex:2;min-width:160px;padding:7px;border:1px solid var(--border);border-radius:6px">
+        <datalist id="dep-lista">${_fornecedoresConhecidos().map(n => `<option value="${_escH(n)}">`).join('')}</datalist>
+        <button onclick="(function(){var a=document.getElementById('dep-ap').value.trim(),n=document.getElementById('dep-nome').value.trim(); if(!a||!n){alert('Preencha apelido e nome.');return;} _salvarDeParaForn(a,n); abrirDeParaFornecedores(); renderCompras();})()" class="btn">+ Adicionar</button>
+      </div>
+    </div>`;
+  document.getElementById('deparaforn-modal').style.display = 'flex';
+}
+function removerDeParaForn(ap) {
+  const k = _normUP(ap); if (!deParaFornecedores[k]) return;
+  if (!confirm('Remover o de-para "' + k + '"? Os itens pendentes com esse apelido voltam a "forn. não cadastrado" no próximo merge.')) return;
+  delete deParaFornecedores[k];
+  try { saveData('deParaFornecedores', deParaFornecedores); } catch (e) {}
+  abrirDeParaFornecedores();
+}
+function fecharDeParaFornecedores() { const m = document.getElementById('deparaforn-modal'); if (m) m.style.display = 'none'; }
 
 function renderCompras() {
   const el = document.getElementById('v-compras'); if (!el) return;
@@ -14447,6 +14554,7 @@ function renderCompras() {
       <button class="btn ${fSt === '__col' ? 'primary' : 'ghost'} sm" onclick="setCmpTab('__col')" title="Dashboard de custo por coleção, separado por categoria">💰 Custo por Coleção</button>
       <span style="flex:1"></span>
       <button class="btn ok sm" id="cmp-sync-planilhas" onclick="atualizarComprasDasPlanilhas()" title="Lê as planilhas de Custo/Compras (Drive) e traz os itens novos como PENDENTES. Não duplica.">📥 Atualizar das planilhas</button>
+      <button class="btn ghost sm" onclick="abrirDeParaFornecedores()" title="Ver/editar o de-para de fornecedores: apelido da planilha → nome oficial em Compras.">🔗 Fornecedores da planilha</button>
       <button class="btn ok sm" id="cmp-sync-drive" onclick="sincronizarPedidosCompras()" title="Lê os PDFs de pedido dos fornecedores na pasta 'Pedidos de Compras' do Drive e importa os novos (não duplica). Pode clicar quantas vezes quiser.">☁ Sincronizar pedidos</button>
       <button class="btn ok sm" onclick="abrirLancarRomaneio()" title="Bate um romaneio (foto do WhatsApp) na mão, rápido: fornecedor + entrega uma vez, e os itens em sequência.">📸 Lançar romaneio</button>
       <button class="btn ok sm" onclick="escolherRomaneioPDF()" title="Sobe o PDF do romaneio/pedido (grade por tamanho, ex.: oficina). Você escolhe o arquivo, confere os itens e marca o que quer lançar.">📄 Importar PDF</button>
