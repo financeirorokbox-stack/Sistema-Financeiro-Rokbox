@@ -112,8 +112,8 @@
   <div style="background:#16211b;border:1px solid #233029;border-radius:20px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)">
     <div style="font-size:40px;margin-bottom:8px">🔒</div>
     <div style="font-size:20px;font-weight:800;margin-bottom:4px">Placar de Vendas</div>
-    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Entre com e-mail e senha (ou a senha de Vendas).</div>
-    <input id="gmail" type="email" placeholder="e-mail (login seguro)" autocomplete="username" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:15px;text-align:center;margin-bottom:10px">
+    <div style="color:#8fa89a;font-size:13px;margin-bottom:18px">Entre com o nome (vendas/diretor/admin) ou e-mail, e a senha.</div>
+    <input id="gmail" type="text" placeholder="nome ou e-mail" autocomplete="username" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:15px;text-align:center;margin-bottom:10px">
     <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentarGate()" style="width:100%;padding:13px 40px;border-radius:12px;border:1px solid #233029;background:#0d1712;color:#eafaf1;font-size:16px;text-align:center;letter-spacing:2px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
     <button onclick="tentarGate()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#7ee787;color:#08130b;font-weight:800;font-size:15px;cursor:pointer">Entrar</button>
     <div id="gerr" style="color:#e5534b;font-size:13px;margin-top:10px;min-height:16px"></div>
@@ -151,7 +151,6 @@
   <nav class="tabs">
     <button id="tab-placar" class="on" onclick="setView('placar')">📊 Placar</button>
     <button id="tab-produtos" onclick="setView('produtos')" style="display:none">🏆 Produtos</button>
-    <button id="tab-boletos" onclick="setView('boletos')" style="display:none">📋 Boletos vencidos</button>
   </nav>
 
   <div id="view-placar">
@@ -219,7 +218,6 @@
     </section>
   </div>
 
-  <div id="view-boletos" style="display:none"></div>
 
   <div class="foot" id="foot">Painel RK · Placar de vendas ao vivo</div>
 </div>
@@ -256,7 +254,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer=(await _sbToken())||SUPA_KEY; }
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-09.1';
+const BUILD = '2026-10-14.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -422,74 +420,22 @@ const corLoja = n => { const sg=segDe(n); return sg==='Atacado'?'linear-gradient
 // ── ABA PRODUTOS (produto mais vendido; SEM custo — margem/CMV ficam no Financeiro) ──
 let view = 'placar';
 let _pedidosRaw = null; // pedidos crus com as linhas/SKU (a aba Produtos precisa do detalhe por item)
-let _crRaw = null;      // flatCR (contas a receber) pra aba Boletos vencidos
-// ── ABA BOLETOS VENCIDOS ──
-// Mostra boleto EM ABERTO (sem data_liquidacao) e vencido, mas SÓ até a ÚLTIMA BAIXA (max data_liquidacao dos boletos),
-// porque a Elaine não baixa os pagos todo dia: o que venceu DEPOIS da última baixa pode já estar pago (não baixado) → esconde.
-async function carregarCR(){
-  try{
-    const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
-    const cr = await gk('flatCR');
-    _crRaw = Array.isArray(cr) ? cr : ((cr&&cr.itens)||[]);
-  }catch(e){ _crRaw = _crRaw || []; }
-}
-function _hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function _diasAtraso(venc,hoje){ const a=new Date(venc+'T12:00:00'), b=new Date(hoje+'T12:00:00'); return Math.round((b-a)/86400000); }
-function _brlB(n){ return 'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function renderBoletos(){
-  const el=document.getElementById('view-boletos'); if(!el) return;
-  if(!_crRaw){ el.innerHTML='<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Carregando boletos…</div>'; carregarCR().then(renderBoletos); return; }
-  const hoje=_hojeISO();
-  const bol=_crRaw.filter(r=>/boleto/i.test(r.canal_pagamento||''));
-  // corte = última baixa de boleto (data mais recente de liquidação). Se não houver baixa, usa hoje.
-  const cutoff=bol.filter(r=>r.data_liquidacao).map(r=>String(r.data_liquidacao).slice(0,10)).sort().slice(-1)[0] || hoje;
-  const venc=bol.filter(r=>!r.data_liquidacao && r.vencimento && String(r.vencimento).slice(0,10)<hoje && String(r.vencimento).slice(0,10)<=cutoff);
-  const total=venc.reduce((s,r)=>s+(+r.valor_bruto||0),0);
-  // agrupa por cliente
-  const porCli={};
-  venc.forEach(r=>{ const c=(r.cliente||'').trim()||'(sem cliente)'; const o=porCli[c]=porCli[c]||{tot:0,itens:[]}; const v=+r.valor_bruto||0; o.tot+=v; o.itens.push({pedido:r.pedido,venc:String(r.vencimento).slice(0,10),valor:v,dias:_diasAtraso(String(r.vencimento).slice(0,10),hoje)}); });
-  const clientes=Object.entries(porCli).sort((a,b)=>b[1].tot-a[1].tot);
-  // faixas de atraso (pra priorizar cobrança)
-  const faixa={a:0,b:0,c:0}; venc.forEach(r=>{ const d=_diasAtraso(String(r.vencimento).slice(0,10),hoje); if(d<=30)faixa.a+=(+r.valor_bruto||0); else if(d<=60)faixa.b+=(+r.valor_bruto||0); else faixa.c+=(+r.valor_bruto||0); });
-  const fmtD=d=>d?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(2,4):'';
-  const corDias=d=>d>60?'#ff6b6b':(d>30?'#f0a35e':'#e2c044');
-  const body = clientes.length ? clientes.map(([c,o])=>`
-    <div class="card" style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-        <div style="font-weight:800;font-size:15px">${c}</div>
-        <div style="font-weight:800;color:#ff6b6b">${_brlB(o.tot)} <span style="color:var(--muted);font-weight:600;font-size:12px">· ${o.itens.length} boleto(s)</span></div>
-      </div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table class="vd" style="width:100%"><thead><tr><th class="nm">Pedido</th><th>Venceu</th><th>Atraso</th><th class="rt">Valor</th></tr></thead><tbody>
-        ${o.itens.sort((a,b)=>b.dias-a.dias).map(i=>`<tr><td class="nm">#${i.pedido||'—'}</td><td>${fmtD(i.venc)}</td><td style="color:${corDias(i.dias)};font-weight:700">${i.dias} dias</td><td class="rt">${_brlB(i.valor)}</td></tr>`).join('')}
-        </tbody></table>
-      </div>
-    </div>`).join('') : '<div class="card" style="text-align:center;padding:30px;color:var(--muted)">Nenhum boleto vencido até a última baixa 🎉</div>';
-  el.innerHTML=`
-    <section class="tops">
-      <div class="card"><div class="tlab">📋 Total vencido</div><div class="col-tot" style="color:#ff6b6b">${_brlB(total)}</div><div class="tsub">${venc.length} boleto(s) · ${clientes.length} cliente(s)</div></div>
-      <div class="card"><div class="tlab">Por tempo de atraso</div><div style="font-size:13px;line-height:1.7;margin-top:4px"><div>até 30 dias: <b>${_brlB(faixa.a)}</b></div><div style="color:#f0a35e">31 a 60 dias: <b>${_brlB(faixa.b)}</b></div><div style="color:#ff6b6b">mais de 60 dias: <b>${_brlB(faixa.c)}</b></div></div></div>
-    </section>
-    <div class="card" style="font-size:12px;color:var(--muted);margin:10px 0">Mostrando boletos vencidos e em aberto <b>até ${fmtD(cutoff)}</b> (sua última baixa). Os que venceram depois disso ficam de fora porque podem já estar pagos e ainda não baixados. Atualiza quando você clica ☁ Atualizar Power BI no sistema.</div>
-    ${body}`;
-}
+// (aba "Boletos vencidos" removida — o acompanhamento de boletos em atraso passou a ser o relatório de impressão no Gestão. Não lê mais flatCR aqui.)
 function ehAdmin(){ try{ return localStorage.getItem('rk_role')==='admin'; }catch(e){ return false; } }
 // A aba Produtos é SÓ-ADMIN: some pra diretor/vendas e não abre por atalho.
-function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; const tb=document.getElementById('tab-boletos'); if(tb) tb.style.display = admin ? '' : 'none'; if(!admin && (view==='produtos'||view==='boletos')) setView('placar'); }
+function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; if(!admin && view==='produtos') setView('placar'); }
 function setView(v){
-  if((v==='produtos'||v==='boletos') && !ehAdmin()) v='placar';
+  if(v==='boletos') v='placar'; // aba "Boletos vencidos" removida (acompanhamento é o relatório do Gestão)
+  if(v==='produtos' && !ehAdmin()) v='placar';
   view = v;
-  const tp=document.getElementById('tab-placar'), tpr=document.getElementById('tab-produtos'), tb=document.getElementById('tab-boletos');
+  const tp=document.getElementById('tab-placar'), tpr=document.getElementById('tab-produtos');
   if(tp) tp.classList.toggle('on', v==='placar');
   if(tpr) tpr.classList.toggle('on', v==='produtos');
-  if(tb) tb.classList.toggle('on', v==='boletos');
-  const vp=document.getElementById('view-placar'), vpr=document.getElementById('view-produtos'), vb=document.getElementById('view-boletos');
+  const vp=document.getElementById('view-placar'), vpr=document.getElementById('view-produtos');
   if(vp) vp.style.display = v==='placar'?'':'none';
   if(vpr) vpr.style.display = v==='produtos'?'':'none';
-  if(vb) vb.style.display = v==='boletos'?'':'none';
-  const fs=document.getElementById('fonte-seg'); if(fs) fs.style.display = (v==='produtos'||v==='boletos')?'none':''; // Produtos/Boletos não usam o toggle Bling/Sistema
+  const fs=document.getElementById('fonte-seg'); if(fs) fs.style.display = (v==='produtos')?'none':''; // Produtos não usa o toggle Bling/Sistema
   if(v==='produtos'){ if(!_pedidosRaw) carregarPedidos().then(renderProdutos); else renderProdutos(); }
-  if(v==='boletos'){ renderBoletos(); }
 }
 // Nome base (sem "Tamanho:..;Cor:..;Genero:..") e o tamanho, tirados da descrição da Bling.
 function _baseNome(desc){ const i=desc.search(/\s*Tamanho:/i); if(i>=0) return desc.slice(0,i).trim(); const j=desc.indexOf(';'); return (j>=0?desc.slice(0,j):desc).trim(); }
@@ -661,7 +607,8 @@ async function abrirGate(){ const g=document.getElementById('gate'); if(g) g.rem
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
-async function tentarGate(){ const email=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim(); const v=document.getElementById('gpass').value||''; if(email.includes('@')){ try{ const u=await _sbLogin(email,v); const meta=(u&&u.app_metadata)||{}; const papel=(meta.role==='diretor')?'diretor':(meta.role==='vendas')?'vendas':'admin'; try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); return; }catch(e){ document.getElementById('gerr').textContent='E-mail ou senha incorretos.'; return; } } let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; let papel=null; if(h===1056204911) papel='admin'; else if(h===515829727) papel='diretor'; else if(h===1886177389) papel='vendas'; if(papel){ try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // Admin (Rkadmin$) vê a aba Produtos; diretor (Rkdiretor$) e vendas (Rkvendas*) não
+const LOGIN_EMAILS={vendas:'financeirorokbox+vendas@gmail.com',diretor:'financeirorokbox+diretor@gmail.com',admin:'financeirorokbox+admin@gmail.com'};
+async function tentarGate(){ const raw=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim(); const v=document.getElementById('gpass').value||''; const email = raw.includes('@') ? raw : (LOGIN_EMAILS[raw.toLowerCase()]||''); if(email){ try{ const u=await _sbLogin(email,v); const meta=(u&&u.app_metadata)||{}; const papel=(meta.role==='diretor')?'diretor':(meta.role==='vendas')?'vendas':'admin'; try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); return; }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; return; } } let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; let papel=null; if(h===1056204911) papel='admin'; else if(h===515829727) papel='diretor'; else if(h===1886177389) papel='vendas'; if(papel){ try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // Admin (Rkadmin$) vê a aba Produtos; diretor (Rkdiretor$) e vendas (Rkvendas*) não
 (function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
 checkVersao(); setInterval(checkVersao, 5*60000); // checa versão nova ao abrir e a cada 5 min
 </script>

@@ -78,8 +78,8 @@
   <div class="gbox">
     <div class="lock">🔒</div>
     <h1>Painel Financeiro</h1>
-    <p>Acesso restrito. Entre com e-mail e senha (ou a senha do diretor).</p>
-    <input id="gmail" type="email" placeholder="e-mail (login seguro)" autocomplete="username" onkeydown="if(event.key==='Enter')tentar()" style="margin-bottom:8px">
+    <p>Acesso restrito. Entre com o nome (diretor/admin) ou e-mail, e a senha.</p>
+    <input id="gmail" type="text" placeholder="nome ou e-mail" autocomplete="username" onkeydown="if(event.key==='Enter')tentar()" style="margin-bottom:8px">
     <div style="position:relative"><input id="gpass" type="password" placeholder="senha" autocomplete="off" onkeydown="if(event.key==='Enter')tentar()" style="padding-left:40px;padding-right:40px"><span onclick="olho('gpass',this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;opacity:.85;user-select:none">👁️</span></div>
     <button onclick="tentar()">Entrar</button>
     <div class="gerr" id="gerr"></div>
@@ -297,17 +297,19 @@ const VENDA=new Set(['Verificado','Em separação','Atendido','Checkout parcial'
 function djb2(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h;}
 function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.type==='password'){ i.type='text'; el.textContent='🙈'; } else { i.type='password'; el.textContent='👁️'; } }
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+const LOGIN_EMAILS={vendas:'financeirorokbox+vendas@gmail.com',diretor:'financeirorokbox+diretor@gmail.com',admin:'financeirorokbox+admin@gmail.com'};
 async function tentar(){
-  const email=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim();
+  const raw=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim();
   const v=document.getElementById('gpass').value||'';
-  // Login seguro (Supabase) quando for e-mail; senão, senha de porta (djb2).
-  if(email.includes('@')){
+  // Login seguro (Supabase): nome (vendas/diretor/admin) vira e-mail +alias, ou e-mail direto. Senão, senha de porta (djb2, reserva).
+  const email = raw.includes('@') ? raw : (LOGIN_EMAILS[raw.toLowerCase()]||'');
+  if(email){
     try{
       const u=await _sbLogin(email,v);
-      const meta=(u&&u.app_metadata)||{}; const role=(meta.role==='diretor')?'diretor':'admin';
+      const meta=(u&&u.app_metadata)||{}; const role=['admin','diretor','vendas'].includes(meta.role)?meta.role:'admin';
       try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',role);}catch(e){}
       abrir(); return;
-    }catch(e){ document.getElementById('gerr').textContent='E-mail ou senha incorretos.'; return; }
+    }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; return; }
   }
   const h=djb2(v);
   if(h===HASH_ADMIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role','admin');}catch(e){} abrir(); } // admin: vê tudo
@@ -1401,7 +1403,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-14.2';
+const BUILD='2026-10-14.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
