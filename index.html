@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v716/10-769';
+const APP_VERSION = 'v717/10-770';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9249,10 +9249,13 @@ function renderCobranca() {
   const atrasados=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
   const aVencer=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
 
+  // Card "Atrasados": MESMA base do relatório 🖨 (boletosACobrar: sistema + avulsos, abate pagamento por qualquer forma). Bate sempre com o relatório (corte hoje, sem filtros).
+  const _vencRel = resumoCobranca().vencidos;
+  const _vencRelTot = _vencRel.reduce((s, x) => s + (+x.valor || 0), 0);
   el.innerHTML += `
     <div class="cards-row">
       <div class="card green"><div class="c-label">Pagos</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(pagos.reduce((s,b)=>s+b.valor,0))}</div></div>
-      <div class="card red"><div class="c-label">Atrasados</div><div class="c-val">${atrasados.length}</div><div class="c-sub">${fmtVal(atrasados.reduce((s,b)=>s+b.valor,0))}</div></div>
+      <div class="card red" title="Mesma base do relatório 🖨 Boletos em atraso: inclui boletos avulsos vencidos e abate pagamentos por qualquer forma (PIX, PayPal…). Não segue os filtros da tela."><div class="c-label">Atrasados</div><div class="c-val">${_vencRel.length}</div><div class="c-sub">${fmtVal(_vencRelTot)}</div></div>
       <div class="card amber"><div class="c-label">A Vencer</div><div class="c-val">${aVencer.length}</div><div class="c-sub">${fmtVal(aVencer.reduce((s,b)=>s+b.valor,0))}</div></div>
     </div>
     <div style="margin:2px 0 12px"><button class="btn ok sm" onclick="abrirRelAtraso()" title="Relatório A4 imprimível dos boletos vencidos e não pagos, por cliente, pra enviar à supervisora de vendas. Só leitura.">🖨 Boletos em atraso</button></div>
