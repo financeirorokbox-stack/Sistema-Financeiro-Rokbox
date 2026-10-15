@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v717/10-770';
+const APP_VERSION = 'v718/10-771';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8262,13 +8262,10 @@ function _dadosRelAtraso() {
 function setRelAtraso(campo, v) { if (campo === 'corte') _relAtrasoCorte = v; else if (campo === 'emp') _relAtrasoEmp = v; else if (campo === 'vend') _relAtrasoVend = v; else if (campo === 'min') _relAtrasoMin = v; renderRelAtraso(); }
 function abrirRelAtraso() { _relAtrasoCorte = _relAtrasoCorte || _relHojeISO(); renderRelAtraso(); document.getElementById('rel-atraso').style.display = 'block'; }
 function fecharRelAtraso() { document.getElementById('rel-atraso').style.display = 'none'; }
-function imprimirRelAtraso() { window.print(); }
-function renderRelAtraso() {
-  const box = document.getElementById('rel-atraso'); if (!box) return;
+// Monta só o CONTEÚDO do relatório (cabeçalho, resumo, faixas, blocos por cliente, rodapé). Usado na tela e na aba de impressão.
+function _relCorpoHTML() {
   const _esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const d = _dadosRelAtraso();
-  const empresas = [...new Set(pedidos.map(p => p.empresa).filter(Boolean))].sort();
-  const vendedores = [...new Set(pedidos.map(p => p.vendedor).filter(Boolean))].sort();
   const fD = x => { try { return fmtDate(x); } catch (e) { return ''; } };
   const fA = iso => { try { return iso ? fmtDiaBR(iso) : '—'; } catch (e) { return '—'; } };
   const corteBR = fD(new Date(d.corteISO + 'T00:00:00'));
@@ -8286,6 +8283,42 @@ function renderRelAtraso() {
         <tr class="rel-subt"><td colspan="4">Subtotal ${_esc(g.cliente)}</td><td class="rt">${fmtVal(g.total)}</td><td></td></tr>
       </tbody></table>
     </div>`).join('') : '<div style="padding:30px;text-align:center;color:#666">Nenhum boleto em atraso com esses filtros 🎉</div>';
+  return `
+    <div class="rel-tit">Boletos em atraso — posição em ${corteBR}</div>
+    <div class="rel-meta">Filtros: ${_esc(filtApl)}</div>
+    <div class="rel-resumo">
+      <div><b>Total em atraso: ${fmtVal(d.totalGeral)}</b> · ${d.nBol} boleto(s) · ${d.nCli} cliente(s)</div>
+      <div style="margin-top:4px;font-size:12px">${faixaLinha('1–15 dias', d.faixas.f1)}${faixaLinha('16–30', d.faixas.f2)}${faixaLinha('31–60', d.faixas.f3)}${faixaLinha('+60', d.faixas.f4)}</div>
+    </div>
+    ${corpo}
+    <div class="rel-foot">Gerado pelo Gestão Rokbox em ${fD(agora)} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')} · ordenado do maior devedor para o menor · negrito = atraso acima de 30 dias.</div>`;
+}
+function _relPrintCSS() {
+  return `*{box-sizing:border-box}body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:0;padding:16px;font-size:13px}
+.rel-tit{font-size:18px;font-weight:800;margin-bottom:2px}.rel-meta{font-size:12px;color:#555;margin-bottom:10px}
+.rel-resumo{border:1px solid #ccc;border-radius:8px;padding:10px 12px;margin-bottom:14px;background:#fafafa}.rel-resumo span{margin-right:16px}
+.rel-cliente{border:1px solid #ddd;border-radius:8px;padding:10px 12px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid}
+.rel-cab{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;margin-bottom:6px}
+.rel-nome{font-weight:800;font-size:14px}.rel-tot{font-weight:800}.rel-sub{color:#666;font-weight:600;font-size:11px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:4px 7px;border-bottom:1px solid #eee;text-align:left}
+th.rt,td.rt{text-align:right}tr.rel-grave td{font-weight:700}tr.rel-subt td{border-top:1px solid #bbb;font-weight:700;background:#f6f6f6}
+.rel-foot{margin-top:16px;font-size:11px;color:#666;border-top:1px solid #ddd;padding-top:8px}
+@media print{body{padding:0}}
+@page{size:A4 portrait;margin:14mm}`;
+}
+// Imprimir/PDF: abre uma NOVA ABA só com o relatório + CSS A4 (sem overlay/position:fixed) e chama print lá. Corrige o PDF em branco.
+function imprimirRelAtraso() {
+  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Boletos em atraso</title><style>' + _relPrintCSS() + '</style></head><body>' + _relCorpoHTML() + '<' + 'script>window.onload=function(){setTimeout(function(){window.focus();window.print();},300);};<' + '/script></body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { alert('O navegador bloqueou a nova aba. Libere o pop-up pra gerar o PDF.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+function renderRelAtraso() {
+  const box = document.getElementById('rel-atraso'); if (!box) return;
+  const _esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const d = _dadosRelAtraso();
+  const empresas = [...new Set(pedidos.map(p => p.empresa).filter(Boolean))].sort();
+  const vendedores = [...new Set(pedidos.map(p => p.vendedor).filter(Boolean))].sort();
   box.innerHTML = `
     <div class="no-print" style="position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;z-index:2">
       <b style="font-size:14px">🖨 Boletos em atraso</b>
@@ -8298,16 +8331,7 @@ function renderRelAtraso() {
       <button class="btn ghost sm" onclick="exportRelAtrasoCSV()">⬇ CSV</button>
       <button class="btn ghost sm" onclick="fecharRelAtraso()">✕ Fechar</button>
     </div>
-    <div class="rel-corpo">
-      <div class="rel-tit">Boletos em atraso — posição em ${corteBR}</div>
-      <div class="rel-meta">Filtros: ${_esc(filtApl)}</div>
-      <div class="rel-resumo">
-        <div><b>Total em atraso: ${fmtVal(d.totalGeral)}</b> · ${d.nBol} boleto(s) · ${d.nCli} cliente(s)</div>
-        <div style="margin-top:4px;font-size:12px">${faixaLinha('1–15 dias', d.faixas.f1)}${faixaLinha('16–30', d.faixas.f2)}${faixaLinha('31–60', d.faixas.f3)}${faixaLinha('+60', d.faixas.f4)}</div>
-      </div>
-      ${corpo}
-      <div class="rel-foot">Gerado pelo Gestão Rokbox em ${fD(agora)} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')} · ordenado do maior devedor para o menor · negrito = atraso acima de 30 dias.</div>
-    </div>`;
+    <div class="rel-corpo">${_relCorpoHTML()}</div>`;
 }
 function exportRelAtrasoCSV() {
   const d = _dadosRelAtraso();
