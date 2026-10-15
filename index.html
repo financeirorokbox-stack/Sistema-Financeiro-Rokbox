@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v718/10-771';
+const APP_VERSION = 'v719/10-772';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8131,8 +8131,8 @@ function cobrarBoletoWpp(pedidoId, parcelaKey) {
   if (!alvo.length) alvo = todas;
   const itens = alvo.map(p => ({ label: `Parcela ${p.parcela}/${p.totalParcelas}`, venc: p.vencimento, valor: p.valor }));
   const prot = alvo.map(p => _protestoAtivo(p.key)).find(Boolean) || null; // protestado? → mensagem de protesto
+  marcarAvisadoBoleto(ped.pedido); // grava a data ANTES de abrir o WhatsApp (se o Wpp falhar, o aviso já ficou registrado)
   _abrirWpp(cfg.fone, montarMsgCobranca(ped.cliente, 'pedido #' + ped.pedido, itens, prot));
-  marcarAvisadoBoleto(ped.pedido);
 }
 // ENVIAR o boleto ao cliente (tela Boletos a Emitir) — mensagem de ENTREGA (não de cobrança/atraso).
 // Ela anexa o PDF do boleto (do Itaú) na conversa e envia.
@@ -8834,9 +8834,9 @@ function cobrarSelecionados() {
     const g = grupos[k];
     const refs = [...g.refs];
     const refTxt = refs.length ? ('pedido' + (refs.length > 1 ? 's' : '') + ' ' + refs.join(', ')) : '';
-    _abrirWpp(g.fone, montarMsgCobranca(g.cliente, refTxt, g.itens, g.prot));
-    g.avulsoIdx.forEach(i => { if (boletosAvulsos[i]) boletosAvulsos[i].cobradoEm = _hojeISO(); });
+    g.avulsoIdx.forEach(i => { if (boletosAvulsos[i]) boletosAvulsos[i].cobradoEm = _hojeISO(); }); // marca ANTES de abrir o Wpp
     g.pedidos.forEach(p => { boletoAvisado[String(p)] = _hojeISO(); });
+    try { _abrirWpp(g.fone, montarMsgCobranca(g.cliente, refTxt, g.itens, g.prot)); } catch (e) {} // se o Wpp falhar, segue (o aviso já foi marcado)
   });
   saveData('boletosAvulsos', boletosAvulsos);
   saveData('boletoAvisado', boletoAvisado);
@@ -8847,8 +8847,8 @@ function cobrarSelecionados() {
 function cobrarAvulsoWpp(i) {
   const a = boletosAvulsos[i]; if (!a) return;
   const prot = _protestoAtivo('av_' + a._uid); // protestado? → mensagem de protesto
+  marcarAvisadoAvulso(i); // grava a data ANTES de abrir o WhatsApp
   _abrirWpp(a.fone, montarMsgCobranca(a.cliente, a.pedido ? 'pedido #' + a.pedido : '', [{ label: 'Boleto', venc: a.vencimento, valor: a.valorTitulo || 0 }], prot));
-  marcarAvisadoAvulso(i);
 }
 // ENVIAR o boleto avulso (mensagem de ENTREGA, não de cobrança/atraso). Serve p/ parcela de acordo também.
 function enviarAvulsoWpp(i) {
