@@ -367,6 +367,34 @@ tr:hover td{background:#fafaf8}
   </div>
 </div>
 
+<!-- RELATÓRIO BOLETOS EM ATRASO (impressão A4) -->
+<style>
+#rel-atraso{position:fixed;inset:0;background:#fff;color:#111;z-index:1000;overflow:auto;display:none;font-size:13px}
+#rel-atraso .rel-corpo{max-width:800px;margin:0 auto;padding:18px 22px}
+#rel-atraso .rel-tit{font-size:18px;font-weight:800;margin-bottom:2px}
+#rel-atraso .rel-meta{font-size:12px;color:#555;margin-bottom:10px}
+#rel-atraso .rel-resumo{border:1px solid #ccc;border-radius:8px;padding:10px 12px;margin-bottom:14px;background:#fafafa}
+#rel-atraso .rel-cliente{border:1px solid #ddd;border-radius:8px;padding:10px 12px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid}
+#rel-atraso .rel-cab{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;margin-bottom:6px}
+#rel-atraso .rel-nome{font-weight:800;font-size:14px}
+#rel-atraso .rel-tot{font-weight:800}
+#rel-atraso .rel-sub{color:#666;font-weight:600;font-size:11px}
+#rel-atraso table{width:100%;border-collapse:collapse;font-size:12px}
+#rel-atraso th,#rel-atraso td{padding:4px 7px;border-bottom:1px solid #eee;text-align:left}
+#rel-atraso th.rt,#rel-atraso td.rt{text-align:right}
+#rel-atraso tr.rel-grave td{font-weight:700}
+#rel-atraso tr.rel-subt td{border-top:1px solid #bbb;font-weight:700;background:#f6f6f6}
+#rel-atraso .rel-foot{margin-top:16px;font-size:11px;color:#666;border-top:1px solid #ddd;padding-top:8px}
+@media print{
+  body > *:not(#rel-atraso){display:none !important}
+  #rel-atraso{position:static;overflow:visible}
+  #rel-atraso .no-print{display:none !important}
+  #rel-atraso .rel-corpo{max-width:none;padding:0}
+  @page{size:A4 portrait;margin:14mm}
+}
+</style>
+<div id="rel-atraso"></div>
+
 <!-- MODAL COLEÇÕES PL (cadastro) -->
 <div class="modal-overlay" id="colpl-modal">
   <div class="modal-box" style="width:720px;max-width:96vw">
@@ -531,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v714/10-767';
+const APP_VERSION = 'v715/10-768';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8181,6 +8209,118 @@ function resumoCobranca() {
   const aVencerBreve = aVencer.filter(x => x.venc <= lim);
   return { vencidos, aVencer, aVencerBreve, total: vencidos.length + aVencer.length };
 }
+// ════════════════════════════════════════════════════════════════════
+// RELATÓRIO DE BOLETOS EM ATRASO (impressão A4, por cliente) — SÓ LEITURA.
+// Usa a MESMA fonte da tela de Cobrança (boletosACobrar: já exclui pago/acordo/avulso pago),
+// só re-filtra pela data de corte, empresa, vendedor e mínimo de dias. Não altera nenhum dado.
+// ════════════════════════════════════════════════════════════════════
+let _relAtrasoCorte = '', _relAtrasoEmp = '', _relAtrasoVend = '', _relAtrasoMin = 1;
+function _relHojeISO() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function _dadosRelAtraso() {
+  const corteISO = _relAtrasoCorte || _relHojeISO();
+  const corte = new Date(corteISO + 'T00:00:00');                 // "em atraso" = venceu ANTES do corte
+  const minD = Math.max(0, +_relAtrasoMin || 0);
+  const grupos = {};
+  (boletosACobrar() || []).forEach(x => {
+    if (!x.venc) return;
+    const venc = new Date(x.venc); venc.setHours(0, 0, 0, 0);
+    if (!(venc < corte)) return;                                  // só o que venceu antes do corte
+    const dias = Math.round((corte - venc) / 86400000);
+    if (dias < minD) return;
+    let empresa = '', vendedor = '', fone = '', pedido = '', parcela = '—', avisoISO = '';
+    if (x.tipo === 'sistema') {
+      const ped = pedidoPorId(x.ref) || {};
+      empresa = ped.empresa || ''; vendedor = ped.vendedor || '';
+      fone = (boletoConfig[x.ref] && boletoConfig[x.ref].fone) || '';
+      const n = +String(x.key).split('-')[1] || 1;
+      const tot = ((boletoConfig[x.ref] && boletoConfig[x.ref].prazo) || '').split('/').filter(Boolean).length || 1;
+      pedido = '#' + x.ref; parcela = tot > 1 ? (n + '/' + tot) : '1/1';
+      avisoISO = boletoAvisado[String(x.ref)] || '';
+    } else {
+      const a = boletosAvulsos[x.ref] || {};
+      empresa = a.empresa || ''; const p = a.pedido ? (pedidoPorId(a.pedido) || {}) : {}; vendedor = p.vendedor || '';
+      fone = x.fone || a.fone || ''; pedido = a.pedido ? ('#' + a.pedido) : '(avulso)'; parcela = '—';
+      avisoISO = a.cobradoEm || '';
+    }
+    if (_relAtrasoEmp && empresa !== _relAtrasoEmp) return;
+    if (_relAtrasoVend && vendedor !== _relAtrasoVend) return;
+    const ck = (x.cliente || '(sem nome)').trim().toLowerCase();
+    const g = grupos[ck] || (grupos[ck] = { cliente: (x.cliente || '(sem nome)').trim(), fone: '', vendedor: '', total: 0, maior: 0, itens: [] });
+    if (!g.fone && fone) g.fone = fone;
+    if (!g.vendedor && vendedor) g.vendedor = vendedor;
+    g.total += (+x.valor || 0); if (dias > g.maior) g.maior = dias;
+    g.itens.push({ pedido, parcela, venc, dias, valor: +x.valor || 0, aviso: avisoISO });
+  });
+  const arr = Object.values(grupos).sort((a, b) => b.total - a.total);
+  arr.forEach(g => g.itens.sort((a, b) => b.dias - a.dias));
+  const nBol = arr.reduce((s, g) => s + g.itens.length, 0);
+  const totalGeral = arr.reduce((s, g) => s + g.total, 0);
+  const faixas = { f1: { q: 0, v: 0 }, f2: { q: 0, v: 0 }, f3: { q: 0, v: 0 }, f4: { q: 0, v: 0 } };
+  arr.forEach(g => g.itens.forEach(it => { const d = it.dias, k = d <= 15 ? 'f1' : d <= 30 ? 'f2' : d <= 60 ? 'f3' : 'f4'; faixas[k].q++; faixas[k].v += it.valor; }));
+  return { grupos: arr, totalGeral, nBol, nCli: arr.length, faixas, corteISO };
+}
+function setRelAtraso(campo, v) { if (campo === 'corte') _relAtrasoCorte = v; else if (campo === 'emp') _relAtrasoEmp = v; else if (campo === 'vend') _relAtrasoVend = v; else if (campo === 'min') _relAtrasoMin = v; renderRelAtraso(); }
+function abrirRelAtraso() { _relAtrasoCorte = _relAtrasoCorte || _relHojeISO(); renderRelAtraso(); document.getElementById('rel-atraso').style.display = 'block'; }
+function fecharRelAtraso() { document.getElementById('rel-atraso').style.display = 'none'; }
+function imprimirRelAtraso() { window.print(); }
+function renderRelAtraso() {
+  const box = document.getElementById('rel-atraso'); if (!box) return;
+  const _esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const d = _dadosRelAtraso();
+  const empresas = [...new Set(pedidos.map(p => p.empresa).filter(Boolean))].sort();
+  const vendedores = [...new Set(pedidos.map(p => p.vendedor).filter(Boolean))].sort();
+  const fD = x => { try { return fmtDate(x); } catch (e) { return ''; } };
+  const fA = iso => { try { return iso ? fmtDiaBR(iso) : '—'; } catch (e) { return '—'; } };
+  const corteBR = fD(new Date(d.corteISO + 'T00:00:00'));
+  const filtApl = [_relAtrasoEmp ? ('Empresa: ' + _relAtrasoEmp) : '', _relAtrasoVend ? ('Vendedor: ' + _relAtrasoVend) : '', (+_relAtrasoMin > 1 ? ('Mín. ' + _relAtrasoMin + ' dias') : '')].filter(Boolean).join(' · ') || 'todos';
+  const faixaLinha = (lbl, f) => `<span style="margin-right:16px"><b>${lbl}:</b> ${f.q} · ${fmtVal(f.v)}</span>`;
+  const agora = new Date();
+  const corpo = d.grupos.length ? d.grupos.map(g => `
+    <div class="rel-cliente">
+      <div class="rel-cab">
+        <div><span class="rel-nome">${_esc(g.cliente)}</span>${g.fone ? ` · 📱 ${_esc(g.fone)}` : ''}${g.vendedor ? ` · vend.: ${_esc(g.vendedor)}` : ''}</div>
+        <div class="rel-tot">${fmtVal(g.total)} <span class="rel-sub">· ${g.itens.length} boleto(s) · maior atraso ${g.maior}d</span></div>
+      </div>
+      <table><thead><tr><th>Pedido</th><th>Parcela</th><th>Vencimento</th><th class="rt">Dias</th><th class="rt">Valor</th><th>Último aviso</th></tr></thead><tbody>
+        ${g.itens.map(it => `<tr class="${it.dias > 30 ? 'rel-grave' : ''}"><td>${_esc(it.pedido)}</td><td>${_esc(it.parcela)}</td><td>${fD(it.venc)}</td><td class="rt">${it.dias}</td><td class="rt">${fmtVal(it.valor)}</td><td>${fA(it.aviso)}</td></tr>`).join('')}
+        <tr class="rel-subt"><td colspan="4">Subtotal ${_esc(g.cliente)}</td><td class="rt">${fmtVal(g.total)}</td><td></td></tr>
+      </tbody></table>
+    </div>`).join('') : '<div style="padding:30px;text-align:center;color:#666">Nenhum boleto em atraso com esses filtros 🎉</div>';
+  box.innerHTML = `
+    <div class="no-print" style="position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;z-index:2">
+      <b style="font-size:14px">🖨 Boletos em atraso</b>
+      <label style="font-size:12px">Corte <input type="date" value="${d.corteISO}" onchange="setRelAtraso('corte',this.value)"></label>
+      <label style="font-size:12px">Empresa <select onchange="setRelAtraso('emp',this.value)"><option value="">Todas</option>${empresas.map(e => `<option ${e === _relAtrasoEmp ? 'selected' : ''}>${_esc(e)}</option>`).join('')}</select></label>
+      <label style="font-size:12px">Vendedor <select onchange="setRelAtraso('vend',this.value)"><option value="">Todos</option>${vendedores.map(v => `<option ${v === _relAtrasoVend ? 'selected' : ''}>${_esc(v)}</option>`).join('')}</select></label>
+      <label style="font-size:12px">Mín. dias <input type="number" min="0" style="width:60px" value="${_relAtrasoMin}" onchange="setRelAtraso('min',this.value)"></label>
+      <span style="flex:1"></span>
+      <button class="btn primary sm" onclick="imprimirRelAtraso()">🖨 Imprimir / PDF</button>
+      <button class="btn ghost sm" onclick="exportRelAtrasoCSV()">⬇ CSV</button>
+      <button class="btn ghost sm" onclick="fecharRelAtraso()">✕ Fechar</button>
+    </div>
+    <div class="rel-corpo">
+      <div class="rel-tit">Boletos em atraso — posição em ${corteBR}</div>
+      <div class="rel-meta">Filtros: ${_esc(filtApl)}</div>
+      <div class="rel-resumo">
+        <div><b>Total em atraso: ${fmtVal(d.totalGeral)}</b> · ${d.nBol} boleto(s) · ${d.nCli} cliente(s)</div>
+        <div style="margin-top:4px;font-size:12px">${faixaLinha('1–15 dias', d.faixas.f1)}${faixaLinha('16–30', d.faixas.f2)}${faixaLinha('31–60', d.faixas.f3)}${faixaLinha('+60', d.faixas.f4)}</div>
+      </div>
+      ${corpo}
+      <div class="rel-foot">Gerado pelo Gestão Rokbox em ${fD(agora)} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')} · ordenado do maior devedor para o menor · negrito = atraso acima de 30 dias.</div>
+    </div>`;
+}
+function exportRelAtrasoCSV() {
+  const d = _dadosRelAtraso();
+  const linhas = [['Cliente', 'Vendedor', 'Telefone', 'Pedido', 'Parcela', 'Vencimento', 'Dias em atraso', 'Valor', 'Ultimo aviso']];
+  d.grupos.forEach(g => g.itens.forEach(it => {
+    let vb = ''; try { vb = fmtDate(it.venc); } catch (e) {}
+    let ab = ''; try { ab = it.aviso ? fmtDiaBR(it.aviso) : ''; } catch (e) {}
+    linhas.push([g.cliente, g.vendedor || '', g.fone || '', it.pedido, it.parcela, vb, it.dias, (it.valor || 0).toFixed(2).replace('.', ','), ab]);
+  }));
+  const csv = linhas.map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'boletos-em-atraso-' + d.corteISO + '.csv'; a.click();
+}
 function atualizarBadgeCobranca() {
   const el = document.getElementById('badge-cobranca'); if (!el) return;
   const r = resumoCobranca();
@@ -8344,6 +8484,7 @@ function renderBoletos() {
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     ${dateMiniBar('renderBoletos')}
+    <div style="margin:0 0 10px"><button class="btn ok sm" onclick="abrirRelAtraso()" title="Relatório A4 imprimível dos boletos vencidos e não pagos, por cliente, pra enviar à supervisora de vendas. Só leitura.">🖨 Boletos em atraso</button></div>
     <div class="cards-row">
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
       <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div><div class="c-sub">${fmtVal(somaEmit)}</div></div>
