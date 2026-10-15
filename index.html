@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v715/10-768';
+const APP_VERSION = 'v716/10-769';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8484,7 +8484,6 @@ function renderBoletos() {
         fdRow('Data', `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${dateFilterHTML()}</div>`)
     })}
     ${dateMiniBar('renderBoletos')}
-    <div style="margin:0 0 10px"><button class="btn ok sm" onclick="abrirRelAtraso()" title="Relatório A4 imprimível dos boletos vencidos e não pagos, por cliente, pra enviar à supervisora de vendas. Só leitura.">🖨 Boletos em atraso</button></div>
     <div class="cards-row">
       <div class="card blue"><div class="c-label">Pedidos c/ Boleto</div><div class="c-val">${vis.length}</div><div class="c-sub">${fmtVal(vis.reduce((s,b)=>s+b.valorTotal,0))}</div></div>
       <div class="card green"><div class="c-label">Emitidos</div><div class="c-val">${totalEmitidos}</div><div class="c-sub">${fmtVal(somaEmit)}</div></div>
@@ -9256,6 +9255,7 @@ function renderCobranca() {
       <div class="card red"><div class="c-label">Atrasados</div><div class="c-val">${atrasados.length}</div><div class="c-sub">${fmtVal(atrasados.reduce((s,b)=>s+b.valor,0))}</div></div>
       <div class="card amber"><div class="c-label">A Vencer</div><div class="c-val">${aVencer.length}</div><div class="c-sub">${fmtVal(aVencer.reduce((s,b)=>s+b.valor,0))}</div></div>
     </div>
+    <div style="margin:2px 0 12px"><button class="btn ok sm" onclick="abrirRelAtraso()" title="Relatório A4 imprimível dos boletos vencidos e não pagos, por cliente, pra enviar à supervisora de vendas. Só leitura.">🖨 Boletos em atraso</button></div>
     ${(() => {
       // PAINEL ÚNICO da Cobrança: TODOS os boletos (sistema + fora do sistema), pagos e a receber, num lugar só,
       // por vencimento, com status, seleção (cobrar junto/acordo) e TODAS as ações (cobrar, enviar, recebi, editar
