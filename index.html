@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v719/10-772';
+const APP_VERSION = 'v720/10-773';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8115,6 +8115,29 @@ function marcarAvisadoBoleto(pedido) { boletoAvisado[String(pedido)] = _hojeISO(
 function desmarcarAvisadoBoleto(pedido) { delete boletoAvisado[String(pedido)]; saveData('boletoAvisado', boletoAvisado); _reRenderCob(); }
 function marcarAvisadoAvulso(i) { if (boletosAvulsos[i]) { boletosAvulsos[i].cobradoEm = _hojeISO(); saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); } }
 function desmarcarAvisadoAvulso(i) { if (boletosAvulsos[i]) { delete boletosAvulsos[i].cobradoEm; saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); } }
+// "Marcar como avisado" MANUAL (sem disparar WhatsApp), com data escolhível (padrão hoje). Pra registrar avisos já feitos por fora.
+function _pedirDataAviso() {
+  const hojeBR = fmtDate(new Date());
+  const v = prompt('Data do aviso (DD/MM/AAAA):', hojeBR);
+  if (v === null) return null;
+  const s = String(v).trim();
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return m[3] + '-' + m[2] + '-' + m[1];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  alert('Data inválida. Use DD/MM/AAAA.'); return null;
+}
+function marcarAvisadoManualBoleto(pedido) { const iso = _pedirDataAviso(); if (!iso) return; boletoAvisado[String(pedido)] = iso; saveData('boletoAvisado', boletoAvisado); _reRenderCob(); }
+function marcarAvisadoManualAvulso(i) { if (!boletosAvulsos[i]) return; const iso = _pedirDataAviso(); if (!iso) return; boletosAvulsos[i].cobradoEm = iso; saveData('boletosAvulsos', boletosAvulsos); _reRenderCob(); }
+function marcarAvisadosSelecionados() {
+  if (!_cobSisSel.size && !_cobAvSel.size) { alert('Marque ao menos um boleto na caixinha à esquerda.'); return; }
+  const iso = _pedirDataAviso(); if (!iso) return;
+  let n = 0; const sisMap = {}; try { getBoletosDaForma().forEach(b => { sisMap[b.key] = b; }); } catch (e) {}
+  [..._cobSisSel].forEach(key => { const b = sisMap[key]; if (b) { boletoAvisado[String(b.pedido)] = iso; n++; } });
+  [..._cobAvSel].forEach(i => { if (boletosAvulsos[i]) { boletosAvulsos[i].cobradoEm = iso; n++; } });
+  saveData('boletoAvisado', boletoAvisado); saveData('boletosAvulsos', boletosAvulsos);
+  _cobAvSel.clear(); _cobSisSel.clear(); renderCobranca();
+  alert(n + ' boleto(s) marcados como avisados em ' + fmtDiaBR(iso) + '.');
+}
 function cobrarBoletoWpp(pedidoId, parcelaKey) {
   const ped = getBoletosPorPedido().find(b => String(b.pedido) === String(pedidoId));
   if (!ped) { alert('Pedido não encontrado.'); return; }
@@ -9328,11 +9351,11 @@ function renderCobranca() {
           let acoes;
           if (r.t === 'sis') {
             acoes = r.pago ? `<a href="#" onclick="desfazerBoletoSis('${r.key}');return false" title="Desfazer recebido" style="text-decoration:none;color:var(--amber);font-size:11px">↩ desfazer</a>`
-              : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${r.ped}','${r.key}')">📱 ${r.avis ? 'Cobrar de novo' : 'Cobrar'}</button>${r.avis ? ` <a href="#" onclick="desmarcarAvisadoBoleto('${r.ped}');return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<button class="btn ghost sm" onclick="baixarBoletoSis('${r.ped}','${r.key}',${r.val || 0})" title="Marcar como recebido (cliente pagou por PIX/dinheiro/outro)">✓ Recebi</button><a href="#" onclick="if(confirm('Desmarcar este boleto como emitido?')){delete boletoStatus['${r.key}'];saveData('boletoStatus',boletoStatus);renderCobranca()}return false" title="Desmarcar emitido" style="text-decoration:none;color:var(--muted);font-size:12px">🗑</a></div>`;
+              : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarBoletoWpp('${r.ped}','${r.key}')">📱 ${r.avis ? 'Cobrar de novo' : 'Cobrar'}</button>${r.avis ? ` <a href="#" onclick="desmarcarAvisadoBoleto('${r.ped}');return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<button class="btn ghost sm" onclick="marcarAvisadoManualBoleto('${r.ped}')" title="Marcar como avisado numa data (padrão hoje), SEM abrir o WhatsApp">📌 Avisei</button><button class="btn ghost sm" onclick="baixarBoletoSis('${r.ped}','${r.key}',${r.val || 0})" title="Marcar como recebido (cliente pagou por PIX/dinheiro/outro)">✓ Recebi</button><a href="#" onclick="if(confirm('Desmarcar este boleto como emitido?')){delete boletoStatus['${r.key}'];saveData('boletoStatus',boletoStatus);renderCobranca()}return false" title="Desmarcar emitido" style="text-decoration:none;color:var(--muted);font-size:12px">🗑</a></div>`;
           } else {
             acoes = r.pago
               ? `<button class="btn ghost sm" onclick="removerBoletoAvulso(${r.idx})" title="Remover">🗑</button>`
-              : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="enviarAvulsoWpp(${r.idx})" title="Enviar o boleto em PDF">📎 Enviar</button><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${r.idx})">📱 ${r.a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${r.a.cobradoEm ? ` <a href="#" onclick="desmarcarAvisadoAvulso(${r.idx});return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<button class="btn ghost sm" onclick="baixarAvulso(${r.idx})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${r.idx})" title="Remover">🗑</button></div>`;
+              : `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="enviarAvulsoWpp(${r.idx})" title="Enviar o boleto em PDF">📎 Enviar</button><button class="btn ghost sm" style="color:#128C7E;border-color:#128C7E" onclick="cobrarAvulsoWpp(${r.idx})">📱 ${r.a.cobradoEm ? 'Cobrar de novo' : 'Cobrar'}</button>${r.a.cobradoEm ? ` <a href="#" onclick="desmarcarAvisadoAvulso(${r.idx});return false" style="text-decoration:none;color:var(--green)" title="✓ avisado — desmarcar">✓↩</a>` : ''}<button class="btn ghost sm" onclick="marcarAvisadoManualAvulso(${r.idx})" title="Marcar como avisado numa data (padrão hoje), SEM abrir o WhatsApp">📌 Avisei</button><button class="btn ghost sm" onclick="baixarAvulso(${r.idx})" title="Marcar como recebido">✓ Recebi</button><button class="btn ghost sm" onclick="removerBoletoAvulso(${r.idx})" title="Remover">🗑</button></div>`;
           }
           // ⚖ PROTESTO: selo na coluna Status (não muda o status) + botão Protestar/Desfazer nas ações. Cobrança segue normal.
           const _seloProt = r.prot ? `<br><span class="badge" style="background:#5b3a9e;color:#fff;font-size:9px;margin-top:3px;display:inline-block" title="Protestado em ${r.prot.data ? fmtDate(r.prot.data + 'T12:00:00') : ''}${r.prot.cartorio ? ' — cartório ' + _esc(r.prot.cartorio) : ''}${r.prot.protocolo ? ' — protocolo ' + _esc(r.prot.protocolo) : ''}${r.prot.obs ? ' — ' + _esc(r.prot.obs) : ''} — pagamento no cartório">⚖ Protestado${r.prot.data ? ' ' + fmtDate(r.prot.data + 'T12:00:00') : ''}</span>${r.prot.cartorio ? `<br><span style="font-size:9px;color:var(--muted)">cartório ${_esc(r.prot.cartorio)}</span>` : ''}` : '';
@@ -9370,6 +9393,7 @@ function renderCobranca() {
     ${(_cobAvSel.size + _cobSisSel.size) ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;background:#eefaf3;border:1px solid #bfe6cf;border-radius:8px;padding:8px 12px;font-size:12px">
       <strong>${_cobAvSel.size + _cobSisSel.size} selecionado(s)</strong>
       <button class="btn primary sm" style="background:#128C7E;border-color:#128C7E" onclick="cobrarSelecionados()">📱 Cobrar selecionados</button>
+      <button class="btn ghost sm" onclick="marcarAvisadosSelecionados()" title="Registra os selecionados como avisados numa data (padrão hoje), SEM abrir o WhatsApp. Pra lançar avisos que você já fez por fora.">📌 Marcar avisados</button>
       <button class="btn ok sm" onclick="abrirAcordo()" title="Renegociar os boletos marcados: multa + novas parcelas. Os originais saem da cobrança (em acordo).">🤝 Fazer acordo</button>
       <a href="#" onclick="_cobAvSel.clear();_cobSisSel.clear();renderCobranca();return false" style="color:var(--muted)">limpar seleção</a>
       <span style="color:var(--muted)">junta os do mesmo cliente numa mensagem só (avulsos + emitidos).</span>
