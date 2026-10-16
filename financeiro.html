@@ -301,32 +301,27 @@ const LOGIN_EMAILS={vendas:'financeirorokbox+vendas@gmail.com',diretor:'financei
 async function tentar(){
   const raw=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim();
   const v=document.getElementById('gpass').value||'';
-  // Login seguro (Supabase): nome (vendas/diretor/admin) vira e-mail +alias, ou e-mail direto. Senão, senha de porta (djb2, reserva).
+  // Etapa 1 (segurança): acesso só pelo Supabase (nome vira e-mail +alias, ou e-mail direto). Senha de porta djb2 aposentada.
   const email = raw.includes('@') ? raw : (LOGIN_EMAILS[raw.toLowerCase()]||'');
-  if(email){
-    try{
-      const u=await _sbLogin(email,v);
-      const meta=(u&&u.app_metadata)||{}; const role=['admin','diretor','vendas'].includes(meta.role)?meta.role:'admin';
-      try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',role);}catch(e){}
-      abrir(); return;
-    }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; return; }
-  }
-  const h=djb2(v);
-  if(h===HASH_ADMIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role','admin');}catch(e){} abrir(); } // admin: vê tudo
-  else if(h===HASH_FIN){ try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role','diretor');}catch(e){} abrir(); } // diretor libera os DOIS paineis, lembrado (sem pedir de novo)
-  else{ document.getElementById('gerr').textContent='Senha incorreta.'; }
+  if(!email){ document.getElementById('gerr').textContent='Digite seu nome (vendas, diretor ou admin) ou e-mail.'; return; }
+  try{
+    const u=await _sbLogin(email,v);
+    const meta=(u&&u.app_metadata)||{}; const role=['admin','diretor','vendas'].includes(meta.role)?meta.role:'admin';
+    try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',role);}catch(e){}
+    abrir();
+  }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; }
 }
 function sair(){ try{localStorage.removeItem('rk_gate_fin'); localStorage.removeItem('rk_role');}catch(e){} location.reload(); }
 // Esconde as abas só-admin quando não é admin, e garante que a aba ativa seja permitida.
 function aplicarRole(){ const admin=ehAdmin(); document.querySelectorAll('.aba').forEach(b=>{ const t=b.dataset.t; if(!t) return; const ok=admin||ABAS_DIRETOR.includes(t); b.style.display=ok?'':'none'; }); const ativa=document.querySelector('.aba.on'); if(ativa && ativa.style.display==='none') setAba('fluxo'); const badge=document.getElementById('role-badge'); if(badge) badge.textContent=admin?'admin':''; }
-function abrir(){ document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar(); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático)
+async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar(); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
 function toggleNums(){ const app=document.getElementById('app'); const oc=app.classList.toggle('nums-ocultos'); document.getElementById('eye').textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleLista(k){ const el=document.getElementById(k+'-lista'); if(el) el.classList.toggle('hidden'); }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair':'⛶ Tela cheia'; });
 
 async function gk(chave){
-  const _b=(await _sbToken())||SUPA_KEY;
+  const _b=await _sbToken(); if(!_b){ const e=new Error('PRECISA_LOGIN'); e._precisaLogin=true; throw e; } // Etapa 1: sem sessão não lê pela anon
   const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_b}});
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
@@ -848,7 +843,7 @@ function renderBalancete(){
 }
 
 // entra direto se já estava liberado neste aparelho
-(function(){ let ok=false; try{ const v=localStorage.getItem('rk_gate_fin'); ok=(v==='1'||v===todayStr()); }catch(e){} if(ok) abrir(); else document.getElementById('gpass').focus(); })();
+(async function(){ let t=null; try{ t=await _sbToken(); }catch(e){} if(t) abrir(); else document.getElementById('gpass').focus(); })(); // Etapa 1: só entra direto com sessão Supabase válida (não mais pelo flag rk_gate_fin)
 // ── MARGEM (por coleção e por produto): tabela − desconto − imposto − custo ──
 let _impostoPct = 10; // % de imposto sobre a receita (editável na tela)
 let _margDim = 'colecao'; // visão da margem: colecao/segmento/vendedor/produto/pedido
@@ -1162,7 +1157,7 @@ function _bucketCat(cat) {
 }
 function _escHpl(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function _rowIdPL(ch) { const s = DEV + '|' + ch; let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h; }
-async function _skPL(ch, val) { try { const b = (await _sbToken()) || SUPA_KEY; await fetch(`${SUPA_URL}/rest/v1/sistema_dados`, { method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + b, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: _rowIdPL(ch), device_id: DEV, chave: ch, valor: JSON.stringify(val), atualizado_em: new Date().toISOString() }) }); } catch (e) {} }
+async function _skPL(ch, val) { try { const b = await _sbToken(); if(!b) return; await fetch(`${SUPA_URL}/rest/v1/sistema_dados`, { method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + b, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: _rowIdPL(ch), device_id: DEV, chave: ch, valor: JSON.stringify(val), atualizado_em: new Date().toISOString() }) }); } catch (e) {} }
 function _salvarParamsPL() { _skPL('parametrosMargemPL', Object.assign({ margemMin: _plMargemMin }, _plParams)); }
 function setPlParam(k, v) { if (k === 'margemMin') _plMargemMin = Math.max(0, Math.min(100, +v || 0)); else _plParams[k] = Math.max(0, +v || 0); _salvarParamsPL(); renderMargemPL(); }
 function setPlMargemMin(v) { setPlParam('margemMin', v); }
@@ -1403,7 +1398,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-14.3';
+const BUILD='2026-10-16.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

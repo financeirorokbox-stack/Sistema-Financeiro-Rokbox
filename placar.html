@@ -252,9 +252,9 @@ async function _sbRefresh(){
   return _sbRefreshing;
 }
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
-async function _syncBearer(){ _bearer=(await _sbToken())||SUPA_KEY; }
+async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-14.3';
+const BUILD = '2026-10-16.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -603,13 +603,13 @@ function renderVendedorDia(vendas){
   el.innerHTML=h;
 }
 // ── cadeado do painel de Vendas (senha) ──
-async function abrirGate(){ const g=document.getElementById('gate'); if(g) g.remove(); await _syncBearer(); aplicarPapel(); carregar(); carregarProsp(); carregarPedidos().then(render); setInterval(async ()=>{ await _syncBearer(); carregar(); carregarProsp(); carregarPedidos().then(render); }, 3600000); } // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
+async function abrirGate(){ const t=await _syncBearer(); if(!t){ const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } const g=document.getElementById('gate'); if(g) g.remove(); aplicarPapel(); carregar(); carregarProsp(); carregarPedidos().then(render); setInterval(async ()=>{ const tk=await _syncBearer(); if(tk){ carregar(); carregarProsp(); carregarPedidos().then(render); } }, 3600000); } // Etapa 1: só abre com sessão Supabase // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
 const LOGIN_EMAILS={vendas:'financeirorokbox+vendas@gmail.com',diretor:'financeirorokbox+diretor@gmail.com',admin:'financeirorokbox+admin@gmail.com'};
-async function tentarGate(){ const raw=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim(); const v=document.getElementById('gpass').value||''; const email = raw.includes('@') ? raw : (LOGIN_EMAILS[raw.toLowerCase()]||''); if(email){ try{ const u=await _sbLogin(email,v); const meta=(u&&u.app_metadata)||{}; const papel=(meta.role==='diretor')?'diretor':(meta.role==='vendas')?'vendas':'admin'; try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); return; }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; return; } } let h=5381; for(let i=0;i<v.length;i++)h=((h<<5)+h+v.charCodeAt(i))>>>0; let papel=null; if(h===1056204911) papel='admin'; else if(h===515829727) papel='diretor'; else if(h===1886177389) papel='vendas'; if(papel){ try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); } else { document.getElementById('gerr').textContent='Senha incorreta.'; } } // Admin (Rkadmin$) vê a aba Produtos; diretor (Rkdiretor$) e vendas (Rkvendas*) não
-(function(){ let ok=false; try{ok=localStorage.getItem('rk_gate_vendas')==='1'}catch(e){} if(ok) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })();
+async function tentarGate(){ const raw=(document.getElementById('gmail')&&document.getElementById('gmail').value||'').trim(); const v=document.getElementById('gpass').value||''; const email = raw.includes('@') ? raw : (LOGIN_EMAILS[raw.toLowerCase()]||''); if(!email){ document.getElementById('gerr').textContent='Digite seu nome (vendas, diretor ou admin) ou e-mail.'; return; } try{ const u=await _sbLogin(email,v); const meta=(u&&u.app_metadata)||{}; const papel=(meta.role==='diretor')?'diretor':(meta.role==='vendas')?'vendas':'admin'; try{localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',papel);}catch(e){} abrirGate(); }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; } } // Etapa 1: senha de porta djb2 aposentada; admin vê a aba Produtos (papel vem do Supabase)
+(async function(){ let t=null; try{ t=await _sbToken(); }catch(e){} if(t) abrirGate(); else { const gp=document.getElementById('gpass'); if(gp) gp.focus(); } })(); // Etapa 1: só entra direto com sessão Supabase válida (não mais pelo flag rk_gate_vendas)
 checkVersao(); setInterval(checkVersao, 5*60000); // checa versão nova ao abrir e a cada 5 min
 </script>
 </body>
