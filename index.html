@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v720/10-773';
+const APP_VERSION = 'v722/10-775';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -625,34 +625,107 @@ function pedidoPorId(id) {
   return _pedIdxCache.get(String(id));
 }
 
+// ── Confiabilidade de gravação (Fases 1+2 + quota): retry + fila de pendências PERSISTIDA + aviso + load protegido ──
+// Chaves GRANDES não ficam no localStorage no caso normal (economiza a quota de ~5MB). Mas se uma gravação
+// falhar e virar PENDÊNCIA, o valor é guardado localmente (sobrevive ao F5) e tem prioridade no próximo load.
+const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete']);
+let _quotaCheia = false;
+let _pendentesSync = (() => { try { return JSON.parse(localStorage.getItem('_pendentesSync') || '{}') || {}; } catch (e) { return {}; } })();
+function _salvarPendentes() { try { localStorage.setItem('_pendentesSync', JSON.stringify(_pendentesSync)); } catch (e) {} }
+function _pendKey(key) { return LS_PREFIX + 'PEND_' + key; }
+function _getPendenteLocal(key) { try { return localStorage.getItem(_pendKey(key)); } catch (e) { return null; } }
+function _removerPendenteLocal(key) { try { localStorage.removeItem(_pendKey(key)); } catch (e) {} }
+function _limparCacheGrandesLocal() { try { _CHAVES_GRANDES.forEach(k => localStorage.removeItem(LS_PREFIX + k)); } catch (e) {} }
+function _ehQuota(e) { const s = ((e && e.name) || '') + '|' + ((e && e.message) || ''); return /quota|exceeded|NS_ERROR_DOM_QUOTA/i.test(s); }
+// Grava no localStorage tratando quota SEM engolir calado: se encher, limpa os caches grandes, tenta de novo e avisa.
+function _setLocalSeguro(key, str) {
+  try { localStorage.setItem(LS_PREFIX + key, str); return true; }
+  catch (e) { if (_ehQuota(e)) { _limparCacheGrandesLocal(); try { localStorage.setItem(LS_PREFIX + key, str); return true; } catch (e2) { _quotaCheia = true; try { _atualizarAvisoSync(); } catch (e3) {} } } return false; }
+}
+// Guarda o valor de uma chave PENDENTE no localStorage (mesmo sendo grande), pra sobreviver ao F5.
+function _setPendenteLocal(key, str) {
+  try { localStorage.setItem(_pendKey(key), str); return true; }
+  catch (e) { _limparCacheGrandesLocal(); try { localStorage.setItem(_pendKey(key), str); return true; } catch (e2) { _quotaCheia = true; return false; } }
+}
+function _postSupabaseStr(key, valorStr) {
+  return sbFetch('POST', { id: rowId(key), device_id: getDeviceId(), chave: key, valor: valorStr, atualizado_em: new Date().toISOString() });
+}
+function _postSupabase(key, data) { return _postSupabaseStr(key, JSON.stringify(data)); }
 async function saveData(key, data) {
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
-  // Sempre salva no localStorage (backup local)
-  try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(data)); } catch(e) {}
-
-  // Salva no Supabase
-  try {
-    await sbFetch('POST', {
-      id: rowId(key),
-      device_id: getDeviceId(),
-      chave: key,
-      valor: JSON.stringify(data),
-      atualizado_em: new Date().toISOString()
-    });
-  } catch(e) {
-    console.warn('Supabase saveData falhou, usando localStorage:', e.message);
+  const str = JSON.stringify(data);
+  if (!_CHAVES_GRANDES.has(key)) _setLocalSeguro(key, str); // pequenas ficam no local; grandes só na nuvem (quota)
+  // Supabase com 2-3 tentativas; se falhar, vira PENDÊNCIA (não some calado) e o valor fica guardado local.
+  let ok = false, ultimoErro = '';
+  for (let tent = 1; tent <= 3 && !ok; tent++) {
+    try { await _postSupabaseStr(key, str); ok = true; }
+    catch (e) { ultimoErro = (e && e.message) || String(e); if (tent < 3) await new Promise(r => setTimeout(r, 400 * tent)); }
+  }
+  if (ok) {
+    if (_pendentesSync[key]) { delete _pendentesSync[key]; _removerPendenteLocal(key); _salvarPendentes(); }
+  } else {
+    _pendentesSync[key] = { em: new Date().toISOString(), erro: ultimoErro };
+    _setPendenteLocal(key, str); // sobrevive ao F5
+    _salvarPendentes();
+    console.warn('⚠ Supabase saveData FALHOU 3x (ficou pendente):', key, ultimoErro);
+  }
+  try { _atualizarAvisoSync(); } catch (e) {}
+  return ok;
+}
+// Reenvia o que está pendente, lendo o valor GUARDADO localmente. Botão do aviso e load (Fase 2).
+async function reenviarPendentes() {
+  for (const k of Object.keys(_pendentesSync)) {
+    let str = _getPendenteLocal(k);
+    if (str == null) { try { str = localStorage.getItem(LS_PREFIX + k); } catch (e) {} }
+    if (str == null) { delete _pendentesSync[k]; continue; }
+    let ok = false; for (let t = 1; t <= 3 && !ok; t++) { try { await _postSupabaseStr(k, str); ok = true; } catch (e) { if (t < 3) await new Promise(r => setTimeout(r, 400 * t)); } }
+    if (ok) { delete _pendentesSync[k]; _removerPendenteLocal(k); }
+  }
+  _salvarPendentes(); try { _atualizarAvisoSync(); } catch (e) {}
+}
+const _flushPendentes = reenviarPendentes; // no load, sobe as pendências ANTES de carregar (Fase 2)
+// Faixa fixa no topo quando há pendência (vermelha) ou quota cheia (âmbar). Impossível de ignorar.
+function _atualizarAvisoSync() {
+  const chaves = Object.keys(_pendentesSync); const n = chaves.length;
+  let el = document.getElementById('aviso-sync');
+  if (!el) {
+    if (!document.body) return;
+    el = document.createElement('div'); el.id = 'aviso-sync';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;display:none;padding:11px 16px;font-size:14px;font-weight:800;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.3);color:#fff';
+    document.body.appendChild(el);
+  }
+  if (n > 0) {
+    el.style.display = 'block'; el.style.background = '#c0392b';
+    el.innerHTML = `⚠ ${n} alteração(ões) NÃO salva(s) na nuvem — NÃO feche nem recarregue a página.`
+      + ` <button onclick="reenviarPendentes()" style="margin-left:10px;background:#fff;color:#c0392b;border:0;border-radius:6px;padding:4px 11px;font-weight:800;cursor:pointer">↻ Tentar salvar agora</button>`
+      + ` <span style="font-weight:400;font-size:12px;opacity:.92">(${chaves.join(', ')})</span>`;
+    try { document.body.style.paddingTop = '46px'; } catch (e) {}
+  } else if (_quotaCheia) {
+    el.style.display = 'block'; el.style.background = '#b9770e';
+    el.innerHTML = '⚠ Armazenamento local cheio — está tudo sendo salvo na nuvem (confiável). Se esta mensagem voltar sempre, me avise.';
+    try { document.body.style.paddingTop = '46px'; } catch (e) {}
+  } else {
+    el.style.display = 'none';
+    try { document.body.style.paddingTop = ''; } catch (e) {}
   }
 }
+// Bloqueia fechar/recarregar enquanto houver pendência (não deixa sair em silêncio).
+window.addEventListener('beforeunload', function (e) {
+  if (Object.keys(_pendentesSync).length) { e.preventDefault(); e.returnValue = 'Há alterações que ainda NÃO foram salvas na nuvem. Se sair agora, elas podem se perder.'; return e.returnValue; }
+});
+window.addEventListener('DOMContentLoaded', function () { try { _atualizarAvisoSync(); } catch (e) {} });
 
 async function loadData(key) {
+  // Chave PENDENTE (não subiu): o valor local não-sincronizado GANHA da nuvem velha (Fase 2).
+  if (_pendentesSync[key]) { const pv = _getPendenteLocal(key); if (pv != null) { try { return JSON.parse(pv); } catch (e) {} } }
   let online = true;
   // Supabase primeiro (fonte da verdade quando tem o dado)
   try {
     const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
     if (rows && rows.length > 0 && rows[0].valor) {
       const val = JSON.parse(rows[0].valor);
-      // Atualiza localStorage com o dado mais recente do Supabase
-      try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(val)); } catch(e) {}
+      // Atualiza localStorage com o dado mais recente do Supabase (chaves grandes não ficam no local: quota)
+      if (!_CHAVES_GRANDES.has(key)) { try { localStorage.setItem(LS_PREFIX + key, rows[0].valor); } catch(e) {} }
       return val;
     }
     // Online, mas a nuvem não tem essa chave → cai no backup local abaixo.
@@ -698,10 +771,12 @@ async function loadDataBulk(keys) {
   }));
   const out = {};
   for (const k of keys) {
+    // Chave PENDENTE: o valor local não-sincronizado GANHA (não deixa a nuvem velha sobrescrever) — Fase 2.
+    if (_pendentesSync[k]) { const pv = _getPendenteLocal(k); if (pv != null) { try { out[k] = JSON.parse(pv); continue; } catch (e) {} } }
     let val = null;
     if (cloud[k] != null) {
       try { val = JSON.parse(cloud[k]); } catch(e) { val = null; }
-      if (val !== null) { try { localStorage.setItem(LS_PREFIX + k, JSON.stringify(val)); } catch(e) {} out[k] = val; continue; }
+      if (val !== null) { if (!_CHAVES_GRANDES.has(k)) { try { localStorage.setItem(LS_PREFIX + k, cloud[k]); } catch(e) {} } out[k] = val; continue; } // grandes não ficam no local (quota)
     }
     try {
       const local = localStorage.getItem(LS_PREFIX + k);
@@ -725,7 +800,10 @@ const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento'
 function _montarBackup() {
   const dados = {};
   for (const k of BACKUP_KEYS) {
-    try { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); } catch(e) {}
+    try {
+      if (_CHAVES_GRANDES.has(k)) { const v = eval(k); if (v !== undefined && v !== null) dados[k] = v; } // grandes não ficam no local → pega da memória
+      else { const v = localStorage.getItem(LS_PREFIX + k); if (v) dados[k] = JSON.parse(v); }
+    } catch(e) {}
   }
   return dados;
 }
@@ -17967,6 +18045,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL'];
+  try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
     const v = _bulk[k];
