@@ -280,7 +280,7 @@ tr:hover td{background:#fafaf8}
     <div id="login-setup-msg" style="display:none;font-size:11px;color:var(--blue);background:var(--blue-bg);border:1px solid #c8d8f0;border-radius:6px;padding:8px;margin-bottom:12px">
       Primeiro acesso: defina usuário e senha.
     </div>
-    <input id="login-user" placeholder="Usuário ou e-mail" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px;outline:none">
+    <input id="login-user" placeholder="E-mail" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px;outline:none">
     <input id="login-pass" type="password" placeholder="Senha" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:14px;outline:none"
       onkeydown="if(event.key==='Enter')doLogin()">
     <button class="run-btn" style="margin-top:0" onclick="doLogin()">Entrar</button>
@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v722/10-775';
+const APP_VERSION = 'v723/10-776';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -577,7 +577,10 @@ function rowId(key) {
 
 async function sbFetch(method, body = null, extraPath = '') {
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${extraPath}`;
-  const _bearer = (await _sbToken()) || SUPABASE_KEY; // token do usuário logado, senão anon (passo 1)
+  // Etapa 1 (segurança): SEM sessão não cai mais na anon — exige login (a anon vai fechar no banco).
+  const _tok = await _sbToken();
+  if (!_tok) { const _e = new Error('PRECISA_LOGIN'); _e._precisaLogin = true; throw _e; }
+  const _bearer = _tok;
   const opts = {
     method,
     headers: {
@@ -1318,35 +1321,20 @@ async function doLogin() {
   const errEl = document.getElementById('login-error');
   if (!user || !pass) return;
 
-  // Login seguro (Supabase Auth) quando for e-mail: guarda a sessão e usa o token nas chamadas.
-  if (user.includes('@')) {
-    try {
-      const u = await _sbLogin(user, pass);
-      const meta = (u && u.app_metadata) || {};
-      const local = (await getUsuarios() || []).find(x => (x.user || '').toLowerCase() === user.toLowerCase());
-      currentUser = local || { user: (u && u.email) || user, admin: (meta.role ? meta.role === 'admin' : true), perms: [], _sb: true };
-      loginAs(currentUser);
-      return;
-    } catch (e) {
-      errEl.textContent = 'E-mail ou senha incorretos.'; errEl.style.display = 'block';
-      return;
-    }
-  }
-
-  let list = await getUsuarios();
-
-  if (!list || list.length === 0) {
-    // Primeiro acesso: cria o administrador inicial.
-    list = [{ user, pass, admin: true, perms: [] }];
-    await saveUsuarios(list);
-    loginAs(list[0]);
+  // Etapa 1 (segurança): o acesso agora é SÓ pelo e-mail + senha do sistema (Supabase Auth).
+  // Sem sessão não há token para o banco, então o login local djb2 foi aposentado aqui.
+  if (!user.includes('@')) {
+    errEl.textContent = 'Entre com seu e-mail e a senha do sistema.'; errEl.style.display = 'block';
     return;
   }
-
-  const found = list.find(u => (u.user || '').toLowerCase() === user.toLowerCase() && u.pass === pass);
-  if (found) {
-    loginAs(found);
-  } else {
+  try {
+    const u = await _sbLogin(user, pass);
+    const meta = (u && u.app_metadata) || {};
+    currentUser = { user: (u && u.email) || user, admin: (meta.role ? meta.role === 'admin' : true), perms: [], _sb: true };
+    await _bootPosLogin();   // carrega os dados agora que há sessão (o boot não carrega mais pela anon)
+    loginAs(currentUser);
+  } catch (e) {
+    errEl.textContent = (e && e._precisaLogin) ? 'Entrou, mas não deu pra carregar os dados. Tente de novo.' : 'E-mail ou senha incorretos.';
     errEl.style.display = 'block';
   }
 }
@@ -1511,10 +1499,7 @@ async function salvarUsuarios() {
   alert('Usuários salvos com sucesso.');
 }
 
-(async function checkAuth() {
-  const list = await getUsuarios();
-  if (!list || list.length === 0) document.getElementById('login-setup-msg').style.display = 'block';
-})();
+// (checkAuth do login local removido na Etapa 1 — a autenticação agora é a sessão do Supabase.)
 
 // ════════════════════════════════════════════════════════════════════
 // ESTADO GLOBAL
@@ -18034,13 +18019,10 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   return add + upd;
 }
 
-(async function init() {
-  // Mostra a versão carregada no topo
-  const _vEl = document.getElementById('app-version');
-  if (_vEl) _vEl.textContent = APP_VERSION;
-  try { _sbSelo(); } catch (e) {} // mostra "🔒 logada" no selo quando há sessão Supabase
-  // Auth tratada ao final do init (exige login por sessão)
-
+// Etapa 1 (segurança): os dados só carregam DEPOIS de haver sessão (antes o boot carregava pela anon).
+let _tudoCarregado = false;
+async function _bootPosLogin() { if (_tudoCarregado) return; await carregarTudo(); _tudoCarregado = true; }
+async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
@@ -18164,19 +18146,22 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     document.getElementById('sync-status').style.color = 'var(--amber)';
   }
 
-  // Exige login a cada sessão; um refresh na mesma aba mantém o usuário.
-  const usuarios = await getUsuarios();
-  if (!usuarios || usuarios.length === 0) document.getElementById('login-setup-msg').style.display = 'block';
-  let sessionUser = null;
-  try { sessionUser = sessionStorage.getItem('pg_current_user'); } catch(e) {}
-  const active = sessionUser && usuarios && usuarios.find(u => u.user === sessionUser);
-  if (_appEntered) {
-    // Já entrou pela tela de login enquanto os dados carregavam — NÃO re-entra (senão pulava pra 1ª aba).
-  } else if (active) {
-    currentUser = active;
+}
+
+(async function init() {
+  const _vEl = document.getElementById('app-version');
+  if (_vEl) _vEl.textContent = APP_VERSION;
+  try { _sbSelo(); } catch (e) {} // mostra "🔒 logada" no selo quando há sessão Supabase
+  let _tok = null; try { _tok = await _sbToken(); } catch (e) {}
+  if (_tok) {
+    // Já há sessão Supabase (token persistido no aparelho): carrega e entra direto.
+    try { await _bootPosLogin(); } catch (e) { console.warn('boot:', e && e.message); }
+    const _role = (_sbSess && _sbSess.role) || null;
+    currentUser = { user: (_sbSess && _sbSess.email) || 'usuária', admin: _role ? _role === 'admin' : true, perms: [], _sb: true };
     enterApp();
   } else {
-    document.getElementById('login-screen').style.display = 'flex';
+    // Sem sessão: NÃO carrega nada pela anon; pede login (Etapa 1).
+    const _ls = document.getElementById('login-screen'); if (_ls) _ls.style.display = 'flex';
   }
 })();
 </script>
