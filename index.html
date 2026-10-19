@@ -558,7 +558,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v725/10-778';
+const APP_VERSION = 'v726/10-779';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5235,7 +5235,12 @@ async function _syncPowerBI() {
   // CR: reconstrói a lista do ZERO num elemento SOLTO (fora da tela). Assim independe do que está renderizado agora
   // e de qualquer filtro (num div solto os querySelector de filtro dão null → _linhasCRExport nasce COMPLETO, sem
   // filtro). Não mexe na tela que a usuária está vendo. Depois monta as linhas com a mesma lógica da exportação.
+  // IMPORTANTE: a BUSCA da tela é persistida em buscaPersist.contas e seria usada mesmo no div solto (fallback),
+  // filtrando o flatCR pela busca ativa. Por isso zeramos a busca SÓ durante esta remontagem e restauramos logo após.
+  const _buscaCRsalva = (typeof buscaPersist !== 'undefined') ? buscaPersist.contas : undefined;
+  try { if (typeof buscaPersist !== 'undefined') buscaPersist.contas = ''; } catch (e) {}
   try { _renderContasImpl(document.createElement('div')); } catch (e) {}
+  try { if (typeof buscaPersist !== 'undefined') buscaPersist.contas = _buscaCRsalva; } catch (e) {}
   const aoa = _crRowsAOA(true);
   let crFlat = aoa.slice(1).map(r => ({
     data_liquidacao: dISO(r[0]), vencimento: dISO(r[1]), pedido: r[2] || null, cliente: r[3] || '',
