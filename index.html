@@ -558,7 +558,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v727/10-780';
+const APP_VERSION = 'v728/10-781';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9379,14 +9379,16 @@ function renderCobranca() {
       // PAINEL ÚNICO da Cobrança: TODOS os boletos (sistema + fora do sistema), pagos e a receber, num lugar só,
       // por vencimento, com status, seleção (cobrar junto/acordo) e TODAS as ações (cobrar, enviar, recebi, editar
       // pedido/telefone/obs/valor, remover). Respeita os filtros (Status/Empresa/Busca). Substitui as 3 listas antigas.
-      const _st = (venc, pago) => pago ? ['Pago', 'ok'] : (venc && new Date(venc) < today ? ['Atrasado', 'err'] : ['A Vencer', 'warn']);
+      const _hojeIsoCob = _isoDeData(new Date()), _vefCob = v => v ? _vencEfetivo(_isoDeData(new Date(v))) : null;
+      // Status por VENCIMENTO EFETIVO, igual ao card "Atrasados" (boletosACobrar): quem vence hoje (efetivo) NÃO está atrasado.
+      const _st = (venc, pago) => { if (pago) return ['Pago', 'ok']; const vf = _vefCob(venc); if (!vf) return ['A Vencer', 'warn']; if (vf < _hojeIsoCob) return ['Atrasado', 'err']; if (vf === _hojeIsoCob) return ['Vence hoje', 'warn']; return ['A Vencer', 'warn']; };
       const _esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
       const _sis = emitidos.map(b => { const _c = _boletoCobPago(b); return { t: 'sis', ped: b.pedido, cli: b.cliente || '—', val: b.valor || 0, venc: b.vencimento, key: b.key, pk: b.key, prot: _protestoAtivo(b.key), pc: `${b.parcela}/${b.totalParcelas}`, pago: !!(_c && _c.pago), dpag: _c && _c.dataPagamento, emp: empresaDoPed(b.pedido) || '', avis: boletoAvisado[b.pedido] }; });
       const _av = boletosAvulsos.map((a, i) => ({ a, i })).filter(x => !x.a._acordoId).map(x => ({ t: 'av', a: x.a, ped: x.a.pedido || '', cli: x.a.cliente || '—', val: ((x.a.valorPago != null && x.a.valorPago > 0) ? x.a.valorPago : (x.a.valorTitulo || 0)), venc: x.a.vencimento, idx: x.i, pk: 'av_' + x.a._uid, prot: _protestoAtivo('av_' + x.a._uid), cod: x.a._acordoCod, pago: !!x.a.dataPagamento, dpag: x.a.dataPagamento, emp: x.a.empresa || '' }));
       let _all = [..._sis, ..._av];
       if (fSt === 'pago') _all = _all.filter(r => r.pago);
-      else if (fSt === 'atrasado') _all = _all.filter(r => !r.pago && r.venc && new Date(r.venc) < today);
-      else if (fSt === 'avencer') _all = _all.filter(r => !r.pago && (!r.venc || new Date(r.venc) >= today));
+      else if (fSt === 'atrasado') _all = _all.filter(r => _st(r.venc, r.pago)[0] === 'Atrasado');
+      else if (fSt === 'avencer') _all = _all.filter(r => { const s = _st(r.venc, r.pago)[0]; return s === 'A Vencer' || s === 'Vence hoje'; });
       else if (fSt === 'protestado') _all = _all.filter(r => r.prot);
       if (fEmp) _all = _all.filter(r => r.emp === fEmp);
       if (fQ) _all = _all.filter(r => `${r.ped} ${r.cli} ${(r.val || 0).toFixed(2)} ${r.venc ? fmtDate(r.venc) : ''}`.toLowerCase().includes(fQ));
@@ -9402,7 +9404,7 @@ function renderCobranca() {
         ${!_all.length ? '<div style="font-size:12px;color:var(--muted)">Nenhum boleto no filtro atual.</div>' : `<div class="table-wrap"><table><thead><tr><th style="width:28px"></th><th>Vencimento</th><th>Cliente</th><th>Pedido</th><th>Origem</th><th style="text-align:right">Valor</th><th>Status</th><th>Pagto</th><th>Ações</th></tr></thead><tbody>
         ${_all.map(r => {
           const st = _st(r.venc, r.pago);
-          const atras = !r.pago && r.venc && new Date(r.venc) < today;
+          const atras = (st[0] === 'Atrasado');
           const sel = (r.t === 'sis' && _cobSisSel.has(r.key)) || (r.t === 'av' && _cobAvSel.has(r.idx));
           const chk = r.pago ? '' : (r.t === 'sis'
             ? `<input type="checkbox" style="width:15px;height:15px;cursor:pointer" ${_cobSisSel.has(r.key) ? 'checked' : ''} title="Marcar p/ cobrar junto ou fazer acordo" onchange="toggleCobSisSel('${r.key}',this.checked)">`
