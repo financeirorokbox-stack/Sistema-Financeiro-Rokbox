@@ -558,7 +558,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v728/10-781';
+const APP_VERSION = 'v729/10-782';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13373,7 +13373,7 @@ async function fecharMes(mk) {
   if (!_r || _r.abortado || _r.erro) { alert('⛔ NÃO fechei o mês: não consegui gerar a foto oficial (a remontagem do relatório falhou ou veio incompleta). Tire a busca/filtro do Contas a Receber e tente de novo.' + (_r && _r.erro ? '\n\n' + _r.erro : '')); return; }
   const _cr = (await loadData('flatCR')) || [];
   const _cp = (await loadData('flatCP')) || [];
-  const _doMk = r => String(r.data_liquidacao || '').slice(0, 7) === mk || (!r.data_liquidacao && String(r.vencimento || '').slice(0, 7) === mk);
+  const _doMk = r => String(r.data_liquidacao || '').slice(0, 7) === mk; // foto = SÓ as pagas/liquidadas no mês; em aberto fica vivo e entra no mês do PAGAMENTO (regra: pagou em out, entra em out)
   const fotoCR = _cr.filter(_doMk), fotoCP = _cp.filter(_doMk);
   if (!fotoCR.length && !fotoCP.length) { alert('⛔ NÃO fechei o mês: a foto oficial ficou VAZIA (sem linhas de Contas a Receber/Pagar nesse mês). Confira os dados do mês antes de fechar.'); return; }
   crFechado[mk] = fotoCR; cpFechado[mk] = fotoCP;
