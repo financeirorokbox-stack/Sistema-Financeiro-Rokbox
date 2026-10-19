@@ -558,7 +558,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v724/10-777';
+const APP_VERSION = 'v725/10-778';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14720,24 +14720,27 @@ function recusarCompra(id) {
 // Painel recolhível "Avisos das planilhas", agrupado por arquivo.
 function _painelAvisosPlanilhas() {
   const pk = planilhasCustoCompras; if (!pk) return '';
+  const _menor = av => /valor vendido vazio/i.test(av); // baixa prioridade: ficha sem preço de venda preenchido
   const porArq = {};
-  (pk.arquivos || []).forEach(a => { porArq[a.id] = { nome: a.nome || a.id, url: a.url || '', erros: (a.erros || []).slice(), avisos: (a.avisos || []).slice() }; });
-  (pk.fichas || []).forEach(f => { if ((f.avisos || []).length) { const g = porArq[f.arquivoId] || (porArq[f.arquivoId] = { nome: f.arquivo, url: '', erros: [], avisos: [] }); (f.avisos || []).forEach(av => g.avisos.push((f.ref ? f.ref + ': ' : '') + av)); } });
-  (pk.compras || []).forEach(p => { if ((p.avisos || []).length) { const g = porArq[p.arquivoId] || (porArq[p.arquivoId] = { nome: p.arquivo, url: p.arquivoUrl || '', erros: [], avisos: [] }); (p.avisos || []).forEach(av => g.avisos.push((p.insumo ? p.insumo + (p.cor ? ' ' + p.cor : '') + ': ' : '') + av)); } });
-  const grupos = Object.values(porArq).filter(g => g.erros.length || g.avisos.length);
+  const _grp = (id, nome, url) => porArq[id] || (porArq[id] = { nome: nome, url: url || '', erros: [], avisos: [], menores: [] });
+  (pk.arquivos || []).forEach(a => { const g = _grp(a.id, a.nome || a.id, a.url); g.erros.push(...(a.erros || [])); (a.avisos || []).forEach(av => (_menor(av) ? g.menores : g.avisos).push(av)); });
+  (pk.fichas || []).forEach(f => { (f.avisos || []).forEach(av => { const g = _grp(f.arquivoId, f.arquivo, ''); (_menor(av) ? g.menores : g.avisos).push((f.ref ? f.ref + ': ' : '') + av); }); });
+  (pk.compras || []).forEach(p => { (p.avisos || []).forEach(av => { const g = _grp(p.arquivoId, p.arquivo, p.arquivoUrl || ''); (_menor(av) ? g.menores : g.avisos).push((p.insumo ? p.insumo + (p.cor ? ' ' + p.cor : '') + ': ' : '') + av); }); });
+  const grupos = Object.values(porArq).filter(g => g.erros.length || g.avisos.length || g.menores.length);
   if (!grupos.length) return '';
-  const totErros = grupos.reduce((s, g) => s + g.erros.length, 0), totAvisos = grupos.reduce((s, g) => s + g.avisos.length, 0);
+  const totErros = grupos.reduce((s, g) => s + g.erros.length, 0), totAvisos = grupos.reduce((s, g) => s + g.avisos.length, 0), totMenores = grupos.reduce((s, g) => s + g.menores.length, 0);
   let aberto = false; try { aberto = localStorage.getItem('avisosPlanilhaAberto') === '1'; } catch (e) {}
   return `<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:12px;background:var(--surface)">
     <div onclick="toggleAvisosPlanilha()" style="cursor:pointer;padding:9px 12px;font-weight:700;display:flex;align-items:center;gap:8px">
       <span>${aberto ? '▾' : '▸'} ⚠ Avisos das planilhas</span>
-      ${totErros ? `<span class="badge err">${totErros} erro(s)</span>` : ''}${totAvisos ? `<span class="badge" style="background:var(--amber);color:#000">${totAvisos} aviso(s)</span>` : ''}
+      ${totErros ? `<span class="badge err">${totErros} erro(s)</span>` : ''}${totAvisos ? `<span class="badge" style="background:var(--amber);color:#000">${totAvisos} aviso(s)</span>` : ''}${totMenores ? `<span class="badge" style="background:#e5e7eb;color:#666" title="Fichas sem preço de venda preenchido (baixa prioridade)">${totMenores} menor(es)</span>` : ''}
     </div>
     <div style="display:${aberto ? 'block' : 'none'};padding:0 12px 10px">
       ${grupos.map(g => `<div style="margin-top:8px">
         <div style="font-weight:600;font-size:12px">📄 ${_escH(g.nome)}${g.url ? ` · <a href="${_escH(g.url)}" target="_blank" style="color:var(--accent)">abrir</a>` : ''}</div>
         ${g.erros.map(e => `<div style="font-size:11px;color:var(--red)">• ${_escH(e)}</div>`).join('')}
         ${g.avisos.map(a => `<div style="font-size:11px;color:var(--amber)">• ${_escH(a)}</div>`).join('')}
+        ${g.menores.length ? `<details style="margin-top:2px"><summary style="font-size:11px;color:var(--muted);cursor:pointer">${g.menores.length} ficha(s) sem valor de venda (menor)</summary>${g.menores.map(a => `<div style="font-size:11px;color:var(--muted);margin-left:10px">• ${_escH(a)}</div>`).join('')}</details>` : ''}
       </div>`).join('')}
     </div>
   </div>`;
