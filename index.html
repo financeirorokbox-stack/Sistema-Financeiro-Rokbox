@@ -558,7 +558,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v726/10-779';
+const APP_VERSION = 'v727/10-780';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5230,6 +5230,14 @@ function exportarModeloCR() {
 // POWER BI: grava no Supabase o CR e o CP JÁ CALCULADOS (mesma lógica das telas/exportação), pra as views baterem
 // com a Conciliação Bancária ao centavo. É ADITIVO: cria as chaves flatCR/flatCP, não altera nada existente.
 // Roda ao exportar o CR e pelo botão "☁ Power BI" no topo (perto do Backup). O CP sai com a data de liquidação = data do DÉBITO no banco.
+// Aviso fixo no topo quando a remontagem do flatCR veio incompleta e NÃO foi gravada (trava da Etapa 2).
+function _avisarFlatIncompleto(n, nAnt) {
+  let el = document.getElementById('aviso-flat-incompleto');
+  if (!el) { if (!document.body) return; el = document.createElement('div'); el.id = 'aviso-flat-incompleto'; el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#c0392b;color:#fff;padding:11px 16px;font-size:14px;font-weight:800;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.3)'; document.body.appendChild(el); }
+  el.style.display = 'block';
+  el.innerHTML = '⚠ "Atualizar Power BI" veio incompleto (' + n + ' linhas, antes ' + nAnt + '). NÃO sobrescrevi o relatório bom. Tire a busca/filtro do Contas a Receber e rode de novo.'
+    + ' <button onclick="this.parentNode.style.display=\'none\'" style="margin-left:10px;background:#fff;color:#c0392b;border:0;border-radius:6px;padding:3px 10px;font-weight:800;cursor:pointer">ok</button>';
+}
 async function _syncPowerBI() {
   const dISO = v => { const d = v instanceof Date ? v : (v ? new Date(v) : null); return (d && !isNaN(d)) ? (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) : null; };
   // CR: reconstrói a lista do ZERO num elemento SOLTO (fora da tela). Assim independe do que está renderizado agora
@@ -5310,6 +5318,15 @@ async function _syncPowerBI() {
   if (_mesCP.length) {
     cpFlat = cpFlat.filter(r => !(r.data_liquidacao && _mesCP.includes(String(r.data_liquidacao).slice(0, 7))));
     _mesCP.forEach(m => (cpFechado[m] || []).forEach(r => cpFlat.push(r)));
+  }
+  // TRAVA (Etapa 2): nunca sobrescrever o flatCR por um truncado. Se vier VAZIO ou com bem menos linhas que o salvo
+  // (ex.: remontagem falhou/filtrou), NÃO grava por cima do bom e avisa na tela.
+  let _crAnt = null; try { _crAnt = await loadData('flatCR'); } catch (e) {}
+  const _nAnt = Array.isArray(_crAnt) ? _crAnt.length : 0;
+  if (_nAnt > 30 && crFlat.length < _nAnt * 0.7) {
+    try { _avisarFlatIncompleto(crFlat.length, _nAnt); } catch (e) {}
+    console.warn('[flatCR] remontagem incompleta (' + crFlat.length + ' x antes ' + _nAnt + ') — NÃO gravei por cima.');
+    return { abortado: true, cr: crFlat.length, crAnterior: _nAnt };
   }
   await saveData('flatCR', crFlat);
   await saveData('flatCP', cpFlat);
@@ -8247,13 +8264,20 @@ function _boletoCobPago(b) {
 }
 // ── Lembretes de cobrança (aviso ao abrir + selo no menu + cobrar vencidos) ──
 // Lista de boletos A COBRAR (em aberto): avulsos do Itaú + boletos do sistema emitidos e não pagos.
+// ── Vencimento EFETIVO (regra do banco): sáb/dom/feriado nacional → próximo dia útil. Só muda a CONTA de atraso; a tela mostra o vencimento original. ──
+// Feriados nacionais em lista FIXA (sem serviço externo): fixos de todo ano + móveis por ano (Carnaval, Sexta-feira Santa, Corpus Christi). Espelho do financeiro.html.
+const _FERIADOS_FIXOS = new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25']);
+const _FERIADOS_MOVEIS = new Set(['2025-03-03','2025-03-04','2025-04-18','2025-06-19','2026-02-16','2026-02-17','2026-04-03','2026-06-04','2027-02-08','2027-02-09','2027-03-26','2027-05-27']);
+function _ehFeriadoNac(iso){ return _FERIADOS_FIXOS.has(iso.slice(5,10)) || _FERIADOS_MOVEIS.has(iso); }
+function _isoDeData(d){ const dt = d instanceof Date ? d : new Date(d); return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function _vencEfetivo(iso){ iso=String(iso||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso; let d=new Date(iso+'T12:00:00'); for(let i=0;i<12;i++){ const wd=d.getDay(); const cur=_isoDeData(d); if(wd!==0 && wd!==6 && !_ehFeriadoNac(cur)) return cur; d.setDate(d.getDate()+1); } return iso; }
 function boletosACobrar() {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
   const out = [];
   (boletosAvulsos || []).forEach((a, i) => {
     if (a.dataPagamento || !a.vencimento || a._acordoId) return; // _acordoId = renegociado (saiu da cobrança)
     const venc = new Date(a.vencimento); if (isNaN(venc)) return;
-    out.push({ tipo: 'avulso', ref: i, cliente: a.cliente || '', valor: a.valorTitulo || 0, venc, vencido: venc < hoje, fone: a.fone || '' });
+    out.push({ tipo: 'avulso', ref: i, cliente: a.cliente || '', valor: a.valorTitulo || 0, venc, vencido: _vencEfetivo(_isoDeData(venc)) < _isoDeData(hoje), fone: a.fone || '' });
   });
   try {
     getBoletosDaForma().forEach(b => {
@@ -8262,7 +8286,7 @@ function boletosACobrar() {
       if (sistemaAcordo[b.key]) return; // boleto renegociado num acordo → saiu da cobrança
       if (!b.vencimento) return;
       const venc = new Date(b.vencimento); if (isNaN(venc)) return;
-      out.push({ tipo: 'sistema', ref: b.pedido, key: b.key, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: venc < hoje });
+      out.push({ tipo: 'sistema', ref: b.pedido, key: b.key, cliente: b.cliente || '', valor: b.valor || 0, venc, vencido: _vencEfetivo(_isoDeData(venc)) < _isoDeData(hoje) });
     });
   } catch (e) {}
   return out;
@@ -8291,8 +8315,9 @@ function _dadosRelAtraso() {
   (boletosACobrar() || []).forEach(x => {
     if (!x.venc) return;
     const venc = new Date(x.venc); venc.setHours(0, 0, 0, 0);
-    if (!(venc < corte)) return;                                  // só o que venceu antes do corte
-    const dias = Math.round((corte - venc) / 86400000);
+    const _vef = new Date(_vencEfetivo(_isoDeData(venc)) + 'T00:00:00'); // vencimento EFETIVO (sáb/dom/feriado → próx. dia útil)
+    if (!(_vef < corte)) return;                                  // só o que venceu (efetivo) antes do corte
+    const dias = Math.round((corte - _vef) / 86400000);           // dias de atraso contam do vencimento efetivo
     if (dias < minD) return;
     let empresa = '', vendedor = '', fone = '', pedido = '', parcela = '—', avisoISO = '';
     if (x.tipo === 'sistema') {
@@ -13324,7 +13349,7 @@ function reabrirDia(dk) {
 // Fecha um mês (YYYY-MM): confere se a conciliação BATE e trava TUDO daquele mês
 // (nada muda nem apaga). É admin. Reaproveita diaFechado/contaTravadaPorFechamento.
 function mesLabel(mk) { const [a, m] = mk.split('-'); const nm = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][(+m) - 1] || m; return `${nm}/${a}`; }
-function fecharMes(mk) {
+async function fecharMes(mk) {
   if (!currentUser || !currentUser.admin) { alert('Só administrador pode fechar o mês.'); return; }
   if (!/^\d{4}-\d{2}$/.test(mk || '')) { alert('Selecione um mês.'); return; }
   if (mesesFechados.includes(mk)) { alert('Este mês já está fechado.'); return; }
@@ -13338,13 +13363,30 @@ function fecharMes(mk) {
   if (semCat.length) aviso += `⚠ ${semCat.length} lançamento(s) do mês estão SEM categoria.\n`;
   const msg = `Fechar o mês de ${mesLabel(mk)}?\n\n`
     + (aviso ? aviso + '\nRecomendo conciliar/categorizar antes. ' : '✅ A conciliação do mês bate (tudo conciliado). ')
-    + `\n\nDepois de fechado, NADA deste mês pode ser alterado nem excluído (em nenhuma tela). Você pode reabrir depois (admin).`
+    + `\n\nAo fechar, EU GERO a foto oficial (crFechado/cpFechado) deste mês a partir do relatório correto, e travo tudo. Nada mais muda nem é excluído. Você pode reabrir depois (admin).`
     + (aviso ? '\n\nFechar MESMO ASSIM?' : '');
   if (!confirm(msg)) return;
+  // ── FOTO OFICIAL (Etapa 2): gera crFechado/cpFechado do mês a partir do CR/CP CORRETOS. BLOQUEIA se não gerar. ──
+  let _r = null; try { _r = await _syncPowerBI(); } catch (e) { _r = { erro: (e && e.message) || String(e) }; }
+  if (!_r || _r.abortado || _r.erro) { alert('⛔ NÃO fechei o mês: não consegui gerar a foto oficial (a remontagem do relatório falhou ou veio incompleta). Tire a busca/filtro do Contas a Receber e tente de novo.' + (_r && _r.erro ? '\n\n' + _r.erro : '')); return; }
+  const _cr = (await loadData('flatCR')) || [];
+  const _cp = (await loadData('flatCP')) || [];
+  const _doMk = r => String(r.data_liquidacao || '').slice(0, 7) === mk || (!r.data_liquidacao && String(r.vencimento || '').slice(0, 7) === mk);
+  const fotoCR = _cr.filter(_doMk), fotoCP = _cp.filter(_doMk);
+  if (!fotoCR.length && !fotoCP.length) { alert('⛔ NÃO fechei o mês: a foto oficial ficou VAZIA (sem linhas de Contas a Receber/Pagar nesse mês). Confira os dados do mês antes de fechar.'); return; }
+  crFechado[mk] = fotoCR; cpFechado[mk] = fotoCP;
+  await saveData('crFechado', crFechado);
+  await saveData('cpFechado', cpFechado);
+  // Registra QUEM fechou e QUANDO.
+  const _log = (await loadData('fechamentoLog')) || {};
+  _log[mk] = { por: (currentUser && (currentUser.user || currentUser.email)) || 'admin', em: new Date().toISOString() };
+  await saveData('fechamentoLog', _log);
+  // Fecha o mês.
   mesesFechados.push(mk);
-  saveData('mesesFechados', mesesFechados);
+  await saveData('mesesFechados', mesesFechados);
   try { atualizarSaude(); } catch (e) {}
   if (typeof renderBanco === 'function') renderBanco();
+  alert('✅ Mês de ' + mesLabel(mk) + ' fechado. Foto oficial gerada: ' + fotoCR.length + ' linha(s) no Contas a Receber e ' + fotoCP.length + ' no Contas a Pagar.');
 }
 function reabrirMes(mk) {
   if (!currentUser || !currentUser.admin) { alert('Só administrador pode reabrir o mês.'); return; }

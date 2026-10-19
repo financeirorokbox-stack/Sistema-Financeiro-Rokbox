@@ -129,10 +129,12 @@
     <div class="card">
       <div class="lab" style="color:var(--lime)">A Receber</div>
       <div class="kv"><span class="k">Recebido no mês <span style="color:var(--muted);font-weight:400;font-size:.85em">(entrou no banco)</span></span><span class="n" id="cr-mes">—</span></div>
-      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-vencer')" title="O que vence de hoje até o fim do mês"><span class="k">A vencer (hoje → fim do mês) 🔎</span><span class="n" id="cr-vencer">—</span></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-vencer')" title="Em aberto que vence de hoje até o fim do mês, mais os vencidos há até 3 dias (ainda no prazo de baixa). Conta pelo vencimento efetivo: se cai em sábado, domingo ou feriado nacional, vale o próximo dia útil (regra do banco). A tela mostra o vencimento original."><span class="k">A vencer (hoje → fim do mês) 🔎</span><span class="n" id="cr-vencer">—</span></div>
       <div class="lista hidden" id="cr-vencer-lista"></div>
-      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Venceu neste mês e ainda está em aberto"><span class="k">Atrasado (venceu, em aberto) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Em aberto, vencido há 4 dias ou MAIS, de QUALQUER mês (não só o selecionado). Conta pelo vencimento efetivo (sáb/dom/feriado = próximo dia útil). Os vencidos há até 3 dias ficam no 'A vencer'. Valores abaixo de R$ 5 saem para 'Resíduos'. A tela mostra o vencimento original."><span class="k">Atrasado (4+ dias, em aberto) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
       <div class="lista hidden" id="cr-atraso-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-residuo')" title="Diferenças em aberto abaixo de R$ 5 (restos de pagamentos já feitos). Ficam FORA do Atrasado; dê baixa no Gestão quando puder."><span class="k">Resíduos (&lt; R$ 5) 🔎</span><span class="n" id="cr-residuo" style="color:var(--muted)">—</span></div>
+      <div class="lista hidden" id="cr-residuo-lista"></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
@@ -326,6 +328,14 @@ async function gk(chave){
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+// ── Vencimento EFETIVO (regra do banco): sáb/dom/feriado nacional → próximo dia útil. Só muda a CONTA (atraso/a vencer); a tela mostra o vencimento original. ──
+// Feriados nacionais em lista FIXA no código (sem serviço externo): fixos de todo ano + móveis por ano (Carnaval, Sexta-feira Santa, Corpus Christi).
+const _FERIADOS_FIXOS = new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25']);
+const _FERIADOS_MOVEIS = new Set(['2025-03-03','2025-03-04','2025-04-18','2025-06-19','2026-02-16','2026-02-17','2026-04-03','2026-06-04','2027-02-08','2027-02-09','2027-03-26','2027-05-27']);
+function _ehFeriado(iso){ return _FERIADOS_FIXOS.has(iso.slice(5,10)) || _FERIADOS_MOVEIS.has(iso); }
+function _isoDe(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _vencEfetivo(iso){ iso=String(iso||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso; let d=new Date(iso+'T12:00:00'); for(let i=0;i<12;i++){ const wd=d.getDay(); const cur=_isoDe(d); if(wd!==0 && wd!==6 && !_ehFeriado(cur)) return cur; d.setDate(d.getDate()+1); } return iso; }
+function _isoMaisDias(iso,n){ const d=new Date(String(iso).slice(0,10)+'T12:00:00'); d.setDate(d.getDate()+n); return _isoDe(d); }
 // Mapa categoria(subgrupo) → GRUPO grande (CMV, PESSOAL, SÓCIOS...). Espelho do index.html (CATEGORIAS_DESPESA/grupoDespesa),
 // usado só pra AGRUPAR o "Contas a pagar por categoria" do Fluxo. Se mudar lá, atualizar aqui também.
 const CATEGORIAS_DESPESA_FIN = {
@@ -532,20 +542,28 @@ async function carregar(){
     const crMes = _fechadoMes
       ? crA.filter(r=>String(r.data_liquidacao||'').slice(0,7)===mes).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
       : extArr.filter(t=>(+t.valor||0)>0 && emMes(_dDia(t.data))).reduce((s,t)=>s+(+t.valor||0),0);
-    const crVencerArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)>=hojeStr);
-    const crAtrasoArr=crA.filter(r=>!r.data_liquidacao && emMes(r.vencimento) && String(r.vencimento)<hojeStr);
-    const crVencer=sVal(crVencerArr,'valor_bruto'), crAtraso=sVal(crAtrasoArr,'valor_bruto');
+    // A VENCER / ATRASADO / RESÍDUOS por VENCIMENTO EFETIVO (sáb/dom/feriado → próximo dia útil; a tela mostra o original).
+    // Atrasado = em aberto, vencido há 4 dias OU MAIS (efetivo), de QUALQUER mês, piso R$ 5. Resíduos (< R$ 5) saem do Atrasado.
+    // A vencer = de hoje até o fim do mês + os vencidos há ATÉ 3 dias (não somem do total).
+    const _corteAtraso=_isoMaisDias(hojeStr,-4), _iniVencer=_isoMaisDias(hojeStr,-3);
+    const _fimMes=(()=>{const _p=mes.split('-').map(Number); return _isoDe(new Date(_p[0],_p[1],0));})();
+    const _crAb=crA.filter(r=>!r.data_liquidacao && r.vencimento);
+    const crVencerArr=_crAb.filter(r=>{ const vf=_vencEfetivo(r.vencimento); return vf>=_iniVencer && vf<=_fimMes; });
+    const crAtrasoArr=_crAb.filter(r=>_vencEfetivo(r.vencimento)<=_corteAtraso && (+r.valor_bruto||0)>=5);
+    const crResiduoArr=_crAb.filter(r=>_vencEfetivo(r.vencimento)<=_corteAtraso && (+r.valor_bruto||0)<5);
+    const crVencer=sVal(crVencerArr,'valor_bruto'), crAtraso=sVal(crAtrasoArr,'valor_bruto'), crResiduo=sVal(crResiduoArr,'valor_bruto');
     const crAberto=+(crVencer+crAtraso).toFixed(2);
     document.getElementById('cr-mes').textContent=brl(crMes);
     document.getElementById('cr-vencer').textContent=brl(crVencer);
     document.getElementById('cr-atraso').textContent=brl(crAtraso);
+    const _crResEl=document.getElementById('cr-residuo'); if(_crResEl) _crResEl.textContent=crResiduoArr.length?(brl(crResiduo)+' · '+crResiduoArr.length):'—';
     // ── CP ──
     const cpA0=Array.isArray(cp)?cp:(cp&&cp.itens||[]);
     const cpA=empSel==='todas'?cpA0:cpA0.filter(r=>_empG(r.empresa)===empSel);
     const cpMes=cpA.filter(r=>!r.cancelado && emMes(r.data_liquidacao)).reduce((s,r)=>s+(+r.valor||0),0);
     const cpAbertoF=r=>!r.cancelado && !r.data_liquidacao && !r.pago && emMes(r.vencimento);
-    const cpVencerArr=cpA.filter(r=>cpAbertoF(r) && String(r.vencimento)>=hojeStr);
-    const cpAtrasoArr=cpA.filter(r=>cpAbertoF(r) && String(r.vencimento)<hojeStr);
+    const cpVencerArr=cpA.filter(r=>cpAbertoF(r) && _vencEfetivo(r.vencimento)>=hojeStr);
+    const cpAtrasoArr=cpA.filter(r=>cpAbertoF(r) && _vencEfetivo(r.vencimento)<hojeStr);
     const cpVencer=sVal(cpVencerArr,'valor'), cpAtraso=sVal(cpAtrasoArr,'valor');
     const cpAberto=+(cpVencer+cpAtraso).toFixed(2);
     document.getElementById('cp-mes').textContent=brl(cpMes);
@@ -555,6 +573,7 @@ async function carregar(){
     const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; const selo=r.a_emitir?' <span style="background:var(--blue);color:#04121f;border-radius:6px;padding:0 5px;font-size:10px;font-weight:800;white-space:nowrap" title="Boleto ainda não emitido (azul na tela Boletos a Emitir)">🧾 a emitir</span>':''; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}${selo}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada aqui 🎉</div>'; };
     document.getElementById('cr-vencer-lista').innerHTML=_liLista(crVencerArr,'cliente','vencimento','valor_bruto');
     document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
+    { const _e=document.getElementById('cr-residuo-lista'); if(_e) _e.innerHTML=_liLista(crResiduoArr,'cliente','vencimento','valor_bruto'); }
     document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
     document.getElementById('cp-atraso-lista').innerHTML=_liLista(cpAtrasoArr,'fornecedor','vencimento','valor');
     // ── Saldo do mês, coerente pro PASSADO (real), VIGENTE (projetado de hoje) e FUTURO (rolado) ──
@@ -1398,7 +1417,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-19.1';
+const BUILD='2026-10-19.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
