@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v731/10-784';
+const APP_VERSION = 'v732/10-785';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18188,31 +18188,40 @@ async function carregarTudo() {
 const AF = (function () {
   const EMAIL = 'financeirorokbox@gmail.com';
   const AN = { fin: 'Financeiro', rh: 'RH', com: 'Compras', fec: 'Fechamento' };
-  const SEED = {
-    diarias: [
-      ['Verificar contas, saldo e relatório', 'fin'],
-      ['Baixar recebimentos (Pix, Boleto, PayPal, Braavo)', 'fin'],
-      ['Baixar pagamentos', 'fin'],
-      ['Aviso de vencimento + planilha', 'fin'],
-      ['Conferência e digitação no Bling', 'fin'],
-      ['Enviar Contas a Pagar do dia ao diretor', 'fin']],
-    semanais: {
-      1: [['Conciliação bancária', 'fin'], ['Inclusão de pedidos no Bling', 'fin'], ['Atualizar status de compras', 'com'], ['Controle e fechamento de ponto', 'rh'], ['Organização da pasta de funcionários', 'rh'], ['Necessidade de compra (planilha)', 'com']],
-      2: [['Controle de frete (Uber/Lalamove)', 'fin'], ['Cartão de crédito', 'fin'], ['Ajuste NF no Bling', 'fin'], ['Ajuste boletos a pagar', 'fin'], ['Ponto (conferência semanal)', 'rh'], ['Totalpass', 'rh'], ['Peças de funcionários', 'rh'], ['Envio de pedido ao fornecedor', 'com']],
-      3: [['Conciliação bancária', 'fin'], ['Emissão de boletos Itaú', 'fin'], ['Recebimento de produtos', 'com'], ['Cobrar prazo do fornecedor', 'com'], ['Agendamento de exames (seg. trabalho)', 'rh'], ['Controle extintor/Brastemp', 'rh'], ['Aviso de recebimento (WhatsApp)', 'com']],
-      4: [['Controle de frete (Uber/Lalamove)', 'fin'], ['Cartão de crédito', 'fin'], ['Envio da planilha de boletos emitidos', 'fin'], ['Planilha de fornecedores', 'com'], ['Equipamentos (entrega/recebimento)', 'rh'], ['Ficha de entrega de equipamentos', 'rh']],
-      5: [['Conciliação bancária', 'fin'], ['Estornos', 'fin'], ['Comissão atletas', 'fin'], ['Admissão/demissão (se houver)', 'rh'], ['Atualizar status da planilha de compras', 'com']]
-    },
-    mensais: [
-      [27, 'Organizar valores do mês', 'fin'],
-      [30, 'Financeiro + boletos (fim do mês)', 'fin'],
-      [1, 'Recebimentos do mês', 'fin'],
-      [2, 'Fechamento dos bancos', 'fec'],
-      [3, 'Fechamento do ponto', 'rh'],
-      [4, 'Folha e VT', 'rh']
-    ]
-  };
-  let st = null, rot = null, OPEN = {}, _dnd = null;
+  // freq: 'diaria' | 'seg'|'ter'|'qua'|'qui'|'sex' | 'mensal' (com dia). ids ESTÁVEIS (iguais aos antigos p/ não perder o já marcado).
+  const FREQW = { 1: 'seg', 2: 'ter', 3: 'qua', 4: 'qui', 5: 'sex' };
+  const WDFREQ = { seg: 1, ter: 2, qua: 3, qui: 4, sex: 5 };
+  const FREQNOME = { diaria: 'Diária', seg: 'Segunda', ter: 'Terça', qua: 'Quarta', qui: 'Quinta', sex: 'Sexta', mensal: 'Mensal' };
+  const SEED = { lista: [
+    { id: 'd0', txt: 'Verificar contas, saldo e relatório', area: 'fin', freq: 'diaria' },
+    { id: 'd1', txt: 'Baixar recebimentos (Pix, Boleto, PayPal, Braavo)', area: 'fin', freq: 'diaria' },
+    { id: 'd2', txt: 'Baixar pagamentos', area: 'fin', freq: 'diaria' },
+    { id: 'd3', txt: 'Aviso de vencimento + planilha', area: 'fin', freq: 'diaria' },
+    { id: 'd4', txt: 'Conferência e digitação no Bling', area: 'fin', freq: 'diaria' },
+    { id: 'd5', txt: 'Enviar Contas a Pagar do dia ao diretor', area: 'fin', freq: 'diaria' },
+    { id: 's1_0', txt: 'Conciliação bancária', area: 'fin', freq: 'seg' }, { id: 's1_1', txt: 'Inclusão de pedidos no Bling', area: 'fin', freq: 'seg' }, { id: 's1_2', txt: 'Atualizar status de compras', area: 'com', freq: 'seg' }, { id: 's1_3', txt: 'Controle e fechamento de ponto', area: 'rh', freq: 'seg' }, { id: 's1_4', txt: 'Organização da pasta de funcionários', area: 'rh', freq: 'seg' }, { id: 's1_5', txt: 'Necessidade de compra (planilha)', area: 'com', freq: 'seg' },
+    { id: 's2_0', txt: 'Controle de frete (Uber/Lalamove)', area: 'fin', freq: 'ter' }, { id: 's2_1', txt: 'Cartão de crédito', area: 'fin', freq: 'ter' }, { id: 's2_2', txt: 'Ajuste NF no Bling', area: 'fin', freq: 'ter' }, { id: 's2_3', txt: 'Ajuste boletos a pagar', area: 'fin', freq: 'ter' }, { id: 's2_4', txt: 'Ponto (conferência semanal)', area: 'rh', freq: 'ter' }, { id: 's2_5', txt: 'Totalpass', area: 'rh', freq: 'ter' }, { id: 's2_6', txt: 'Peças de funcionários', area: 'rh', freq: 'ter' }, { id: 's2_7', txt: 'Envio de pedido ao fornecedor', area: 'com', freq: 'ter' },
+    { id: 's3_0', txt: 'Conciliação bancária', area: 'fin', freq: 'qua' }, { id: 's3_1', txt: 'Emissão de boletos Itaú', area: 'fin', freq: 'qua' }, { id: 's3_2', txt: 'Recebimento de produtos', area: 'com', freq: 'qua' }, { id: 's3_3', txt: 'Cobrar prazo do fornecedor', area: 'com', freq: 'qua' }, { id: 's3_4', txt: 'Agendamento de exames (seg. trabalho)', area: 'rh', freq: 'qua' }, { id: 's3_5', txt: 'Controle extintor/Brastemp', area: 'rh', freq: 'qua' }, { id: 's3_6', txt: 'Aviso de recebimento (WhatsApp)', area: 'com', freq: 'qua' },
+    { id: 's4_0', txt: 'Controle de frete (Uber/Lalamove)', area: 'fin', freq: 'qui' }, { id: 's4_1', txt: 'Cartão de crédito', area: 'fin', freq: 'qui' }, { id: 's4_2', txt: 'Envio da planilha de boletos emitidos', area: 'fin', freq: 'qui' }, { id: 's4_3', txt: 'Planilha de fornecedores', area: 'com', freq: 'qui' }, { id: 's4_4', txt: 'Equipamentos (entrega/recebimento)', area: 'rh', freq: 'qui' }, { id: 's4_5', txt: 'Ficha de entrega de equipamentos', area: 'rh', freq: 'qui' },
+    { id: 's5_0', txt: 'Conciliação bancária', area: 'fin', freq: 'sex' }, { id: 's5_1', txt: 'Estornos', area: 'fin', freq: 'sex' }, { id: 's5_2', txt: 'Comissão atletas', area: 'fin', freq: 'sex' }, { id: 's5_3', txt: 'Admissão/demissão (se houver)', area: 'rh', freq: 'sex' }, { id: 's5_4', txt: 'Atualizar status da planilha de compras', area: 'com', freq: 'sex' },
+    { id: 'm27', txt: 'Organizar valores do mês', area: 'fin', freq: 'mensal', dia: 27 },
+    { id: 'm30', txt: 'Financeiro + boletos (fim do mês)', area: 'fin', freq: 'mensal', dia: 30 },
+    { id: 'm1', txt: 'Recebimentos do mês', area: 'fin', freq: 'mensal', dia: 1 },
+    { id: 'm2', txt: 'Fechamento dos bancos', area: 'fec', freq: 'mensal', dia: 2 },
+    { id: 'm3', txt: 'Fechamento do ponto', area: 'rh', freq: 'mensal', dia: 3 },
+    { id: 'm4', txt: 'Folha e VT', area: 'rh', freq: 'mensal', dia: 4 }
+  ] };
+  // converte o formato antigo {diarias,semanais,mensais} p/ lista (mantendo os ids p/ não perder marcações)
+  function _migraRot(old) {
+    if (!old) return JSON.parse(JSON.stringify(SEED));
+    if (Array.isArray(old.lista)) return old;
+    const lista = [];
+    (old.diarias || []).forEach((r, i) => lista.push({ id: 'd' + i, txt: r[0], area: r[1], freq: 'diaria' }));
+    [1, 2, 3, 4, 5].forEach(wd => (old.semanais && old.semanais[wd] || []).forEach((r, i) => lista.push({ id: 's' + wd + '_' + i, txt: r[0], area: r[1], freq: FREQW[wd] })));
+    (old.mensais || []).forEach(m => lista.push({ id: 'm' + m[0], txt: m[1], area: m[2], freq: 'mensal', dia: m[0] }));
+    return { lista };
+  }
+  let st = null, rot = null, OPEN = {}, _dnd = null, _rotEdit = undefined;
 
   // ── utils de data ──
   const DNOME = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
@@ -18231,32 +18240,39 @@ const AF = (function () {
   function mensalEfetivo(dia, y, m) { const last = new Date(y, m + 1, 0).getDate(); const d = Math.min(dia, last); const iso = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); return diaUtilOuAntes(iso); }
   function mensalDispara(dia, iso) { const [y, m] = iso.slice(0, 7).split('-').map(Number); if (mensalEfetivo(dia, y, m - 1) === iso) return true; const d2 = new Date(y, m, 1); if (mensalEfetivo(dia, d2.getFullYear(), d2.getMonth()) === iso) return true; return false; }
 
-  // ── identidade das instâncias ──
-  function idDiaria(i, iso) { return 'R|d' + i + '|' + iso; }
-  function idSem(wd, i, iso) { return 'R|s' + wd + '_' + i + '|' + iso; }
-  function idMen(dia, iso) { return 'R|m' + dia + '|' + iso; }
-
-  // instâncias de rotina (NÃO diárias) de um dia útil: semanais do dia + mensais que disparam
+  // ── identidade das instâncias ── (R|<idEstável>|<iso>)
+  function rotFires(r, iso) {
+    if (r.freq === 'diaria') return true;
+    if (r.freq === 'mensal') return mensalDispara(+r.dia || 1, iso);
+    return WDFREQ[r.freq] === wdDe(iso);
+  }
+  function _cardDaRotina(r, iso) { return { instId: 'R|' + r.id + '|' + iso, txt: r.txt, area: r.area, rot: true, rotId: r.id, nativo: iso }; }
+  // instâncias de rotina (NÃO diárias) que disparam no dia útil
   function rotinasDoDia(iso) {
     if (!ehDiaUtil(iso)) return [];
-    const out = [], wd = wdDe(iso);
-    (rot.semanais[wd] || []).forEach((r, i) => out.push({ instId: idSem(wd, i, iso), txt: r[0], area: r[1], rot: true, nativo: iso }));
-    (rot.mensais || []).forEach(m => { if (mensalDispara(m[0], iso)) out.push({ instId: idMen(m[0], iso), txt: m[1], area: m[2], rot: true, nativo: iso }); });
-    return out;
+    return (rot.lista || []).filter(r => r.freq !== 'diaria' && rotFires(r, iso)).map(r => _cardDaRotina(r, iso));
   }
   function diariasDoDia(iso) {
     if (!ehDiaUtil(iso)) return [];
-    return (rot.diarias || []).map((r, i) => ({ instId: idDiaria(i, iso), txt: r[0], area: r[1], rot: true, nativo: iso }));
+    return (rot.lista || []).filter(r => r.freq === 'diaria').map(r => _cardDaRotina(r, iso));
   }
 
   function feita(instId) { return !!(st.feitas && st.feitas[instId]); }
+  // info da conclusão (congelada no momento que marcou): {em, txt, area}. Compat: valor string antigo = só {em}.
+  function feitaInfo(instId) { const v = st.feitas && st.feitas[instId]; if (!v) return {}; if (typeof v === 'string') return { em: v }; return v; }
+  // texto/área ATUAIS de um cartão (pra tirar o snapshot ao concluir)
+  function _cardMeta(instId) {
+    if (instId.indexOf('A|') === 0) { const a = (st.avulsas || []).find(x => 'A|' + x.id === instId); return a ? { txt: a.txt, area: a.area || 'fin' } : {}; }
+    if (instId.indexOf('M|') === 0) { const c = gmailCards().find(x => x.instId === instId); return c ? { txt: c.txt, area: 'fin' } : {}; }
+    const r = reconstituirRotina(instId); return r ? { txt: r.txt, area: r.area } : {};
+  }
   function movida(instId) { return st.movidas && st.movidas[instId]; } // {to, from, wd} ou undefined
   function prioDoDia(iso) { return (st.prioridades && st.prioridades[iso]) || []; }
 
   // ── Gmail: itens vindos do Apps Script (chave afazeresGmail), menos os já feitos ──
   function gmailCards() {
     const pk = st._gmail; if (!pk || !Array.isArray(pk.itens)) return [];
-    return pk.itens.filter(it => it && it.msgId && !feita('M|' + it.msgId)).map(it => ({ instId: 'M|' + it.msgId, txt: it.assunto || '(sem assunto)', area: 'fin', mail: true, de: it.de || '', link: it.link || '', nativo: hojeIso() }));
+    return pk.itens.filter(it => it && it.msgId && !feita('M|' + it.msgId)).map(it => ({ instId: 'M|' + it.msgId, txt: (st.gmailTxt && st.gmailTxt[it.msgId]) || it.assunto || '(sem assunto)', area: 'fin', mail: true, de: it.de || '', link: it.link || '', nativo: hojeIso() }));
   }
 
   // ── monta o quadro ──
@@ -18297,18 +18313,23 @@ const AF = (function () {
       d = isoAdd(d, -1); passos++;
     }
     (st.avulsas || []).forEach(a => { if (a.data && a.data !== 'prox' && a.data < hoje && a.data >= ini && !feita('A|' + a.id)) atrasadas.push({ instId: 'A|' + a.id, txt: a.txt, area: a.area || 'fin', rot: false, mail: !!a.mail, de: a.de || '', link: a.link || '', avRef: a }); });
+    // concluídas de rotinas que foram EDITADAS/EXCLUÍDAS: garante que a feita apareça (com o texto da época)
+    semana.forEach(d => {
+      const presentes = new Set(cols[d].cards.map(c => c.instId).concat(cols[d].diarias.map(c => c.instId)));
+      Object.keys(st.feitas || {}).forEach(instId => {
+        if (instId.indexOf('R|') !== 0) return;
+        const p = instId.split('|'); if (p[2] !== d || presentes.has(instId)) return;
+        const s = feitaInfo(instId);
+        cols[d].cards.push({ instId, txt: s.txt || '(rotina removida)', area: s.area || 'fin', rot: true, doneHist: true });
+      });
+    });
     return { hoje, semana, cols, prox, atrasadas };
   }
   // reconstrói texto/área de uma instância de rotina a partir do instId (pra renderizar movidas)
   function reconstituirRotina(instId) {
-    const m = /^R\|([a-z])(\d+)(?:_(\d+))?\|(\d{4}-\d{2}-\d{2})$/.exec(instId); if (!m) return null;
-    const tipo = m[1], a = +m[2], b = m[3] != null ? +m[3] : null;
-    let r = null;
-    if (tipo === 'd') r = (rot.diarias || [])[a];
-    else if (tipo === 's') r = ((rot.semanais[a] || [])[b]);
-    else if (tipo === 'm') { const mm = (rot.mensais || []).find(x => x[0] === a); if (mm) return { instId, txt: mm[1], area: mm[2], rot: true }; }
-    if (!r) return null;
-    return { instId, txt: r[0], area: r[1], rot: true };
+    const p = String(instId).split('|'); if (p[0] !== 'R') return null;
+    const r = (rot.lista || []).find(x => x.id === p[1]); if (!r) return null;
+    return { instId, txt: r.txt, area: r.area, rot: true, rotId: r.id };
   }
   // Materializa prox criadas em semanas anteriores → caem nesta semana no dia escolhido (ou segunda)
   function materializarProx(segAtual) {
@@ -18324,7 +18345,8 @@ const AF = (function () {
     st.feitas = st.feitas || {};
     if (st.feitas[instId]) { delete st.feitas[instId]; }
     else {
-      st.feitas[instId] = new Date().toISOString();
+      const meta = _cardMeta(instId);
+      st.feitas[instId] = { em: new Date().toISOString(), txt: meta.txt, area: meta.area }; // congela o texto da época
       // tira de prioridade ao concluir
       const h = hojeIso(); if (st.prioridades && st.prioridades[h]) st.prioridades[h] = st.prioridades[h].filter(x => x !== instId);
       // Gmail: enfileira pra tirar o marcador "Afazer"
@@ -18424,10 +18446,15 @@ const AF = (function () {
   // ════════ render ════════
   function cardHTML(c) {
     const done = feita(c.instId), prio = prioDoDia(hojeIso()).includes(c.instId);
-    return '<div class="af-card ' + c.area + (done ? ' done' : '') + '" draggable="true" data-id="' + esc(c.instId) + '">'
+    let txt = c.txt, area = c.area;
+    if (done) { const s = feitaInfo(c.instId); if (s.txt) txt = s.txt; if (s.area) area = s.area; } // feito mostra o texto da época
+    const ehRot = String(c.instId).indexOf('R|') === 0;
+    const podeEditar = ehRot || !done; // rotina abre o editor; avulsa/e-mail edita o texto (se não concluída)
+    const tituloT = (c.mail && c.de ? 'De ' + esc(c.de) + ': ' : '') + esc(txt) + (podeEditar ? (ehRot ? ' · clique para editar a rotina' : ' · clique para editar') : '');
+    return '<div class="af-card ' + area + (done ? ' done' : '') + '" draggable="true" data-id="' + esc(c.instId) + '">'
       + '<span class="af-chk" onclick="event.stopPropagation();AF.toggle(\'' + esc(c.instId) + '\')">' + (done ? '✓' : '') + '</span>'
       + (c.mail ? '<span class="af-mail" title="veio do Gmail (marcador Afazer)">✉</span>' : '')
-      + '<span class="af-t" title="' + (c.mail && c.de ? 'De ' + esc(c.de) + ': ' : '') + esc(c.txt) + '">' + esc(c.txt) + (c.movidaMarca ? ' <span class="af-mv">(movida)</span>' : '') + '</span>'
+      + '<span class="af-t' + (podeEditar ? ' edit' : '') + '" title="' + tituloT + '"' + (podeEditar ? ' onclick="event.stopPropagation();AF.clickTexto(\'' + esc(c.instId) + '\')"' : '') + '>' + esc(txt) + (c.movidaMarca ? ' <span class="af-mv">(movida)</span>' : '') + '</span>'
       + (c.mail && c.link ? '<a class="af-mlink" href="' + esc(c.link) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">abrir</a>' : '')
       + '<span class="af-star ' + (prio ? '' : 'off') + '" title="prioridade do dia" onclick="event.stopPropagation();AF.togglePrio(\'' + esc(c.instId) + '\')">' + (prio ? '★' : '☆') + '</span>'
       + '<span class="af-adi" title="adiar" onclick="event.stopPropagation();AF.adiar(\'' + esc(c.instId) + '\')">▸</span>'
@@ -18438,10 +18465,10 @@ const AF = (function () {
     return '<div class="af-card af-daily ' + (open ? 'open' : '') + '">'
       + '<div class="af-dh" onclick="AF.toggleOpen(\'' + iso + '\')"><span class="af-chev">▸</span><b>Diárias</b><span class="af-cnt">' + feitasN + '/' + diarias.length + '</span></div>'
       + '<div class="af-db">' + diarias.map(c => {
-        const done = feita(c.instId);
+        const done = feita(c.instId); let txt = c.txt; if (done) { const s = feitaInfo(c.instId); if (s.txt) txt = s.txt; }
         return '<div class="af-di ' + (done ? 'done' : '') + '" draggable="true" data-id="' + esc(c.instId) + '">'
           + '<span class="af-chk" onclick="event.stopPropagation();AF.toggle(\'' + esc(c.instId) + '\')">' + (done ? '✓' : '') + '</span>'
-          + '<span class="af-t" title="' + esc(c.txt) + '">' + esc(c.txt) + '</span>'
+          + '<span class="af-t edit" title="' + esc(txt) + ' · clique para editar a rotina" onclick="event.stopPropagation();AF.clickTexto(\'' + esc(c.instId) + '\')">' + esc(txt) + '</span>'
           + '<span class="af-adi" title="adiar esta" onclick="event.stopPropagation();AF.adiar(\'' + esc(c.instId) + '\')">▸</span></div>';
       }).join('') + '</div></div>';
   }
@@ -18507,15 +18534,69 @@ const AF = (function () {
   }
 
   // ── Rotinas (cadastrar/editar/excluir) ──
-  function abrirRotinas() {
+  function _rank(r) { if (r.freq === 'diaria') return 0; if (WDFREQ[r.freq]) return WDFREQ[r.freq]; return 9; }
+  function _saveRot() { try { return saveData('rotinasAfazeres', { lista: rot.lista }); } catch (e) {} }
+  function abrirRotinas() { _rotEdit = undefined; renderRotinas(); const m = document.getElementById('af-rot'); if (m) m.style.display = 'flex'; }
+  function renderRotinas() {
     const body = document.getElementById('af-rot-body'); if (!body) return;
-    const linha = (txt, meta, onDel) => '<div class="af-rrow"><span style="flex:1">' + esc(txt) + '</span><span class="af-rmeta">' + esc(meta) + '</span></div>';
-    let h = '<div class="af-rsec"><b>Diárias (' + (rot.diarias || []).length + ')</b>' + (rot.diarias || []).map(r => linha(r[0], AN[r[1]] || r[1])).join('') + '</div>';
-    [1, 2, 3, 4, 5].forEach(wd => { h += '<div class="af-rsec"><b>' + DNOME[wd - 1] + ' (' + (rot.semanais[wd] || []).length + ')</b>' + (rot.semanais[wd] || []).map(r => linha(r[0], AN[r[1]] || r[1])).join('') + '</div>'; });
-    h += '<div class="af-rsec"><b>Mensais</b>' + (rot.mensais || []).map(m => linha(m[1], 'dia ' + m[0] + ' · ' + (AN[m[2]] || m[2]))).join('') + '</div>';
-    h += '<div class="af-rnote">Nesta primeira versão as rotinas vêm do seu padrão. A edição/cadastro completo (adicionar, trocar área, excluir) entra na próxima etapa, quando a tela estiver no ar e você validar o dia a dia.</div>';
+    const lista = (rot.lista || []).slice().sort((a, b) => _rank(a) - _rank(b) || (a.dia || 0) - (b.dia || 0));
+    let h = '';
+    // formulário (nova ou editar)
+    if (_rotEdit !== undefined) {
+      const e = _rotEdit;
+      h += '<div class="af-rform">'
+        + '<div class="af-rfline"><input id="af-rf-txt" placeholder="Nome da rotina" value="' + esc(e.txt || '') + '"></div>'
+        + '<div class="af-rfline"><label>Área</label><select id="af-rf-area">' + ['fin', 'rh', 'com', 'fec'].map(a => '<option value="' + a + '"' + (e.area === a ? ' selected' : '') + '>' + AN[a] + '</option>').join('') + '</select>'
+        + '<label>Frequência</label><select id="af-rf-freq" onchange="AF._freqMudou()">' + ['diaria', 'seg', 'ter', 'qua', 'qui', 'sex', 'mensal'].map(f => '<option value="' + f + '"' + ((e.freq || 'diaria') === f ? ' selected' : '') + '>' + FREQNOME[f] + '</option>').join('') + '</select>'
+        + '<span id="af-rf-diawrap"' + ((e.freq || 'diaria') === 'mensal' ? '' : ' style="display:none"') + '><label>Dia</label><input id="af-rf-dia" type="number" min="1" max="31" style="width:56px" value="' + (e.dia || 1) + '"></span></div>'
+        + '<div class="af-rfline"><button class="af-btn primary" onclick="AF.rotSalvar()">Salvar</button><button class="af-btn" onclick="AF.rotCancelar()">Cancelar</button>'
+        + (e.id ? '<span class="af-rfhint">se cair em fim de semana/feriado, a mensal aparece no dia útil anterior</span>' : '') + '</div></div>';
+    } else {
+      h += '<div style="margin-bottom:8px"><button class="af-btn primary" onclick="AF.rotNova()">+ Nova rotina</button></div>';
+    }
+    // lista
+    h += lista.map(r => '<div class="af-rrow"><span style="flex:1">' + esc(r.txt) + '</span>'
+      + '<span class="af-rmeta">' + (AN[r.area] || r.area) + ' · ' + FREQNOME[r.freq] + (r.freq === 'mensal' ? ' (dia ' + r.dia + ')' : '') + '</span>'
+      + '<button class="af-rbtn" title="editar" onclick="AF.rotEditar(\'' + esc(r.id) + '\')">✎</button>'
+      + '<button class="af-rbtn" title="excluir" onclick="AF.rotExcluir(\'' + esc(r.id) + '\')">🗑</button></div>').join('');
+    h += '<div class="af-rnote">Editar uma rotina vale das próximas ocorrências em diante. O que já foi marcado como feito não muda (guarda o texto da época).</div>';
     body.innerHTML = h;
-    document.getElementById('af-rot').style.display = 'flex';
+  }
+  function _freqMudou() { const f = document.getElementById('af-rf-freq'); const w = document.getElementById('af-rf-diawrap'); if (f && w) w.style.display = (f.value === 'mensal') ? '' : 'none'; }
+  function rotNova() { _rotEdit = { id: null, txt: '', area: 'fin', freq: 'diaria', dia: 1 }; renderRotinas(); }
+  function rotEditar(id) { const r = (rot.lista || []).find(x => x.id === id); if (!r) return; _rotEdit = Object.assign({}, r); renderRotinas(); const m = document.getElementById('af-rot'); if (m) m.style.display = 'flex'; }
+  function rotCancelar() { _rotEdit = undefined; renderRotinas(); }
+  function rotSalvar() {
+    const txt = (document.getElementById('af-rf-txt').value || '').trim();
+    if (!txt) { alert('Escreva o nome da rotina.'); return; }
+    const area = document.getElementById('af-rf-area').value, freq = document.getElementById('af-rf-freq').value;
+    let dia = 1; if (freq === 'mensal') { dia = Math.min(31, Math.max(1, parseInt(document.getElementById('af-rf-dia').value, 10) || 1)); }
+    if (_rotEdit && _rotEdit.id) {
+      const r = (rot.lista || []).find(x => x.id === _rotEdit.id); if (r) { r.txt = txt; r.area = area; r.freq = freq; if (freq === 'mensal') r.dia = dia; else delete r.dia; }
+    } else {
+      const nr = { id: 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1000), txt, area, freq }; if (freq === 'mensal') nr.dia = dia;
+      rot.lista.push(nr);
+    }
+    _saveRot(); _rotEdit = undefined; renderRotinas(); render();
+  }
+  function rotExcluir(id) {
+    const r = (rot.lista || []).find(x => x.id === id); if (!r) return;
+    if (!confirm('Excluir a rotina "' + r.txt + '"?\n\nEla deixa de aparecer daqui pra frente. O que já foi marcado como feito continua no histórico.')) return;
+    rot.lista = rot.lista.filter(x => x.id !== id);
+    _saveRot(); _rotEdit = undefined; renderRotinas(); render();
+  }
+  // clicar no texto de um cartão
+  function clickTexto(instId) {
+    if (instId.indexOf('R|') === 0) { const p = instId.split('|'); rotEditar(p[1]); return; }
+    if (instId.indexOf('A|') === 0) {
+      const a = (st.avulsas || []).find(x => 'A|' + x.id === instId); if (!a) return;
+      const nv = prompt('Editar a tarefa:', a.txt); if (nv == null) return; const t = nv.trim(); if (!t) return; a.txt = t; _save(); render(); return;
+    }
+    if (instId.indexOf('M|') === 0) {
+      const msgId = instId.slice(2); const atual = (st.gmailTxt && st.gmailTxt[msgId]) || (gmailCards().find(x => x.instId === instId) || {}).txt || '';
+      const nv = prompt('Editar o texto da tarefa (veio do e-mail):', atual); if (nv == null) return; const t = nv.trim(); if (!t) return;
+      st.gmailTxt = st.gmailTxt || {}; st.gmailTxt[msgId] = t; _save(); render(); return;
+    }
   }
 
   // ════════ ciclo de vida ════════
@@ -18548,12 +18629,13 @@ const AF = (function () {
   }
   async function _load() {
     st = (await loadData('afazeres')) || {};
-    if (!st.feitas) st.feitas = {}; if (!st.movidas) st.movidas = {}; if (!st.prioridades) st.prioridades = {}; if (!st.avulsas) st.avulsas = []; if (!st.alertHide) st.alertHide = {};
+    if (!st.feitas) st.feitas = {}; if (!st.movidas) st.movidas = {}; if (!st.prioridades) st.prioridades = {}; if (!st.avulsas) st.avulsas = []; if (!st.alertHide) st.alertHide = {}; if (!st.gmailTxt) st.gmailTxt = {};
     if (!st.inicio) st.inicio = hojeIso();
     // poda alertHide antigo (só mantém hoje) — assim o alerta "volta" no dia seguinte
     const h = hojeIso(); Object.keys(st.alertHide).forEach(k => { if (k !== h) delete st.alertHide[k]; });
-    rot = (await loadData('rotinasAfazeres'));
-    if (!rot || !rot.diarias) { rot = JSON.parse(JSON.stringify(SEED)); try { await saveData('rotinasAfazeres', rot); } catch (e) {} }
+    const rotRaw = (await loadData('rotinasAfazeres'));
+    rot = _migraRot(rotRaw);
+    if (!rotRaw || !Array.isArray(rotRaw.lista)) { try { await saveData('rotinasAfazeres', { lista: rot.lista }); } catch (e) {} } // grava já no formato novo (lista)
     // Gmail (itens pro HOJE) — chave gravada pelo Apps Script
     try { st._gmail = (await loadData('afazeresGmail')) || null; _reindexGmail(); } catch (e) { st._gmail = null; }
   }
@@ -18624,9 +18706,12 @@ const AF = (function () {
     + '.af-daily{flex-direction:column;align-items:stretch;gap:0;border-left-color:#64748b;cursor:default}.af-dh{display:flex;align-items:center;gap:6px;cursor:pointer}.af-dh b{font-size:11.5px;font-weight:700;flex:1}.af-chev{color:#6b7280;transition:transform .15s}.af-daily.open .af-chev{transform:rotate(90deg)}.af-db{margin-top:5px;display:none;flex-direction:column;gap:3px;border-top:1px dashed #e5e7eb;padding-top:5px}.af-daily.open .af-db{display:flex}.af-di{display:flex;align-items:center;gap:6px;font-size:11px;cursor:grab}.af-di .af-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}.af-di.done .af-t{text-decoration:line-through;opacity:.55}.af-di .af-chk{width:13px;height:13px;min-width:13px}.af-di .af-adi{border:none;background:none;color:#6b7280;cursor:pointer;font-size:12px;padding:0 2px}'
     + '.af-done{margin-top:6px}.af-dt{font-size:10px;color:#6b7280;cursor:pointer;padding:2px 3px;font-weight:600}.af-dl{display:none;flex-direction:column;gap:5px;margin-top:4px}.af-done.open .af-dl{display:flex}'
     + '.af-col.drag{outline:2px dashed #2563eb;outline-offset:-3px}.af-pnota{font-size:10px;color:#6b4ba8;margin:3px 3px 6px;line-height:1.35}.af-empty{font-size:12px;color:#6b7280;padding:14px}'
-    + '.af-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:99999}.af-modal{background:#fff;border-radius:12px;padding:16px;width:min(560px,92vw);max-height:84vh;overflow:auto}.af-modal h3{margin:0 0 10px;font-size:15px}.af-rrow{border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;margin-bottom:5px;font-size:12px;display:flex;gap:8px}.af-rmeta{color:#6b7280;font-size:11px}.af-rsec{margin-bottom:10px}.af-rsec>b{font-size:12px;display:block;margin-bottom:4px}.af-rnote{font-size:11px;color:#6b7280;margin-top:8px;line-height:1.4}';
+    + '.af-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:99999}.af-modal{background:#fff;border-radius:12px;padding:16px;width:min(560px,92vw);max-height:84vh;overflow:auto}.af-modal h3{margin:0 0 10px;font-size:15px}.af-rrow{border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;margin-bottom:5px;font-size:12px;display:flex;gap:8px}.af-rmeta{color:#6b7280;font-size:11px}.af-rsec{margin-bottom:10px}.af-rsec>b{font-size:12px;display:block;margin-bottom:4px}.af-rnote{font-size:11px;color:#6b7280;margin-top:8px;line-height:1.4}'
+    + '.af-t.edit{cursor:text}.af-t.edit:hover{text-decoration:underline dotted;text-underline-offset:2px}'
+    + '.af-rrow .af-rbtn{border:1px solid #e5e7eb;background:#fff;border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;margin-left:4px}.af-rrow .af-rbtn:hover{background:#f3f4f6}'
+    + '.af-rform{border:1px solid #cfe0fb;background:#f6faff;border-radius:8px;padding:10px;margin-bottom:10px}.af-rfline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.af-rfline:last-child{margin-bottom:0}.af-rform input,.af-rform select{border:1px solid #cbd5e1;border-radius:7px;padding:7px;font-size:12px}.af-rform #af-rf-txt{flex:1;min-width:200px}.af-rform label{font-size:11px;color:#475569;font-weight:600}.af-rfhint{font-size:10.5px;color:#6b7280}';
 
-  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona };
+  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou };
 })();
 try { window.AF = AF; } catch (e) {}
 
