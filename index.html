@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v732/10-785';
+const APP_VERSION = 'v733/10-786';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18244,7 +18244,16 @@ const AF = (function () {
   function rotFires(r, iso) {
     if (r.freq === 'diaria') return true;
     if (r.freq === 'mensal') return mensalDispara(+r.dia || 1, iso);
-    return WDFREQ[r.freq] === wdDe(iso);
+    if (r.freq === 'semanal') return Array.isArray(r.dias) && r.dias.indexOf(wdDe(iso)) >= 0; // vários dias
+    return WDFREQ[r.freq] === wdDe(iso); // legado: 1 dia só (seg..sex)
+  }
+  // dias da semana (1..5) de uma rotina, cobrindo o formato novo (semanal+dias) e o legado (seg..sex)
+  function diasDaRotina(r) { if (r.freq === 'semanal') return (r.dias || []).slice(); if (WDFREQ[r.freq]) return [WDFREQ[r.freq]]; return []; }
+  function freqLabel(r) {
+    if (r.freq === 'diaria') return 'Diária';
+    if (r.freq === 'mensal') return 'Mensal (dia ' + (r.dia || 1) + ')';
+    const ds = diasDaRotina(r).slice().sort((a, b) => a - b).map(w => DNOME[w - 1]);
+    return ds.length ? ds.join(', ') : 'Semanal';
   }
   function _cardDaRotina(r, iso) { return { instId: 'R|' + r.id + '|' + iso, txt: r.txt, area: r.area, rot: true, rotId: r.id, nativo: iso }; }
   // instâncias de rotina (NÃO diárias) que disparam no dia útil
@@ -18534,7 +18543,7 @@ const AF = (function () {
   }
 
   // ── Rotinas (cadastrar/editar/excluir) ──
-  function _rank(r) { if (r.freq === 'diaria') return 0; if (WDFREQ[r.freq]) return WDFREQ[r.freq]; return 9; }
+  function _rank(r) { if (r.freq === 'diaria') return 0; if (r.freq === 'mensal') return 9; const ds = diasDaRotina(r); return ds.length ? Math.min.apply(null, ds) : 8; }
   function _saveRot() { try { return saveData('rotinasAfazeres', { lista: rot.lista }); } catch (e) {} }
   function abrirRotinas() { _rotEdit = undefined; renderRotinas(); const m = document.getElementById('af-rot'); if (m) m.style.display = 'flex'; }
   function renderRotinas() {
@@ -18544,25 +18553,28 @@ const AF = (function () {
     // formulário (nova ou editar)
     if (_rotEdit !== undefined) {
       const e = _rotEdit;
+      const freqSel = (e.freq === 'diaria' || e.freq === 'mensal') ? e.freq : 'semanal';
+      const diasSet = diasDaRotina(e);
       h += '<div class="af-rform">'
         + '<div class="af-rfline"><input id="af-rf-txt" placeholder="Nome da rotina" value="' + esc(e.txt || '') + '"></div>'
         + '<div class="af-rfline"><label>Área</label><select id="af-rf-area">' + ['fin', 'rh', 'com', 'fec'].map(a => '<option value="' + a + '"' + (e.area === a ? ' selected' : '') + '>' + AN[a] + '</option>').join('') + '</select>'
-        + '<label>Frequência</label><select id="af-rf-freq" onchange="AF._freqMudou()">' + ['diaria', 'seg', 'ter', 'qua', 'qui', 'sex', 'mensal'].map(f => '<option value="' + f + '"' + ((e.freq || 'diaria') === f ? ' selected' : '') + '>' + FREQNOME[f] + '</option>').join('') + '</select>'
-        + '<span id="af-rf-diawrap"' + ((e.freq || 'diaria') === 'mensal' ? '' : ' style="display:none"') + '><label>Dia</label><input id="af-rf-dia" type="number" min="1" max="31" style="width:56px" value="' + (e.dia || 1) + '"></span></div>'
+        + '<label>Frequência</label><select id="af-rf-freq" onchange="AF._freqMudou()">' + [['diaria', 'Diária'], ['semanal', 'Semanal'], ['mensal', 'Mensal']].map(f => '<option value="' + f[0] + '"' + (freqSel === f[0] ? ' selected' : '') + '>' + f[1] + '</option>').join('') + '</select>'
+        + '<span id="af-rf-diawrap"' + (freqSel === 'mensal' ? '' : ' style="display:none"') + '><label>Dia</label><input id="af-rf-dia" type="number" min="1" max="31" style="width:56px" value="' + (e.dia || 1) + '"></span></div>'
+        + '<div class="af-rfline" id="af-rf-diaswrap"' + (freqSel === 'semanal' ? '' : ' style="display:none"') + '><label>Dias</label>' + [1, 2, 3, 4, 5].map(w => '<label class="af-wd"><input type="checkbox" class="af-rf-wd" value="' + w + '"' + (diasSet.indexOf(w) >= 0 ? ' checked' : '') + '> ' + DNOME[w - 1] + '</label>').join('') + '</div>'
         + '<div class="af-rfline"><button class="af-btn primary" onclick="AF.rotSalvar()">Salvar</button><button class="af-btn" onclick="AF.rotCancelar()">Cancelar</button>'
-        + (e.id ? '<span class="af-rfhint">se cair em fim de semana/feriado, a mensal aparece no dia útil anterior</span>' : '') + '</div></div>';
+        + '<span class="af-rfhint">Semanal: marque um ou vários dias. Mensal: se cair em fim de semana/feriado, aparece no dia útil anterior.</span></div></div>';
     } else {
       h += '<div style="margin-bottom:8px"><button class="af-btn primary" onclick="AF.rotNova()">+ Nova rotina</button></div>';
     }
     // lista
     h += lista.map(r => '<div class="af-rrow"><span style="flex:1">' + esc(r.txt) + '</span>'
-      + '<span class="af-rmeta">' + (AN[r.area] || r.area) + ' · ' + FREQNOME[r.freq] + (r.freq === 'mensal' ? ' (dia ' + r.dia + ')' : '') + '</span>'
+      + '<span class="af-rmeta">' + (AN[r.area] || r.area) + ' · ' + freqLabel(r) + '</span>'
       + '<button class="af-rbtn" title="editar" onclick="AF.rotEditar(\'' + esc(r.id) + '\')">✎</button>'
       + '<button class="af-rbtn" title="excluir" onclick="AF.rotExcluir(\'' + esc(r.id) + '\')">🗑</button></div>').join('');
     h += '<div class="af-rnote">Editar uma rotina vale das próximas ocorrências em diante. O que já foi marcado como feito não muda (guarda o texto da época).</div>';
     body.innerHTML = h;
   }
-  function _freqMudou() { const f = document.getElementById('af-rf-freq'); const w = document.getElementById('af-rf-diawrap'); if (f && w) w.style.display = (f.value === 'mensal') ? '' : 'none'; }
+  function _freqMudou() { const f = document.getElementById('af-rf-freq'); if (!f) return; const wm = document.getElementById('af-rf-diawrap'), ws = document.getElementById('af-rf-diaswrap'); if (wm) wm.style.display = (f.value === 'mensal') ? '' : 'none'; if (ws) ws.style.display = (f.value === 'semanal') ? '' : 'none'; }
   function rotNova() { _rotEdit = { id: null, txt: '', area: 'fin', freq: 'diaria', dia: 1 }; renderRotinas(); }
   function rotEditar(id) { const r = (rot.lista || []).find(x => x.id === id); if (!r) return; _rotEdit = Object.assign({}, r); renderRotinas(); const m = document.getElementById('af-rot'); if (m) m.style.display = 'flex'; }
   function rotCancelar() { _rotEdit = undefined; renderRotinas(); }
@@ -18570,11 +18582,18 @@ const AF = (function () {
     const txt = (document.getElementById('af-rf-txt').value || '').trim();
     if (!txt) { alert('Escreva o nome da rotina.'); return; }
     const area = document.getElementById('af-rf-area').value, freq = document.getElementById('af-rf-freq').value;
-    let dia = 1; if (freq === 'mensal') { dia = Math.min(31, Math.max(1, parseInt(document.getElementById('af-rf-dia').value, 10) || 1)); }
+    let dia = 1, dias = null;
+    if (freq === 'mensal') { dia = Math.min(31, Math.max(1, parseInt(document.getElementById('af-rf-dia').value, 10) || 1)); }
+    if (freq === 'semanal') {
+      dias = [...document.querySelectorAll('.af-rf-wd:checked')].map(c => +c.value).sort((a, b) => a - b);
+      if (!dias.length) { alert('Marque pelo menos um dia da semana.'); return; }
+    }
     if (_rotEdit && _rotEdit.id) {
-      const r = (rot.lista || []).find(x => x.id === _rotEdit.id); if (r) { r.txt = txt; r.area = area; r.freq = freq; if (freq === 'mensal') r.dia = dia; else delete r.dia; }
+      const r = (rot.lista || []).find(x => x.id === _rotEdit.id);
+      if (r) { r.txt = txt; r.area = area; r.freq = freq; if (freq === 'mensal') { r.dia = dia; delete r.dias; } else if (freq === 'semanal') { r.dias = dias; delete r.dia; } else { delete r.dia; delete r.dias; } }
     } else {
-      const nr = { id: 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1000), txt, area, freq }; if (freq === 'mensal') nr.dia = dia;
+      const nr = { id: 'u' + Date.now().toString(36) + Math.floor(Math.random() * 1000), txt, area, freq };
+      if (freq === 'mensal') nr.dia = dia; else if (freq === 'semanal') nr.dias = dias;
       rot.lista.push(nr);
     }
     _saveRot(); _rotEdit = undefined; renderRotinas(); render();
@@ -18709,7 +18728,7 @@ const AF = (function () {
     + '.af-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:99999}.af-modal{background:#fff;border-radius:12px;padding:16px;width:min(560px,92vw);max-height:84vh;overflow:auto}.af-modal h3{margin:0 0 10px;font-size:15px}.af-rrow{border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;margin-bottom:5px;font-size:12px;display:flex;gap:8px}.af-rmeta{color:#6b7280;font-size:11px}.af-rsec{margin-bottom:10px}.af-rsec>b{font-size:12px;display:block;margin-bottom:4px}.af-rnote{font-size:11px;color:#6b7280;margin-top:8px;line-height:1.4}'
     + '.af-t.edit{cursor:text}.af-t.edit:hover{text-decoration:underline dotted;text-underline-offset:2px}'
     + '.af-rrow .af-rbtn{border:1px solid #e5e7eb;background:#fff;border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;margin-left:4px}.af-rrow .af-rbtn:hover{background:#f3f4f6}'
-    + '.af-rform{border:1px solid #cfe0fb;background:#f6faff;border-radius:8px;padding:10px;margin-bottom:10px}.af-rfline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.af-rfline:last-child{margin-bottom:0}.af-rform input,.af-rform select{border:1px solid #cbd5e1;border-radius:7px;padding:7px;font-size:12px}.af-rform #af-rf-txt{flex:1;min-width:200px}.af-rform label{font-size:11px;color:#475569;font-weight:600}.af-rfhint{font-size:10.5px;color:#6b7280}';
+    + '.af-rform{border:1px solid #cfe0fb;background:#f6faff;border-radius:8px;padding:10px;margin-bottom:10px}.af-rfline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.af-rfline:last-child{margin-bottom:0}.af-rform input,.af-rform select{border:1px solid #cbd5e1;border-radius:7px;padding:7px;font-size:12px}.af-rform #af-rf-txt{flex:1;min-width:200px}.af-rform label{font-size:11px;color:#475569;font-weight:600}.af-rfhint{font-size:10.5px;color:#6b7280}.af-wd{font-size:11.5px;color:#334155;display:inline-flex;align-items:center;gap:3px;margin-right:4px;font-weight:500;cursor:pointer}.af-wd input{margin:0}';
 
   return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou };
 })();
