@@ -559,7 +559,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v733/10-786';
+const APP_VERSION = 'v734/10-787';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -798,7 +798,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -18056,7 +18056,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -18176,6 +18176,53 @@ async function carregarTudo() {
     document.getElementById('sync-status').style.color = 'var(--amber)';
   }
 
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MAPEAR LOJA NOVA DO BLING → loja do cadastro. Grava `blingLojaMap` (id→nome
+// do cadastro); a Edge bling-sync lê esse mapa e passa a aplicar sozinha, SEM
+// editar código. A Elaine escolhe de uma lista do cadastro (nunca adivinha).
+// ════════════════════════════════════════════════════════════════════
+async function abrirMapaLojaPend() {
+  let pend = []; try { pend = (await loadData('blingPendencias')) || []; } catch (e) {}
+  const lojas = (Array.isArray(pend) ? pend : []).filter(p => p && /^loja-nao-mapeada\|/.test(p.chave || ''));
+  let bg = document.getElementById('mapaloja-modal');
+  if (!bg) {
+    bg = document.createElement('div'); bg.id = 'mapaloja-modal';
+    bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:100000';
+    bg.innerHTML = '<div style="background:var(--surface,#fff);color:var(--text,#1f2937);border-radius:12px;padding:18px;width:min(580px,94vw);max-height:84vh;overflow:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><b style="font-size:15px">🏷️ Lojas novas do Bling (mapear)</b><button onclick="document.getElementById(\'mapaloja-modal\').remove()" style="border:none;background:none;font-size:18px;cursor:pointer;color:var(--muted,#6b7280)">✕</button></div><div id="mapaloja-body"></div></div>';
+    document.body.appendChild(bg);
+  } else { bg.style.display = 'flex'; }
+  const cadKeys = Object.keys(lojaCadastro || {}).filter(k => k && k !== '-').sort();
+  const body = bg.querySelector('#mapaloja-body');
+  if (!lojas.length) { body.innerHTML = '<div style="color:var(--muted,#6b7280);font-size:13px">Nenhuma loja nova pra mapear agora.</div><div style="text-align:right;margin-top:12px"><button class="btn" onclick="document.getElementById(\'mapaloja-modal\').remove()">Fechar</button></div>'; return; }
+  body.innerHTML = '<div style="font-size:12px;color:var(--muted,#6b7280);margin-bottom:10px">Para cada loja nova do Bling, escolha qual loja do seu cadastro ela é. A sincronização passa a aplicar sozinha (sem editar código). Você só escolhe lojas que já existem no cadastro.</div>'
+    + lojas.map(p => {
+      const id = String(p.detalhe || '').replace(/^loja#/, '');
+      return '<div style="border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:9px;margin-bottom:8px">'
+        + '<div style="font-size:12px;margin-bottom:6px">Loja do Bling <b>' + _escH(p.detalhe) + '</b>' + (p.pedido ? ' · pedido #' + _escH(p.pedido) : '') + (p.conta ? ' · ' + _escH(p.conta) : '') + '</div>'
+        + '<select class="mapaloja-sel" data-id="' + _escH(id) + '" style="width:100%;padding:7px;border:1px solid var(--border,#e5e7eb);border-radius:7px;background:var(--surface,#fff);color:var(--text,#1f2937)"><option value="">— escolher loja do cadastro —</option>'
+        + cadKeys.map(k => '<option value="' + _escH(k) + '">' + _escH(k) + ' (' + _escH((lojaCadastro[k] && lojaCadastro[k].operacao) || '') + ')</option>').join('')
+        + '</select></div>';
+    }).join('')
+    + '<div style="text-align:right;margin-top:6px"><button class="btn" onclick="document.getElementById(\'mapaloja-modal\').remove()">Cancelar</button> <button class="btn primary" onclick="salvarMapaLojaPend()">Salvar mapeamento</button></div>';
+}
+async function salvarMapaLojaPend() {
+  const sels = [...document.querySelectorAll('.mapaloja-sel')];
+  const escolhidos = sels.filter(s => s.value).map(s => ({ id: s.dataset.id, nome: s.value }));
+  if (!escolhidos.length) { alert('Escolha ao menos uma loja do cadastro.'); return; }
+  let mapa = {}; try { mapa = (await loadData('blingLojaMap')) || {}; } catch (e) {}
+  if (!mapa || typeof mapa !== 'object') mapa = {};
+  escolhidos.forEach(e => { mapa[e.id] = e.nome; });
+  await saveData('blingLojaMap', mapa);
+  // remove da lista de pendências as lojas que acabaram de ser mapeadas
+  let pend = []; try { pend = (await loadData('blingPendencias')) || []; } catch (e) {}
+  const idsMap = new Set(escolhidos.map(e => 'loja#' + e.id));
+  pend = (Array.isArray(pend) ? pend : []).filter(p => !(p && /^loja-nao-mapeada\|/.test(p.chave || '') && idsMap.has(String(p.detalhe || ''))));
+  await saveData('blingPendencias', pend);
+  const m = document.getElementById('mapaloja-modal'); if (m) m.remove();
+  alert('Mapeamento salvo! Na próxima sincronização do Bling (e no F5 seguinte) a loja é aplicada sozinha nos pedidos.');
+  try { if (typeof AF !== 'undefined' && AF.atualizarBtn) AF.atualizarBtn(); } catch (e) {}
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -18429,7 +18476,15 @@ const AF = (function () {
     try { const r = resumoCobranca(); if (r.vencidos.length) { const v = r.vencidos.reduce((s, x) => s + (+x.valor || 0), 0); add('1', 'Boletos vencidos: ' + r.vencidos.length + ' (' + fmtBR(v) + ')', 'irParaCobranca()'); } } catch (e) {}
     try { const ym = hoje.slice(0, 7); const n = (extratoBancario || []).filter(t => t.valor > 0 && t.data && _isoDeData(t.data).slice(0, 7) === ym && !(extratoLinks[t.id] || repasseLinks[t.id] || receitaLinks[t.id])).length; if (n) add('5', n + ' crédito(s) no extrato sem conciliar (mês)', "AF._ir('ext')"); } catch (e) {}
     try { const ym = hoje.slice(0, 7); const n = (extratoBancario || []).filter(t => t.valor < 0 && t.data && _isoDeData(t.data).slice(0, 7) === ym && !debitoLinks[t.id]).length; if (n) add('6', n + ' débito(s) no extrato sem conta (mês)', "AF._ir('ext')"); } catch (e) {}
-    try { const p = (await loadData('blingPendencias')) || []; if (Array.isArray(p) && p.length) add('7', p.length + ' pendência(s) da Bling (marca/loja/vendedor)', "AF._modalLista('Pendências da Bling'," + JSON.stringify(p.slice(-60).map(x => (x.tipo || '') + (x.pedido ? (' · #' + x.pedido) : '') + (x.detalhe ? (' · ' + x.detalhe) : ''))) + ")"); } catch (e) {}
+    try {
+      const p = (await loadData('blingPendencias')) || [];
+      if (Array.isArray(p)) {
+        const lojaP = p.filter(x => /^loja-nao-mapeada\|/.test((x && x.chave) || ''));
+        const outras = p.filter(x => !/^loja-nao-mapeada\|/.test((x && x.chave) || ''));
+        if (lojaP.length) add('loja', lojaP.length + ' loja(s) nova(s) do Bling sem cadastro (mapear)', 'abrirMapaLojaPend()');
+        if (outras.length) add('7', outras.length + ' pendência(s) da Bling (marca/vendedor/valor)', "AF._modalLista('Pendências da Bling'," + JSON.stringify(outras.slice(-60).map(x => (x.tipo || '') + (x.pedido ? (' · #' + x.pedido) : '') + (x.detalhe ? (' · ' + x.detalhe) : ''))) + ")");
+      }
+    } catch (e) {}
     try { const log = (await loadData('blingSyncLog')) || []; const lim = Date.now() - 2 * 864e5; const bl = (Array.isArray(log) ? log : []).filter(e => e.resultado === 'bloqueado' && e.ts && new Date(e.ts).getTime() >= lim); if (bl.length) add('8', bl.length + ' item(ns) bloqueado(s) na sync da Bling (2 dias)', "AF._modalLista('Sync da Bling, bloqueados'," + JSON.stringify(bl.slice(-60).map(e => '#' + (e.pedido || '') + ' · ' + (e.campo || '') + ' · ' + (e.motivo || ''))) + ")"); } catch (e) {}
     try { const pk = await loadData('planilhasCustoCompras'); const g = pk && pk.geradoEm ? _isoDeData(new Date(pk.geradoEm)) : ''; if (g !== hoje) add('9', 'Planilhas de Compras não rodaram hoje', "setView('compras')"); } catch (e) {}
     try { const prev = mesAnteriorYM(hoje); const cr = (typeof crFechado !== 'undefined' && crFechado) || {}; if (!cr[prev]) add('11', 'Mês anterior (' + prev + ') ainda sem foto oficial', "AF._ir('conc')"); } catch (e) {}
@@ -18730,7 +18785,7 @@ const AF = (function () {
     + '.af-rrow .af-rbtn{border:1px solid #e5e7eb;background:#fff;border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;margin-left:4px}.af-rrow .af-rbtn:hover{background:#f3f4f6}'
     + '.af-rform{border:1px solid #cfe0fb;background:#f6faff;border-radius:8px;padding:10px;margin-bottom:10px}.af-rfline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.af-rfline:last-child{margin-bottom:0}.af-rform input,.af-rform select{border:1px solid #cbd5e1;border-radius:7px;padding:7px;font-size:12px}.af-rform #af-rf-txt{flex:1;min-width:200px}.af-rform label{font-size:11px;color:#475569;font-weight:600}.af-rfhint{font-size:10.5px;color:#6b7280}.af-wd{font-size:11.5px;color:#334155;display:inline-flex;align-items:center;gap:3px;margin-right:4px;font-weight:500;cursor:pointer}.af-wd input{margin:0}';
 
-  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou };
+  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou, atualizarBtn };
 })();
 try { window.AF = AF; } catch (e) {}
 
