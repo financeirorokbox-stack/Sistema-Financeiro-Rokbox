@@ -416,6 +416,7 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-desenv" onclick="setView('desenv')">🧵 Desenvolvimento</div>
   <div class="topnav-item" id="nav-produtos" onclick="setView('produtos')">🏷️ Produtos</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
+  <div class="topnav-item" id="nav-calc" onclick="setView('calc')">🧮 Calculadora</div>
   <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
 </div>
 <div class="subnav" id="sub-fin" style="display:none">
@@ -461,6 +462,7 @@ tr:hover td{background:#fafaf8}
 <div id="v-desenv" class="main" style="display:none"></div>
 <div id="v-produtos" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
+<div id="v-calc" class="main" style="display:none"></div>
 
 </div><!-- /app -->
 
@@ -559,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v734/10-787';
+const APP_VERSION = 'v735/10-788';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -798,7 +800,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1803,7 +1805,7 @@ function setView(v) {
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','compras','rh','budget','desenv','produtos','financeiro','cadastro'].forEach(x => {
+  ['dashboard','vendas','compras','rh','budget','desenv','produtos','financeiro','cadastro','calc'].forEach(x => {
     document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
@@ -1815,6 +1817,7 @@ function setView(v) {
   const _vpr = document.getElementById('v-produtos'); if (_vpr) _vpr.style.display = v === 'produtos' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
+  const _vcalc = document.getElementById('v-calc'); if (_vcalc) _vcalc.style.display = v === 'calc' ? 'block' : 'none';
   document.getElementById('sub-fin').style.display = v === 'financeiro' ? 'flex' : 'none';
   document.getElementById('conc-pills').style.display = 'none';
   if (v === 'dashboard') _perf('Dashboard', renderDashboard);
@@ -1831,6 +1834,7 @@ function setView(v) {
     if (s) setSub(s);
   }
   if (v === 'cadastro') _perf('Cadastro', renderCadastro);
+  if (v === 'calc') { try { renderCalcParcelamento(); } catch (e) {} }
 }
 
 // Abas principais do Financeiro (4). 'contas' é um GRUPO com sub-abas internas.
@@ -18056,7 +18060,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -18176,6 +18180,125 @@ async function carregarTudo() {
     document.getElementById('sync-status').style.color = 'var(--amber)';
   }
 
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CALCULADORA DE PARCELAMENTO — juros compostos, Tabela Price, com carência
+// (taxa padrão 1,99% a.m.). Histórico gravado no SUPABASE (chave calcParcelamento),
+// não no navegador. Só leitura dos dados do sistema; nada do resto é afetado.
+// ════════════════════════════════════════════════════════════════════
+let _calcHist = null, _calcUltimo = null;
+function _calcParseBR(s) { if (s == null) return 0; return parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0; }
+function _calcFmt(n) { try { return (+n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); } catch (e) { return 'R$ ' + (+n || 0).toFixed(2); } }
+function _calcVal(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+function _calcCompute() {
+  const PV = _calcParseBR(_calcVal('calc-valor'));
+  const taxaPct = _calcParseBR(_calcVal('calc-taxa'));
+  const i = taxaPct / 100;
+  const n = parseInt(_calcVal('calc-parcelas'), 10) || 1;
+  const intervalo = parseInt(_calcVal('calc-intervalo'), 10) || 30;
+  const primeiroVenc = parseInt(_calcVal('calc-primeiro'), 10) || intervalo;
+  if (PV <= 0 || i <= 0 || n <= 0) return null;
+  const periodosTotais = primeiroVenc / intervalo;
+  const carenciaPeriodos = Math.max(0, periodosTotais - 1);
+  let saldoAjustado = PV, jurosCarencia = 0;
+  if (carenciaPeriodos > 0) { saldoAjustado = PV * Math.pow(1 + i, carenciaPeriodos); jurosCarencia = saldoAjustado - PV; }
+  const PMT = saldoAjustado * i * Math.pow(1 + i, n) / (Math.pow(1 + i, n) - 1);
+  let saldo = saldoAjustado, linhas = '', venc = primeiroVenc, totalJuros = jurosCarencia;
+  for (let mes = 1; mes <= n; mes++) {
+    const juros = saldo * i, amort = PMT - juros, saldoFim = saldo - amort; totalJuros += juros;
+    linhas += '<tr><td>' + venc + ' dias</td><td>' + _calcFmt(saldo) + '</td><td>' + _calcFmt(juros) + '</td><td>' + _calcFmt(amort) + '</td><td>' + _calcFmt(PMT) + '</td><td>' + _calcFmt(Math.max(0, saldoFim)) + '</td></tr>';
+    saldo = saldoFim; venc += intervalo;
+  }
+  const totalPago = PMT * n;
+  return { PV, taxaPct, n, intervalo, primeiroVenc, PMT, totalJuros, totalPago, carenciaPeriodos, jurosCarencia, saldoAjustado, linhas };
+}
+function calcParcelamento() {
+  const r = _calcCompute();
+  const box = document.getElementById('calc-result'); if (!box) return;
+  if (!r) { alert('Preencha valor, taxa e número de parcelas corretamente.'); box.style.display = 'none'; _calcUltimo = null; return; }
+  _calcUltimo = r;
+  document.getElementById('calc-stat-parcela').textContent = _calcFmt(r.PMT);
+  document.getElementById('calc-stat-total').textContent = _calcFmt(r.totalPago);
+  document.getElementById('calc-stat-juros').textContent = _calcFmt(r.totalJuros);
+  document.getElementById('calc-tbody').innerHTML = r.linhas;
+  const car = document.getElementById('calc-carencia');
+  if (r.carenciaPeriodos > 0) {
+    car.style.display = 'block';
+    car.innerHTML = '<strong>Carência aplicada</strong> (+' + (Math.round(r.carenciaPeriodos * 100) / 100) + ' período(s)): saldo de ' + _calcFmt(r.PV) + ' capitalizado antes da 1ª parcela, gerando ' + _calcFmt(r.jurosCarencia) + ' de juros de carência. Saldo ajustado: ' + _calcFmt(r.saldoAjustado) + '.';
+  } else { car.style.display = 'none'; }
+  box.style.display = 'block';
+}
+async function calcSalvar() {
+  if (!_calcUltimo) { alert('Clique em Calcular primeiro.'); return; }
+  const r = _calcUltimo;
+  const rec = { ts: new Date().toISOString(), data: new Date().toLocaleString('pt-BR'), cliente: (_calcVal('calc-cliente') || '').trim(), valor: r.PV, taxa: r.taxaPct, parcelas: r.n, intervalo: r.intervalo, primeiroVenc: r.primeiroVenc, parcela: r.PMT, juros: r.totalJuros, total: r.totalPago, por: (currentUser && currentUser.user) || '' };
+  if (_calcHist === null) { try { _calcHist = (await loadData('calcParcelamento')) || []; } catch (e) { _calcHist = []; } }
+  _calcHist.unshift(rec);
+  try { await saveData('calcParcelamento', _calcHist); } catch (e) {}
+  _calcRenderHist();
+}
+async function _calcRemover(idx) {
+  if (!Array.isArray(_calcHist)) return;
+  const r = _calcHist[idx]; if (!r) return;
+  if (!confirm('Remover este cálculo do histórico?' + (r.cliente ? '\n(' + r.cliente + ')' : ''))) return;
+  _calcHist.splice(idx, 1);
+  try { await saveData('calcParcelamento', _calcHist); } catch (e) {}
+  _calcRenderHist();
+}
+function _calcRenderHist() {
+  const host = document.getElementById('calc-hist'); if (!host) return;
+  const h = Array.isArray(_calcHist) ? _calcHist : [];
+  if (!h.length) { host.innerHTML = '<div style="font-size:13px;color:var(--muted,#6b7280)">Nenhum cálculo salvo ainda. Calcule e clique em "Salvar no histórico".</div>'; return; }
+  host.innerHTML = '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+    + '<thead><tr>' + ['Data', 'Cliente / Pedido', 'Valor', 'Taxa', 'Parc.', '1º venc.', 'Parcela', 'Juros totais', 'Total', ''].map(c => '<th style="text-align:' + (['Data', 'Cliente / Pedido'].includes(c) ? 'left' : 'right') + ';padding:8px 8px;border-bottom:2px solid var(--border,#e5e7eb);color:var(--muted,#6b7280);font-size:11px;text-transform:uppercase;letter-spacing:.03em">' + c + '</th>').join('') + '</tr></thead><tbody>'
+    + h.map((r, idx) => '<tr>'
+      + '<td style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + _escH(r.data || '') + '</td>'
+      + '<td style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + _escH(r.cliente || '—') + '</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + _calcFmt(r.valor) + '</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + String(r.taxa).replace('.', ',') + '%</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + r.parcelas + 'x</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + r.primeiroVenc + 'd</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + _calcFmt(r.parcela) + '</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)">' + _calcFmt(r.juros) + '</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb);font-weight:700">' + _calcFmt(r.total) + '</td>'
+      + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid var(--border,#e5e7eb)"><a href="#" onclick="_calcRemover(' + idx + ');return false;" style="color:var(--red,#dc2626);font-size:11px">remover</a></td>'
+      + '</tr>').join('') + '</tbody></table></div>';
+}
+async function renderCalcParcelamento() {
+  const el = document.getElementById('v-calc'); if (!el) return;
+  const inp = 'width:100%;padding:9px 11px;border:1px solid var(--border,#e5e7eb);border-radius:8px;background:var(--surface,#fff);color:var(--text,#1f2937);font-size:14px';
+  const lab = 'display:block;font-size:11px;font-weight:700;color:var(--muted,#6b7280);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px';
+  const card = 'background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:18px 20px;margin-bottom:16px';
+  el.innerHTML = '<div style="max-width:940px;margin:0 auto;padding:12px 4px">'
+    + '<h2 style="margin:4px 0 2px;font-size:19px">🧮 Calculadora de Parcelamento</h2>'
+    + '<div style="color:var(--muted,#6b7280);font-size:12.5px;margin-bottom:14px">Juros compostos · Tabela Price · com ou sem carência · histórico salvo no Supabase</div>'
+    + '<div style="' + card + '">'
+    + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px">'
+    + '    <div style="grid-column:1/-1"><label style="' + lab + '">Cliente / Pedido (opcional)</label><input id="calc-cliente" style="' + inp + '" placeholder="Ex.: #40823 ou nome do cliente"></div>'
+    + '    <div><label style="' + lab + '">Valor original (R$)</label><input id="calc-valor" style="' + inp + '" placeholder="0,00"></div>'
+    + '    <div><label style="' + lab + '">Taxa de juros (% a.m.)</label><input id="calc-taxa" style="' + inp + '" value="1,99"></div>'
+    + '    <div><label style="' + lab + '">Número de parcelas</label><input id="calc-parcelas" type="number" min="1" max="60" style="' + inp + '" value="3"></div>'
+    + '    <div><label style="' + lab + '">Intervalo entre parcelas (dias)</label><input id="calc-intervalo" type="number" min="1" style="' + inp + '" value="30"></div>'
+    + '    <div><label style="' + lab + '">1º vencimento (dias)</label><input id="calc-primeiro" type="number" min="1" style="' + inp + '" value="30"></div>'
+    + '  </div>'
+    + '  <button class="btn primary" style="margin-top:16px" onclick="calcParcelamento()">Calcular</button>'
+    + '</div>'
+    + '<div id="calc-result" style="' + card + ';display:none">'
+    + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px">'
+    + '    <div style="background:var(--bg,#f4f6f8);border-radius:10px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#6b7280);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px">Parcela fixa</div><div id="calc-stat-parcela" style="font-size:20px;font-weight:800;color:var(--text,#1f2937)">-</div></div>'
+    + '    <div style="background:var(--bg,#f4f6f8);border-radius:10px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#6b7280);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px">Total a receber</div><div id="calc-stat-total" style="font-size:20px;font-weight:800;color:var(--text,#1f2937)">-</div></div>'
+    + '    <div style="background:var(--bg,#f4f6f8);border-radius:10px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#6b7280);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px">Juros totais</div><div id="calc-stat-juros" style="font-size:20px;font-weight:800;color:var(--text,#1f2937)">-</div></div>'
+    + '  </div>'
+    + '  <div id="calc-carencia" style="display:none;font-size:12.5px;color:var(--muted,#6b7280);background:var(--bg,#f4f6f8);border-radius:8px;padding:10px 12px;margin-bottom:12px;line-height:1.5"></div>'
+    + '  <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>' + ['Vencimento', 'Saldo devedor', 'Juros', 'Amortização', 'Parcela', 'Saldo final'].map((c, j) => '<th style="text-align:' + (j === 0 ? 'left' : 'right') + ';padding:8px;border-bottom:2px solid var(--border,#e5e7eb);color:var(--muted,#6b7280);font-size:11px;text-transform:uppercase">' + c + '</th>').join('') + '</tr></thead><tbody id="calc-tbody"></tbody></table></div>'
+    + '  <div style="font-size:11.5px;color:var(--muted,#6b7280);margin-top:12px;line-height:1.5">Sistema Price (parcela fixa, juros decrescentes sobre o saldo). Se o 1º vencimento é maior que o intervalo, o saldo é capitalizado na carência antes de começar a amortizar.</div>'
+    + '  <button class="btn primary" style="margin-top:14px" onclick="calcSalvar()">💾 Salvar no histórico</button>'
+    + '</div>'
+    + '<div style="' + card + '"><h3 style="margin:0 0 12px;font-size:15px">Histórico de cálculos <span style="font-weight:400;font-size:12px;color:var(--muted,#6b7280)">(salvo no Supabase)</span></h3><div id="calc-hist"></div></div>'
+    + '</div>';
+  if (_calcHist === null) { try { _calcHist = (await loadData('calcParcelamento')) || []; } catch (e) { _calcHist = []; } }
+  _calcRenderHist();
 }
 
 // ════════════════════════════════════════════════════════════════════
