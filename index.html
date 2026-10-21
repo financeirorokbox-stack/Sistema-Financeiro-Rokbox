@@ -416,7 +416,6 @@ tr:hover td{background:#fafaf8}
   <div class="topnav-item" id="nav-desenv" onclick="setView('desenv')">🧵 Desenvolvimento</div>
   <div class="topnav-item" id="nav-produtos" onclick="setView('produtos')">🏷️ Produtos</div>
   <div class="topnav-item" id="nav-cadastro" onclick="setView('cadastro')">Cadastro</div>
-  <div class="topnav-item" id="nav-calc" onclick="setView('calc')">🧮 Calculadora</div>
   <button class="btn primary sm" onclick="abrirSincronizarDrive()" style="margin-left:auto;align-self:center;white-space:nowrap" title="Puxa os arquivos do mês no Google Drive e distribui (Vendas, Forma, Recebimentos, Boletos, Extrato). Só adiciona, nunca apaga.">☁ Sincronizar do Drive</button>
 </div>
 <div class="subnav" id="sub-fin" style="display:none">
@@ -440,6 +439,7 @@ tr:hover td{background:#fafaf8}
     <div class="subnav-item" id="subr-cobranca" onclick="setSubR('cobranca')">📥 Cobrança <span id="badge-cobranca" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:2px"></span></div>
     <div class="subnav-item" id="subr-devolucao" onclick="setSubR('devolucao')">🔄 Devolução / Troca</div>
     <div class="subnav-item" id="subr-taxas" onclick="setSubR('taxas')">💠 Taxas</div>
+    <div class="subnav-item" id="subr-calc" onclick="setSubR('calc')">🧮 Calculadora</div>
   </div>
   <!-- Switch interno da aba "Recebimentos e Conciliação" (mostra uma de cada vez, sem rolar tudo) -->
   <div id="receb-conc-tabs" style="display:none;gap:8px;padding:8px 24px;border-bottom:1px solid var(--border)"></div>
@@ -455,6 +455,7 @@ tr:hover td{background:#fafaf8}
   <div id="v-banco" class="main" style="display:none"></div>
   <div id="v-fluxo" class="main" style="display:none"></div>
   <div id="v-comissao" class="main" style="display:none"></div>
+  <div id="v-calc" class="main" style="display:none"></div>
 </div>
 <div id="v-compras" class="main" style="display:none"></div>
 <div id="v-rh" class="main" style="display:none"></div>
@@ -462,7 +463,6 @@ tr:hover td{background:#fafaf8}
 <div id="v-desenv" class="main" style="display:none"></div>
 <div id="v-produtos" class="main" style="display:none"></div>
 <div id="v-cadastro" class="main" style="display:none"></div>
-<div id="v-calc" class="main" style="display:none"></div>
 
 </div><!-- /app -->
 
@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v735/10-788';
+const APP_VERSION = 'v736/10-789';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1805,7 +1805,7 @@ function setView(v) {
   filtrosAbertos = false; // fecha o drawer de filtros ao trocar de tela
   currentView = v;
   try { atualizarSaude(); } catch(e) {}
-  ['dashboard','vendas','compras','rh','budget','desenv','produtos','financeiro','cadastro','calc'].forEach(x => {
+  ['dashboard','vendas','compras','rh','budget','desenv','produtos','financeiro','cadastro'].forEach(x => {
     document.getElementById('nav-' + x)?.classList.toggle('active', x === v);
   });
   document.getElementById('v-dashboard').style.display = v === 'dashboard' ? 'block' : 'none';
@@ -1817,7 +1817,6 @@ function setView(v) {
   const _vpr = document.getElementById('v-produtos'); if (_vpr) _vpr.style.display = v === 'produtos' ? 'block' : 'none';
   document.getElementById('v-financeiro').style.display = v === 'financeiro' ? 'block' : 'none';
   document.getElementById('v-cadastro').style.display = v === 'cadastro' ? 'block' : 'none';
-  const _vcalc = document.getElementById('v-calc'); if (_vcalc) _vcalc.style.display = v === 'calc' ? 'block' : 'none';
   document.getElementById('sub-fin').style.display = v === 'financeiro' ? 'flex' : 'none';
   document.getElementById('conc-pills').style.display = 'none';
   if (v === 'dashboard') _perf('Dashboard', renderDashboard);
@@ -1834,11 +1833,10 @@ function setView(v) {
     if (s) setSub(s);
   }
   if (v === 'cadastro') _perf('Cadastro', renderCadastro);
-  if (v === 'calc') { try { renderCalcParcelamento(); } catch (e) {} }
 }
 
 // Abas principais do Financeiro (4). 'contas' é um GRUPO com sub-abas internas.
-const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao','taxas','conc'];
+const RECEBER_GROUP = ['contas','receb','boletos','cobranca','devolucao','taxas','conc','calc'];
 let subReceber = 'contas';
 function setSub(s) {
   if (!subAllowed(s)) { const f = firstAllowedSub(); if (!f) return; s = f; }
@@ -1854,6 +1852,7 @@ function setSub(s) {
   // Sub-navegação interna só aparece em Contas a Receber
   const rnav = document.getElementById('receber-nav');
   if (rnav) rnav.style.display = (s === 'contas') ? 'flex' : 'none';
+  const scalc = document.getElementById('subr-calc'); if (scalc) scalc.style.display = (currentUser && currentUser.admin) ? '' : 'none'; // Calculadora só p/ admin
   const pills = document.getElementById('conc-pills'); if (pills) pills.style.display = 'none';
   if (s === 'contas') { setSubR(subReceber || 'contas'); return; }
   const renders = { pagar: renderPagar, extrato: renderExtrato, banco: renderBanco, fluxo: renderFluxo, comissao: renderComissao };
@@ -1869,7 +1868,7 @@ function setSubR(r) {
     document.getElementById('subr-' + x)?.classList.toggle('active', x === r);
     const v = document.getElementById('v-' + x); if (v) v.style.display = x === r ? 'block' : 'none';
   });
-  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, taxas: renderTaxasPP, conc: renderConc };
+  const renders = { contas: renderContas, receb: renderRecebimentos, boletos: renderBoletos, cobranca: renderCobranca, devolucao: renderDevolucao, taxas: renderTaxasPP, conc: renderConc, calc: renderCalcParcelamento };
   if (renders[r]) _perf(r, renders[r]);
   // Aba unificada "Recebimentos e Conciliação": 2 botões no topo alternam entre a LISTA e a CONCILIAÇÃO.
   const tabsEl = document.getElementById('receb-conc-tabs');
