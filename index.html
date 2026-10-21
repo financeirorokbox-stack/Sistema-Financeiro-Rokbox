@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v736/10-789';
+const APP_VERSION = 'v737/10-790';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7325,6 +7325,10 @@ function _gatewayPorColunas(wb, csvRows) {
   } catch (e) {}
   txt = txt.toLowerCase();
   if (!txt.trim()) return null;
+  // PayPal PRIMEIRO: tem a coluna EXCLUSIVA "Impacto no saldo" (+ "ID da transação" + "Tarifa"). Precisa vir ANTES da
+  // Braavo porque o export do PayPal tem a coluna "ID de referência DA TRANSAÇÃO", que casava com a regra "id de
+  // referência" da Braavo e fazia o PayPal ser reconhecido como BraavoPay. Vale pros dois fusos (BRT e GMT-03:00).
+  if (txt.includes('impacto no saldo') && txt.includes('id da transação') && txt.includes('tarifa')) return 'PayPal';
   // Ordem importa: a Braavo tem "Valor bruto/líquido" e "ID da transação" iguais a outras, então vem primeiro pelas colunas EXCLUSIVAS dela.
   if (txt.includes('id de referência') || txt.includes('id de referencia') || txt.includes('chave pix') || txt.includes('qrcode emv do pix') || txt.includes('valor capturado') || txt.includes('provedor do pix')) return 'BraavoPay';
   if (txt.includes('valor mdr descontado') || txt.includes('valor líquido da parcela') || txt.includes('valor liquido da parcela') || txt.includes('nsu/cv')) return 'Rede';
