@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v738/10-791';
+const APP_VERSION = 'v740/10-793';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18012,8 +18012,11 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
         // BLING = FONTE DA VERDADE: espelha o que a Bling mudou. NUNCA mexe em pedido da outra conta.
         // PROTEÇÃO 1: mês fechado/travado (origem) → não altera NADA. Só loga se há divergência.
         if (_mesFechadoBling(ex.data)) {
-          const difSit = ex.situacao !== (r.situacao || ''), difData = _diaCalBling(ex.data) !== _diaCalBling(r.data);
-          if (difSit || difData) _blingLog({ pedido: num, conta: empresa, campo: difData ? 'data' : 'situacao', de: difData ? _diaCalBling(ex.data) : (ex.situacao || ''), para: difData ? _diaCalBling(r.data) : (r.situacao || ''), resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          // mês fechado: não altera NADA, mas loga CADA divergência (pro botão "Aplicar mesmo assim"): data, situação, valor e frete.
+          if (_diaCalBling(ex.data) !== _diaCalBling(r.data)) _blingLog({ pedido: num, conta: empresa, campo: 'data', de: _diaCalBling(ex.data), para: _diaCalBling(r.data), resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          if (ex.situacao !== (r.situacao || '')) _blingLog({ pedido: num, conta: empresa, campo: 'situacao', de: ex.situacao || '', para: r.situacao || '', resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.05) _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.05) _blingLog({ pedido: num, conta: empresa, campo: 'frete', de: +ex.frete || 0, para: +r.frete || 0, resultado: 'bloqueado', motivo: 'mês fechado/travado' });
           return;
         }
         let mud = false;
@@ -18036,7 +18039,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
           if (/cancelad/i.test(ex.situacao)) { ex._canceladoBling = true; if (_pedTemRecebimentoBling(num)) _blingPend({ pedido: num, conta: empresa, tipo: 'cancelado no Bling com recebimento/estorno vinculado', valor: +ex.valor || 0 }); }
           else if (ex._canceladoBling) { ex._canceladoBling = false; }
         }
-        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'aplicado', motivo: '' }); ex.valor = +r.valor || 0; mud = true; }
+        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.05) { _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'aplicado', motivo: '' }); ex.valor = +r.valor || 0; mud = true; } // ignora diferença de centavos (<R$0,05 = arredondamento), não gera falsa divergência
         if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.005) { ex.frete = +r.frete || 0; mud = true; }
         // LOJA e VENDEDOR: BLING VENCE, inclusive sobre correção manual (Elaine: Bling é a fonte da verdade).
         // ÚNICA exceção TÉCNICA: valor NÃO-MAPEADO ("loja#<id>"/"Vend <id>"/"(sem)") não sobrescreve — a tabela de
@@ -18630,7 +18633,7 @@ const AF = (function () {
         if (outras.length) add('7', outras.length + ' pendência(s) da Bling (marca/vendedor/valor)', "AF._modalLista('Pendências da Bling'," + JSON.stringify(outras.slice(-60).map(x => (x.tipo || '') + (x.pedido ? (' · #' + x.pedido) : '') + (x.detalhe ? (' · ' + x.detalhe) : ''))) + ")");
       }
     } catch (e) {}
-    try { const log = (await loadData('blingSyncLog')) || []; const lim = Date.now() - 2 * 864e5; const bl = (Array.isArray(log) ? log : []).filter(e => e.resultado === 'bloqueado' && e.ts && new Date(e.ts).getTime() >= lim); if (bl.length) add('8', bl.length + ' item(ns) bloqueado(s) na sync da Bling (2 dias)', "AF._modalLista('Sync da Bling, bloqueados'," + JSON.stringify(bl.slice(-60).map(e => '#' + (e.pedido || '') + ' · ' + (e.campo || '') + ' · ' + (e.motivo || ''))) + ")"); } catch (e) {}
+    try { const log = (await loadData('blingSyncLog')) || []; const lim = Date.now() - 2 * 864e5; const blo = (Array.isArray(log) ? log : []).filter(e => e.resultado === 'bloqueado' && /fechad/i.test(e.motivo || '') && e.ts && new Date(e.ts).getTime() >= lim); const uq = {}; blo.forEach(e => { uq[e.pedido + '|' + e.conta + '|' + e.campo] = 1; }); const n = Object.keys(uq).length; if (n) add('8', n + ' mudança(s) da Bling bloqueada(s) por mês fechado (aplicar?)', "AF._modalBloqueados()"); } catch (e) {}
     try { const pk = await loadData('planilhasCustoCompras'); const g = pk && pk.geradoEm ? _isoDeData(new Date(pk.geradoEm)) : ''; if (g !== hoje) add('9', 'Planilhas de Compras não rodaram hoje', "setView('compras')"); } catch (e) {}
     try { const prev = mesAnteriorYM(hoje); const cr = (typeof crFechado !== 'undefined' && crFechado) || {}; if (!cr[prev]) add('11', 'Mês anterior (' + prev + ') ainda sem foto oficial', "AF._ir('conc')"); } catch (e) {}
     try { const dias = await _bkpListarNuvem(); if (!dias.includes(hoje)) add('12', 'Backup na nuvem ainda não rodou hoje', "abrirAutoBackups()"); } catch (e) {}
@@ -18650,6 +18653,56 @@ const AF = (function () {
     document.getElementById('af-modal-titulo').textContent = titulo;
     document.getElementById('af-modal-body').innerHTML = (itens && itens.length) ? itens.map(x => '<div class="af-rrow">' + esc(x) + '</div>').join('') : '<div class="af-empty">Nada aqui.</div>';
     bg.style.display = 'flex';
+  }
+  // Modal dos itens que a sync da Bling BLOQUEOU por mês fechado, com botão "Aplicar mesmo assim" (só aquele pedido, sem destravar o mês).
+  async function _modalBloqueados() {
+    const bg = document.getElementById('af-modal'); if (!bg) return;
+    document.getElementById('af-modal-titulo').textContent = 'Bling bloqueado por mês fechado';
+    const log = (await loadData('blingSyncLog')) || [];
+    const lim = Date.now() - 2 * 864e5;
+    const blo = (Array.isArray(log) ? log : []).filter(e => e.resultado === 'bloqueado' && /fechad/i.test(e.motivo || '') && e.ts && new Date(e.ts).getTime() >= lim);
+    const m = {}; blo.forEach(e => { const k = e.pedido + '|' + e.conta + '|' + e.campo; if (!m[k] || new Date(e.ts) > new Date(m[k].ts)) m[k] = e; }); // dedup: a sync loga o bloqueio a cada ciclo
+    const itens = Object.values(m).sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    document.getElementById('af-modal-body').innerHTML = itens.length ? ('<div style="font-size:12px;color:var(--muted);margin-bottom:8px">A Bling mudou estes pedidos, mas o mês está fechado. Dá pra aplicar cada um (só aquele pedido, sem destravar o mês). Fica no log. Depois, rode <b>Atualizar Power BI</b>.</div>' + itens.map(e =>
+      '<div class="af-rrow" style="display:flex;align-items:center;gap:10px;justify-content:space-between">'
+      + '<span>#' + esc(String(e.pedido)) + ' · ' + esc(String(e.conta)) + ' · <b>' + esc(String(e.campo)) + '</b>: ' + esc(String(e.de)) + ' → <b>' + esc(String(e.para)) + '</b></span>'
+      + '<button style="flex:0 0 auto;background:#7ee787;color:#08130b;border:none;border-radius:8px;padding:5px 10px;font-weight:700;font-size:12px;cursor:pointer" onclick=\'AF.aplicarBloqueado(' + JSON.stringify(e.pedido) + ',' + JSON.stringify(e.conta) + ',' + JSON.stringify(e.campo) + ',' + JSON.stringify(String(e.para)) + ',this)\'>Aplicar mesmo assim</button>'
+      + '</div>'
+    ).join('')) : '<div class="af-empty">Nada bloqueado por mês fechado.</div>';
+    bg.style.display = 'flex';
+  }
+  function _contaFat(sit, loja) { const naoap = SITUACOES_NAO_APLICAVEL.includes(String(sit || '').toLowerCase()); const op = String((lojaCadastro[loja] || {}).operacao || '').toLowerCase(); const vendaTroca = (op === '' || op === 'venda' || op.indexOf('troca') >= 0); return !naoap && vendaTroca; }
+  function _mesLabelB(s) { try { const d = (s instanceof Date) ? s : new Date(String(s).slice(0, 10) + 'T12:00:00'); return String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getFullYear()).slice(2); } catch (e) { return '?'; } }
+  function _impactoBloqueado(p, campo, para) {
+    const val = +p.valor || 0; let fat = 'Faturamento: não muda.';
+    if (campo === 'valor') fat = _contaFat(p.situacao, p.loja) ? ('Faturamento de ' + _mesLabelB(p.data) + ' muda ' + fmtBR((+para || 0) - val) + '.') : 'Faturamento: não muda (pedido não contável).';
+    else if (campo === 'frete') fat = 'Faturamento: não muda (frete é à parte).';
+    else if (campo === 'situacao') { const o = _contaFat(p.situacao, p.loja), n = _contaFat(para, p.loja); fat = (o && !n) ? ('Faturamento de ' + _mesLabelB(p.data) + ' cai ' + fmtBR(val) + ' (sai do faturamento).') : (!o && n) ? ('Faturamento de ' + _mesLabelB(p.data) + ' sobe ' + fmtBR(val) + '.') : 'Faturamento: não muda.'; }
+    else if (campo === 'loja') { const o = _contaFat(p.situacao, p.loja), n = _contaFat(p.situacao, para); fat = (o && !n) ? ('Faturamento de ' + _mesLabelB(p.data) + ' cai ' + fmtBR(val) + '.') : (!o && n) ? ('Faturamento de ' + _mesLabelB(p.data) + ' sobe ' + fmtBR(val) + '.') : 'Faturamento: muda só de segmento (total igual).'; }
+    else if (campo === 'data') { if (_contaFat(p.situacao, p.loja)) { const a = _mesLabelB(p.data), b = _mesLabelB(String(para)); fat = (a !== b) ? ('Move ' + fmtBR(val) + ' do faturamento de ' + a + ' para ' + b + '.') : 'Faturamento: não muda (mesmo mês).'; } else fat = 'Faturamento: não muda (pedido não contável).'; }
+    const recs = (recebimentosConsolidado || []).filter(r => r && !r._estornoChave && String(r.nped || '').split(',').map(s => s.trim()).indexOf(String(p.id)) >= 0);
+    const recebido = recs.reduce((s, r) => s + (+r.liquido || +r.valorLiquido || +r.valor || 0), 0);
+    let rec = recs.length ? ('Tem ' + recs.length + ' recebimento(s)' + (recebido > 0 ? ' (' + fmtBR(recebido) + ')' : '') + ' vinculado(s)' + (campo === 'valor' ? '; o A Receber recalcula.' : '.')) : 'Sem recebimento vinculado.';
+    if (campo === 'situacao' && /cancelad/i.test(String(para)) && recs.length) rec = '⚠ ' + rec + ' Vai para Cancelado COM recebimento.';
+    return { fat: fat, rec: rec };
+  }
+  async function aplicarBloqueado(pedido, conta, campo, para, btn) {
+    const p = (pedidos || []).find(x => String(x.id) === String(pedido) && (String(x.empresa || '') === conta || (conta === 'Rokbox' && !x.empresa)));
+    if (!p) { alert('Pedido #' + pedido + ' não encontrado no Gestão.'); return; }
+    const imp = _impactoBloqueado(p, campo, para);
+    if (!confirm('Aplicar no pedido #' + pedido + ' (' + conta + ')?\n\n' + campo + ' → ' + para + '\n\n' + imp.fat + '\n' + imp.rec + '\n\nAltera um mês FECHADO (só este pedido, sem destravar o mês). Fica no log. Depois rode Atualizar Power BI.')) return;
+    const de = (campo === 'data') ? _diaCalBling(p.data) : (p[campo] != null ? p[campo] : '');
+    if (campo === 'data') p.data = new Date(String(para) + 'T03:00:00.000Z');
+    else if (campo === 'situacao') p.situacao = para;
+    else if (campo === 'loja') p.loja = para;
+    else if (campo === 'valor') p.valor = +para || 0;
+    else if (campo === 'frete') p.frete = +para || 0;
+    else { alert('Campo não suportado: ' + campo); return; }
+    try { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log.push({ ts: new Date().toISOString(), origem: 'manual', pedido, conta, campo, de, para, resultado: 'aplicado', motivo: 'aplicado manualmente em mês fechado (botão)' }); if (log.length > 3000) log = log.slice(log.length - 3000); await saveData('blingSyncLog', log); } catch (e) {}
+    await saveData('pedidos', pedidos);
+    if (btn) { btn.textContent = '✓ aplicado'; btn.disabled = true; btn.style.opacity = '.6'; btn.style.cursor = 'default'; }
+    try { if (typeof renderContas === 'function') renderContas(); } catch (e) {}
+    try { atualizarBtn(); } catch (e) {}
   }
 
   // ════════ render ════════
@@ -18930,7 +18983,7 @@ const AF = (function () {
     + '.af-rrow .af-rbtn{border:1px solid #e5e7eb;background:#fff;border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;margin-left:4px}.af-rrow .af-rbtn:hover{background:#f3f4f6}'
     + '.af-rform{border:1px solid #cfe0fb;background:#f6faff;border-radius:8px;padding:10px;margin-bottom:10px}.af-rfline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.af-rfline:last-child{margin-bottom:0}.af-rform input,.af-rform select{border:1px solid #cbd5e1;border-radius:7px;padding:7px;font-size:12px}.af-rform #af-rf-txt{flex:1;min-width:200px}.af-rform label{font-size:11px;color:#475569;font-weight:600}.af-rfhint{font-size:10.5px;color:#6b7280}.af-wd{font-size:11.5px;color:#334155;display:inline-flex;align-items:center;gap:3px;margin-right:4px;font-weight:500;cursor:pointer}.af-wd input{margin:0}';
 
-  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou, atualizarBtn };
+  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou, atualizarBtn, _modalBloqueados, aplicarBloqueado };
 })();
 try { window.AF = AF; } catch (e) {}
 

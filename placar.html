@@ -89,7 +89,7 @@
   .bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--lime2),var(--lime));transition:width .8s cubic-bezier(.22,1,.36,1)}
   .seg-atacado .bar>i{background:linear-gradient(90deg,var(--blue2),var(--blue))}
   .empty{color:var(--muted);font-size:13px;padding:6px 0}
-  .nums-ocultos .col-tot,.nums-ocultos .tsub,.nums-ocultos .val,.nums-ocultos .qt{filter:blur(9px);-webkit-filter:blur(9px);user-select:none;transition:filter .15s}
+  .nums-ocultos .col-tot,.nums-ocultos .tsub,.nums-ocultos .val,.nums-ocultos .qt,.nums-ocultos .kv,.nums-ocultos .mc-real,.nums-ocultos .mc-meta,.nums-ocultos .vbi-bl .vl,.nums-ocultos .vbi-rr .vl{filter:blur(9px);-webkit-filter:blur(9px);user-select:none;transition:filter .15s}
   .lojas{margin-top:clamp(12px,1.4vw,20px)}
   .lojas h2,.status h2{font-size:clamp(14px,1.2vw,19px);margin-bottom:14px}
   .lojas h2 span,.status h2 span{color:var(--muted);font-weight:400;font-size:.8em}
@@ -127,21 +127,6 @@
       <div class="sub" id="sub">carregando vendas…</div>
     </div>
     <div class="ctrl">
-      <div class="seg" id="fonte-seg" title="Trocar a fonte dos números: Bling (cru) ou Sistema (com as suas edições)">
-        <button id="f-bling" class="on" onclick="setFonte('bling')">Bling</button>
-        <button id="f-sist" onclick="setFonte('sistema')">Sistema</button>
-      </div>
-      <select class="empresa-sel" id="empresa-sel" onchange="setEmpresa(this.value)" title="Filtrar por empresa">
-        <option value="ambas">Todas as empresas</option>
-        <option value="Rokbox">Rokbox</option>
-        <option value="Rk">Rk (PL/WL)</option>
-      </select>
-      <select class="empresa-sel" id="mes-sel" onchange="setMes(this.value)" title="Escolher o mês (passados vêm do Sistema, já fechados)"></select>
-      <div class="seg" id="op-seg" title="Operação: ligue/desligue Venda, Troca e Amostra. Abre em Venda; pra ver só Amostra, ligue Amostra e desligue Venda.">
-        <button id="op-venda" class="on" onclick="toggleOp('venda')">Venda</button>
-        <button id="op-troca" onclick="toggleOp('troca')">Troca</button>
-        <button id="op-amostra" onclick="toggleOp('amostra')">Amostra</button>
-      </div>
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
@@ -149,50 +134,12 @@
   </header>
 
   <nav class="tabs">
-    <button id="tab-placar" class="on" onclick="setView('placar')">📊 Placar</button>
-    <button id="tab-vendasbi" onclick="setView('vendasbi')">📈 Vendas</button>
+    <button id="tab-main" class="on" onclick="setView('main')">📊 Vendas</button>
     <button id="tab-produtos" onclick="setView('produtos')" style="display:none">🏆 Produtos</button>
   </nav>
 
-  <div id="view-vendasbi" style="display:none"><div id="vbi-root"></div></div>
-
-  <div id="view-placar">
-  <!-- CARDS DE TOTAL (em cima) — montados dinamicamente por segmento (+ Total geral) -->
-  <section class="tops" id="tops-cards"></section>
-
-  <!-- RANKING VENDEDORES por segmento — dinâmico -->
-  <section class="segs" id="segs-cards"></section>
-
-  <!-- RANKING LOJAS (todas, largura total) -->
-  <section class="baixo">
-    <div class="card lojas">
-      <h2>Ranking de lojas <span>(todas · <b id="loja-per">mês</b>)</span></h2>
-      <div class="rank" id="rank-lojas"></div>
-    </div>
-    <div class="card lojas">
-      <h2>Ranking por status <span>(<b id="status-per">mês</b>)</span></h2>
-      <div class="rank" id="rank-status"></div>
-    </div>
-  </section>
-
-  <!-- RESUMO VENDEDOR x DIA (mes inteiro, compacto) -->
-  <section class="baixo">
-    <div class="card lojas" style="grid-column:1/-1">
-      <h2>Vendedor × dia <span>(mês · valores em mil R$)</span></h2>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd" id="vend-dia"></table></div>
-    </div>
-  </section>
-
-  <!-- PROSPECÇÃO / CRM por vendedora (Varejo) -->
-  <section class="baixo" id="prosp-sec" style="display:none">
-    <div class="card lojas" style="grid-column:1/-1">
-      <h2>Prospecção · Varejo <span>(mês · trabalho da vendedora)</span></h2>
-      <div class="prosp-tops" id="prosp-tops"></div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px"><table class="vd" id="prosp-tab"></table></div>
-      <div id="prosp-upd" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
-    </div>
-  </section>
-  </div><!-- /view-placar -->
+  <!-- TELA ÚNICA DE VENDAS (visual do Placar + recursos interativos) -->
+  <div id="view-main"><div id="uv-root"></div></div>
 
   <!-- ABA PRODUTOS (produto mais vendido; sem custo) -->
   <div id="view-produtos" style="display:none">
@@ -257,7 +204,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-22.2';
+const BUILD = '2026-10-22.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -324,6 +271,17 @@ function olho(id,el){ const i=document.getElementById(id); if(!i)return; if(i.ty
 function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function semanaRange(){ const d=new Date(); const dow=(d.getDay()+6)%7; const seg=new Date(d); seg.setDate(d.getDate()-dow); const dom=new Date(seg); dom.setDate(seg.getDate()+6); const iso=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); return {de:iso(seg), ate:iso(dom)}; } // segunda a domingo da semana atual
 function perLabel(){ return periodo==='hoje'?'hoje':(periodo==='semana'?'semana':'mês'); }
+// ── Feriados nacionais (mesma lista do "vencimento efetivo" do Gestão) + dias úteis ──
+const _FERIADOS_FIXOS=new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25']);
+const _FERIADOS_MOVEIS=new Set(['2025-03-03','2025-03-04','2025-04-18','2025-06-19','2026-02-16','2026-02-17','2026-04-03','2026-06-04','2027-02-08','2027-02-09','2027-03-26','2027-05-27']);
+function _ehFeriadoNac(iso){ return _FERIADOS_FIXOS.has(iso.slice(5,10)) || _FERIADOS_MOVEIS.has(iso); }
+// dias úteis (seg-sex, fora feriado nacional) do mês 'AAAA-MM'; ate = contados até 'ateDia' (0 = mês inteiro)
+function _diasUteisMes(mes, ateDia){
+  const [y,m]=mes.split('-').map(Number); if(!y||!m) return {tot:0,ate:0};
+  const nd=new Date(y,m,0).getDate(); let tot=0, ate=0;
+  for(let d=1; d<=nd; d++){ const iso=mes+'-'+String(d).padStart(2,'0'); const wd=new Date(iso+'T12:00:00').getDay(); if(wd===0||wd===6||_ehFeriadoNac(iso)) continue; tot++; if(ateDia && d<=ateDia) ate++; }
+  return { tot, ate: ateDia? ate : tot };
+}
 
 async function carregar(){
   try{
@@ -332,8 +290,8 @@ async function carregar(){
     const tag = (D, emp) => { if(D&&Array.isArray(D.registros)) D.registros.forEach(x=>{ if(!x.empresa) x.empresa=emp; }); return D; };
     if(d1) dados = tag(d1,'Rokbox');
     if(d2) dados2 = tag(d2,'Rk');
-    _popMeses(); render();
-  }catch(e){ document.getElementById('sub').textContent='sem conexão, tentando de novo…'; }
+    _uvBuildBling(); _uvRenderMain();
+  }catch(e){ const s=document.getElementById('sub'); if(s) s.textContent='sem conexão, tentando de novo…'; }
 }
 // ── cenário SISTEMA: monta os mesmos registros do placar a partir dos pedidos do Gestão RK ──
 // (mesma lógica de render, só muda a fonte: assim dá pra comparar Bling cru × Sistema com as suas edições)
@@ -382,7 +340,8 @@ async function carregarProsp(){
   try{
     const r = await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.prospeccaoVarejo&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'});
     const j = await r.json();
-    renderProsp((Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : null);
+    _uvProsp = (Array.isArray(j)&&j[0]) ? JSON.parse(j[0].valor) : null;
+    _uvRenderMain();
   }catch(e){}
 }
 function renderProsp(p){
@@ -421,29 +380,25 @@ function barras(el, arr, max, opts){
 const corLoja = n => { const sg=segDe(n); return sg==='Atacado'?'linear-gradient(90deg,var(--blue2),var(--blue))':(sg==='PL'?'linear-gradient(90deg,var(--amber),var(--gold))':(sg==='WL'?'linear-gradient(90deg,var(--pink),var(--pink))':'linear-gradient(90deg,var(--lime2),var(--lime))')); };
 
 // ── ABA PRODUTOS (produto mais vendido; SEM custo — margem/CMV ficam no Financeiro) ──
-let view = 'placar';
+let view = 'main';
 let _pedidosRaw = null; // pedidos crus com as linhas/SKU (a aba Produtos precisa do detalhe por item)
 // (aba "Boletos vencidos" removida — o acompanhamento de boletos em atraso passou a ser o relatório de impressão no Gestão. Não lê mais flatCR aqui.)
 function ehAdmin(){ try{ return localStorage.getItem('rk_role')==='admin'; }catch(e){ return false; } }
 // A aba Produtos é SÓ-ADMIN: some pra diretor/vendas e não abre por atalho.
-function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; if(!admin && view==='produtos') setView('placar'); }
+function aplicarPapel(){ const admin=ehAdmin(); const tpr=document.getElementById('tab-produtos'); if(tpr) tpr.style.display = admin ? '' : 'none'; if(!admin && view==='produtos') setView('main'); }
+function _uvRenderMain(){ const v=document.getElementById('view-main'); if(!v) return; if(getComputedStyle(v).display==='none') return; try{ renderUV(); }catch(e){} }
 function setView(v){
-  if(v==='boletos') v='placar'; // aba "Boletos vencidos" removida (acompanhamento é o relatório do Gestão)
-  if(v==='produtos' && !ehAdmin()) v='placar';
+  if(v==='boletos'||v==='placar'||v==='vendasbi') v='main'; // telas antigas → tela única de Vendas
+  if(v==='produtos' && !ehAdmin()) v='main';
   view = v;
-  const tp=document.getElementById('tab-placar'), tpr=document.getElementById('tab-produtos'), tvb=document.getElementById('tab-vendasbi');
-  if(tp) tp.classList.toggle('on', v==='placar');
+  const tm=document.getElementById('tab-main'), tpr=document.getElementById('tab-produtos');
+  if(tm) tm.classList.toggle('on', v==='main');
   if(tpr) tpr.classList.toggle('on', v==='produtos');
-  if(tvb) tvb.classList.toggle('on', v==='vendasbi');
-  const vp=document.getElementById('view-placar'), vpr=document.getElementById('view-produtos'), vvb=document.getElementById('view-vendasbi');
-  if(vp) vp.style.display = v==='placar'?'':'none';
+  const vm=document.getElementById('view-main'), vpr=document.getElementById('view-produtos');
+  if(vm) vm.style.display = v==='main'?'':'none';
   if(vpr) vpr.style.display = v==='produtos'?'':'none';
-  if(vvb) vvb.style.display = v==='vendasbi'?'':'none';
-  // Produtos e Vendas (BI) têm os próprios filtros: escondem a barra de fonte/empresa/mês/operação do Placar.
-  const fs=document.getElementById('fonte-seg'); if(fs) fs.style.display = (v==='produtos'||v==='vendasbi')?'none':'';
-  ['empresa-sel','mes-sel','op-seg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display = (v==='vendasbi')?'none':''; });
   if(v==='produtos'){ if(!_pedidosRaw) carregarPedidos().then(renderProdutos); else renderProdutos(); }
-  if(v==='vendasbi'){ if(!_vbiReady){ const r=document.getElementById('vbi-root'); if(r) r.innerHTML='<div style="color:var(--muted);padding:40px;text-align:center">carregando vendas…</div>'; vbiCarregar().then(renderVBI).catch(()=>{ const r=document.getElementById('vbi-root'); if(r) r.innerHTML='<div style="color:var(--muted);padding:40px;text-align:center">não consegui carregar. tente de novo.</div>'; }); } else renderVBI(); }
+  if(v==='main'){ if(!_vbiReady){ const r=document.getElementById('uv-root'); if(r) r.innerHTML='<div style="color:var(--muted);padding:40px;text-align:center">carregando vendas…</div>'; vbiCarregar().then(renderUV).catch(()=>{ const r=document.getElementById('uv-root'); if(r) r.innerHTML='<div style="color:var(--muted);padding:40px;text-align:center">não consegui carregar. tente de novo.</div>'; }); } else renderUV(); }
 }
 // Nome base (sem "Tamanho:..;Cor:..;Genero:..") e o tamanho, tirados da descrição da Bling.
 function _baseNome(desc){ const i=desc.search(/\s*Tamanho:/i); if(i>=0) return desc.slice(0,i).trim(); const j=desc.indexOf(';'); return (j>=0?desc.slice(0,j):desc).trim(); }
@@ -617,7 +572,9 @@ function renderVendedorDia(vendas){
 // não-venda. Faturamento = valor − devolução abatida (= Faturamento Real da tela).
 // ════════════════════════════════════════════════════════════════════
 let _vbiReady=false, _vbiFacts=[], _vbiFV=null, _vbiProdCol=null, _vbiMeses=[], _vbiMetas=null;
-let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), loja:'', vend:'', col:'', dia:'' };
+let _uvBling=[], _uvProsp=null, _uvFiltersOpen=false;
+let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'sistema', op:new Set(['venda']) };
+function _uvOpBucket(op){ op=String(op||'').toLowerCase(); if(op==='venda')return 'venda'; if(op==='troca')return 'troca'; if(op==='amostra')return 'amostra'; return 'outras'; }
 const _VBI_NAOAP=new Set(['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15']);
 function _vbiE(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 const _vbiPct = n => (n>=0?'+':'') + (n||0).toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%';
@@ -644,12 +601,11 @@ function vbiBuildFacts(){
   const pedById={}; (_pedidosRaw||[]).forEach(p=>{ pedById[String(p.id)]=p; });
   const facts=[]; const mset=new Set();
   (_vbiFV||[]).forEach(fv=>{
-    if(fv.operacao!=='Venda') return;
-    if(_VBI_NAOAP.has(String(fv.situacao||'').toLowerCase())) return;
+    if(_VBI_NAOAP.has(String(fv.situacao||'').toLowerCase())) return; // Venda/Troca/Amostra entram; o toggle de operação filtra (padrão Venda = bate com a tela de Vendas)
     const net = (+fv.valor||0) - (+fv.devolucao_abatida||0);
     const data = String(fv.data||'').slice(0,10); if(!data) return;
     mset.add(data.slice(0,7));
-    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)' };
+    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_uvOpBucket(fv.operacao) };
     const ped=pedById[base.pedido];
     const linhas=(ped&&Array.isArray(ped.linhas))?ped.linhas:[];
     const lv=l=> (+l.valorLinha || (+l.precoUnit||0)*(+l.qtd||0) || 0);
@@ -670,11 +626,32 @@ function vbiBuildFacts(){
   _vbiMeses=[...mset].sort().reverse();
   if(!_vbiF.mes) _vbiF.mes = _vbiMeses[0] || hojeISO().slice(0,7);
 }
+// Cenário BLING (cru, pipeline) — montado dos registros do Placar clássico (dados/dados2). Sem coleção/produto (não tem linhas). Opção avançada; padrão é Sistema.
+function _uvBuildBling(){
+  const regs=[...((dados&&dados.registros)||[]), ...((dados2&&dados2.registros)||[])];
+  const out=[];
+  regs.forEach(x=>{
+    const sit=x.situacao||''; if(!VENDA.has(sit)) return; // Bling conta o pipeline (VENDA set), igual ao Placar clássico
+    let loja=x.loja||''; if(typeof loja==='string'&&loja.indexOf('loja#')===0) loja='Sem loja';
+    let vend=x.vendedor||''; if(vend==='(sem)'&&loja==='Braavo Site')vend='Braavo'; if(!vend||vend==='(sem)')vend='Sem vendedor';
+    const sg=segDe(loja);
+    out.push({ pedido:String(x.numero||''), data:String(x.data||'').slice(0,10), cliente:(x.cliente||'(sem nome)').trim()||'(sem nome)',
+      loja, vendedor:vend, empresa:x.empresa||'Rokbox', segmento:(sg==='PL'?'PL':(sg==='WL'?'WL':'')),
+      situacao:_normSit(sit), operacao:opBucket(loja), colecao:'(sem coleção)', produto:'(sem detalhe)', sku:'',
+      qtd:(+x.pecas||0), val:(+x.valor||0) });
+  });
+  _uvBling=out;
+}
+// Bling só está disponível no MÊS ATUAL e sem intervalo custom; mês fechado e intervalo = sempre Sistema.
+function _uvBlingDisp(){ const cur=(dados&&dados.mes)||hojeISO().slice(0,7); const mes=_vbiF.mes||_vbiMeses[0]||cur; return (!_vbiF.de && !_vbiF.ate && mes===cur); }
+function _uvSource(){ return (_vbiF.fonte==='bling' && _uvBlingDisp()) ? _uvBling : _vbiFacts; }
 function _vbiPass(f){
   const F=_vbiF;
   if(F.de && F.ate){ if(f.data < F.de || f.data > F.ate) return false; }
   else { if(f.data.slice(0,7) !== (F.mes || _vbiMeses[0])) return false; }
+  if(F.op && F.op.size && !F.op.has(f.operacao)) return false;
   if(!_vbiEmpPass(f)) return false;
+  if(F.seg && segDe(f.loja)!==F.seg) return false;
   if(F.loja && f.loja!==F.loja) return false;
   if(F.vend && f.vendedor!==F.vend) return false;
   if(F.col && f.colecao!==F.col) return false;
@@ -688,15 +665,22 @@ function _vbiKPIs(facts){
   return { fat, peds, pcs, ticket: peds?fat/peds:0 };
 }
 function _vbiPrevMes(m){ const [y,mm]=String(m).split('-').map(Number); const d=new Date(y,mm-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
-function _vbiKPIsPrev(){ // mesmo filtro (emp/loja/vend/col), mês anterior — pra variação %
+function _vbiKPIsPrev(){ // mesmo filtro, mês anterior, até o MESMO ponto do mês (mês fechado = mês cheio vs mês cheio)
   if(_vbiF.de && _vbiF.ate) return null; // intervalo custom: sem comparação de mês
-  const pm=_vbiPrevMes(_vbiF.mes || _vbiMeses[0]);
-  const facts=_vbiFacts.filter(f=>{
+  const mes=_vbiF.mes || _vbiMeses[0];
+  const pm=_vbiPrevMes(mes);
+  const cur=(dados&&dados.mes)||hojeISO().slice(0,7);
+  const corte=(mes===cur)? new Date().getDate() : 31; // vigente: compara só até o dia de hoje; fechado: mês inteiro
+  const F=_vbiF; const src=_uvSource();
+  const facts=src.filter(f=>{
     if(f.data.slice(0,7)!==pm) return false;
+    if((+f.data.slice(8,10))>corte) return false;
+    if(F.op && F.op.size && !F.op.has(f.operacao)) return false;
     if(!_vbiEmpPass(f)) return false;
-    if(_vbiF.loja && f.loja!==_vbiF.loja) return false;
-    if(_vbiF.vend && f.vendedor!==_vbiF.vend) return false;
-    if(_vbiF.col && f.colecao!==_vbiF.col) return false;
+    if(F.seg && segDe(f.loja)!==F.seg) return false;
+    if(F.loja && f.loja!==F.loja) return false;
+    if(F.vend && f.vendedor!==F.vend) return false;
+    if(F.col && f.colecao!==F.col) return false;
     return true;
   });
   return _vbiKPIs(facts);
@@ -712,15 +696,20 @@ function vbiFiltrar(dim, val){
   else if(dim==='vend') _vbiF.vend = (_vbiF.vend===val?'':val);
   else if(dim==='col') _vbiF.col = (_vbiF.col===val?'':val);
   else if(dim==='dia') _vbiF.dia = (_vbiF.dia===val?'':val);
-  renderVBI();
+  renderUV();
 }
-function vbiSetSel(dim, val){ if(dim==='loja')_vbiF.loja=val; else if(dim==='vend')_vbiF.vend=val; else if(dim==='col')_vbiF.col=val; renderVBI(); }
-function vbiToggleEmp(e){ if(_vbiF.emp.has(e)) _vbiF.emp.delete(e); else _vbiF.emp.add(e); renderVBI(); }
-function vbiSetMes(m){ _vbiF.mes=m; _vbiF.de=''; _vbiF.ate=''; _vbiF.dia=''; renderVBI(); }
-function vbiSetRange(k,v){ _vbiF[k]=v; if(_vbiF.de&&_vbiF.ate) _vbiF.dia=''; renderVBI(); }
-function vbiLimpar(){ _vbiF={ mes:_vbiMeses[0]||hojeISO().slice(0,7), de:'', ate:'', emp:new Set(), loja:'', vend:'', col:'', dia:'' }; renderVBI(); }
+function vbiSetSel(dim, val){ if(dim==='loja')_vbiF.loja=val; else if(dim==='vend')_vbiF.vend=val; else if(dim==='col')_vbiF.col=val; renderUV(); }
+function vbiToggleEmp(e){ if(_vbiF.emp.has(e)) _vbiF.emp.delete(e); else _vbiF.emp.add(e); renderUV(); }
+function vbiSetMes(m){ _vbiF.mes=m; _vbiF.de=''; _vbiF.ate=''; _vbiF.dia=''; renderUV(); }
+function vbiSetRange(k,v){ _vbiF[k]=v; if(_vbiF.de&&_vbiF.ate) _vbiF.dia=''; renderUV(); }
+function vbiLimpar(){ _vbiF={ mes:_vbiMeses[0]||hojeISO().slice(0,7), de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'sistema', op:new Set(['venda']) }; renderUV(); }
+function uvSetSeg(s){ _vbiF.seg=(_vbiF.seg===s?'':s); renderUV(); }
+function uvToggleFiltros(){ _uvFiltersOpen=!_uvFiltersOpen; renderUV(); }
+function uvSetFonte(f){ if(f==='bling' && !_uvBlingDisp()){ _vbiF.mes=(dados&&dados.mes)||hojeISO().slice(0,7); _vbiF.de=''; _vbiF.ate=''; } _vbiF.fonte=f; renderUV(); }
+function uvToggleOp(o){ const S=_vbiF.op; if(S.has(o)){ if(S.size===1) return; S.delete(o); } else S.add(o); renderUV(); }
+function uvResetOp(){ _vbiF.op=new Set(['venda']); renderUV(); }
 let _vbiVerTodos={cli:false,prod:false};
-function vbiVerTodos(k){ _vbiVerTodos[k]=!_vbiVerTodos[k]; renderVBI(); }
+function vbiVerTodos(k){ _vbiVerTodos[k]=!_vbiVerTodos[k]; renderUV(); }
 
 function _vbiBarras(arr, dim, selVal, total){
   const max=Math.max(1,...arr.map(x=>x.val));
@@ -771,65 +760,135 @@ function _vbiLinhaDia(facts){
   const labs=pts.map((p,i)=> (i%Math.ceil(pts.length/12||1)===0)?`<text x="${x(i).toFixed(1)}" y="${H-4}" class="vbi-xl">${p.d.slice(8,10)}</text>`:'').join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="vbi-svg" preserveAspectRatio="none"><path d="${line}" class="vbi-ln" fill="none"/>${dots}${labs}</svg>`;
 }
-function renderVBI(){
-  const root=document.getElementById('vbi-root'); if(!root) return;
+// ranking por status (cores do STCOR), barras no estilo do BI
+function _uvStatus(facts){
+  const m={}; facts.forEach(f=>{ const s=f.situacao||'(sem)'; (m[s]=m[s]||{nome:s,val:0,peds:{}}); m[s].val+=f.val; m[s].peds[f.pedido]=1; });
+  const arr=Object.values(m).map(o=>({nome:o.nome,val:o.val,np:Object.keys(o.peds).length})).sort((a,b)=>b.val-a.val);
+  const max=Math.max(1,...arr.map(x=>x.val));
+  return arr.map(x=>`<div class="vbi-brow" title="${_vbiE(x.nome)} · ${brl(x.val)} · ${nf(x.np)} pedido(s)"><div class="vbi-bl"><span class="nm">${_vbiE(x.nome)}</span><span class="vl">${brl(x.val)}</span></div><div class="vbi-bk"><i style="width:${Math.max(2,x.val/max*100)}%;background:${STCOR[x.nome]||'#8fa89a'}"></i></div></div>`).join('')||'<div class="vbi-empty">sem dados</div>';
+}
+// Vendedor × dia (mês, valores em mil R$) — soma por vendedor e por dia
+function _uvVendDia(facts){
+  if(!facts.length) return '<div class="vbi-empty">sem dados</div>';
+  const dias=[...new Set(facts.map(f=>f.data))].filter(Boolean).sort();
+  const vend={}; facts.forEach(f=>{ const v=f.vendedor||'Sem vendedor'; (vend[v]=vend[v]||{tot:0,d:{}}); vend[v].tot+=f.val; vend[v].d[f.data]=(vend[v].d[f.data]||0)+f.val; });
+  const linhas=Object.entries(vend).sort((a,b)=>b[1].tot-a[1].tot);
+  const dd=d=>d.slice(8,10);
+  let h='<thead><tr><th class="nm">Vendedor</th>'+dias.map(d=>`<th>${dd(d)}</th>`).join('')+'<th class="rt">Total</th></tr></thead><tbody>';
+  linhas.forEach(([nome,o])=>{ h+=`<tr><td class="nm" title="${_vbiE(nome)}">${_vbiE(nome)}</td>`+dias.map(d=>{const v=o.d[d]||0;return v>0?`<td>${abrMil(v)}</td>`:'<td class="z">·</td>';}).join('')+`<td class="rt">${abrMil(o.tot)}</td></tr>`; });
+  const totG=facts.reduce((t,f)=>t+f.val,0);
+  h+='<tr class="tot"><th class="nm">Total do dia</th>'+dias.map(d=>{const s=linhas.reduce((t,[,o])=>t+(o.d[d]||0),0);return `<td>${abrMil(s)}</td>`;}).join('')+`<td>${abrMil(totG)}</td></tr></tbody>`;
+  return h;
+}
+// etiquetas (chips) dos filtros ativos, removíveis
+function _uvChips(){
+  const c=[]; const F=_vbiF;
+  const mesLbl=(F.de&&F.ate)?`${F.de.slice(8,10)}/${F.de.slice(5,7)} a ${F.ate.slice(8,10)}/${F.ate.slice(5,7)}`:(()=>{const n=new Date((F.mes||_vbiMeses[0])+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});return n.charAt(0).toUpperCase()+n.slice(1);})();
+  c.push(`<span class="uv-chip per">${mesLbl}</span>`);
+  const empL={Rokbox:'Rokbox',Rk:'Rk (todas)',PL:'PL',WL:'White Label'};
+  F.emp.forEach(e=>c.push(`<span class="uv-chip">${empL[e]||e}<i onclick="vbiToggleEmp('${e}')">✕</i></span>`));
+  if(F.seg) c.push(`<span class="uv-chip">${F.seg}<i onclick="uvSetSeg('${F.seg}')">✕</i></span>`);
+  if(F.loja) c.push(`<span class="uv-chip">${_vbiE(F.loja)}<i onclick="vbiSetSel('loja','')">✕</i></span>`);
+  if(F.vend) c.push(`<span class="uv-chip">${_vbiE(F.vend)}<i onclick="vbiSetSel('vend','')">✕</i></span>`);
+  if(F.col) c.push(`<span class="uv-chip">${_vbiE(F.col)}<i onclick="vbiSetSel('col','')">✕</i></span>`);
+  if(F.dia) c.push(`<span class="uv-chip">${F.dia.slice(8,10)}/${F.dia.slice(5,7)}<i onclick="vbiFiltrar('dia','${F.dia}')">✕</i></span>`);
+  if(F.fonte==='bling') c.push(`<span class="uv-chip adv">Bling (cru)<i onclick="uvSetFonte('sistema')">✕</i></span>`);
+  if(!(F.op.size===1 && F.op.has('venda'))) c.push(`<span class="uv-chip adv">Op: ${[...F.op].join('/')}<i onclick="uvResetOp()">✕</i></span>`);
+  return c.join('');
+}
+function renderUV(){
+  const root=document.getElementById('uv-root'); if(!root) return;
   if(!document.getElementById('vbi-css')){ const st=document.createElement('style'); st.id='vbi-css'; st.textContent=_VBI_CSS; document.head.appendChild(st); }
-  const facts=_vbiFacts.filter(_vbiPass);
+  if(!document.getElementById('uv-css')){ const st=document.createElement('style'); st.id='uv-css'; st.textContent=_UV_CSS; document.head.appendChild(st); }
+  const blingDisp=_uvBlingDisp(); const src=_uvSource(); const blingAtivo=(src===_uvBling);
+  const facts=src.filter(_vbiPass);
   const k=_vbiKPIs(facts), kp=_vbiKPIsPrev();
-  const vv=(cur,prev)=>{ if(kp==null||!prev) return ''; const d=(cur-prev)/prev*100; const up=d>=0; return `<span class="vbi-var ${up?'up':'dn'}">${up?'▲':'▼'} ${_vbiPct(d)}</span>`; };
-  // ── filtros ──
-  const lojas=[...new Set(_vbiFacts.map(f=>f.loja))].sort();
-  const vends=[...new Set(_vbiFacts.map(f=>f.vendedor))].sort();
-  const cols=[...new Set(_vbiFacts.map(f=>f.colecao))].sort();
-  const mesOpt=_vbiMeses.map(m=>{ const nome=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'short',year:'numeric'}); return `<option value="${m}" ${(!_vbiF.de&&_vbiF.mes===m)?'selected':''}>${nome}</option>`; }).join('');
+  const vv=(cur,prev)=>{ if(kp==null||prev==null) return ''; if(!prev){ return cur>0?'<span class="vbi-var up" title="mês anterior sem vendas no mesmo ponto">novo</span>':''; } const d=(cur-prev)/prev*100; const up=d>=0; return `<span class="vbi-var ${up?'up':'dn'}" title="vs mesmo ponto do mês anterior">${up?'▲':'▼'} ${_vbiPct(d)}</span>`; };
+  // ── barra de cima: botão Filtros + etiquetas ativas ──
+  const nFiltros=(_vbiF.emp.size)+(_vbiF.seg?1:0)+(_vbiF.loja?1:0)+(_vbiF.vend?1:0)+(_vbiF.col?1:0)+(_vbiF.dia?1:0)+(_vbiF.fonte==='bling'?1:0)+((_vbiF.op.size===1&&_vbiF.op.has('venda'))?0:1)+((_vbiF.de&&_vbiF.ate)?1:0);
+  const topo=`<div class="uv-topo"><button class="uv-fbtn${nFiltros?' on':''}" onclick="uvToggleFiltros()">🔎 Filtros${nFiltros?` · ${nFiltros}`:''}</button><div class="uv-chips">${_uvChips()}</div>${nFiltros?`<button class="uv-limpar" onclick="vbiLimpar()">limpar tudo</button>`:''}</div>`;
+  // ── painel de filtros (abre pelo botão) ──
+  const lojas=[...new Set(src.map(f=>f.loja))].sort();
+  const vends=[...new Set(src.map(f=>f.vendedor))].sort();
+  const cols=[...new Set(src.map(f=>f.colecao))].sort();
+  const mesOpt=_vbiMeses.map(m=>{ const nome=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'short',year:'numeric'}); return `<option value="${m}" ${(!_vbiF.de&&(_vbiF.mes||_vbiMeses[0])===m)?'selected':''}>${nome}</option>`; }).join('');
   const empChip=(v,l,sub)=>`<button class="vbi-chip${sub?' sub':''}${_vbiF.emp.has(v)?' on':''}" onclick="vbiToggleEmp('${v}')">${l}</button>`;
-  const temFiltro = _vbiF.de||_vbiF.ate||_vbiF.emp.size||_vbiF.loja||_vbiF.vend||_vbiF.col||_vbiF.dia;
-  const slic=`<div class="vbi-bar">
-    <div class="vbi-sg"><label>Período</label><select onchange="vbiSetMes(this.value)">${mesOpt}</select>
-      <span class="ou">ou</span><input type="date" value="${_vbiF.de}" title="de" onchange="vbiSetRange('de',this.value)"><input type="date" value="${_vbiF.ate}" title="até" onchange="vbiSetRange('ate',this.value)"></div>
-    <div class="vbi-sg"><label>Empresa</label>${empChip('Rokbox','Rokbox')}${empChip('Rk','Rk (todas)')}<span class="vbi-rkl">Rk:</span>${empChip('PL','PL',1)}${empChip('WL','White Label',1)}</div>
-    <div class="vbi-sg"><label>Loja</label><select onchange="vbiSetSel('loja',this.value)"><option value="">Todas</option>${lojas.map(l=>`<option ${_vbiF.loja===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-    <div class="vbi-sg"><label>Vendedor</label><select onchange="vbiSetSel('vend',this.value)"><option value="">Todos</option>${vends.map(l=>`<option ${_vbiF.vend===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-    <div class="vbi-sg"><label>Coleção</label><select onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-    ${_vbiF.dia?`<div class="vbi-sg"><label>Dia</label><button class="vbi-chip on" onclick="vbiFiltrar('dia','${_vbiF.dia}')">${_vbiF.dia.slice(8,10)}/${_vbiF.dia.slice(5,7)} ✕</button></div>`:''}
-    <button class="vbi-clear${temFiltro?' live':''}" onclick="vbiLimpar()">✕ Limpar filtros</button>
+  const opChip=(v,l)=>`<button class="vbi-chip${_vbiF.op.has(v)?' on':''}" onclick="uvToggleOp('${v}')">${l}</button>`;
+  const painel = !_uvFiltersOpen ? '' : `<div class="uv-painel">
+    <div class="uv-fgrid">
+      <div class="vbi-sg col"><label>Período</label><div class="uv-perrow"><select onchange="vbiSetMes(this.value)">${mesOpt}</select><span class="ou">ou</span><input type="date" value="${_vbiF.de}" title="de" onchange="vbiSetRange('de',this.value)"><input type="date" value="${_vbiF.ate}" title="até" onchange="vbiSetRange('ate',this.value)"></div></div>
+      <div class="vbi-sg col"><label>Empresa</label><div class="uv-emprow">${empChip('Rokbox','Rokbox')}${empChip('Rk','Rk (todas)')}<span class="vbi-rkl">Rk:</span>${empChip('PL','PL',1)}${empChip('WL','White Label',1)}</div></div>
+      <div class="vbi-sg col"><label>Loja</label><select onchange="vbiSetSel('loja',this.value)"><option value="">Todas</option>${lojas.map(l=>`<option ${_vbiF.loja===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
+      <div class="vbi-sg col"><label>Vendedor</label><select onchange="vbiSetSel('vend',this.value)"><option value="">Todos</option>${vends.map(l=>`<option ${_vbiF.vend===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
+      <div class="vbi-sg col"><label>Coleção</label><select onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
+    </div>
+    <div class="uv-adv"><span class="uv-advt">Avançado</span>
+      <div class="vbi-sg col"><label>Fonte</label><button class="vbi-chip${_vbiF.fonte==='sistema'?' on':''}" onclick="uvSetFonte('sistema')">Sistema</button><button class="vbi-chip${_vbiF.fonte==='bling'?' on':''}${blingDisp?'':' off'}" onclick="uvSetFonte('bling')" ${blingDisp?'':'title="Bling só no mês atual"'}>Bling (cru)</button>${blingDisp?'':'<span class="uv-hint">Bling só no mês atual</span>'}</div>
+      <div class="vbi-sg col"><label>Operação</label>${opChip('venda','Venda')}${opChip('troca','Troca')}${opChip('amostra','Amostra')}</div>
+    </div>
   </div>`;
   // ── KPIs ──
-  const kpi=(lab,val,prev,money,clickDim)=>`<div class="vbi-kpi" onclick="vbiDrillTotal('${lab}')" title="Ver os pedidos que compõem"><div class="kl">${lab}</div><div class="kv">${money?brl(val):nf(val)}</div>${vv(val,prev)}</div>`;
+  const kpi=(lab,val,prev,money)=>`<div class="vbi-kpi" onclick="vbiDrillTotal('${lab}')" title="Ver os pedidos que compõem"><div class="kl">${lab}</div><div class="kv">${money?brl(val):nf(val)}</div>${vv(val,prev)}</div>`;
   const kpis=`<div class="vbi-kpis">
     ${kpi('Faturamento',k.fat,kp&&kp.fat,true)}
     ${kpi('Nº de pedidos',k.peds,kp&&kp.peds,false)}
     ${kpi('Ticket médio',k.ticket,kp&&kp.ticket,true)}
     ${kpi('Peças vendidas',k.pcs,kp&&kp.pcs,false)}
   </div>`;
-  // ── gráficos ──
-  const gLoja=_vbiAgrupa(facts,'loja').slice(0,8), gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8);
-  const colAll=_vbiAgrupa(facts,'colecao');
-  const gCol=[...colAll.filter(c=>c.nome!=='(sem coleção)').slice(0,7), ...colAll.filter(c=>c.nome==='(sem coleção)')]; // (sem coleção) por último
+  // ── Meta do mês ──
+  const gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8);
   const metasMes=_vbiMetasDoMes(); const temMetas=Object.keys(metasMes).length>0, rangeAtivo=!!(_vbiF.de&&_vbiF.ate);
   let somaMetas=0; if(temMetas){ somaMetas = _vbiF.vend ? (metasMes[_vbiF.vend]||0) : Object.values(metasMes).reduce((s,v)=>s+v,0); }
-  // realizado comparado com a meta = só dos vendedores que TÊM meta; o resto aparece à parte
   let realComMeta=k.fat, realSemMeta=0;
   if(temMetas && !_vbiF.vend){ realComMeta = gVend.filter(v=>metasMes[v.nome]).reduce((s,v)=>s+v.val,0); realSemMeta = k.fat - realComMeta; }
   const metaPct = somaMetas? realComMeta/somaMetas*100 : null, metaCor=_vbiCorMeta(metaPct);
+  // esperado pelos dias úteis (desconta feriado nacional), só no mês vigente
+  let espHtml='';
+  if(temMetas && !rangeAtivo && !_vbiF.vend){
+    const mes=_vbiF.mes||_vbiMeses[0]; const cur=(dados&&dados.mes)||hojeISO().slice(0,7);
+    if(mes===cur){ const du=_diasUteisMes(mes, new Date().getDate()); const espPct= du.tot? du.ate/du.tot*100 : 100; espHtml=`<span class="mc-esp">esperado ${espPct.toFixed(0)}% até hoje (${du.ate} de ${du.tot} dias úteis)</span>`; }
+  }
   const metaCard=`<div class="vbi-metacard ${metaCor}">`+(
     rangeAtivo ? `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">as metas são por mês, escolha um mês no Período pra comparar</div>`
-    : temMetas ? `<div class="mc-l">🎯 Meta do mês${_vbiF.vend?' · '+_vbiE(_vbiF.vend):''}</div><div class="mc-row"><b class="mc-real">${brl(realComMeta)}</b><span class="mc-de">de</span><span class="mc-meta">${brl(somaMetas)}</span><span class="mc-pct ${metaCor}">${metaPct.toFixed(0)}% atingido</span></div>`+(realSemMeta>0?`<div class="mc-sem2">Vendas sem meta: ${brl(realSemMeta)}</div>`:``)
+    : temMetas ? `<div class="mc-l">🎯 Meta do mês${_vbiF.vend?' · '+_vbiE(_vbiF.vend):''}</div><div class="mc-row"><b class="mc-real">${brl(realComMeta)}</b><span class="mc-de">de</span><span class="mc-meta">${brl(somaMetas)}</span><span class="mc-pct ${metaCor}">${metaPct.toFixed(0)}% atingido</span>${espHtml}</div>`+(realSemMeta>0?`<div class="mc-sem2">Vendas sem meta: ${brl(realSemMeta)}</div>`:``)
     : `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">sem meta cadastrada para este mês · <span style="opacity:.85">cadastre em Gestão → Cadastro → Metas</span></div>`
   )+`</div>`;
-  const charts=`${metaCard}<div class="vbi-charts">
+  // ── cards de total por segmento (visual do Placar) ──
+  const segMap={}; facts.forEach(f=>{ const sg=segDe(f.loja); (segMap[sg]=segMap[sg]||{v:0,peds:{},pcs:0}); segMap[sg].v+=f.val; segMap[sg].peds[f.pedido]=1; segMap[sg].pcs+=f.qtd; });
+  let segs=SEG_ORDER.filter(sg=>segMap[sg]);
+  let segHtml=''; let totG=k.fat, qG=k.peds, pcsG=k.pcs;
+  segs.forEach(sg=>{ const o=segMap[sg]; const q=Object.keys(o.peds).length; const M=SEG_META[sg]||{cls:'',ico:'•'}; const on=_vbiF.seg===sg;
+    segHtml+=`<div class="card ${M.cls}${on?' seg-on':''}" style="cursor:pointer" onclick="uvSetSeg('${sg}')"><div class="tlab"><span class="badge"></span>${M.ico} ${sg}</div><div class="col-tot">${brl(o.v)}</div><div class="tsub">${nf(q)} pedidos · ${nf(o.pcs)} peças · ticket ${brl(q?o.v/q:0)}</div></div>`; });
+  segHtml+=`<div class="card"><div class="tlab">🟰 Total geral</div><div class="col-tot" style="color:var(--txt)">${brl(totG)}</div><div class="tsub">${nf(qG)} pedidos · ${nf(pcsG)} peças</div></div>`;
+  const tops=`<section class="tops">${segHtml}</section>`;
+  // ── gráficos ──
+  const gLoja=_vbiAgrupa(facts,'loja').slice(0,10);
+  const colAll=_vbiAgrupa(facts,'colecao');
+  const gCol=[...colAll.filter(c=>c.nome!=='(sem coleção)').slice(0,7), ...colAll.filter(c=>c.nome==='(sem coleção)')];
+  const colBlock = blingAtivo ? '<div class="vbi-empty">coleção disponível no cenário Sistema</div>' : _vbiBarras(gCol,'col',_vbiF.col,k.fat);
+  const charts=`${metaCard}${tops}<div class="vbi-charts">
     <div class="vbi-ch wide"><h3>Faturamento por dia <span>(clique num dia pra filtrar)</span></h3>${_vbiLinhaDia(facts)}</div>
     <div class="vbi-ch"><h3>Por loja</h3><div class="vbi-bars">${_vbiBarras(gLoja,'loja',_vbiF.loja,k.fat)}</div></div>
     <div class="vbi-ch"><h3>Por vendedor ${temMetas?'<span>(realizado × meta)</span>':(rangeAtivo?'':'<span class="sem">(sem meta no mês)</span>')}</h3><div class="vbi-bars">${temMetas?_vbiBarrasVend(gVendTop,metasMes):_vbiBarras(gVendTop,'vend',_vbiF.vend,k.fat)}</div></div>
-    <div class="vbi-ch"><h3>Por coleção</h3><div class="vbi-bars">${_vbiBarras(gCol,'col',_vbiF.col,k.fat)}</div></div>
+    <div class="vbi-ch"><h3>Por coleção</h3><div class="vbi-bars">${colBlock}</div></div>
+    <div class="vbi-ch"><h3>Por status</h3><div class="vbi-bars">${_uvStatus(facts)}</div></div>
   </div>`;
   // ── rankings ──
-  const rank=(titulo,campo,key)=>{ const arr=_vbiAgrupa(facts,campo); const lim=_vbiVerTodos[key]?arr.length:10;
+  const rank=(titulo,campo,key,bloqueado)=>{ if(bloqueado) return `<div class="vbi-ch"><h3>${titulo}</h3><div class="vbi-empty">disponível no cenário Sistema</div></div>`;
+    const arr=_vbiAgrupa(facts,campo); const lim=_vbiVerTodos[key]?arr.length:10;
     return `<div class="vbi-ch"><h3>${titulo} <span>(top ${_vbiVerTodos[key]?'todos':'10'})</span></h3><div class="vbi-rk">`+
       arr.slice(0,lim).map((x,i)=>`<div class="vbi-rr" onclick="vbiDrillDim('${campo}','${_vbiE(x.nome).replace(/'/g,"\\'")}')" title="Ver os pedidos"><span class="p">${i+1}</span><span class="nm">${_vbiE(x.nome)}</span><span class="vl">${brl(x.val)}</span></div>`).join('')+
       `</div>${arr.length>10?`<button class="vbi-all" onclick="vbiVerTodos('${key}')">${_vbiVerTodos[key]?'ver top 10':'ver todos ('+arr.length+')'}</button>`:''}</div>`; };
-  const ranks=`<div class="vbi-charts">${rank('Ranking de clientes','cliente','cli')}${rank('Ranking de produtos','produto','prod')}</div>`;
-  root.innerHTML = slic+kpis+charts+ranks;
+  const ranks=`<div class="vbi-charts">${rank('Ranking de clientes','cliente','cli',false)}${rank('Ranking de produtos','produto','prod',blingAtivo)}</div>`;
+  // ── Vendedor × dia (bloco do Placar) ──
+  const vdia=`<div class="vbi-ch wide" style="margin-top:12px"><h3>Vendedor × dia <span>(mês · valores em mil R$)</span></h3><div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd">${_uvVendDia(facts)}</table></div></div>`;
+  // ── Prospecção · Varejo (CRM) — preenchido por renderProsp depois ──
+  const prosp=`<section class="baixo" id="prosp-sec" style="display:none;margin-top:12px"><div class="card lojas" style="grid-column:1/-1"><h2>Prospecção · Varejo <span>(mês · trabalho da vendedora)</span></h2><div class="prosp-tops" id="prosp-tops"></div><div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px"><table class="vd" id="prosp-tab"></table></div><div id="prosp-upd" style="color:var(--muted);font-size:12px;margin-top:8px"></div></div></section>`;
+  root.innerHTML = topo+painel+kpis+charts+ranks+vdia+prosp;
+  if(_uvProsp) try{ renderProsp(_uvProsp); }catch(e){}
+  // textos do cabeçalho
+  const mesNome=(()=>{const m=_vbiF.mes||_vbiMeses[0]; const n=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return n.charAt(0).toUpperCase()+n.slice(1);})();
+  const sub=document.getElementById('sub'); if(sub) sub.textContent=`${nf(k.peds)} pedidos em ${(_vbiF.de&&_vbiF.ate)?'intervalo':mesNome}${blingAtivo?' · cenário Bling (cru)':''} · ${brl(k.fat)}`;
 }
 // drill: lista os pedidos que compõem um número
 function _vbiPedList(facts){
@@ -923,8 +982,35 @@ const _VBI_CSS=`
 .vbi-ch h3 span.sem{color:#e5a0a0}
 @media(max-width:820px){.vbi-kpis{grid-template-columns:repeat(2,1fr)}.vbi-charts{grid-template-columns:1fr}.vbi-bar{position:static}}
 `;
+const _UV_CSS=`
+#view-main{max-width:1200px;margin:0 auto}
+.uv-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.uv-fbtn{background:var(--lime);color:#08130b;border:none;border-radius:12px;padding:9px 16px;font-weight:800;font-size:13.5px;cursor:pointer;box-shadow:var(--shadow)}
+.uv-fbtn.on{box-shadow:0 0 0 2px var(--lime2) inset,var(--shadow)}
+.uv-chips{display:flex;gap:7px;flex-wrap:wrap;flex:1}
+.uv-chip{background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;display:inline-flex;gap:7px;align-items:center}
+.uv-chip.per{border-color:#2f4a3a;color:var(--lime)}
+.uv-chip.adv{border-color:#4a3a2f;color:var(--gold)}
+.uv-chip i{color:var(--muted);cursor:pointer;font-style:normal;font-weight:800}
+.uv-chip i:hover{color:#ff8f88}
+.uv-limpar{background:none;border:1px solid var(--line);color:var(--muted);border-radius:10px;padding:6px 12px;font-size:12px;cursor:pointer}
+.uv-painel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.uv-fgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.vbi-sg.col{display:flex;flex-direction:column;align-items:flex-start;gap:7px}
+.vbi-sg.col>label{align-self:flex-start;margin:0}
+.uv-perrow,.uv-emprow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.uv-painel select{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:10px;color:var(--txt);font-size:12.5px;padding:7px 9px}
+.uv-perrow select{width:auto;min-width:120px}
+.uv-adv{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-top:16px;border-top:1px dashed var(--line);padding-top:14px}
+.uv-advt{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800;align-self:center}
+.vbi-chip.off{opacity:.45;cursor:not-allowed}
+.uv-hint{font-size:11px;color:var(--muted);margin-left:4px}
+.mc-esp{color:var(--gold);font-size:12.5px;font-weight:700;margin-left:6px}
+.tops .card.seg-on{box-shadow:0 0 0 2px var(--lime) inset}
+@media(max-width:820px){.uv-fgrid{grid-template-columns:1fr 1fr}#view-main .tops{grid-template-columns:1fr 1fr}}
+`;
 // ── cadeado do painel de Vendas (senha) ──
-async function abrirGate(){ const t=await _syncBearer(); if(!t){ const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } const g=document.getElementById('gate'); if(g) g.remove(); aplicarPapel(); carregar(); carregarProsp(); carregarPedidos().then(render); setInterval(async ()=>{ const tk=await _syncBearer(); if(tk){ carregar(); carregarProsp(); carregarPedidos().then(render); } }, 3600000); } // Etapa 1: só abre com sessão Supabase // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
+async function abrirGate(){ const t=await _syncBearer(); if(!t){ const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } const g=document.getElementById('gate'); if(g) g.remove(); aplicarPapel(); carregar(); carregarProsp(); vbiCarregar().then(_uvRenderMain).catch(()=>{}); setInterval(async ()=>{ const tk=await _syncBearer(); if(tk){ carregar(); carregarProsp(); _vbiReady=false; vbiCarregar().then(_uvRenderMain).catch(()=>{}); } }, 3600000); } // Etapa 1: só abre com sessão Supabase // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });
