@@ -257,7 +257,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-22.1';
+const BUILD = '2026-10-22.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -808,10 +808,13 @@ function renderVBI(){
   const gCol=[...colAll.filter(c=>c.nome!=='(sem coleção)').slice(0,7), ...colAll.filter(c=>c.nome==='(sem coleção)')]; // (sem coleção) por último
   const metasMes=_vbiMetasDoMes(); const temMetas=Object.keys(metasMes).length>0, rangeAtivo=!!(_vbiF.de&&_vbiF.ate);
   let somaMetas=0; if(temMetas){ somaMetas = _vbiF.vend ? (metasMes[_vbiF.vend]||0) : Object.values(metasMes).reduce((s,v)=>s+v,0); }
-  const metaPct = somaMetas? k.fat/somaMetas*100 : null, metaCor=_vbiCorMeta(metaPct);
+  // realizado comparado com a meta = só dos vendedores que TÊM meta; o resto aparece à parte
+  let realComMeta=k.fat, realSemMeta=0;
+  if(temMetas && !_vbiF.vend){ realComMeta = gVend.filter(v=>metasMes[v.nome]).reduce((s,v)=>s+v.val,0); realSemMeta = k.fat - realComMeta; }
+  const metaPct = somaMetas? realComMeta/somaMetas*100 : null, metaCor=_vbiCorMeta(metaPct);
   const metaCard=`<div class="vbi-metacard ${metaCor}">`+(
     rangeAtivo ? `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">as metas são por mês, escolha um mês no Período pra comparar</div>`
-    : temMetas ? `<div class="mc-l">🎯 Meta do mês${_vbiF.vend?' · '+_vbiE(_vbiF.vend):''}</div><div class="mc-row"><b class="mc-real">${brl(k.fat)}</b><span class="mc-de">de</span><span class="mc-meta">${brl(somaMetas)}</span><span class="mc-pct ${metaCor}">${metaPct.toFixed(0)}% atingido</span></div>`
+    : temMetas ? `<div class="mc-l">🎯 Meta do mês${_vbiF.vend?' · '+_vbiE(_vbiF.vend):''}</div><div class="mc-row"><b class="mc-real">${brl(realComMeta)}</b><span class="mc-de">de</span><span class="mc-meta">${brl(somaMetas)}</span><span class="mc-pct ${metaCor}">${metaPct.toFixed(0)}% atingido</span></div>`+(realSemMeta>0?`<div class="mc-sem2">Vendas sem meta: ${brl(realSemMeta)}</div>`:``)
     : `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">sem meta cadastrada para este mês · <span style="opacity:.85">cadastre em Gestão → Cadastro → Metas</span></div>`
   )+`</div>`;
   const charts=`${metaCard}<div class="vbi-charts">
@@ -911,6 +914,7 @@ const _VBI_CSS=`
 .mc-de{color:var(--muted);font-size:13px}.mc-meta{font-size:15px;font-weight:700;color:var(--muted)}
 .mc-pct{margin-left:6px;font-weight:900;font-size:15px}.mc-pct.g{color:var(--lime2)}.mc-pct.y{color:#ffd76a}.mc-pct.r{color:#e5534b}
 .vbi-metacard .mc-sem{color:var(--muted);font-size:13px}
+.vbi-metacard .mc-sem2{color:var(--muted);font-size:12px;margin-top:4px;opacity:.85}
 .mpct{font-weight:900;margin-left:4px}.mpct.g{color:var(--lime2)}.mpct.y{color:#ffd76a}.mpct.r{color:#e5534b}.mpct.none{color:var(--muted);font-weight:600;font-size:11px}
 .vbi-bk.meta{position:relative}
 .vbi-bk i.g{background:linear-gradient(90deg,#2ea043,var(--lime2))}.vbi-bk i.y{background:linear-gradient(90deg,#b58900,#ffd76a)}.vbi-bk i.r{background:linear-gradient(90deg,#a3281f,#e5534b)}
