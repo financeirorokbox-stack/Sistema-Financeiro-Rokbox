@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v737/10-790';
+const APP_VERSION = 'v738/10-791';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -17403,10 +17403,11 @@ function renderCadastro() {
       const anoOpts = (anos.length ? anos : [mAno]).map(a => `<option value="${a}" ${a===mAno?'selected':''}>${a}</option>`).join('');
       const vends = [...new Set(pedidos.map(p => p.vendedor || 'Sem vendedor'))].filter(v => !comissaoExcecoes.includes(v)).sort();
       return `<p style="font-size:12px;color:var(--muted);margin:6px 0 10px">Meta mensal por vendedor (muda por mês → preencha o mês certo). Se a <strong>soma da Base de comissão</strong> do vendedor no mês <strong>atingir % da meta</strong>, a comissão do mês inteiro usa a <strong>faixa correspondente</strong> (tabela de Faixas abaixo), pelo <strong>segmento da loja</strong> de cada pedido. Sem meta = usa o % da loja. Aplicado na aba 💸 Comissão com filtro de <strong>um mês só</strong>.</p>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
         <span class="f-label">Mês:</span>
         <select class="inline-input" style="width:90px" onchange="setMetaCad('mes',this.value)">${MESES.map(([v,n])=>`<option value="${v}" ${v===mMes?'selected':''}>${n}</option>`).join('')}</select>
         <select class="inline-input" style="width:90px" onchange="setMetaCad('ano',this.value)">${anoOpts}</select>
+        <button class="btn ghost sm" style="margin-left:6px" onclick="copiarMetasMesAnterior()" title="Copia as metas do mês anterior para o mês selecionado">📋 Copiar metas do mês anterior</button>
       </div>
       <div class="table-wrap" style="max-width:420px"><table><thead><tr><th>Vendedor</th><th style="text-align:right">Meta do mês (R$)</th></tr></thead><tbody>
       ${vends.length ? vends.map(v => { const meta = metaDoVendedor(v, mAno, mMes); const esc = v.replace(/'/g, "\\'"); return `<tr${meta?' style="background:#eef6ff"':''}>
@@ -17649,6 +17650,24 @@ function updateMetaComissao(vend, ano, mes, value) {
 }
 let _metaCadAno = '', _metaCadMes = '';
 function setMetaCad(campo, val) { if (campo === 'ano') _metaCadAno = val; else _metaCadMes = val; renderCadastro(); }
+// Copia as metas do MÊS ANTERIOR para o mês/ano selecionado no cadastro.
+function copiarMetasMesAnterior() {
+  const anos = [...new Set(pedidos.map(p => p.data && new Date(p.data).getFullYear()).filter(Boolean))].map(String).sort();
+  const ano = _metaCadAno || anos[anos.length - 1] || String(new Date().getFullYear());
+  const mes = _metaCadMes || '06';
+  const d = new Date(+ano, +mes - 2, 1); // 1º dia do mês anterior
+  const pAno = String(d.getFullYear()), pMes = String(d.getMonth() + 1).padStart(2, '0');
+  const pref = pAno + '-' + pMes + '§', prefCur = ano + '-' + mes + '§';
+  const origem = Object.keys(metasComissao).filter(k => k.startsWith(pref));
+  if (!origem.length) { alert('O mês anterior (' + pMes + '/' + pAno + ') não tem metas cadastradas.'); return; }
+  const jaTem = Object.keys(metasComissao).filter(k => k.startsWith(prefCur)).length;
+  if (jaTem && !confirm('Este mês já tem ' + jaTem + ' meta(s) cadastrada(s).\nSubstituir todas pelas de ' + pMes + '/' + pAno + '?')) return;
+  let n = 0;
+  origem.forEach(k => { const vend = k.slice(pref.length); metasComissao[prefCur + vend] = { meta: +(metasComissao[k].meta || 0) }; n++; });
+  saveData('metasComissao', metasComissao);
+  renderCadastro();
+  alert(n + ' meta(s) copiada(s) de ' + pMes + '/' + pAno + ' para ' + mes + '/' + ano + '.');
+}
 // % da comissão pela FAIXA de atingimento da meta (atingPct = base/meta*100) e SEGMENTO da loja.
 // Retorna decimal (5 → 0.05) ou null se o segmento não tem faixa cadastrada (aí usa o % da loja).
 function pctPorFaixa(segmento, atingPct) {
