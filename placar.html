@@ -204,7 +204,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-22.4';
+const BUILD = '2026-10-22.5';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -571,7 +571,7 @@ function renderVendedorDia(vendas){
 // do pedido (valorLinha) + produtoColecao. Conta só operação Venda, fora cancelado/
 // não-venda. Faturamento = valor − devolução abatida (= Faturamento Real da tela).
 // ════════════════════════════════════════════════════════════════════
-let _vbiReady=false, _vbiFacts=[], _vbiFV=null, _vbiProdCol=null, _vbiMeses=[], _vbiMetas=null;
+let _vbiReady=false, _vbiFacts=[], _vbiFV=null, _vbiProdCol=null, _vbiMeses=[], _vbiMetas=null, _vbiColData=null;
 let _uvBling=[], _uvProsp=null, _uvFiltersOpen=false;
 let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'sistema', op:new Set(['venda']) };
 function _uvOpBucket(op){ op=String(op||'').toLowerCase(); if(op==='venda')return 'venda'; if(op==='troca')return 'troca'; if(op==='amostra')return 'amostra'; return 'outras'; }
@@ -582,10 +582,11 @@ const _vbiPct = n => (n>=0?'+':'') + (n||0).toLocaleString('pt-BR',{maximumFract
 async function vbiCarregar(){
   if(_vbiReady) return;
   const gk = ch => fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${ch}&select=valor`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'}).then(r=>r.json()).then(j=>(Array.isArray(j)&&j[0])?JSON.parse(j[0].valor):null);
-  const [fv, pc, mt] = await Promise.all([gk('flatVendas'), gk('produtoColecao'), gk('metasComissao')]);
+  const [fv, pc, mt, cd] = await Promise.all([gk('flatVendas'), gk('produtoColecao'), gk('metasComissao'), gk('colecaoLancamento')]);
   _vbiFV = Array.isArray(fv)?fv:[];
   _vbiProdCol = pc||{};
   _vbiMetas = (mt && typeof mt==='object') ? mt : {};
+  _vbiColData = (cd && typeof cd==='object') ? cd : {}; // coleção -> data de lançamento (ordena o filtro)
   if(!_pedidosRaw) await carregarPedidos();
   vbiBuildFacts();
   _vbiReady=true;
@@ -810,7 +811,8 @@ function renderUV(){
   const topo=`<div class="uv-topo"><button class="uv-fbtn${nFiltros?' on':''}" onclick="uvToggleFiltros()">🔎 Filtros${nFiltros?` · ${nFiltros}`:''}</button><div class="uv-chips">${_uvChips()}</div>${nFiltros?`<button class="uv-limpar" onclick="vbiLimpar()">limpar tudo</button>`:''}</div>`;
   // ── painel de filtros (visual do Placar antigo, oculto dentro do botão Filtros) ──
   const vends=[...new Set(src.map(f=>f.vendedor))].sort();
-  const cols=[...new Set(src.map(f=>f.colecao))].sort().filter(c=>c!=='(sem coleção)');
+  const _cd=_vbiColData||{}; // ordena por data de lançamento (mais recente primeiro); sem data vai pro fim
+  const cols=[...new Set(src.map(f=>f.colecao))].filter(c=>c!=='(sem coleção)').sort((a,b)=>{ const da=_cd[a]||'', db=_cd[b]||''; if(da&&db) return da<db?1:(da>db?-1:a.localeCompare(b)); if(da) return -1; if(db) return 1; return a.localeCompare(b); });
   const _cur=(dados&&dados.mes)||hojeISO().slice(0,7);
   const mesOpt=_vbiMeses.map(m=>{ const n=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); const lbl=n.charAt(0).toUpperCase()+n.slice(1)+(m===_cur?' (atual)':''); return `<option value="${m}" ${((_vbiF.mes||_vbiMeses[0])===m)?'selected':''}>${lbl}</option>`; }).join('');
   const empSel=_vbiF.emp.has('Rokbox')?'Rokbox':_vbiF.emp.has('Rk')?'Rk':_vbiF.emp.has('PL')?'PL':_vbiF.emp.has('WL')?'WL':'';
