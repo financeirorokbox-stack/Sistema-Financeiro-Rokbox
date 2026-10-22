@@ -204,7 +204,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-22.3';
+const BUILD = '2026-10-22.4';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -708,6 +708,7 @@ function uvToggleFiltros(){ _uvFiltersOpen=!_uvFiltersOpen; renderUV(); }
 function uvSetFonte(f){ if(f==='bling' && !_uvBlingDisp()){ _vbiF.mes=(dados&&dados.mes)||hojeISO().slice(0,7); _vbiF.de=''; _vbiF.ate=''; } _vbiF.fonte=f; renderUV(); }
 function uvToggleOp(o){ const S=_vbiF.op; if(S.has(o)){ if(S.size===1) return; S.delete(o); } else S.add(o); renderUV(); }
 function uvResetOp(){ _vbiF.op=new Set(['venda']); renderUV(); }
+function uvSetEmpresa(v){ _vbiF.emp=new Set(); if(v) _vbiF.emp.add(v); renderUV(); } // dropdown único: Todas/Rokbox/Rk(todas)/PL/White Label
 let _vbiVerTodos={cli:false,prod:false};
 function vbiVerTodos(k){ _vbiVerTodos[k]=!_vbiVerTodos[k]; renderUV(); }
 
@@ -807,25 +808,22 @@ function renderUV(){
   // ── barra de cima: botão Filtros + etiquetas ativas ──
   const nFiltros=(_vbiF.emp.size)+(_vbiF.seg?1:0)+(_vbiF.loja?1:0)+(_vbiF.vend?1:0)+(_vbiF.col?1:0)+(_vbiF.dia?1:0)+(_vbiF.fonte==='bling'?1:0)+((_vbiF.op.size===1&&_vbiF.op.has('venda'))?0:1)+((_vbiF.de&&_vbiF.ate)?1:0);
   const topo=`<div class="uv-topo"><button class="uv-fbtn${nFiltros?' on':''}" onclick="uvToggleFiltros()">🔎 Filtros${nFiltros?` · ${nFiltros}`:''}</button><div class="uv-chips">${_uvChips()}</div>${nFiltros?`<button class="uv-limpar" onclick="vbiLimpar()">limpar tudo</button>`:''}</div>`;
-  // ── painel de filtros (abre pelo botão) ──
-  const lojas=[...new Set(src.map(f=>f.loja))].sort();
+  // ── painel de filtros (visual do Placar antigo, oculto dentro do botão Filtros) ──
   const vends=[...new Set(src.map(f=>f.vendedor))].sort();
-  const cols=[...new Set(src.map(f=>f.colecao))].sort();
-  const mesOpt=_vbiMeses.map(m=>{ const nome=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'short',year:'numeric'}); return `<option value="${m}" ${(!_vbiF.de&&(_vbiF.mes||_vbiMeses[0])===m)?'selected':''}>${nome}</option>`; }).join('');
-  const empChip=(v,l,sub)=>`<button class="vbi-chip${sub?' sub':''}${_vbiF.emp.has(v)?' on':''}" onclick="vbiToggleEmp('${v}')">${l}</button>`;
-  const opChip=(v,l)=>`<button class="vbi-chip${_vbiF.op.has(v)?' on':''}" onclick="uvToggleOp('${v}')">${l}</button>`;
-  const painel = !_uvFiltersOpen ? '' : `<div class="uv-painel">
-    <div class="uv-fgrid">
-      <div class="vbi-sg col"><label>Período</label><div class="uv-perrow"><select onchange="vbiSetMes(this.value)">${mesOpt}</select><span class="ou">ou</span><input type="date" value="${_vbiF.de}" title="de" onchange="vbiSetRange('de',this.value)"><input type="date" value="${_vbiF.ate}" title="até" onchange="vbiSetRange('ate',this.value)"></div></div>
-      <div class="vbi-sg col"><label>Empresa</label><div class="uv-emprow">${empChip('Rokbox','Rokbox')}${empChip('Rk','Rk (todas)')}<span class="vbi-rkl">Rk:</span>${empChip('PL','PL',1)}${empChip('WL','White Label',1)}</div></div>
-      <div class="vbi-sg col"><label>Loja</label><select onchange="vbiSetSel('loja',this.value)"><option value="">Todas</option>${lojas.map(l=>`<option ${_vbiF.loja===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-      <div class="vbi-sg col"><label>Vendedor</label><select onchange="vbiSetSel('vend',this.value)"><option value="">Todos</option>${vends.map(l=>`<option ${_vbiF.vend===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-      <div class="vbi-sg col"><label>Coleção</label><select onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-    </div>
-    <div class="uv-adv"><span class="uv-advt">Avançado</span>
-      <div class="vbi-sg col"><label>Fonte</label><button class="vbi-chip${_vbiF.fonte==='sistema'?' on':''}" onclick="uvSetFonte('sistema')">Sistema</button><button class="vbi-chip${_vbiF.fonte==='bling'?' on':''}${blingDisp?'':' off'}" onclick="uvSetFonte('bling')" ${blingDisp?'':'title="Bling só no mês atual"'}>Bling (cru)</button>${blingDisp?'':'<span class="uv-hint">Bling só no mês atual</span>'}</div>
-      <div class="vbi-sg col"><label>Operação</label>${opChip('venda','Venda')}${opChip('troca','Troca')}${opChip('amostra','Amostra')}</div>
-    </div>
+  const cols=[...new Set(src.map(f=>f.colecao))].sort().filter(c=>c!=='(sem coleção)');
+  const _cur=(dados&&dados.mes)||hojeISO().slice(0,7);
+  const mesOpt=_vbiMeses.map(m=>{ const n=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); const lbl=n.charAt(0).toUpperCase()+n.slice(1)+(m===_cur?' (atual)':''); return `<option value="${m}" ${((_vbiF.mes||_vbiMeses[0])===m)?'selected':''}>${lbl}</option>`; }).join('');
+  const empSel=_vbiF.emp.has('Rokbox')?'Rokbox':_vbiF.emp.has('Rk')?'Rk':_vbiF.emp.has('PL')?'PL':_vbiF.emp.has('WL')?'WL':'';
+  const empOpt=[['','Todas as empresas'],['Rokbox','Rokbox'],['Rk','Rk (todas)'],['PL','Rk · PL'],['WL','Rk · White Label']].map(o=>`<option value="${o[0]}" ${empSel===o[0]?'selected':''}>${o[1]}</option>`).join('');
+  const fonteSeg=`<div class="seg"><button class="${_vbiF.fonte==='sistema'?'on':''}" onclick="uvSetFonte('sistema')">Sistema</button><button class="${_vbiF.fonte==='bling'?'on':''}${blingDisp?'':' seg-off'}" onclick="uvSetFonte('bling')"${blingDisp?'':' title="Bling só no mês atual"'}>Bling</button></div>`;
+  const opSeg=`<div class="seg"><button class="${_vbiF.op.has('venda')?'on':''}" onclick="uvToggleOp('venda')">Venda</button><button class="${_vbiF.op.has('troca')?'on':''}" onclick="uvToggleOp('troca')">Troca</button><button class="${_vbiF.op.has('amostra')?'on':''}" onclick="uvToggleOp('amostra')">Amostra</button></div>`;
+  const painel = !_uvFiltersOpen ? '' : `<div class="uv-painel2">
+    <div class="uv-fg"><label>Fonte</label>${fonteSeg}</div>
+    <div class="uv-fg"><label>Empresa</label><select class="empresa-sel" onchange="uvSetEmpresa(this.value)">${empOpt}</select></div>
+    <div class="uv-fg"><label>Mês</label><select class="empresa-sel" onchange="vbiSetMes(this.value)">${mesOpt}</select></div>
+    <div class="uv-fg"><label>Operação</label>${opSeg}</div>
+    <div class="uv-fg"><label>Vendedor</label><select class="empresa-sel" onchange="vbiSetSel('vend',this.value)"><option value="">Todos</option>${vends.map(l=>`<option ${_vbiF.vend===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
+    <div class="uv-fg"><label>Coleção</label><select class="empresa-sel" onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}<option value="(sem coleção)" ${_vbiF.col==='(sem coleção)'?'selected':''}>Sem coleção</option></select></div>
   </div>`;
   // ── KPIs ──
   const kpi=(lab,val,prev,money)=>`<div class="vbi-kpi" onclick="vbiDrillTotal('${lab}')" title="Ver os pedidos que compõem"><div class="kl">${lab}</div><div class="kv">${money?brl(val):nf(val)}</div>${vv(val,prev)}</div>`;
@@ -995,6 +993,13 @@ const _UV_CSS=`
 .uv-chip i:hover{color:#ff8f88}
 .uv-limpar{background:none;border:1px solid var(--line);color:var(--muted);border-radius:10px;padding:6px 12px;font-size:12px;cursor:pointer}
 .uv-painel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.uv-painel2{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow);display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end}
+.uv-fg{display:flex;flex-direction:column;gap:6px}
+.uv-fg>label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:800}
+.uv-painel2 .seg{padding:3px}
+.uv-painel2 .seg button{padding:6px 13px;font-size:12.5px}
+.uv-painel2 .empresa-sel{font-size:12.5px;padding:7px 12px}
+.seg button.seg-off{opacity:.45;cursor:not-allowed}
 .uv-fgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
 .vbi-sg.col{display:flex;flex-direction:column;align-items:flex-start;gap:7px}
 .vbi-sg.col>label{align-self:flex-start;margin:0}
