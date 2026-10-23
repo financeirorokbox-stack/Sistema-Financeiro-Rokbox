@@ -122,5 +122,42 @@ Quando um atalho for blindado: remover da lista e registrar a versão em que foi
 - Acessórios (mochila, bandana, garrafa, boné, viseira, meia, necessaire, chaveiro etc.) vão para o grupo "Acessórios", não para coleção.
 - No Painel, "Acessórios" aparece como grupo próprio, separado das coleções sazonais: não entra no top das coleções do mês nem no "Sem coleção".
 
+## 17. Aba Margem (Painel RK, Financeiro) — análise de desconto e margem
+Fica SÓ no Painel RK (financeiro.html). Nada de tela nova no Gestão. Login vendas não abre o Financeiro. Padrões, tolerância e limites editáveis só pelo admin (ehAdmin); diretor e vendas visualizam.
+
+**Fonte de preço e custo:** cadastro do produto no Bling por SKU, nas 2 contas (preco = tabela; precoCusto = custo). Populado pela sincronização que já roda (precisa do escopo Produtos reautorizado). Variação usa o preço/custo do pai; se vazio, o pai. Custo congelado na DATA DA VENDA (mudança de custo no Bling não altera meses passados). Planilhas "Custo e Compras" = só comparação, não é fonte oficial.
+
+**Cascata (colunas):** Peças | Tabela | Desc. linha | Desc. pedido | Receita líquida | Custo | Margem bruta | Imposto | Taxa cartão | Comissão | Frete | Margem de contribuição.
+- Tabela = preço de cadastro (varejo) × qtd (régua única para todos).
+- Desconto da linha = tabela − praticado; desconto do pedido = desconto geral, rateado por valor. Receita líquida = tabela − descontos.
+- Margem bruta = receita líquida − custo. Margem de contribuição = margem bruta − imposto − taxa − comissão − frete.
+- Percentuais das margens e despesas sobre a RECEITA LÍQUIDA; desconto % sobre a TABELA.
+- Botão "só margem bruta" × "cascata completa".
+
+**Segmento:** vem de lojaCadastro[loja].segmento (Atacado, Varejo, Site, PL, WL, Plano, Eventos). Segmento é o filtro principal; nunca misturar segmentos numa média sem mostrar a separação.
+
+**Regra de desconto por segmento (editável, admin):**
+- Varejo, Site, Plano, Eventos: real × tabela, > 15% amarelo, > 20% vermelho. Tolerância 2 pts.
+- Atacado: referência 50% (é a lista de atacado, ~50% do varejo). > 55% amarelo, > 60% vermelho.
+- WL e PL: fora da análise de desconto (preço negociado/SKU próprio), só margem. PL fora até a reautorização da 2ª conta.
+- Site NÃO tem lista própria (a maioria vende a preço cheio); segue a regra do Varejo. O Bling não tem campo de promoção/cupom nem preço promocional.
+- Promoção (outlet): vendas de coleção antiga (pela data em colecaoLancamento) marcadas como "Promoção", sem alerta de desconto, mas com alerta se a margem bruta ficar abaixo do limite do segmento. Desconto fora de promoção segue 15%/20%.
+
+**Funcionário (2 casos):**
+- Venda para funcionário = vendedor Elaine Lima + operação Venda/Troca: é venda (Varejo), desconto padrão 65%, bloco "Venda funcionário" à parte, fora das médias e do ranking de vendedores, alerta só acima de 65%.
+- Retirada de funcionário = loja "Retirada Funcionários" (operação Amostra): não é venda, é benefício. Fora de faturamento, meta, comissão e desconto. Bloco "Benefício funcionário": peças e custo do mês (receita 0).
+
+**Despesas (dados reais do Bling/Gestão, sem digitação):**
+- Imposto: Simples Nacional (RBT12 do PGDAS-D, anexo por empresa, alíquota efetiva), só em pedido COM NF emitida (NF do Bling, mesma fonte da aba NF), sobre o valor da nota. Sem nota = 0. Comparar o esperado do mês com o DAS lançado no Contas a Pagar (esperado × pago × diferença; aviso se diferença > 5%). Sem dado do mês, usar o do mês anterior marcado "estimada". Conferência gerencial, não substitui a contabilidade.
+- Taxa de cartão: taxa real do recebimento (gateway), ligada pelo número do pedido. Não recebido = taxa estimada do meio de pagamento, marcada "estimada".
+- Comissão: mesma base e % da aba Comissão do Gestão (o Bling traz comissão por item).
+- Frete: entra o frete PAGO pela empresa (Correios), cruzando o código de rastreio do Bling com a fatura dos Correios (pasta "Correios" no Drive; colunas: rastreio, valor pago, data de postagem), abatendo o frete cobrado. Aviso quando pago − cobrado > R$ 30.
+
+**Avisos no topo (respeitam os filtros):** venda abaixo do custo (margem bruta negativa), desconto acima do padrão (> 15 pts acima do padrão do segmento; PL/WL fora), margem de contribuição negativa, taxa de cartão acima da esperada, frete pago > cobrado + R$ 30, produto sem custo no cadastro. Aviso de custo incompleto enquanto não populado ("X% das peças sem custo").
+
+**Limites de margem (editável, admin):** Varejo/Site < 55% amarelo, < 40% vermelho; Atacado/PL/WL < 35% amarelo, < 25% vermelho; Plano/Eventos < 45% amarelo, < 30% vermelho.
+
+**Estrutura pronta** para somar imposto/taxa/comissão/frete (fase seguinte); a Etapa 1 mostra até a margem bruta.
+
 ## Manutenção deste documento
 - Toda decisão nova de regra deve ser acrescentada aqui, na mesma sessão em que for decidida.
