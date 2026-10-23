@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v740/10-793';
+const APP_VERSION = 'v741/10-794';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3873,6 +3873,18 @@ function comPeriodoInfo() {
   return { key: [a, m, d].join('-'), label };
 }
 // Recalcula o total de comissão de UM vendedor no período (mesma regra da tabela, incl. metas/faixas).
+// Base da comissão de UM pedido (FONTE ÚNICA: usada aqui E gravada no flatVendas → a meta do Painel bate sempre com a comissão).
+// = máx(0, valor − frete − devolução − outras − diferença), com overrides manuais (frete/base). 0 fora de Venda/Troca ou situação não-aplicável.
+function comissaoBaseDoPedido(p, devolMap) {
+  if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return 0;
+  const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return 0;
+  const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
+  const devol = devolMap ? (devolMap[String(p.id)] || 0) : ((devolPorPedidoMap().porPed || {})[String(p.id)] || 0);
+  const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
+  const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
+  const diferenca = diferencaDoPedido(p, emAberto);
+  return Math.max(0, baseDoPedido(p, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2)));
+}
 function comissaoTotalVendedor(vend) {
   if (comissaoExcecoes.includes(vend)) return { total: 0, qtd: 0 };
   const devolPorPed = devolPorPedidoMap().porPed;
@@ -3882,12 +3894,8 @@ function comissaoTotalVendedor(vend) {
     if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
     const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return;
     if (dfAtivo() && !passaData(p.data)) return;
-    const frete = freteDoPedido(p), outras = p.outrasDespesas || 0, devol = devolPorPed[String(p.id)] || 0;
-    const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
-    const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
-    const diferenca = diferencaDoPedido(p, emAberto);
-    const base = baseDoPedido(p, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2));
-    itens.push({ p, base: Math.max(0, base) });
+    const base = comissaoBaseDoPedido(p, devolPorPed); // mesma função que vai pro flatVendas
+    itens.push({ p, base });
   });
   // Meta/atingimento (só com filtro de um mês): se bater, usa a faixa por segmento.
   const metaAno = dateFilter.ano.length === 1 ? dateFilter.ano[0] : null;
@@ -5349,6 +5357,7 @@ async function _syncPowerBI() {
       valor: +(+p.valor || 0).toFixed(2), frete: +(freteDoPedido(p) || 0).toFixed(2),
       desconto: +(+p.desconto || 0).toFixed(2), outras_despesas: +(+p.outrasDespesas || 0).toFixed(2),
       devolucao_abatida: devAbat,
+      comissao_base: +(comissaoBaseDoPedido(p, _devPorPed) || 0).toFixed(2), // base da comissão (= realizado da meta no Painel)
       tem_nf: p.temNF || '', numero_doc: p.numeroDoc || '', cidade: p.cidade || '', uf: p.uf || '',
       qtd_itens: Array.isArray(p.linhas) ? p.linhas.length : 0
     };
