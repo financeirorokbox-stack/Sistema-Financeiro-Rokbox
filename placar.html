@@ -722,7 +722,9 @@ function renderUV(){
   // ── painel de filtros (visual do Placar antigo, oculto dentro do botão Filtros) ──
   const vends=[...new Set(src.map(f=>f.vendedor))].sort();
   const _cd=_vbiColData||{}; // ordena por data de lançamento (mais recente primeiro); sem data vai pro fim
-  const cols=[...new Set(src.map(f=>f.colecao))].filter(c=>c!=='(sem coleção)').sort((a,b)=>{ const da=_cd[a]||'', db=_cd[b]||''; if(da&&db) return da<db?1:(da>db?-1:a.localeCompare(b)); if(da) return -1; if(db) return 1; return a.localeCompare(b); });
+  const _colSet=[...new Set(src.map(f=>f.colecao))];
+  const temAcess=_colSet.includes('Acessórios'); // "Acessórios" é grupo próprio (mochila/bandana/garrafa etc.), não é coleção nem "Sem coleção"
+  const cols=_colSet.filter(c=>c!=='(sem coleção)' && c!=='Acessórios').sort((a,b)=>{ const da=_cd[a]||'', db=_cd[b]||''; if(da&&db) return da<db?1:(da>db?-1:a.localeCompare(b)); if(da) return -1; if(db) return 1; return a.localeCompare(b); });
   const _cur=(dados&&dados.mes)||hojeISO().slice(0,7);
   const mesOpt=_vbiMeses.map(m=>{ const n=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); const lbl=n.charAt(0).toUpperCase()+n.slice(1)+(m===_cur?' (atual)':''); return `<option value="${m}" ${((_vbiF.mes||_vbiMeses[0])===m)?'selected':''}>${lbl}</option>`; }).join('');
   const empSel=_vbiF.emp.has('Rokbox')?'Rokbox':_vbiF.emp.has('Rk')?'Rk':_vbiF.emp.has('PL')?'PL':_vbiF.emp.has('WL')?'WL':'';
@@ -735,7 +737,7 @@ function renderUV(){
     <div class="uv-fg"><label>Mês</label><select class="empresa-sel" onchange="vbiSetMes(this.value)">${mesOpt}</select></div>
     <div class="uv-fg"><label>Operação</label>${opSeg}</div>
     <div class="uv-fg"><label>Vendedor</label><select class="empresa-sel" onchange="vbiSetSel('vend',this.value)"><option value="">Todos</option>${vends.map(l=>`<option ${_vbiF.vend===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
-    <div class="uv-fg"><label>Coleção</label><select class="empresa-sel" onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}<option value="(sem coleção)" ${_vbiF.col==='(sem coleção)'?'selected':''}>Sem coleção</option></select></div>
+    <div class="uv-fg"><label>Coleção</label><select class="empresa-sel" onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}${temAcess?`<option value="Acessórios" ${_vbiF.col==='Acessórios'?'selected':''}>Acessórios (grupo)</option>`:''}<option value="(sem coleção)" ${_vbiF.col==='(sem coleção)'?'selected':''}>Sem coleção</option></select></div>
   </div>`;
   // ── KPIs ──
   const kpi=(lab,val,prev,money)=>`<div class="vbi-kpi" onclick="vbiDrillTotal('${lab}')" title="Ver os pedidos que compõem"><div class="kl">${lab}</div><div class="kv">${money?brl(val):nf(val)}</div>${vv(val,prev)}</div>`;
@@ -777,7 +779,8 @@ function renderUV(){
   // ── gráficos ──
   const gLoja=_vbiAgrupa(facts,'loja').slice(0,10);
   const colAll=_vbiAgrupa(facts,'colecao');
-  const gCol=[...colAll.filter(c=>c.nome!=='(sem coleção)').slice(0,7), ...colAll.filter(c=>c.nome==='(sem coleção)')];
+  // "Acessórios" e "(sem coleção)" não disputam o top das coleções sazonais; aparecem como grupos próprios no fim.
+  const gCol=[...colAll.filter(c=>c.nome!=='(sem coleção)' && c.nome!=='Acessórios').slice(0,7), ...colAll.filter(c=>c.nome==='Acessórios'), ...colAll.filter(c=>c.nome==='(sem coleção)')];
   const colBlock = blingAtivo ? '<div class="vbi-empty">coleção disponível no cenário Sistema</div>' : _vbiBarras(gCol,'col',_vbiF.col,k.fat);
   const charts=`${metaCard}${tops}<div class="vbi-charts">
     <div class="vbi-ch wide"><h3>Faturamento por dia <span>(clique num dia pra filtrar)</span></h3>${_vbiLinhaDia(facts)}</div>
