@@ -117,5 +117,10 @@ Pontos que hoje marcam pago/recebido ou editam sem checar a trava de mês fechad
 
 Quando um atalho for blindado: remover da lista e registrar a versão em que foi corrigido.
 
+## 16. Coleções e acessórios (produtoColecao)
+- O SKU é ligado à coleção pelo `produtoColecao` (chave = SKU-base, valor = nome do grupo).
+- Acessórios (mochila, bandana, garrafa, boné, viseira, meia, necessaire, chaveiro etc.) vão para o grupo "Acessórios", não para coleção.
+- No Painel, "Acessórios" aparece como grupo próprio, separado das coleções sazonais: não entra no top das coleções do mês nem no "Sem coleção".
+
 ## Manutenção deste documento
 - Toda decisão nova de regra deve ser acrescentada aqui, na mesma sessão em que for decidida.
