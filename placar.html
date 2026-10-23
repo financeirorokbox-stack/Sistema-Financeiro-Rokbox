@@ -204,7 +204,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-22.5';
+const BUILD = '2026-10-23.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -573,7 +573,7 @@ function renderVendedorDia(vendas){
 // ════════════════════════════════════════════════════════════════════
 let _vbiReady=false, _vbiFacts=[], _vbiFV=null, _vbiProdCol=null, _vbiMeses=[], _vbiMetas=null, _vbiColData=null;
 let _uvBling=[], _uvProsp=null, _uvFiltersOpen=false;
-let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'sistema', op:new Set(['venda']) };
+let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'bling', op:new Set(['venda']) }; // abre no Bling (cru, ao vivo); Sistema é opção no Filtros
 function _uvOpBucket(op){ op=String(op||'').toLowerCase(); if(op==='venda')return 'venda'; if(op==='troca')return 'troca'; if(op==='amostra')return 'amostra'; return 'outras'; }
 const _VBI_NAOAP=new Set(['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15']);
 function _vbiE(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -703,7 +703,7 @@ function vbiSetSel(dim, val){ if(dim==='loja')_vbiF.loja=val; else if(dim==='ven
 function vbiToggleEmp(e){ if(_vbiF.emp.has(e)) _vbiF.emp.delete(e); else _vbiF.emp.add(e); renderUV(); }
 function vbiSetMes(m){ _vbiF.mes=m; _vbiF.de=''; _vbiF.ate=''; _vbiF.dia=''; renderUV(); }
 function vbiSetRange(k,v){ _vbiF[k]=v; if(_vbiF.de&&_vbiF.ate) _vbiF.dia=''; renderUV(); }
-function vbiLimpar(){ _vbiF={ mes:_vbiMeses[0]||hojeISO().slice(0,7), de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'sistema', op:new Set(['venda']) }; renderUV(); }
+function vbiLimpar(){ _vbiF={ mes:_vbiMeses[0]||hojeISO().slice(0,7), de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'bling', op:new Set(['venda']) }; renderUV(); }
 function uvSetSeg(s){ _vbiF.seg=(_vbiF.seg===s?'':s); renderUV(); }
 function uvToggleFiltros(){ _uvFiltersOpen=!_uvFiltersOpen; renderUV(); }
 function uvSetFonte(f){ if(f==='bling' && !_uvBlingDisp()){ _vbiF.mes=(dados&&dados.mes)||hojeISO().slice(0,7); _vbiF.de=''; _vbiF.ate=''; } _vbiF.fonte=f; renderUV(); }
@@ -794,7 +794,7 @@ function _uvChips(){
   if(F.vend) c.push(`<span class="uv-chip">${_vbiE(F.vend)}<i onclick="vbiSetSel('vend','')">✕</i></span>`);
   if(F.col) c.push(`<span class="uv-chip">${_vbiE(F.col)}<i onclick="vbiSetSel('col','')">✕</i></span>`);
   if(F.dia) c.push(`<span class="uv-chip">${F.dia.slice(8,10)}/${F.dia.slice(5,7)}<i onclick="vbiFiltrar('dia','${F.dia}')">✕</i></span>`);
-  if(F.fonte==='bling') c.push(`<span class="uv-chip adv">Bling (cru)<i onclick="uvSetFonte('sistema')">✕</i></span>`);
+  if(F.fonte==='sistema') c.push(`<span class="uv-chip adv">Sistema<i onclick="uvSetFonte('bling')">✕</i></span>`);
   if(!(F.op.size===1 && F.op.has('venda'))) c.push(`<span class="uv-chip adv">Op: ${[...F.op].join('/')}<i onclick="uvResetOp()">✕</i></span>`);
   return c.join('');
 }
@@ -807,8 +807,9 @@ function renderUV(){
   const k=_vbiKPIs(facts), kp=_vbiKPIsPrev();
   const vv=(cur,prev)=>{ if(kp==null||prev==null) return ''; if(!prev){ return cur>0?'<span class="vbi-var up" title="mês anterior sem vendas no mesmo ponto">novo</span>':''; } const d=(cur-prev)/prev*100; const up=d>=0; return `<span class="vbi-var ${up?'up':'dn'}" title="vs mesmo ponto do mês anterior">${up?'▲':'▼'} ${_vbiPct(d)}</span>`; };
   // ── barra de cima: botão Filtros + etiquetas ativas ──
-  const nFiltros=(_vbiF.emp.size)+(_vbiF.seg?1:0)+(_vbiF.loja?1:0)+(_vbiF.vend?1:0)+(_vbiF.col?1:0)+(_vbiF.dia?1:0)+(_vbiF.fonte==='bling'?1:0)+((_vbiF.op.size===1&&_vbiF.op.has('venda'))?0:1)+((_vbiF.de&&_vbiF.ate)?1:0);
-  const topo=`<div class="uv-topo"><button class="uv-fbtn${nFiltros?' on':''}" onclick="uvToggleFiltros()">🔎 Filtros${nFiltros?` · ${nFiltros}`:''}</button><div class="uv-chips">${_uvChips()}</div>${nFiltros?`<button class="uv-limpar" onclick="vbiLimpar()">limpar tudo</button>`:''}</div>`;
+  const nFiltros=(_vbiF.emp.size)+(_vbiF.seg?1:0)+(_vbiF.loja?1:0)+(_vbiF.vend?1:0)+(_vbiF.col?1:0)+(_vbiF.dia?1:0)+(_vbiF.fonte==='sistema'?1:0)+((_vbiF.op.size===1&&_vbiF.op.has('venda'))?0:1)+((_vbiF.de&&_vbiF.ate)?1:0);
+  const fonteLbl = blingAtivo ? 'Bling (cru, ao vivo)' : (_vbiF.fonte==='bling' ? 'Sistema (mês fechado)' : 'Sistema');
+  const topo=`<div class="uv-topo"><button class="uv-fbtn${nFiltros?' on':''}" onclick="uvToggleFiltros()">🔎 Filtros${nFiltros?` · ${nFiltros}`:''}</button><span class="uv-fonte ${blingAtivo?'bl':'sis'}" title="Fonte dos números. Troca no botão Filtros.">Fonte: ${fonteLbl}</span><div class="uv-chips">${_uvChips()}</div>${nFiltros?`<button class="uv-limpar" onclick="vbiLimpar()">limpar tudo</button>`:''}</div>`;
   // ── painel de filtros (visual do Placar antigo, oculto dentro do botão Filtros) ──
   const vends=[...new Set(src.map(f=>f.vendedor))].sort();
   const _cd=_vbiColData||{}; // ordena por data de lançamento (mais recente primeiro); sem data vai pro fim
@@ -905,8 +906,8 @@ function _vbiModal(titulo, peds){
     }</tbody></table></div></div>`;
   bg.style.display='flex';
 }
-function vbiDrillTotal(lab){ const peds=_vbiPedList(_vbiFacts.filter(_vbiPass)); _vbiModal(lab+' — pedidos', peds); }
-function vbiDrillDim(campo, val){ const peds=_vbiPedList(_vbiFacts.filter(f=>_vbiPass(f)&&(f[campo]||'(sem)')===val)); _vbiModal(val, peds); }
+function vbiDrillTotal(lab){ const peds=_vbiPedList(_uvSource().filter(_vbiPass)); _vbiModal(lab+' — pedidos', peds); }
+function vbiDrillDim(campo, val){ const peds=_vbiPedList(_uvSource().filter(f=>_vbiPass(f)&&(f[campo]||'(sem)')===val)); _vbiModal(val, peds); }
 const _VBI_CSS=`
 #view-vendasbi{max-width:1200px;margin:0 auto}
 .vbi-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 16px;margin-bottom:14px;position:sticky;top:0;z-index:5}
@@ -987,6 +988,9 @@ const _UV_CSS=`
 .uv-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .uv-fbtn{background:var(--lime);color:#08130b;border:none;border-radius:12px;padding:9px 16px;font-weight:800;font-size:13.5px;cursor:pointer;box-shadow:var(--shadow)}
 .uv-fbtn.on{box-shadow:0 0 0 2px var(--lime2) inset,var(--shadow)}
+.uv-fonte{font-size:12px;font-weight:800;padding:6px 12px;border-radius:999px;border:1px solid var(--line)}
+.uv-fonte.bl{background:rgba(124,196,255,.14);color:var(--blue);border-color:#2b4a63}
+.uv-fonte.sis{background:rgba(126,231,135,.12);color:var(--lime);border-color:#2f4a3a}
 .uv-chips{display:flex;gap:7px;flex-wrap:wrap;flex:1}
 .uv-chip{background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;display:inline-flex;gap:7px;align-items:center}
 .uv-chip.per{border-color:#2f4a3a;color:var(--lime)}
