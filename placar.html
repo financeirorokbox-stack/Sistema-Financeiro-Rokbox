@@ -204,7 +204,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-23.1';
+const BUILD = '2026-10-23.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -606,7 +606,7 @@ function vbiBuildFacts(){
     const net = (+fv.valor||0) - (+fv.devolucao_abatida||0);
     const data = String(fv.data||'').slice(0,10); if(!data) return;
     mset.add(data.slice(0,7));
-    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_uvOpBucket(fv.operacao) };
+    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_uvOpBucket(fv.operacao), comissaoBase:(fv.comissao_base!=null?+fv.comissao_base:null) };
     const ped=pedById[base.pedido];
     const linhas=(ped&&Array.isArray(ped.linhas))?ped.linhas:[];
     const lv=l=> (+l.valorLinha || (+l.precoUnit||0)*(+l.qtd||0) || 0);
@@ -798,6 +798,15 @@ function _uvChips(){
   if(!(F.op.size===1 && F.op.has('venda'))) c.push(`<span class="uv-chip adv">Op: ${[...F.op].join('/')}<i onclick="uvResetOp()">✕</i></span>`);
   return c.join('');
 }
+// Realizado da META = base da COMISSÃO (SEMPRE do Sistema/flatVendas, mesmo no modo Bling). Soma por pedido (dedup), por vendedor.
+function _vbiComBaseVend(){
+  const mf=_vbiFacts.filter(_vbiPass);
+  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, cb:(f.comissaoBase!=null?f.comissaoBase:null)}; });
+  const m={}; let semCampo=false;
+  Object.values(ped).forEach(o=>{ if(o.cb==null){ semCampo=true; return; } const e=m[o.v]||(m[o.v]={val:0,np:0}); e.val+=o.cb; e.np++; });
+  const arr=Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np})).sort((a,b)=>b.val-a.val);
+  arr._semCampo=semCampo; return arr;
+}
 function renderUV(){
   const root=document.getElementById('uv-root'); if(!root) return;
   if(!document.getElementById('vbi-css')){ const st=document.createElement('style'); st.id='vbi-css'; st.textContent=_VBI_CSS; document.head.appendChild(st); }
@@ -836,22 +845,25 @@ function renderUV(){
     ${kpi('Ticket médio',k.ticket,kp&&kp.ticket,true)}
     ${kpi('Peças vendidas',k.pcs,kp&&kp.pcs,false)}
   </div>`;
-  // ── Meta do mês ──
-  const gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8);
+  // ── Meta do mês (realizado = base da COMISSÃO, sempre do Sistema/flatVendas) ──
+  const gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8); // vendedor por faturamento (só quando NÃO há meta)
+  const gVendMeta=_vbiComBaseVend(), gVendMetaTop=gVendMeta.slice(0,8);  // vendedor pela base da comissão (meta)
   const metasMes=_vbiMetasDoMes(); const temMetas=Object.keys(metasMes).length>0, rangeAtivo=!!(_vbiF.de&&_vbiF.ate);
+  const metaSemCampo = temMetas && gVendMeta._semCampo; // flatVendas ainda sem comissao_base → pedir Atualizar Power BI
   let somaMetas=0; if(temMetas){ somaMetas = _vbiF.vend ? (metasMes[_vbiF.vend]||0) : Object.values(metasMes).reduce((s,v)=>s+v,0); }
-  let realComMeta=k.fat, realSemMeta=0;
-  if(temMetas && !_vbiF.vend){ realComMeta = gVend.filter(v=>metasMes[v.nome]).reduce((s,v)=>s+v.val,0); realSemMeta = k.fat - realComMeta; }
+  const totComBase=gVendMeta.reduce((s,v)=>s+v.val,0);
+  let realComMeta=0, realSemMeta=0;
+  if(temMetas){ if(_vbiF.vend){ realComMeta=totComBase; } else { realComMeta=gVendMeta.filter(v=>metasMes[v.nome]).reduce((s,v)=>s+v.val,0); realSemMeta=totComBase-realComMeta; } }
   const metaPct = somaMetas? realComMeta/somaMetas*100 : null, metaCor=_vbiCorMeta(metaPct);
-  // esperado pelos dias úteis (desconta feriado nacional), só no mês vigente
   let espHtml='';
-  if(temMetas && !rangeAtivo && !_vbiF.vend){
+  if(temMetas && !metaSemCampo && !rangeAtivo && !_vbiF.vend){
     const mes=_vbiF.mes||_vbiMeses[0]; const cur=(dados&&dados.mes)||hojeISO().slice(0,7);
     if(mes===cur){ const du=_diasUteisMes(mes, new Date().getDate()); const espPct= du.tot? du.ate/du.tot*100 : 100; espHtml=`<span class="mc-esp">esperado ${espPct.toFixed(0)}% até hoje (${du.ate} de ${du.tot} dias úteis)</span>`; }
   }
-  const metaCard=`<div class="vbi-metacard ${metaCor}">`+(
+  const metaCard=`<div class="vbi-metacard ${metaSemCampo?'':metaCor}">`+(
     rangeAtivo ? `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">as metas são por mês, escolha um mês no Período pra comparar</div>`
-    : temMetas ? `<div class="mc-l">🎯 Meta do mês${_vbiF.vend?' · '+_vbiE(_vbiF.vend):''}</div><div class="mc-row"><b class="mc-real">${brl(realComMeta)}</b><span class="mc-de">de</span><span class="mc-meta">${brl(somaMetas)}</span><span class="mc-pct ${metaCor}">${metaPct.toFixed(0)}% atingido</span>${espHtml}</div>`+(realSemMeta>0?`<div class="mc-sem2">Vendas sem meta: ${brl(realSemMeta)}</div>`:``)
+    : metaSemCampo ? `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">rode <b>Atualizar Power BI</b> no Gestão pra calcular o realizado na base da comissão</div>`
+    : temMetas ? `<div class="mc-l">🎯 Meta do mês${_vbiF.vend?' · '+_vbiE(_vbiF.vend):''} <span class="mc-base">base: comissão</span></div><div class="mc-row"><b class="mc-real">${brl(realComMeta)}</b><span class="mc-de">de</span><span class="mc-meta">${brl(somaMetas)}</span><span class="mc-pct ${metaCor}">${metaPct.toFixed(0)}% atingido</span>${espHtml}</div>`+(realSemMeta>0?`<div class="mc-sem2">Vendas sem meta: ${brl(realSemMeta)}</div>`:``)
     : `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">sem meta cadastrada para este mês · <span style="opacity:.85">cadastre em Gestão → Cadastro → Metas</span></div>`
   )+`</div>`;
   // ── cards de total por segmento (visual do Placar) ──
@@ -870,7 +882,7 @@ function renderUV(){
   const charts=`${metaCard}${tops}<div class="vbi-charts">
     <div class="vbi-ch wide"><h3>Faturamento por dia <span>(clique num dia pra filtrar)</span></h3>${_vbiLinhaDia(facts)}</div>
     <div class="vbi-ch"><h3>Por loja</h3><div class="vbi-bars">${_vbiBarras(gLoja,'loja',_vbiF.loja,k.fat)}</div></div>
-    <div class="vbi-ch"><h3>Por vendedor ${temMetas?'<span>(realizado × meta)</span>':(rangeAtivo?'':'<span class="sem">(sem meta no mês)</span>')}</h3><div class="vbi-bars">${temMetas?_vbiBarrasVend(gVendTop,metasMes):_vbiBarras(gVendTop,'vend',_vbiF.vend,k.fat)}</div></div>
+    <div class="vbi-ch"><h3>Por vendedor ${temMetas?(metaSemCampo?'<span>(rode Atualizar Power BI)</span>':'<span>(realizado × meta · base comissão)</span>'):(rangeAtivo?'':'<span class="sem">(sem meta no mês)</span>')}</h3><div class="vbi-bars">${(temMetas&&!metaSemCampo)?_vbiBarrasVend(gVendMetaTop,metasMes):_vbiBarras(gVendTop,'vend',_vbiF.vend,k.fat)}</div></div>
     <div class="vbi-ch"><h3>Por coleção</h3><div class="vbi-bars">${colBlock}</div></div>
     <div class="vbi-ch"><h3>Por status</h3><div class="vbi-bars">${_uvStatus(facts)}</div></div>
   </div>`;
@@ -1017,6 +1029,7 @@ const _UV_CSS=`
 .vbi-chip.off{opacity:.45;cursor:not-allowed}
 .uv-hint{font-size:11px;color:var(--muted);margin-left:4px}
 .mc-esp{color:var(--gold);font-size:12.5px;font-weight:700;margin-left:6px}
+.mc-base{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--blue);background:rgba(124,196,255,.14);border:1px solid #2b4a63;border-radius:999px;padding:2px 8px;margin-left:6px}
 .tops .card.seg-on{box-shadow:0 0 0 2px var(--lime) inset}
 @media(max-width:820px){.uv-fgrid{grid-template-columns:1fr 1fr}#view-main .tops{grid-template-columns:1fr 1fr}}
 `;
