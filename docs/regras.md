@@ -18,7 +18,7 @@ Toda sessão lê isto ANTES de alterar o sistema.
 - Para mudança em exportação: comparar o export antigo (antes x depois).
 
 ## 1. Fonte da verdade
-- O Bling é a fonte da verdade do pedido de venda. O Gestão espelha data, situação, valor, frete, loja e vendedor, SÓ em meses abertos. A sync nunca toca empresa/categoria.
+- O Bling é a fonte da verdade do pedido de venda. O Gestão espelha data, situação, valor, frete, loja, vendedor, cliente (nome e id do contato) e itens, SÓ em meses abertos. A sync nunca toca empresa/categoria.
 - Pago/Recebido só pela conciliação bancária (CR e CP).
 - Atalhos que marcam pago/recebido (lista do scanner) estão sendo blindados. Enquanto existirem, devem respeitar a trava de mês fechado e registrar no histórico.
 
@@ -82,6 +82,12 @@ Toda sessão lê isto ANTES de alterar o sistema.
 - Pedido cancelado no Bling não apaga o pedido no Gestão (só marca).
 - Toda alteração vinda do Bling vai pro log (blingSyncLog) e as divergências pras Pendências (blingPendencias).
 - Adoção de pedido sem marca: por conta + número + empresa + cliente (nome igual ou prefixo), com tolerância de R$ 0,05 no valor (vale o valor do Bling).
+- Cliente e itens também são espelhados em pedido que já existe (não só no pedido novo). Cliente = nome + id do contato; itens vêm do blingDetCache (SKU, descrição, qtd, preço). Isso corrige os pedidos que entraram como "Etiqueta de Correios": um pedido assim se conserta sozinho na sincronização seguinte.
+- Proteções do espelhamento de cliente/itens (vão para Pendências, NÃO sobrescrevem):
+  - Contato virou "Atualização de estoque SAIDA" no Bling (pode ter deixado de ser venda).
+  - Pedido tocado à mão: tem anotação em obsPedido, OU itens com custo (vieram da planilha de vendas, que o Bling não traz).
+  - Reuso de número: o cliente do Bling é outra pessoa (os nomes não casam por tokens) e o Gestão tem itens reais. Nome mais completo da mesma pessoa (ex.: "Maria Brito" para "Maria Eugenia Brito") não é reuso, aplica. Pedido-placeholder (sem SKU real) também aplica.
+  - Mês fechado: não altera, só loga a divergência (para o "Aplicar mesmo assim").
 
 ## 12. Painel RK
 - Saldo em banco sempre ATUAL: último extrato de cada conta, com a data, independente do filtro de mês.
