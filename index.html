@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v741/10-794';
+const APP_VERSION = 'v742/10-795';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -17965,6 +17965,31 @@ function _mesFechadoBling(v) { try { const d = (v instanceof Date) ? v : new Dat
 function _pedTemRecebimentoBling(num) { try { return recebimentosConsolidado.some(r => String(r.nped || '').split(',').map(s => s.trim()).includes(String(num))); } catch (e) { return false; } }
 // Cliente "bate" pra adoção: nomes iguais OU um é começo do outro (ex.: Bling trunca o sobrenome).
 function _blingClienteBate(a, b) { const x = String(a || '').trim().toLowerCase().replace(/\s+/g, ' '), y = String(b || '').trim().toLowerCase().replace(/\s+/g, ' '); if (!x || !y) return false; return x === y || x.startsWith(y) || y.startsWith(x); }
+// Itens do Bling → linhas do pedido (mesmo formato do pedido novo). Reaproveitado na criação e no espelhamento.
+function _blingItensMap(detP, rTotal) {
+  const its = (detP && Array.isArray(detP.itens)) ? detP.itens : [];
+  return its.map(it => { const pu = +it.valor || 0, q = +it.qtd || 0; return { sku: it.sku || '', descricao: it.descricao || '', qtd: q, precoUnit: pu, valorLinha: +(pu * (q || 1)).toFixed(2), totalProdutos: +rTotal || 0, precoCusto: 0, frete: 0, outras: 0, desconto: 0 }; });
+}
+// Assinatura normalizada das linhas (SKU alfanumérico + qtd) pra comparar Gestão x Bling sem falsa divergência de grafia.
+function _blingItensSig(linhas) {
+  return (Array.isArray(linhas) ? linhas : []).map(l => String(l.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '') + '#' + Math.round(+l.qtd || 0)).filter(s => !/^#/.test(s)).sort().join('|');
+}
+function _blingResumoItens(linhas) { const a = (Array.isArray(linhas) ? linhas : []); const s = a.slice(0, 6).map(l => (String(l.sku || '').trim() || String(l.descricao || '?').trim()) + ' x' + (+l.qtd || 0)).join(', '); return (s || '(vazio)') + (a.length > 6 ? ' …(+' + (a.length - 6) + ')' : ''); }
+// Pedido "tocado à mão" (não sobrescrever cliente/itens; mandar pra Pendências): tem anotação em obsPedido OU itens com custo (vieram da planilha de vendas, que o Bling não traz).
+function _pedCuradoBling(ex, num) {
+  try {
+    if (obsPedido && obsPedido[String(num)] && String(obsPedido[String(num)]).trim()) return 'anotação em obsPedido';
+    if (Array.isArray(ex.linhas) && ex.linhas.some(l => (+l.precoCusto || 0) > 0)) return 'itens com custo (planilha de vendas)';
+  } catch (e) {}
+  return '';
+}
+// Mesma pessoa: nomes iguais OU todos os tokens de um contidos no outro (ex.: "Maria Brito" ⊆ "Maria Eugenia Brito"). Não casa pessoas distintas (Renata×Roberta).
+function _blingMesmaPessoa(a, b) {
+  const tk = s => String(s || '').toLowerCase().replace(/[^0-9a-zà-ú\s]/g, ' ').split(/\s+/).filter(w => w.length > 1);
+  const na = tk(a), nb = tk(b); if (!na.length || !nb.length) return false;
+  const sa = new Set(na), sb = new Set(nb);
+  return na.every(w => sb.has(w)) || nb.every(w => sa.has(w));
+}
 // LOG de toda alteração vinda do Bling (pedido, campo, de→para, aplicado/bloqueado, motivo) + Pendências.
 let _blingLogBuf = [], _blingPendBuf = [], _lojaFixesMud = false, _vendFixesMud = false, _blingUnmapSeen = new Set();
 function _blingLog(e) { _blingLogBuf.push(Object.assign({ ts: new Date().toISOString(), origem: 'polling' }, e)); }
@@ -18026,6 +18051,10 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
           if (ex.situacao !== (r.situacao || '')) _blingLog({ pedido: num, conta: empresa, campo: 'situacao', de: ex.situacao || '', para: r.situacao || '', resultado: 'bloqueado', motivo: 'mês fechado/travado' });
           if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.05) _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'bloqueado', motivo: 'mês fechado/travado' });
           if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.05) _blingLog({ pedido: num, conta: empresa, campo: 'frete', de: +ex.frete || 0, para: +r.frete || 0, resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          const _cliF = (r.cliente || '').trim();
+          if (_cliF && String(ex.nome || '').trim() !== _cliF && !/^atualiza[çc]/i.test(_cliF)) _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: _cliF, resultado: 'bloqueado', motivo: 'mês fechado/travado' });
+          const _detF = det[num];
+          if (_detF && Array.isArray(_detF.itens) && _detF.itens.length) { const _nlF = _blingItensMap(_detF, r.valor); if (_blingItensSig(ex.linhas) !== _blingItensSig(_nlF)) _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(_nlF), resultado: 'bloqueado', motivo: 'mês fechado/travado' }); }
           return;
         }
         let mud = false;
@@ -18060,6 +18089,51 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
         const vB = r.vendedor || '';
         if (vB && vB !== '(sem)' && !/^Vend\s/.test(vB) && ex.vendedor !== vB) { _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'aplicado', motivo: (vendedorFixes[num] != null ? 'Bling vence correção manual' : '') }); ex.vendedor = vB; mud = true; if (vendedorFixes[num] != null) { delete vendedorFixes[num]; _vendFixesMud = true; } }
         else if (vB && /^Vend\s/.test(vB) && !_blingUnmapSeen.has('vend|' + vB)) { _blingUnmapSeen.add('vend|' + vB); _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'bloqueado', motivo: 'vendedor novo NÃO mapeado na tabela da Edge (incluir no bling-sync)' }); _blingPend({ chave: 'vend-nao-mapeado|' + vB, conta: empresa, pedido: num, tipo: 'Vendedor novo não mapeado na Edge (incluir ' + vB + ' no bling-sync)', detalhe: vB }); }
+        // CLIENTE + ITENS: BLING VENCE, com camadas de proteção (tudo logado antes→depois):
+        //  a) "Atualização de estoque SAIDA" no Bling: NÃO toca (→ Pendências; deixou de ser venda?).
+        //  b) pedido tocado à mão (anotação em obsPedido OU itens com custo vindo da planilha): NÃO sobrescreve (→ Pendências).
+        //  c) cliente é OUTRA pessoa (não bate nem por prefixo) E o Gestão tem itens reais: possível REUSO DE NÚMERO
+        //     no Bling → NÃO aplica cliente nem itens, manda revisar (→ Pendências).
+        //  d) resto aplica: nome curto×completo da mesma pessoa, ou pedido-placeholder (ex.: só "Etiqueta de Correios").
+        const cliB = (r.cliente || '').trim();
+        const _saida = /^atualiza[çc]/i.test(cliB);
+        const _curado = _pedCuradoBling(ex, num);
+        const _gestaoPlaceholder = _blingItensSig(ex.linhas) === ''; // sem SKU real (ex.: "Etiqueta de Correios")
+        const _suspeitoReuso = cliB && !_saida && !_curado && !_gestaoPlaceholder && !_blingMesmaPessoa(ex.nome, cliB);
+        if (cliB && String(ex.nome || '').trim() !== cliB) {
+          if (_saida) {
+            _blingPend({ chave: 'cliente-saida|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Contato virou "Atualização de estoque SAIDA" no Bling (revisar: deixou de ser venda?)', detalhe: 'Gestão ' + (ex.nome || '') + ' x Bling ' + cliB });
+            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'bloqueado', motivo: 'Atualização de estoque SAIDA' });
+          } else if (_curado) {
+            _blingPend({ chave: 'cliente-curado|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Cliente difere do Bling, mas o pedido foi tocado à mão (' + _curado + ') — revisar', detalhe: 'Gestão ' + (ex.nome || '') + ' x Bling ' + cliB });
+            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'bloqueado', motivo: 'tocado à mão: ' + _curado });
+          } else if (_suspeitoReuso) {
+            _blingPend({ chave: 'cliente-reuso|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Cliente é OUTRA pessoa no Bling e o Gestão tem itens reais (possível reuso de número) — revisar', detalhe: 'Gestão ' + (ex.nome || '') + ' x Bling ' + cliB });
+            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'bloqueado', motivo: 'pessoa diferente + itens reais (revisar)' });
+          } else {
+            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'aplicado', motivo: _gestaoPlaceholder ? 'pedido-placeholder' : '' });
+            ex.nome = cliB; mud = true;
+            if (r.clienteId && String(ex.clienteId || '') !== String(r.clienteId)) ex.clienteId = String(r.clienteId);
+          }
+        } else if (cliB && r.clienteId && String(ex.clienteId || '') !== String(r.clienteId) && !_saida && !_curado && !_suspeitoReuso) {
+          ex.clienteId = String(r.clienteId); mud = true; // nome já igual, só completa o id do contato
+        }
+        // ITENS: espelha o detalhe do Bling (blingDetCache). Mesmas exceções (SAIDA / tocado à mão / suspeita de reuso → Pendências).
+        const _detP = det[num];
+        if (_detP && Array.isArray(_detP.itens) && _detP.itens.length && !_saida) {
+          const novasLinhas = _blingItensMap(_detP, r.valor);
+          if (_blingItensSig(ex.linhas) !== _blingItensSig(novasLinhas)) {
+            if (_curado) {
+              _blingPend({ chave: 'itens-curado|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Itens diferem do Bling, mas o pedido foi tocado à mão (' + _curado + ') — revisar', detalhe: _blingResumoItens(ex.linhas) + '  →  ' + _blingResumoItens(novasLinhas) });
+              _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(novasLinhas), resultado: 'bloqueado', motivo: 'tocado à mão: ' + _curado });
+            } else if (_suspeitoReuso) {
+              _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(novasLinhas), resultado: 'bloqueado', motivo: 'pessoa diferente + itens reais (revisar)' });
+            } else {
+              _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(novasLinhas), resultado: 'aplicado', motivo: '' });
+              ex.linhas = novasLinhas; mud = true;
+            }
+          }
+        }
         if (mud) upd++;
       }
       return;
@@ -18069,12 +18143,9 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     if (IGNORAR.has(String(r.situacao || ''))) return;
     const _d = r.data ? new Date(r.data + 'T03:00:00.000Z') : null;
     const d = det[num] || {};
-    const linhas = Array.isArray(d.itens) ? d.itens.map(it => {
-      const pu = +it.valor || 0, q = +it.qtd || 0;
-      return { sku: it.sku || '', descricao: it.descricao || '', qtd: q, precoUnit: pu, valorLinha: +(pu * (q || 1)).toFixed(2), totalProdutos: +r.valor || 0, precoCusto: 0, frete: 0, outras: 0, desconto: 0 };
-    }) : [];
+    const linhas = _blingItensMap(d, r.valor);
     const novo = {
-      id: num, nome: r.cliente || '', loja: r.loja || '', situacao: r.situacao || '', vendedor: r.vendedor || '',
+      id: num, nome: r.cliente || '', clienteId: r.clienteId ? String(r.clienteId) : '', loja: r.loja || '', situacao: r.situacao || '', vendedor: r.vendedor || '',
       empresa, data: _d, valor: +r.valor || 0, frete: +r.frete || 0, outrasDespesas: 0, desconto: 0,
       dataSaida: _d, dataFechamento: null, obsInternas: '', obs: '', temNF: '', numeroDoc: '', bairro: '', cep: '',
       cidade: '', uf: '', clienteDesde: '', linhas, _bling: true, _freteLinhas: []
