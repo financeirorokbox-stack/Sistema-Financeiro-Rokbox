@@ -626,13 +626,15 @@ function _vbiMetasDoMes(){
 }
 function _vbiCorMeta(pct){ return pct==null?'':(pct>=100?'g':(pct>=80?'y':'r')); }
 // barras do "por vendedor" com meta (marca da meta + % atingido colorido)
-function _vbiBarrasVend(arr, metasMes){
+function _vbiBarrasVend(arr, metasMes, baseFull, filtroAtivo){
+  baseFull=baseFull||{};
   const max=Math.max(1,...arr.map(x=>Math.max(x.val, metasMes[x.nome]||0)));
   return arr.map(x=>{
     const meta=metasMes[x.nome]||0, on=(_vbiF.vend===x.nome);
-    const pct = meta? x.val/meta*100 : null, cor=_vbiCorMeta(pct);
+    const bf = (baseFull[x.nome]!=null) ? baseFull[x.nome] : x.val; // % da meta usa a base do MÊS INTEIRO do vendedor (a meta é do vendedor, não da empresa)
+    const pct = meta? bf/meta*100 : null, cor=_vbiCorMeta(pct);
     const wMeta = meta? Math.min(100, meta/max*100) : null;
-    const tip=_vbiE(x.nome)+' · realizado '+brl(x.val)+(meta?(' · meta '+brl(meta)+' · '+pct.toFixed(0)+'% atingido'):' · sem meta');
+    const tip=_vbiE(x.nome)+' · realizado '+brl(x.val)+(filtroAtivo?' (filtrado)':'')+(meta?(' · meta '+brl(meta)+' · '+pct.toFixed(0)+'% atingido (base do mês '+brl(bf)+')'+(filtroAtivo?' · meta: base total do vendedor no mês':'')):' · sem meta');
     const esc=_vbiE(x.nome).replace(/'/g,"\\'");
     return `<div class="vbi-brow${on?' on':''}" title="${tip}" onclick="vbiFiltrar('vend','${esc}')">
       <div class="vbi-bl"><span class="nm">${_vbiE(x.nome)}</span><span class="vl">${brl(x.val)} ${meta?`<b class="mpct ${cor}">${pct.toFixed(0)}%</b>`:'<b class="mpct none">sem meta</b>'}</span></div>
@@ -707,6 +709,25 @@ function _vbiComBaseVend(){
   const arr=Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np})).sort((a,b)=>b.val-a.val);
   arr._semCampo=semCampo; return arr;
 }
+// Como _vbiPass, mas SEM o filtro de operação (a base da comissão é Venda+Troca, igual à aba Comissão). Respeita empresa/loja/segmento/coleção/dia/período/vendedor.
+function _vbiMetaPass2(f){ const F=_vbiF;
+  if(F.de && F.ate){ if(f.data < F.de || f.data > F.ate) return false; }
+  else { if(f.data.slice(0,7) !== (F.mes || _vbiMeses[0])) return false; }
+  if(!_vbiEmpPass(f)) return false;
+  if(F.seg && segDe(f.loja)!==F.seg) return false;
+  if(F.loja && f.loja!==F.loja) return false;
+  if(F.vend && f.vendedor!==F.vend) return false;
+  if(F.col && f.colecao!==F.col) return false;
+  if(F.dia && f.data!==F.dia) return false;
+  return true;
+}
+// Base da comissão por vendedor RESPEITANDO os filtros (empresa/loja/coleção/período) — usada no VALOR da barra "Por vendedor". Vendedor com 0 não aparece.
+function _vbiComBaseVendFiltrado(){
+  const mf=_vbiFacts.filter(_vbiMetaPass2);
+  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, cb:(f.comissaoBase!=null?f.comissaoBase:null)}; });
+  const m={}; Object.values(ped).forEach(o=>{ if(o.cb==null) return; const e=m[o.v]||(m[o.v]={val:0,np:0}); e.val+=o.cb; e.np++; });
+  return Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val);
+}
 function renderUV(){
   const root=document.getElementById('uv-root'); if(!root) return;
   if(!document.getElementById('vbi-css')){ const st=document.createElement('style'); st.id='vbi-css'; st.textContent=_VBI_CSS; document.head.appendChild(st); }
@@ -749,7 +770,10 @@ function renderUV(){
   </div>`;
   // ── Meta do mês (realizado = base da COMISSÃO, sempre do Sistema/flatVendas) ──
   const gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8); // vendedor por faturamento (só quando NÃO há meta)
-  const gVendMeta=_vbiComBaseVend(), gVendMetaTop=gVendMeta.slice(0,8);  // vendedor pela base da comissão (meta)
+  const gVendMeta=_vbiComBaseVend();  // base da comissão do MÊS INTEIRO (p/ o % da meta e o cartão, sem filtro de empresa)
+  const baseFullMap={}; gVendMeta.forEach(v=>{ baseFullMap[v.nome]=v.val; });
+  const gVendMetaTop=_vbiComBaseVendFiltrado().slice(0,8);  // barras: base da comissão RESPEITANDO os filtros (empresa/loja/coleção)
+  const _metaFiltro=!!((_vbiF.emp&&_vbiF.emp.size)||_vbiF.loja||_vbiF.col||_vbiF.seg||_vbiF.dia);  // há filtro além do período/vendedor?
   const metasMes=_vbiMetasDoMes(); const temMetas=Object.keys(metasMes).length>0, rangeAtivo=!!(_vbiF.de&&_vbiF.ate);
   const metaSemCampo = temMetas && gVendMeta._semCampo; // flatVendas ainda sem comissao_base → pedir Atualizar Power BI
   let somaMetas=0; if(temMetas){ somaMetas = _vbiF.vend ? (metasMes[_vbiF.vend]||0) : Object.values(metasMes).reduce((s,v)=>s+v,0); }
@@ -785,7 +809,7 @@ function renderUV(){
   const charts=`${metaCard}${tops}<div class="vbi-charts">
     <div class="vbi-ch wide"><h3>Faturamento por dia <span>(clique num dia pra filtrar)</span></h3>${_vbiLinhaDia(facts)}</div>
     <div class="vbi-ch"><h3>Por loja</h3><div class="vbi-bars">${_vbiBarras(gLoja,'loja',_vbiF.loja,k.fat)}</div></div>
-    <div class="vbi-ch"><h3>Por vendedor ${temMetas?(metaSemCampo?'<span>(rode Atualizar Power BI)</span>':'<span>(realizado × meta · base comissão)</span>'):(rangeAtivo?'':'<span class="sem">(sem meta no mês)</span>')}</h3><div class="vbi-bars">${(temMetas&&!metaSemCampo)?_vbiBarrasVend(gVendMetaTop,metasMes):_vbiBarras(gVendTop,'vend',_vbiF.vend,k.fat)}</div></div>
+    <div class="vbi-ch"><h3>Por vendedor ${temMetas?(metaSemCampo?'<span>(rode Atualizar Power BI)</span>':'<span>(realizado × meta · base comissão)</span>'):(rangeAtivo?'':'<span class="sem">(sem meta no mês)</span>')}</h3><div class="vbi-bars">${(temMetas&&!metaSemCampo)?_vbiBarrasVend(gVendMetaTop,metasMes,baseFullMap,_metaFiltro):_vbiBarras(gVendTop,'vend',_vbiF.vend,k.fat)}</div></div>
     <div class="vbi-ch"><h3>Por coleção</h3><div class="vbi-bars">${colBlock}</div></div>
     <div class="vbi-ch"><h3>Por status</h3><div class="vbi-bars">${_uvStatus(facts)}</div></div>
   </div>`;
