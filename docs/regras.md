@@ -141,7 +141,10 @@ Fica SÓ no Painel RK (financeiro.html). Nada de tela nova no Gestão. Login ven
 - Atacado: referência 50% (é a lista de atacado, ~50% do varejo). > 55% amarelo, > 60% vermelho.
 - WL e PL: fora da análise de desconto (preço negociado/SKU próprio), só margem. PL fora até a reautorização da 2ª conta.
 - Site NÃO tem lista própria (a maioria vende a preço cheio); segue a regra do Varejo. O Bling não tem campo de promoção/cupom nem preço promocional.
-- Promoção (outlet): NÃO há regra de tempo. A coleção é marcada como Outlet, de dois jeitos: (1) automático, se der pra puxar a categoria "Outlet" do site Braavo (API / feed de produtos / página da categoria, sem custo); (2) senão, uma lista de coleções na própria aba Margem com caixa "Outlet", editável só pelo admin (chave `colecoesOutlet`). Coleção marcada como Outlet: a venda vira "Promoção (outlet)", sem alerta de desconto, mas com alerta se a margem bruta ficar abaixo do limite do segmento. Fora do outlet (e produto sem coleção): alerta de desconto 15% / 20%.
+- Promoção (outlet/campanha): NÃO há regra de tempo; é marcada por SKU, lida do site Braavo (www.rokbox.com.br) 1x ao dia. Categorias lidas: Outlet (/c/outlet), Grip 30% OFF (/cat/207) e Chinelos 30% OFF (/cat/219). Mecânica: página da categoria → links /prod/{id} → campo "Referência" = SKU Rokbox (não há feed/API de produtos; só as páginas). **Guardar o histórico diário** (data + SKUs em promoção naquele dia), não só a lista atual.
+- Uma venda é "Promoção (outlet)" se o SKU estava na lista NA DATA DA VENDA. Vendas anteriores ao início do robô: usar a primeira lista lida, marcadas "outlet estimado".
+- Override manual (admin): caixa "Outlet" por coleção (chave `colecoesOutlet`) e/ou inclusão/exclusão por SKU, para ajustar à mão.
+- Venda em promoção: sem alerta de desconto, mas alerta se a margem bruta ficar abaixo do limite do segmento. Fora da promoção (e produto sem coleção): alerta de desconto 15% / 20%.
 
 **Funcionário (2 casos):**
 - Venda para funcionário = vendedor Elaine Lima + operação Venda/Troca: é venda (Varejo), desconto padrão 65%, bloco "Venda funcionário" à parte, fora das médias e do ranking de vendedores, alerta só acima de 65%.
