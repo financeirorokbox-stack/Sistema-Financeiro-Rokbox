@@ -561,7 +561,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v742/10-795';
+const APP_VERSION = 'v743/10-796';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6280,13 +6280,17 @@ function relatorioContasPorBanco() {
     const arr = grupos[b]; const sub = arr.reduce((s, c) => s + (c.valor || 0), 0);
     // Saldo REAL do banco no dia (o que a Elaine digita) − as contas desse banco = sobra. Vermelho se não cobre.
     const saldoB = getSaldoInicialDiaBanco(repData, b);
-    const sobraB = +(saldoB - sub).toFixed(2);
+    // Entradas do dia DESTE banco (créditos já no extrato de hoje). O saldo inicial é o começo do dia (não inclui
+    // os créditos de hoje), então somar as entradas não duplica. Boletos a receber não têm banco → ficam só no total.
+    const entradasB = +creditosDia.filter(c => { const cb = ((c.banco || '').trim() && c.banco !== '(sem banco)') ? (c.banco || '').trim() : '(sem banco definido)'; return cb === b; }).reduce((s, c) => s + c.valor, 0).toFixed(2);
+    const temEntB = entradasB > 0.005;
+    const sobraB = +(saldoB + entradasB - sub).toFixed(2);
     const corB = sobraB < 0 ? '#b3261e' : '#1b7a3d';
     body += `<h2>🏦 ${esc(b)} <span class="cnt">${arr.length} conta(s) · a pagar ${fmtVal(sub)}</span></h2>
     <table><thead><tr><th>Vencimento</th><th>Fornecedor</th><th>Categoria</th><th>Histórico</th><th>Empresa</th><th class="r">Valor</th></tr></thead><tbody>
     ${arr.map(c => `<tr><td>${fmtD(c.vencimento)}</td><td>${esc(c.fornecedor || '—')}</td><td>${esc(catContaPagar(c) || '—')}</td><td>${esc((c.observacao || '').replace(/Coleção Coleção/g, 'Coleção'))}</td><td>${esc(c.empresa || '')}</td><td class="r">${fmtVal(c.valor || 0)}</td></tr>`).join('')}
     <tr class="sub"><td colspan="5">Subtotal a pagar — ${esc(b)}</td><td class="r">${fmtVal(sub)}</td></tr></tbody></table>
-    <div class="bsaldo">Saldo inicial <b>${fmtVal(saldoB)}</b> &nbsp;−&nbsp; a pagar <b>${fmtVal(sub)}</b> &nbsp;=&nbsp; <b style="color:${corB}">Sobra ${fmtVal(sobraB)}</b>${sobraB < 0 ? ' &nbsp;⚠️ não cobre as contas do dia' : ''}${saldoB === 0 ? ' &nbsp;<span style="color:#b3261e">(sem saldo digitado p/ este banco)</span>' : ''}</div>`;
+    <div class="bsaldo">Saldo inicial <b>${fmtVal(saldoB)}</b>${temEntB ? ` &nbsp;+&nbsp; entradas <b style="color:#1b7a3d">${fmtVal(entradasB)}</b>` : ''} &nbsp;−&nbsp; a pagar <b>${fmtVal(sub)}</b> &nbsp;=&nbsp; <b style="color:${corB}">Sobra ${fmtVal(sobraB)}</b>${sobraB < 0 ? ' &nbsp;⚠️ não cobre as contas do dia' : ''}${saldoB === 0 ? ' &nbsp;<span style="color:#b3261e">(sem saldo digitado p/ este banco)</span>' : ''}</div>`;
   });
   const filtroTxt = `Status: ${fSt === 'aberto' ? 'Em Aberto' : fSt === 'pago' ? 'Pago' : 'Todos'} · Data por: ${fDataPor === 'liquidacao' ? 'Liquidação' : 'Vencimento'} · ${dfAtivo() ? 'período filtrado' : 'todo o período'}`;
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Contas a Pagar por Banco</title>
