@@ -255,6 +255,7 @@
   }
 </style>
 
+<script src="nf-regras.js"></script>
 <script>
 const SUPA_URL='https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
@@ -314,7 +315,11 @@ async function tentar(){
 function sair(){ try{localStorage.removeItem('rk_gate_fin'); localStorage.removeItem('rk_role');}catch(e){} location.reload(); }
 // Esconde as abas só-admin quando não é admin, e garante que a aba ativa seja permitida.
 function aplicarRole(){ const admin=ehAdmin(); document.querySelectorAll('.aba').forEach(b=>{ const t=b.dataset.t; if(!t) return; const ok=admin||ABAS_DIRETOR.includes(t); b.style.display=ok?'':'none'; }); const ativa=document.querySelector('.aba.on'); if(ativa && ativa.style.display==='none') setAba('fluxo'); const badge=document.getElementById('role-badge'); if(badge) badge.textContent=admin?'admin':''; }
-async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar(); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
+async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } document.getElementById('gate').style.display='none'; const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
+// Abre a aba NF já filtrada quando vier de um aviso do Afazeres (financeiro.html#nf=<selo>).
+const _NF_FILTROS=['venda_sem_nota','amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
+function _aplicarHashNF(){ const m=(location.hash||'').match(/nf=([^&]+)/); if(!m) return; if(!ehAdmin()) return; const selo=decodeURIComponent(m[1]); _nfEmp='todas'; _nfFiltro=_NF_FILTROS.includes(selo)?selo:'todos'; setAba('nf'); }
+window.addEventListener('hashchange',()=>{ try{ if(_FIN) _aplicarHashNF(); }catch(e){} });
 function toggleNums(){ const app=document.getElementById('app'); const oc=app.classList.toggle('nums-ocultos'); document.getElementById('eye').textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleLista(k){ const el=document.getElementById(k+'-lista'); if(el) el.classList.toggle('hidden'); }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
@@ -998,74 +1003,15 @@ function renderNF(){
   const F=_FIN; if(!F){ el.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:30px">Carregando… se não aparecer, dê F5.</div>'; return; }
   const mes=mesSel||mesAtual(), pedidos=F.pedidos||[], lc=F.lc||{}, pedNF=F.pedNF||{}, pgdas=F.pgdas||{}, pgSemNF=F.pgSemNF||{};
   const mesNome=new Date(mes+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  const HARD=['cancelado','atualização de estoque','atualizacao de estoque','correios','sit#15']; // nunca é venda com nota
-  const EMPROG=['em aberto','em andamento']; // em progresso: fora da base de venda
-  const acctDe=e=>(_empG(e)==='rk'?2:1);
-  const ehVendaNat=s=>/venda de (mercadoria|produ)/i.test(String(s||''));
-  const sitLbl=s=>({6:'autorizada',5:'autorizada',1:'pendente',0:'rascunho',2:'cancelada',3:'denegada'}[s]||('sit '+s));
-  const empOk=e=> _nfEmp==='todas' ? true : (_empG(e)===_empG(_nfEmp));
-  // Troca → origem: liga pelo pedidoCredito (nº do pedido de troca) e vê se a NF de origem existe (nfOrigem).
-  const trocaNfOrig={};
-  (F.dev||[]).forEach(d=>{ const m=String(d.pedidoCredito||'').match(/\d{4,6}/g)||[]; const temNF=!!String(d.nfOrigem||'').trim(); m.forEach(x=>{ if(temNF) trocaNfOrig[x]=true; else if(!(x in trocaNfOrig)) trocaNfOrig[x]=false; }); });
-  const rows=[];
-  pedidos.forEach(p=>{
-    if(String(p.data||'').slice(0,7)!==mes) return;
-    const empresa=p.empresa||''; if(!empOk(empresa)) return;
-    const sit=String(p.situacao||'').toLowerCase(); if(HARD.includes(sit)) return;
-    const loja=p.loja||''; const info=lc[loja]||{}; const operacao=String(info.operacao||'').toLowerCase();
-    const esperada=info.naturezaNF||''; const acct=acctDe(empresa);
-    const ent=pedNF[acct+'|'+p.id]; const nf=(ent&&ent.nf&&ent.nf.id)?ent.nf:null;
-    const pedVal=+p.valor||0; const nfVal=nf&&nf.valor!=null?+nf.valor:null;
-    const autoriz=nf&&(nf.sit===5||nf.sit===6); const autVenda=autoriz&&ehVendaNat(nf.natNome);
-    const emProg=EMPROG.includes(sit); const emSep=/em separa/.test(sit);
-    if(emProg && !autVenda) return;      // em aberto/andamento sem nota de venda: nada a reportar
-    const naBase=!emProg;                // base de venda exclui em aberto/andamento (inclui em separação/checkout/verificado/atendido)
-    let selo, espDisp=esperada, devConf=false;
-    if(pgSemNF[empresa+'|'+p.id]) selo='pgdas_sem_nf';
-    else if(operacao==='troca'){
-      const temOrig = trocaNfOrig[p.id]===true;  // origem com NF
-      if(temOrig){ espDisp='Remessa em troca'; devConf=true;   // devolução (entrada) não está no Bling → só marca na linha
-        if(!nf) selo='troca_sem_remessa';
-        else if(!autoriz) selo='nota_nao_aut';
-        else if(ehVendaNat(nf.natNome)) selo='natureza_dif';   // saiu venda onde era p/ ser remessa
-        else selo='ok';
-      } else { espDisp='Sem nota esperada'; selo='sem_esperada'; }  // origem sem NF: sem nota esperada (mesmo se saiu venda, marca neutra)
-    }
-    else if(autVenda && (emProg||emSep) && operacao==='venda') selo='nota_nao_concluido';  // NF de venda emitida mas pedido não concluído
-    else if(/sem nota esperada/i.test(esperada)) selo='sem_esperada';
-    else if(operacao==='amostra'){
-      if(!nf) selo='amostra_sem_remessa';
-      else if(!autoriz) selo='nota_nao_aut';
-      else if(ehVendaNat(nf.natNome)) selo='natureza_dif';
-      else selo='ok';
-    } else if(operacao==='venda'){
-      if(!nf) selo='venda_sem_nota';
-      else if(!autoriz) selo='nota_nao_aut';
-      else if(nf.natNome && _nfNorm(nf.natNome)!==_nfNorm(esperada)) selo='natureza_dif';
-      else if(nf.foraMes) selo='nota_mes_dif';
-      else if(nfVal!=null && Math.abs(pedVal-nfVal)>1) selo='valor_dif';
-      else selo='ok';
-    } else selo='sem_esperada';
-    rows.push({id:String(p.id),nome:p.nome||'',empresa,loja,operacao:info.operacao||'(loja sem cadastro)',esperada:espDisp,data:p.data||'',pedVal,nf,nfVal,autVenda,naBase,devConf,selo});
-  });
-  // nota de venda do mês sem pedido casado (do índice de NFs)
-  const linked={1:new Set(),2:new Set()};
-  Object.values(pedNF).forEach(e=>{ if(e&&e.nf&&e.nf.id&&linked[e.acct]) linked[e.acct].add(String(e.nf.id)); });
-  let semPedN=0;
-  [1,2].forEach(a=>{ if(_nfEmp!=='todas' && acctDe(_nfEmp)!==a) return; const idx=(F.nfidx&&F.nfidx[a])||{}, nat=(F.nfidxNat&&F.nfidxNat[a])||{};
-    Object.entries(idx).forEach(([id,o])=>{ if(String(o.data||'').slice(0,7)!==mes) return; if(o.sit!==5&&o.sit!==6) return; if(!ehVendaNat(nat[String(o.nat)]||'')) return; if(!linked[a].has(String(id))) semPedN++; }); });
-  const vendaSistema=rows.filter(r=>r.operacao.toLowerCase()==='venda'&&r.naBase).reduce((s,r)=>s+r.pedVal,0);
-  const casadaVenda=rows.filter(r=>r.operacao.toLowerCase()==='venda'&&r.naBase&&r.autVenda).reduce((s,r)=>s+r.pedVal,0);
-  const vendaSemNota=+(vendaSistema-casadaVenda).toFixed(2); // venda − casada (pedido a pedido), não usa o total de NF
-  const notasVenda=rows.filter(r=>r.autVenda);
-  const nfVendaAut=notasVenda.reduce((s,r)=>s+(r.nfVal!=null?r.nfVal:r.pedVal),0);
+  // Classificação vem do módulo único nf-regras.js (mesma regra do Afazeres).
+  const R = NFRegras.classificar({ pedidos, pedNF, lc, pgSemNF, dev: F.dev, nfidx: F.nfidx, nfidxNat: F.nfidxNat, mes, empresa: _nfEmp });
+  const rows = R.rows, vendaSistema = R.vendaSistema, casadaVenda = R.casadaVenda, vendaSemNota = R.vendaSemNota, nfVendaAut = R.nfVendaAut, semPedN = R.semPedN, notasVendaLen = R.notasVendaLen;
+  const ehVendaNat = NFRegras.ehVendaNat, sitLbl = NFRegras.sitLbl, PROB = NFRegras.PROB, seloInfo = NFRegras.SELO_INFO;
   let pgReceita=0,pgDas=0,pgAliq=null,pgAnexo='',temPg=false;
   (_nfEmp==='todas'?['Rokbox','Rk']:[_nfEmp]).forEach(emp=>{ const o=(pgdas[emp]||{})[mes]; if(o){ temPg=true; pgReceita+=+o.receita||0; pgDas+=+o.das||0; pgAliq=o.aliquota; pgAnexo=o.anexo||''; } });
   const diff=+(nfVendaAut-pgReceita).toFixed(2);
   const C={}; rows.forEach(r=>{C[r.selo]=(C[r.selo]||0)+1;});
   const valSelo=sel=>rows.filter(r=>r.selo===sel).reduce((s,r)=>s+r.pedVal,0);
-  const PROB=['venda_sem_nota','amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
-  const seloInfo={venda_sem_nota:['🔴','venda sem nota','var(--red)'],amostra_sem_remessa:['🟠','amostra sem remessa','var(--amber)'],troca_sem_remessa:['🔁','troca sem remessa','var(--amber)'],nota_nao_concluido:['🚚','pedido com nota, não concluído','var(--amber)'],natureza_dif:['❌','natureza diferente','var(--red)'],nota_nao_aut:['⛔','nota cancelada/denegada','var(--red)'],nota_mes_dif:['📅','nota em mês diferente','var(--amber)'],valor_dif:['💰','valor nota ≠ pedido','var(--amber)'],pgdas_sem_nf:['📣','declarado no PGDAS sem NF','var(--amber)'],sem_esperada:['·','sem nota esperada','var(--muted)'],ok:['✅','ok','var(--lime)']};
   const shown=rows.filter(r=>{ if(_nfFiltro==='todos') return true; if(_nfFiltro==='problemas') return PROB.includes(r.selo); if(_nfFiltro==='venda_gap') return r.operacao.toLowerCase()==='venda'&&r.naBase&&!r.autVenda; return r.selo===_nfFiltro; })
     .sort((a,b)=>{ const o=s=>PROB.includes(s)?0:((s==='ok'||s==='sem_esperada')?3:2); return o(a.selo)-o(b.selo) || b.pedVal-a.pedVal; });
   const danfeCol=nf=> nf? (nf.danfe?`<a href="${nf.danfe}" target="_blank" style="color:#58a6ff">DANFE</a>`:'<span style="color:var(--muted)" title="link entra com a sincronização">—</span>') : '';
@@ -1091,7 +1037,7 @@ function renderNF(){
     </div>
     <div class="grid2" style="margin-bottom:8px;grid-template-columns:repeat(4,1fr)">
       <div class="card"><div class="lab">Venda no sistema</div><div class="big">${brl(vendaSistema)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">lojas de venda concluídas (sem em aberto/andamento)</div></div>
-      <div class="card"><div class="lab">NF de venda autorizada</div><div class="big">${brl(nfVendaAut)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">${notasVenda.length} notas${semPedN?(' · +'+semPedN+' sem pedido'):''}</div></div>
+      <div class="card"><div class="lab">NF de venda autorizada</div><div class="big">${brl(nfVendaAut)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">${notasVendaLen} notas${semPedN?(' · +'+semPedN+' sem pedido'):''}</div></div>
       <div class="card"><div class="lab">PGDAS declarado</div><div class="big">${temPg?brl(pgReceita):'<span style="color:var(--muted)">em aberto</span>'}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">${temPg?('DAS '+brl(pgDas)+(pgAliq!=null&&_nfEmp!=='todas'?' · '+String(pgAliq).replace('.',',')+'% · Anexo '+pgAnexo:'')):'sem extrato do mês'}</div></div>
       ${temPg?`<div class="card"><div class="lab" style="color:${diff>=0?'var(--amber)':'var(--red)'}">${diff>=0?'NF acima do PGDAS':'NF abaixo do PGDAS'}</div><div class="big" style="color:var(--amber)">${brl(diff)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">conferir competência · venda sem nota ${brl(vendaSemNota)}</div></div>`:`<div class="card" onclick="setNfFiltro('venda_gap')" style="cursor:pointer"><div class="lab" style="color:var(--red)">Venda sem nota</div><div class="big" style="color:var(--amber)">${brl(vendaSemNota)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">venda − casada · clique p/ ver</div></div>`}
     </div>
@@ -1492,7 +1438,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-28.3';
+const BUILD='2026-10-28.4';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

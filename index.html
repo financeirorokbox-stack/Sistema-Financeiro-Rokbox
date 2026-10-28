@@ -466,6 +466,7 @@ tr:hover td{background:#fafaf8}
 
 </div><!-- /app -->
 
+<script src="nf-regras.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════
 // UTILIDADES
@@ -561,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v744/10-797';
+const APP_VERSION = 'v745/10-798';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18723,8 +18724,23 @@ const AF = (function () {
     try { const prev = mesAnteriorYM(hoje); const cr = (typeof crFechado !== 'undefined' && crFechado) || {}; if (!cr[prev]) add('11', 'Mês anterior (' + prev + ') ainda sem foto oficial', "AF._ir('conc')"); } catch (e) {}
     try { const dias = await _bkpListarNuvem(); if (!dias.includes(hoje)) add('12', 'Backup na nuvem ainda não rodou hoje', "abrirAutoBackups()"); } catch (e) {}
     try { if (st._gmail && st._gmail.erro) add('gmail', 'Leitura do Gmail falhou: ' + String(st._gmail.erro).slice(0, 60), ''); } catch (e) {}
+    // ── avisos de NF (regra única nf-regras.js; um item por tipo, mês aberto, soma empresas com split) ──
+    try {
+      if (typeof NFRegras !== 'undefined') {
+        const pedNFraw = await loadData('blingPedidoNF'); const pedNF = (pedNFraw && pedNFraw.mapa) || {};
+        if (Object.keys(pedNF).length) {
+          const pgSemNF = (await loadData('nfPgdasSemNota')) || {};
+          const ix1 = (await loadData('_nfidx_1')) || {}, ix2 = (await loadData('_nfidx_2')) || {};
+          const fechados = (typeof mesesFechados !== 'undefined' ? mesesFechados : []);
+          const meses = NFRegras.mesesAbertos(hoje.slice(0, 7), mesAnteriorYM(hoje), fechados);
+          const ctx = { pedidos: (typeof pedidos !== 'undefined' ? pedidos : []), pedNF, lc: (typeof lojaCadastro !== 'undefined' ? lojaCadastro : {}), dev: (typeof devolucoes !== 'undefined' ? devolucoes : []), pgSemNF, nfidx: { 1: (ix1.idx) || {}, 2: (ix2.idx) || {} }, nfidxNat: { 1: (ix1.nat) || {}, 2: (ix2.nat) || {} } };
+          NFRegras.resumoAvisos(ctx, meses).forEach(a => { const emp = Object.entries(a.emp).map(([k, v]) => k + ' ' + v.n).join(' · '); const val = (a.valor != null) ? (' · ' + fmtBR(a.valor)) : ''; add('nf_' + a.selo, 'NF ' + a.icon + ' ' + a.label + ': ' + a.n + val + (emp ? (' · ' + emp) : ''), "AF._abrirNF('" + a.selo + "')"); });
+        }
+      }
+    } catch (e) {}
     return out;
   }
+  function _abrirNF(selo) { try { fechar(); } catch (e) {} try { window.open('financeiro.html#nf=' + encodeURIComponent(selo || ''), '_blank'); } catch (e) {} }
   function _ir(dest) {
     fechar();
     try {
@@ -19068,7 +19084,7 @@ const AF = (function () {
     + '.af-rrow .af-rbtn{border:1px solid #e5e7eb;background:#fff;border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;margin-left:4px}.af-rrow .af-rbtn:hover{background:#f3f4f6}'
     + '.af-rform{border:1px solid #cfe0fb;background:#f6faff;border-radius:8px;padding:10px;margin-bottom:10px}.af-rfline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.af-rfline:last-child{margin-bottom:0}.af-rform input,.af-rform select{border:1px solid #cbd5e1;border-radius:7px;padding:7px;font-size:12px}.af-rform #af-rf-txt{flex:1;min-width:200px}.af-rform label{font-size:11px;color:#475569;font-weight:600}.af-rfhint{font-size:10.5px;color:#6b7280}.af-wd{font-size:11.5px;color:#334155;display:inline-flex;align-items:center;gap:3px;margin-right:4px;font-weight:500;cursor:pointer}.af-wd input{margin:0}';
 
-  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou, atualizarBtn, _modalBloqueados, aplicarBloqueado };
+  return { abrir, fechar, aberturaAuto, abrirRotinas, addNova, toggle, togglePrio, adiar, toggleOpen, alertaVisto, _modalLista, _ir, _clickAlerta, _abrirNF, _dona: dona, clickTexto, rotNova, rotEditar, rotExcluir, rotSalvar, rotCancelar, _freqMudou, atualizarBtn, _modalBloqueados, aplicarBloqueado };
 })();
 try { window.AF = AF; } catch (e) {}
 
