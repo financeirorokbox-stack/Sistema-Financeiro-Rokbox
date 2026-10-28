@@ -163,5 +163,19 @@ Fica SÓ no Painel RK (financeiro.html). Nada de tela nova no Gestão. Login ven
 
 **Estrutura pronta** para somar imposto/taxa/comissão/frete (fase seguinte); a Etapa 1 mostra até a margem bruta.
 
+## Aba NF (Painel RK, Financeiro, só admin)
+Confere a NF de cada pedido contra o esperado. Fonte da nota = chave `blingPedidoNF` (nota do detalhe do pedido no Bling: número, data, natureza, situação, valor), por `empresa|número`. PGDAS = chave `pgdasDeclarado` (receita, DAS, alíquota efetiva, anexo por empresa/mês). `nfPgdasSemNota` marca pedido declarado no PGDAS sem NF (ex.: Rk #411). Natureza esperada = `lojaCadastro.naturezaNF` (opção "Sem nota esperada" não gera alerta).
+
+- **Base de venda** = lojas de operação Venda em situação concluída (exclui Cancelado, Atualização de estoque, Correios, Em aberto, Em andamento; inclui Verificado, Atendido, Checkout parcial, Em separação). Bate com o Painel.
+- **Venda sem nota** = venda no sistema − venda casada a pedido (pedido a pedido; NÃO usa o total de NF). A nota de venda sem pedido casado fica só no selo "nota sem pedido".
+- **NF de venda autorizada** = situação 5/6 e natureza "Venda de..." (soma pelo valor da nota), em qualquer loja (inclui remessa/venda em amostra e troca). Pode ser > base de venda.
+- **Situação**: 5/6 = autorizada; 1 = pendente; 0 = rascunho; 2 = cancelada; 3 = denegada.
+
+**Avisos (selo + filtro, vão para os Afazeres):** venda sem nota; amostra sem remessa (ou com nota de venda = natureza diferente); troca sem remessa; pedido com nota e não concluído (NF de venda autorizada em pedido Em separação/Em aberto/Em andamento — é o status do Bling atrasado, não o sync); natureza diferente da esperada; nota cancelada/denegada; nota em mês diferente do pedido; valor da nota ≠ pedido (> R$ 1,00); declarado no PGDAS sem NF; nota sem pedido no sistema.
+
+**Troca / Troca Atacado:** liga à origem pela chave `devolucoes` (`pedidoCredito` = nº do pedido de troca → `nfOrigem`).
+- Origem COM NF (nfOrigem preenchida): esperado Remessa em troca. Saiu nota de venda → "natureza diferente"; sem nota → "troca sem remessa"; remessa → ok. Em todos, marca "· devolução: conferir" na linha (a NF de devolução de entrada não existe no Bling — 0 notas de entrada em set/out nas 2 contas; é entrada de terceiro/cliente).
+- Origem SEM NF: sem nota esperada, sem alerta (mesmo que tenha saído nota de venda, fica só marca neutra).
+
 ## Manutenção deste documento
 - Toda decisão nova de regra deve ser acrescentada aqui, na mesma sessão em que for decidida.

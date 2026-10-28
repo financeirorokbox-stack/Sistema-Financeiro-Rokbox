@@ -1004,6 +1004,9 @@ function renderNF(){
   const ehVendaNat=s=>/venda de (mercadoria|produ)/i.test(String(s||''));
   const sitLbl=s=>({6:'autorizada',5:'autorizada',1:'pendente',0:'rascunho',2:'cancelada',3:'denegada'}[s]||('sit '+s));
   const empOk=e=> _nfEmp==='todas' ? true : (_empG(e)===_empG(_nfEmp));
+  // Troca → origem: liga pelo pedidoCredito (nº do pedido de troca) e vê se a NF de origem existe (nfOrigem).
+  const trocaNfOrig={};
+  (F.dev||[]).forEach(d=>{ const m=String(d.pedidoCredito||'').match(/\d{4,6}/g)||[]; const temNF=!!String(d.nfOrigem||'').trim(); m.forEach(x=>{ if(temNF) trocaNfOrig[x]=true; else if(!(x in trocaNfOrig)) trocaNfOrig[x]=false; }); });
   const rows=[];
   pedidos.forEach(p=>{
     if(String(p.data||'').slice(0,7)!==mes) return;
@@ -1017,10 +1020,18 @@ function renderNF(){
     const emProg=EMPROG.includes(sit); const emSep=/em separa/.test(sit);
     if(emProg && !autVenda) return;      // em aberto/andamento sem nota de venda: nada a reportar
     const naBase=!emProg;                // base de venda exclui em aberto/andamento (inclui em separação/checkout/verificado/atendido)
-    let selo;
+    let selo, espDisp=esperada, devConf=false;
     if(pgSemNF[empresa+'|'+p.id]) selo='pgdas_sem_nf';
-    else if(autVenda && (emProg||emSep)) selo='nota_nao_concluido';  // NF de venda emitida mas pedido não concluído
-    else if(operacao==='troca') selo='troca_origem';
+    else if(operacao==='troca'){
+      const temOrig = trocaNfOrig[p.id]===true;  // origem com NF
+      if(temOrig){ espDisp='Remessa em troca'; devConf=true;   // devolução (entrada) não está no Bling → só marca na linha
+        if(!nf) selo='troca_sem_remessa';
+        else if(!autoriz) selo='nota_nao_aut';
+        else if(ehVendaNat(nf.natNome)) selo='natureza_dif';   // saiu venda onde era p/ ser remessa
+        else selo='ok';
+      } else { espDisp='Sem nota esperada'; selo='sem_esperada'; }  // origem sem NF: sem nota esperada (mesmo se saiu venda, marca neutra)
+    }
+    else if(autVenda && (emProg||emSep) && operacao==='venda') selo='nota_nao_concluido';  // NF de venda emitida mas pedido não concluído
     else if(/sem nota esperada/i.test(esperada)) selo='sem_esperada';
     else if(operacao==='amostra'){
       if(!nf) selo='amostra_sem_remessa';
@@ -1035,7 +1046,7 @@ function renderNF(){
       else if(nfVal!=null && Math.abs(pedVal-nfVal)>1) selo='valor_dif';
       else selo='ok';
     } else selo='sem_esperada';
-    rows.push({id:String(p.id),nome:p.nome||'',empresa,loja,operacao:info.operacao||'(loja sem cadastro)',esperada,data:p.data||'',pedVal,nf,nfVal,autVenda,naBase,selo});
+    rows.push({id:String(p.id),nome:p.nome||'',empresa,loja,operacao:info.operacao||'(loja sem cadastro)',esperada:espDisp,data:p.data||'',pedVal,nf,nfVal,autVenda,naBase,devConf,selo});
   });
   // nota de venda do mês sem pedido casado (do índice de NFs)
   const linked={1:new Set(),2:new Set()};
@@ -1053,10 +1064,10 @@ function renderNF(){
   const diff=+(nfVendaAut-pgReceita).toFixed(2);
   const C={}; rows.forEach(r=>{C[r.selo]=(C[r.selo]||0)+1;});
   const valSelo=sel=>rows.filter(r=>r.selo===sel).reduce((s,r)=>s+r.pedVal,0);
-  const PROB=['venda_sem_nota','amostra_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
-  const seloInfo={venda_sem_nota:['🔴','venda sem nota','var(--red)'],amostra_sem_remessa:['🟠','amostra sem remessa','var(--amber)'],nota_nao_concluido:['🚚','pedido com nota, não concluído','var(--amber)'],natureza_dif:['❌','natureza diferente','var(--red)'],nota_nao_aut:['⛔','nota cancelada/denegada','var(--red)'],nota_mes_dif:['📅','nota em mês diferente','var(--amber)'],valor_dif:['💰','valor nota ≠ pedido','var(--amber)'],pgdas_sem_nf:['📣','declarado no PGDAS sem NF','var(--amber)'],troca_origem:['🔁','troca: conferir origem','var(--muted)'],sem_esperada:['·','sem nota esperada','var(--muted)'],ok:['✅','ok','var(--lime)']};
+  const PROB=['venda_sem_nota','amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
+  const seloInfo={venda_sem_nota:['🔴','venda sem nota','var(--red)'],amostra_sem_remessa:['🟠','amostra sem remessa','var(--amber)'],troca_sem_remessa:['🔁','troca sem remessa','var(--amber)'],nota_nao_concluido:['🚚','pedido com nota, não concluído','var(--amber)'],natureza_dif:['❌','natureza diferente','var(--red)'],nota_nao_aut:['⛔','nota cancelada/denegada','var(--red)'],nota_mes_dif:['📅','nota em mês diferente','var(--amber)'],valor_dif:['💰','valor nota ≠ pedido','var(--amber)'],pgdas_sem_nf:['📣','declarado no PGDAS sem NF','var(--amber)'],sem_esperada:['·','sem nota esperada','var(--muted)'],ok:['✅','ok','var(--lime)']};
   const shown=rows.filter(r=>{ if(_nfFiltro==='todos') return true; if(_nfFiltro==='problemas') return PROB.includes(r.selo); if(_nfFiltro==='venda_gap') return r.operacao.toLowerCase()==='venda'&&r.naBase&&!r.autVenda; return r.selo===_nfFiltro; })
-    .sort((a,b)=>{ const o=s=>PROB.includes(s)?0:(s==='troca_origem'?1:(s==='ok'?3:2)); return o(a.selo)-o(b.selo) || b.pedVal-a.pedVal; });
+    .sort((a,b)=>{ const o=s=>PROB.includes(s)?0:((s==='ok'||s==='sem_esperada')?3:2); return o(a.selo)-o(b.selo) || b.pedVal-a.pedVal; });
   const danfeCol=nf=> nf? (nf.danfe?`<a href="${nf.danfe}" target="_blank" style="color:#58a6ff">DANFE</a>`:'<span style="color:var(--muted)" title="link entra com a sincronização">—</span>') : '';
   const body=shown.slice(0,400).map(r=>{ const si=seloInfo[r.selo]||['','','var(--muted)'];
     return `<tr>
@@ -1070,13 +1081,13 @@ function renderNF(){
     <td class="v">${brl(r.pedVal)}${r.nfVal!=null&&Math.abs(r.pedVal-r.nfVal)>1?` <span style="color:var(--red)">→ ${brl(r.nfVal)}</span>`:''}</td>
     <td style="text-align:center;color:var(--muted)">${r.nf?sitLbl(r.nf.sit):'—'}</td>
     <td style="text-align:center">${danfeCol(r.nf)}</td>
-    <td style="color:${si[2]};white-space:nowrap">${si[0]} ${si[1]}</td></tr>`;}).join('') || `<tr><td colspan="11" style="color:var(--muted)">${_nfFiltro==='problemas'?'Nenhum problema de NF nesse recorte. 🎉':'Nada nesse filtro.'}</td></tr>`;
+    <td style="color:${si[2]};white-space:nowrap">${si[0]} ${si[1]}${r.devConf?' <span style="color:var(--muted)">· devolução: conferir</span>':''}</td></tr>`;}).join('') || `<tr><td colspan="11" style="color:var(--muted)">${_nfFiltro==='problemas'?'Nenhum problema de NF nesse recorte. 🎉':'Nada nesse filtro.'}</td></tr>`;
   const cardSelo=(sel)=>{ const si=seloInfo[sel]; const n=C[sel]||0; return `<button onclick="setNfFiltro('${sel}')" class="card" style="border:0;cursor:pointer;text-align:left;${_nfFiltro===sel?'outline:2px solid #58a6ff':''}"><div class="lab" style="color:${si[2]};text-transform:none">${si[0]} ${si[1]}</div><div class="big" style="font-size:22px;color:${n?si[2]:'var(--lime)'}">${n}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:2px">${brl(valSelo(sel))}</div></button>`; };
   el.innerHTML=`
     <h2>📑 Notas Fiscais <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · ${_nfEmp==='todas'?'as duas empresas':_nfEmp}</span></h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <label style="font-size:12.5px;color:var(--muted);font-weight:700">Empresa: <select onchange="setNfEmp(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 9px;font-weight:700">${['Rokbox','Rk','todas'].map(o=>`<option value="${o}"${_nfEmp===o?' selected':''}>${o==='todas'?'As duas':o}</option>`).join('')}</select></label>
-      <label style="font-size:12.5px;color:var(--muted);font-weight:700">Mostrar: <select onchange="setNfFiltro(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 9px;font-weight:700">${[['problemas','Só problemas'],['todos','Todos'],['venda_gap','🔴 Venda sem nota (total)'],['venda_sem_nota','🔴 Sem nota nenhuma'],['amostra_sem_remessa','🟠 Amostra sem remessa'],['nota_nao_concluido','🚚 Nota, não concluído'],['natureza_dif','❌ Natureza diferente'],['nota_nao_aut','⛔ Cancelada/denegada'],['nota_mes_dif','📅 Mês diferente'],['valor_dif','💰 Valor diferente'],['pgdas_sem_nf','📣 PGDAS sem NF'],['troca_origem','🔁 Troca (origem)'],['ok','✅ OK']].map(o=>`<option value="${o[0]}"${_nfFiltro===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select></label>
+      <label style="font-size:12.5px;color:var(--muted);font-weight:700">Mostrar: <select onchange="setNfFiltro(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 9px;font-weight:700">${[['problemas','Só problemas'],['todos','Todos'],['venda_gap','🔴 Venda sem nota (total)'],['venda_sem_nota','🔴 Sem nota nenhuma'],['amostra_sem_remessa','🟠 Amostra sem remessa'],['nota_nao_concluido','🚚 Nota, não concluído'],['natureza_dif','❌ Natureza diferente'],['nota_nao_aut','⛔ Cancelada/denegada'],['nota_mes_dif','📅 Mês diferente'],['valor_dif','💰 Valor diferente'],['pgdas_sem_nf','📣 PGDAS sem NF'],['troca_sem_remessa','🔁 Troca sem remessa'],['ok','✅ OK']].map(o=>`<option value="${o[0]}"${_nfFiltro===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select></label>
     </div>
     <div class="grid2" style="margin-bottom:8px;grid-template-columns:repeat(4,1fr)">
       <div class="card"><div class="lab">Venda no sistema</div><div class="big">${brl(vendaSistema)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px">lojas de venda concluídas (sem em aberto/andamento)</div></div>
@@ -1088,7 +1099,7 @@ function renderNF(){
       <div style="font-size:12.5px;font-weight:800;margin-bottom:6px">Avisos do mês <span style="color:var(--muted);font-weight:400">· clique para filtrar · vão para os Afazeres</span></div>
       <div class="grid2" style="grid-template-columns:repeat(3,1fr);gap:6px">
         <button onclick="setNfFiltro('venda_gap')" class="card" style="border:0;cursor:pointer;text-align:left;${_nfFiltro==='venda_gap'?'outline:2px solid #58a6ff':''}"><div class="lab" style="color:var(--red);text-transform:none">🔴 venda sem nota</div><div class="big" style="font-size:22px;color:${vendaSemNota>0.5?'var(--red)':'var(--lime)'}">${brl(vendaSemNota)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:2px">venda − casada (pedido a pedido)</div></button>
-        ${['amostra_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf','troca_origem'].map(cardSelo).join('')}
+        ${['amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'].map(cardSelo).join('')}
         <div class="card"><div class="lab" style="text-transform:none;color:var(--muted)">🧾 Nota sem pedido</div><div class="big" style="font-size:22px;color:${semPedN?'var(--amber)':'var(--lime)'}">${semPedN}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:2px">notas de venda sem pedido casado</div></div>
       </div>
     </div>
@@ -1481,7 +1492,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-28.2';
+const BUILD='2026-10-28.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
