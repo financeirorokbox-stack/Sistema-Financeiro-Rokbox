@@ -201,6 +201,13 @@ children.push(BB('Saldo diário por banco: ', 'seção por banco, dia a dia, com
 children.push(H2('6.6 Comissão'));
 children.push(P('Calcula a comissão por loja (vendedores), com percentual por loja. Ela se junta por nome e entra no Contas a Pagar (dentro da folha). Casos de não-vendedores são tratados um a um.'));
 
+// 6.7 Meta do Painel RK
+children.push(H2('6.7 Meta do Painel RK (realizado × meta)'));
+children.push(P('No Painel RK, o realizado de cada vendedor na meta usa a base da META: valor do pedido − frete − devolução, para pedido de Venda ou Troca em situação que entra na meta (Verificado, Atendido, Checkout parcial), com ou sem recebimento lançado. Em separação entra na meta só quando avança no Bling.'));
+children.push(BB('Não depende de recebimento: ', 'um pedido concluído entra na meta mesmo sem o recebimento lançado. Por isso o realizado da meta pode ser maior que a base da comissão.'));
+children.push(BB('Não é a comissão a pagar: ', 'a comissão continua com a regra dela (desconta também o valor em aberto; boleto conta cheio). As duas bases podem divergir, e tudo bem.'));
+children.push(NOTE('Checkout parcial conta o valor cheio do pedido (a NF de venda sai pelo total). Na troca, a devolução abate, com teto no valor do pedido.'));
+
 // ============================================================
 // 7. CADASTRO
 // ============================================================
