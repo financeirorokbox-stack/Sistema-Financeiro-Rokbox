@@ -128,6 +128,7 @@
     </div>
     <div class="ctrl">
       <div class="live"><span class="dot"></span><span id="upd">—</span></div>
+      <span class="live" id="dataAt" title="Quando o Gestão rodou o último Atualizar Power BI (é a data da base: vendas e meta). O Painel só mostra, não grava nada.">💾 dados: —</span>
       <span class="live" id="eye" onclick="toggleNums()" style="cursor:pointer" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="live" id="full" onclick="toggleFull()" style="cursor:pointer" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
     </div>
@@ -176,7 +177,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-10-29.1';
+const BUILD = '2026-10-30.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -263,6 +264,8 @@ async function carregar(){
     if(d1) dados = tag(d1,'Rokbox');
     if(d2) dados2 = tag(d2,'Rk');
     _uvBuildBling(); _uvRenderMain();
+    // "Dados atualizados em" = quando o Gestão rodou o último Atualizar Power BI (coluna atualizado_em do flatVendas). Só leitura.
+    try{ const _at=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.flatVendas&select=atualizado_em`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_bearer},cache:'no-store'}).then(r=>r.json()); const iso=(Array.isArray(_at)&&_at[0])?_at[0].atualizado_em:null; const el=document.getElementById('dataAt'); if(el) el.textContent='💾 dados de '+_fmtAt(iso); }catch(e){}
   }catch(e){ const s=document.getElementById('sub'); if(s) s.textContent='sem conexão, tentando de novo…'; }
 }
 // ── cenário SISTEMA: monta os mesmos registros do placar a partir dos pedidos do Gestão RK ──

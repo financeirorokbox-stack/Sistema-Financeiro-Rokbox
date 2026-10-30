@@ -36,6 +36,8 @@ Toda sessão lê isto ANTES de alterar o sistema.
 - Boleto sai líquido do crédito de troca (parcela = valor do pedido menos crédito de troca).
 - Crédito de troca abate o CR (não é dinheiro de banco).
 - Empresa e categoria obrigatórias em todo lançamento.
+- **Recebimento compartilhado (1 crédito → N pedidos, `nped` com vírgula) — rateio pela FALTA QUE RESTA.** `alocRecebGateway`: pedido de mês ABERTO recebe só o que ainda falta (valor − solos − já alocado em recebimentos anteriores, processados em ordem de data), para o 1º pedido não "comer" o valor cheio a cada crédito e criar sobra falsa. Recebimento SOLO (1 pedido) = valor inteiro. Pedido de mês FECHADO/congelado (`_mesCongeladoCR`) mantém a regra ANTIGA (nada já fechado muda). A cópia read-only do Export conciliado usa a mesma regra. Cache reconstruído a cada `renderConcResult`/`_syncPowerBI` (`_invalidarAloc`). Ex.: par CORAVI #398/#446 (Rk, out) — o crédito de ago/13 (R$ 5.006,70) e os solos não mudam; só o crédito de out/22 (R$ 21.220,66) passa a dividir 19.825,75 p/ #398 e 1.394,91 p/ #446 → os dois ficam quitados (a sobra falsa de 1.394,91 some).
+- **Visual da Conciliação de Recebíveis:** ao lado de cada recebimento mostra a data (liquidação: repasse do banco p/ gateway, data do crédito p/ PIX/boleto). Se o pagamento é de outro MÊS que o do pedido (adiantamento), mostra o ano (dd/mm/aa). Só visual, não muda cálculo.
 
 ## 4. Contas a Pagar (CP)
 - Pago vem da conciliação de débito no banco (debitoLinks).
@@ -89,6 +91,9 @@ Toda sessão lê isto ANTES de alterar o sistema.
   - Pedido tocado à mão: tem anotação em obsPedido, OU itens com custo (vieram da planilha de vendas, que o Bling não traz).
   - Reuso de número: o cliente do Bling é outra pessoa (os nomes não casam por tokens) e o Gestão tem itens reais. Nome mais completo da mesma pessoa (ex.: "Maria Brito" para "Maria Eugenia Brito") não é reuso, aplica. Pedido-placeholder (sem SKU real) também aplica.
   - Mês fechado: não altera, só loga a divergência (para o "Aplicar mesmo assim").
+- **Visibilidade (quando o Painel parece "atrasado" vs o Bling):** o pedido no Gestão se sincroniza sozinho a cada abertura (auto-import), mas o Painel só muda depois de rodar **Atualizar Power BI** (que reconstrói o flatVendas). Para não parecer erro:
+  - **Aviso no Afazeres** "pedido(s) de mês aberto divergente(s) do Bling": compara, só mês ABERTO, o pedido em memória com o snapshot do Bling da mesma conta (situação e valor, tolerância R$ 0,05). Fica ~zero quando tudo sincronizou; sobra o que o sync NÃO conseguiu aplicar (SAIDA, tocado à mão, reuso de nº). Clicar lista os pedidos. Mês fechado fica no aviso separado "mudança bloqueada por mês fechado".
+  - **"Dados atualizados em: dd/mm às hh:mm"** no cabeçalho do Painel de Vendas (placar) e do Financeiro = coluna `atualizado_em` do flatVendas (quando rodou o último Atualizar Power BI). É SÓ LEITURA: o Painel não grava nada.
 
 ## 12. Painel RK
 - Saldo em banco sempre ATUAL: último extrato de cada conta, com a data, independente do filtro de mês.

@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v745/10-798';
+const APP_VERSION = 'v746/10-799';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1985,27 +1985,50 @@ function classificaForma(descricao) {
   // I Cross, etc.
   return { categoria: 'Não é recebimento', isReceita: false };
 }
-// Quanto de um recebimento de gateway é alocado a um pedido. Suporta nped com
-// VÁRIOS pedidos (separados por vírgula): preenche cada um até o valor da sua
-// forma, na ordem, e o que sobra vai para o próximo (1 recebimento → N pedidos).
+// Alocação de recebimento compartilhado (1 recebimento → N pedidos, nped com vírgula).
+// Regra: pedido de mês ABERTO recebe pela FALTA QUE RESTA (valor − solos − já alocado
+// em recebimentos anteriores), para não "re-dar" o valor cheio a cada recebimento e
+// criar sobra falsa no 1º pedido. Pedido de mês FECHADO/congelado mantém a regra
+// ANTIGA (nada já fechado pode mudar). Recebimento solo = valor inteiro (inalterado).
+// Cache reconstruído a cada render da conciliação / _syncPowerBI via _invalidarAloc().
+let _alocMapComp = null, _alocSoloComp = null;
+function _invalidarAloc() { _alocMapComp = null; _alocSoloComp = null; }
+function _splitNped(s) { return String(s || '').split(',').map(x => x.trim()).filter(Boolean); }
+function _buildAlocComp() {
+  _alocMapComp = new Map(); _alocSoloComp = {};
+  const recs = (typeof recebimentosConsolidado !== 'undefined' && recebimentosConsolidado) ? recebimentosConsolidado : [];
+  const valorPed = pid => { const p = pedidoPorId(pid); return p ? getValorConciliacaoPedido(p) : 0; };
+  const congeladoPed = pid => { const p = pedidoPorId(pid); return p ? _mesCongeladoCR(p.data) : false; };
+  // 1) solos abatem a necessidade do pedido (só p/ mês aberto)
+  recs.forEach(r => { const peds = _splitNped(r.nped); if (peds.length === 1) { _alocSoloComp[peds[0]] = (_alocSoloComp[peds[0]] || 0) + (r.bruto || r.liq || 0); } });
+  // 2) compartilhados em ordem de DATA (adiantamento de mês anterior entra antes)
+  const shared = recs.filter(r => _splitNped(r.nped).length > 1)
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => { const da = String(a.r.data || ''), db = String(b.r.data || ''); return da < db ? -1 : da > db ? 1 : a.i - b.i; });
+  const need = {};
+  shared.forEach(o => _splitNped(o.r.nped).forEach(pid => { if (need[pid] === undefined && !congeladoPed(pid)) need[pid] = Math.max(0, valorPed(pid) - (_alocSoloComp[pid] || 0)); }));
+  shared.forEach(o => {
+    const peds = _splitNped(o.r.nped); let remaining = (o.r.bruto || o.r.liq || 0); const m = {};
+    peds.forEach(pid => {
+      let aloc;
+      if (congeladoPed(pid)) { aloc = Math.min(valorPed(pid), Math.max(0, remaining)); }                  // ANTIGO: mês fechado
+      else { const nd = need[pid] || 0; aloc = Math.min(nd, Math.max(0, remaining)); need[pid] = nd - aloc; } // ABERTO: pela falta que resta
+      aloc = +aloc.toFixed(2); m[pid] = aloc; remaining -= aloc;
+    });
+    _alocMapComp.set(o.r, m);
+  });
+}
 function alocRecebGateway(r, pedido) {
-  const gw = r.gateway;
-  const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
+  const peds = _splitNped(r.nped);
   const idx = peds.indexOf(String(pedido));
   if (idx < 0) return 0;
-  const total = r.bruto || r.liq || 0;
-  if (peds.length === 1) return total;
-  // Aloca pelo VALOR TOTAL de cada pedido (qualquer forma), na ordem; o resto vai ao próximo.
-  const valorPed = pid => {
-    const p = pedidos.find(x => String(x.id) === String(pid));
-    return p ? getValorConciliacaoPedido(p) : 0;
-  };
-  let remaining = total;
-  for (let k = 0; k < peds.length; k++) {
-    const aloc = Math.min(valorPed(peds[k]), Math.max(0, remaining));
-    if (k === idx) return +aloc.toFixed(2);
-    remaining -= aloc;
-  }
+  if (peds.length === 1) return r.bruto || r.liq || 0;
+  if (!_alocMapComp) _buildAlocComp();
+  const m = _alocMapComp.get(r);
+  if (m && (String(pedido) in m)) return m[String(pedido)];
+  // fallback (recebimento fora do array corrente): regra ANTIGA
+  let remaining = r.bruto || r.liq || 0;
+  for (let k = 0; k < peds.length; k++) { const p = pedidoPorId(peds[k]); const vp = p ? getValorConciliacaoPedido(p) : 0; const a = Math.min(vp, Math.max(0, remaining)); if (k === idx) return +a.toFixed(2); remaining -= a; }
   return 0;
 }
 // Grupo da aba "Categoria Receitas" (Cartão de Crédito, Cartão de Débito, Boleto,
@@ -5253,6 +5276,7 @@ function _avisarFlatIncompleto(n, nAnt) {
     + ' <button onclick="this.parentNode.style.display=\'none\'" style="margin-left:10px;background:#fff;color:#c0392b;border:0;border-radius:6px;padding:3px 10px;font-weight:800;cursor:pointer">ok</button>';
 }
 async function _syncPowerBI() {
+  _invalidarAloc();
   const dISO = v => { const d = v instanceof Date ? v : (v ? new Date(v) : null); return (d && !isNaN(d)) ? (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) : null; };
   // CR: reconstrói a lista do ZERO num elemento SOLTO (fora da tela). Assim independe do que está renderizado agora
   // e de qualquer filtro (num div solto os querySelector de filtro dão null → _linhasCRExport nasce COMPLETO, sem
@@ -6456,15 +6480,35 @@ function buildConciliadoBanco(G) {
     const totalReceita = linhasPed.filter(f => { const c = classificaForma(f.descricao); return c.isReceita && c.categoria !== 'Devolução' && c.categoria !== 'Crédito Cliente'; }).reduce((s, f) => s + f.valor, 0);
     return totalReceita > 0 ? totalReceita : ped.valor;
   }
+  // mesma regra gated da função viva (aberto = pela falta que resta; fechado = antiga)
+  let _alocME = null, _alocSE = null;
+  function _buildAlocE() {
+    _alocME = new Map(); _alocSE = {};
+    const splitN = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
+    const valorPed = pid => { const p = pedById.get(String(pid)); return p ? getValorConciliacaoPedido(p) : 0; };
+    const congeladoPed = pid => { const p = pedById.get(String(pid)); return p ? mesCongelado(p.data) : false; };
+    RC.forEach(r => { const peds = splitN(r.nped); if (peds.length === 1) { _alocSE[peds[0]] = (_alocSE[peds[0]] || 0) + (r.bruto || r.liq || 0); } });
+    const shared = RC.filter(r => splitN(r.nped).length > 1).map((r, i) => ({ r, i }))
+      .sort((a, b) => { const da = String(a.r.data || ''), db = String(b.r.data || ''); return da < db ? -1 : da > db ? 1 : a.i - b.i; });
+    const need = {};
+    shared.forEach(o => splitN(o.r.nped).forEach(pid => { if (need[pid] === undefined && !congeladoPed(pid)) need[pid] = Math.max(0, valorPed(pid) - (_alocSE[pid] || 0)); }));
+    shared.forEach(o => {
+      const peds = splitN(o.r.nped); let remaining = (o.r.bruto || o.r.liq || 0); const m = {};
+      peds.forEach(pid => { let aloc; if (congeladoPed(pid)) { aloc = Math.min(valorPed(pid), Math.max(0, remaining)); } else { const nd = need[pid] || 0; aloc = Math.min(nd, Math.max(0, remaining)); need[pid] = nd - aloc; } aloc = +aloc.toFixed(2); m[pid] = aloc; remaining -= aloc; });
+      _alocME.set(o.r, m);
+    });
+  }
   function alocRecebGateway(r, pedido) {
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     const idx = peds.indexOf(String(pedido));
     if (idx < 0) return 0;
-    const total = r.bruto || r.liq || 0;
-    if (peds.length === 1) return total;
+    if (peds.length === 1) return r.bruto || r.liq || 0;
+    if (!_alocME) _buildAlocE();
+    const m = _alocME.get(r);
+    if (m && (String(pedido) in m)) return m[String(pedido)];
     const valorPed = pid => { const p = pedById.get(String(pid)); return p ? getValorConciliacaoPedido(p) : 0; };
-    let remaining = total;
-    for (let k = 0; k < peds.length; k++) { const aloc = Math.min(valorPed(peds[k]), Math.max(0, remaining)); if (k === idx) return +aloc.toFixed(2); remaining -= aloc; }
+    let remaining = r.bruto || r.liq || 0;
+    for (let k = 0; k < peds.length; k++) { const a = Math.min(valorPed(peds[k]), Math.max(0, remaining)); if (k === idx) return +a.toFixed(2); remaining -= a; }
     return 0;
   }
   function recKeyGlobal(r) { return [r.gateway, r.data ? new Date(r.data).toISOString().slice(0, 10) : '', (r.bruto || 0).toFixed(2), (r.nome || '').trim().toLowerCase(), r.nped || ''].join('|'); }
@@ -11497,7 +11541,10 @@ function getRecebimentosDoPedido(ped) {
       taxa = r.taxa || 0;
       origem = 'nº pedido';
     }
-    recs.push({ gateway: r.gateway, bruto, taxa, liq: +(bruto - taxa).toFixed(2), data: r.data, origem });
+    // dataLiq = data que vale para o MÊS: para gateway (PayPal/Braavo) é a data do repasse no banco
+    // quando já conciliado; para PIX (Extrato) a própria data do crédito já é a liquidação.
+    const _dataLiq = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay') ? (dataRepasseBanco(r) || r.data) : r.data;
+    recs.push({ gateway: r.gateway, bruto, taxa, liq: +(bruto - taxa).toFixed(2), data: r.data, dataLiq: _dataLiq, origem });
     usados.add(i);
   });
   const bPed = getBoletosPorPedido().find(b => String(b.pedido) === pedId);
@@ -11505,14 +11552,14 @@ function getRecebimentosDoPedido(ped) {
     const cob = boletoCobrancaStatus[p.key];
     if (cob && cob.pago) {
       const vp = cob.valorPago != null ? cob.valorPago : p.valor;
-      recs.push({ gateway: 'Boleto Itaú', bruto: vp, taxa: 0, liq: vp, data: cob.dataPagamento, origem: 'boleto' });
+      recs.push({ gateway: 'Boleto Itaú', bruto: vp, taxa: 0, liq: vp, data: cob.dataPagamento, dataLiq: cob.dataPagamento, origem: 'boleto' });
     }
   });
   devolucoes.forEach(d => {
     const credEf = credDevolucao(d);
     if ((String(credEf).match(/\d{4,6}/g) || []).includes(pedId)) {
       const v = valorDevolucaoParaPedido(d, pedId); // dividido entre os pedidos de crédito
-      recs.push({ gateway: 'Devolução', bruto: v, taxa: 0, liq: v, data: d.dataTroca, origem: 'devolução' });
+      recs.push({ gateway: 'Devolução', bruto: v, taxa: 0, liq: v, data: d.dataTroca, dataLiq: d.dataTroca, origem: 'devolução' });
     }
   });
   return recs;
@@ -11691,6 +11738,7 @@ function desfazerSobra(idx) {
   }
   recebimentosConsolidado = recebimentosConsolidado.filter(x => x !== r);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
+  _invalidarAloc();
   renderRecebimentos();
 }
 
@@ -11862,6 +11910,16 @@ function renderPorPedido() {
   // pra ela ver na hora quem já teve boleto emitido sem abrir a aba "Boletos a Emitir".
   const pedComBoletoEmit = new Set();
   Object.keys(boletoStatus).forEach(k => { if (boletoStatus[k]) { const pid = String(k).split('-')[0]; if (pid) pedComBoletoEmit.add(pid); } });
+  // Data do pagamento ao lado de cada recebimento (visual). Usa a data de liquidação (dataLiq);
+  // se o pagamento é de outro MÊS que o do pedido (adiantamento), mostra o ano junto (dd/mm/aa).
+  const _ymLocal = v => { const dt = v instanceof Date ? v : (v ? new Date(v) : null); return (dt && !isNaN(dt)) ? (dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0')) : ''; };
+  const _dataRec = (r, ped) => {
+    const d = r.dataLiq || r.data; const dt = d instanceof Date ? d : (d ? new Date(d) : null);
+    if (!dt || isNaN(dt)) return '';
+    const dd = String(dt.getDate()).padStart(2, '0'), mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const pedM = _ymLocal(ped.data), recM = _ymLocal(dt);
+    return (pedM && recM && pedM !== recM) ? `${dd}/${mm}/${String(dt.getFullYear()).slice(-2)}` : `${dd}/${mm}`;
+  };
   const tabela = vis.length === 0 ? '<div class="empty"><div class="e-icon">✓</div>Nenhum pedido nesta categoria</div>' : `
     <div class="table-wrap"><table><thead><tr>
       <th>Pedido</th><th>Cliente</th><th>Valor Pedido</th><th>Recebimentos (bruto)</th><th>Recebido</th><th>Taxas</th><th>Líquido</th><th>Diferença</th><th>Status</th><th>Obs</th>
@@ -11870,7 +11928,7 @@ function renderPorPedido() {
       <td><strong>#${l.ped.id}</strong></td>
       <td>${l.ped.nome || '—'}</td>
       <td>${fmtVal(l.valorPed)}</td>
-      <td style="font-size:11px">${l.recs.length ? l.recs.map(r => `${r.gateway} ${fmtVal(r.bruto)}${r.taxa ? ` <span style="color:var(--muted)">(taxa ${fmtVal(r.taxa)})</span>` : ''} ${r.origem === 'por valor' ? '<span class="badge warn" style="font-size:9px">por valor</span>' : ''}`).join('<br>') : '<span style="color:var(--amber)">sem recebimento</span>'}</td>
+      <td style="font-size:11px">${l.recs.length ? l.recs.map(r => { const dr = _dataRec(r, l.ped); return `${r.gateway}${dr ? ` <span style="color:var(--muted)">${dr}</span> ·` : ''} ${fmtVal(r.bruto)}${r.taxa ? ` <span style="color:var(--muted)">(taxa ${fmtVal(r.taxa)})</span>` : ''} ${r.origem === 'por valor' ? '<span class="badge warn" style="font-size:9px">por valor</span>' : ''}`; }).join('<br>') : '<span style="color:var(--amber)">sem recebimento</span>'}</td>
       <td><strong>${fmtVal(l.somaBruto)}</strong></td>
       <td style="color:var(--muted)">${fmtVal(l.somaTaxa)}</td>
       <td>${fmtVal(+(l.somaBruto - l.somaTaxa).toFixed(2))}</td>
@@ -11905,6 +11963,7 @@ function togglePpStatus(st) {
 function renderConcResult() {
   const el = document.getElementById('conc-result');
   if (!el) return;
+  _invalidarAloc();
 
   // Calcula Sem Recebimento real a partir de formaPagamento (igual Contas a Receber EM ABERTO)
   const _emAberto = formaPagamento.filter(f => {
@@ -18724,6 +18783,29 @@ const AF = (function () {
     try { const prev = mesAnteriorYM(hoje); const cr = (typeof crFechado !== 'undefined' && crFechado) || {}; if (!cr[prev]) add('11', 'Mês anterior (' + prev + ') ainda sem foto oficial', "AF._ir('conc')"); } catch (e) {}
     try { const dias = await _bkpListarNuvem(); if (!dias.includes(hoje)) add('12', 'Backup na nuvem ainda não rodou hoje', "abrirAutoBackups()"); } catch (e) {}
     try { if (st._gmail && st._gmail.erro) add('gmail', 'Leitura do Gmail falhou: ' + String(st._gmail.erro).slice(0, 60), ''); } catch (e) {}
+    // ── pedido de mês ABERTO que ainda NÃO bate com o Bling (Problem 1: visibilidade). Abrir o Gestão sincroniza
+    //    sozinho; o que resta divergente aqui é o que o sync NÃO conseguiu aplicar (SAIDA, tocado à mão, reuso de nº)
+    //    ou que ainda não rodou. Compara o pedido em memória com o snapshot do Bling da MESMA conta. Mês fechado fica no aviso '8'. ──
+    try {
+      const rico1 = (await loadData('blingVendasRico')) || {}, rico2 = (await loadData('blingVendasRico2')) || {};
+      const mapDe = R => { const m = new Map(); ((R && R.registros) || []).forEach(r => { const n = String(r.numero || r.pedido || ''); if (n) m.set(n, r); }); return m; };
+      const rkMap = mapDe(rico1), plMap = mapDe(rico2);
+      if (rkMap.size || plMap.size) {
+        const fechados = (typeof mesesFechados !== 'undefined' ? mesesFechados : []);
+        const _ym = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return (dt && !isNaN(dt)) ? (dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0')) : ''; };
+        const divs = [];
+        (typeof pedidos !== 'undefined' ? pedidos : []).forEach(p => {
+          const ym = _ym(p.data); if (!ym || fechados.includes(ym)) return;                // só mês ABERTO
+          const emp = String(p.empresa || 'Rokbox');
+          const R = (emp === 'Rk') ? plMap.get(String(p.id)) : rkMap.get(String(p.id));
+          if (!R) return;                                                                   // não está no snapshot desta conta
+          const sitDif = (p.situacao || '') !== (R.situacao || '');
+          const valDif = Math.abs((+p.valor || 0) - (+R.valor || 0)) > 0.05;
+          if (sitDif || valDif) divs.push('#' + p.id + ' (' + emp + ')' + (sitDif ? ' · situação: ' + (p.situacao || '—') + ' → Bling ' + (R.situacao || '—') : '') + (valDif ? ' · valor: ' + fmtBR(+p.valor || 0) + ' → Bling ' + fmtBR(+R.valor || 0) : ''));
+        });
+        if (divs.length) add('bling_div', divs.length + ' pedido(s) de mês aberto divergente(s) do Bling (abra o Gestão p/ sincronizar e rode Atualizar Power BI)', "AF._modalLista('Pedidos de mês aberto divergentes do Bling'," + JSON.stringify(divs.slice(0, 80)) + ")");
+      }
+    } catch (e) {}
     // ── avisos de NF (regra única nf-regras.js; um item por tipo, mês aberto, soma empresas com split) ──
     try {
       if (typeof NFRegras !== 'undefined') {

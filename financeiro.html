@@ -93,6 +93,7 @@
       <div class="sub" id="sub">carregando…</div>
     </div>
     <div class="top-actions">
+      <span class="lnk solo" id="dataAt" title="Quando o Gestão rodou o último Atualizar Power BI (é a data da base do Painel). Só mostra, não grava nada.">💾 dados: —</span>
       <span class="lnk" id="eye" onclick="toggleNums()" title="Ocultar/mostrar os valores">👁️ Ocultar</span>
       <span class="lnk" id="full" onclick="toggleFull()" title="Tela cheia (esconde a barra)">⛶ Tela cheia</span>
       <a class="lnk solo" href="painel.html">← Painéis</a>
@@ -331,6 +332,9 @@ async function gk(chave){
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+// Data da última atualização (coluna atualizado_em) de uma chave — só leitura, pro cabeçalho "Dados atualizados em". O Painel não grava nada aqui.
+async function gkMetaAt(chave){ try{ const _b=await _sbToken(); if(!_b) return null; const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=atualizado_em`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_b},cache:'no-store'}); const j=await r.json(); return (Array.isArray(j)&&j[0])?j[0].atualizado_em:null; }catch(e){ return null; } }
+function _fmtAt(iso){ if(!iso) return '—'; try{ const d=new Date(iso); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' às '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return '—'; } }
 // ── Vencimento EFETIVO (regra do banco): sáb/dom/feriado nacional → próximo dia útil. Só muda a CONTA (atraso/a vencer); a tela mostra o vencimento original. ──
 // Feriados nacionais em lista FIXA no código (sem serviço externo): fixos de todo ano + móveis por ano (Carnaval, Sexta-feira Santa, Corpus Christi).
 const _FERIADOS_FIXOS = new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25']);
@@ -515,6 +519,7 @@ async function carregar(){
     const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2')]);
     _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}}};
     _popMesSel();
+    gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(el) el.textContent='💾 dados de '+_fmtAt(iso); });
     const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
     const _hj=new Date(); const hojeStr=_hj.getFullYear()+'-'+String(_hj.getMonth()+1).padStart(2,'0')+'-'+String(_hj.getDate()).padStart(2,'0');
@@ -1450,7 +1455,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-29.1';
+const BUILD='2026-10-30.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
