@@ -27,6 +27,11 @@ Toda sessão lê isto ANTES de alterar o sistema.
 - Trava: diasFechados, mesesFechados, crFechado, cpFechado. _mesCongeladoCR = mesesFechados OU crFechado/cpFechado.
 - crFechado/cpFechado guardam as planilhas OFICIAIS; o Power BI usa elas nos meses fechados.
 - O fechamento do mês é feito dentro da Conciliação.
+- **REGRA FIXA (30/10/2026):**
+  1. **Mês fechado NUNCA é alterado** — nem valor, nem número de pedido, nem rótulo, MESMO que o total não mude. Não perguntar nem propor correção em mês fechado.
+  2. **Erro achado em mês fechado vai só para a lista "Ajustes de meses fechados"** (chave `ajustesMesFechado`, aparece no Afazeres): mês, pedido, o que está errado e o valor. Nada além disso.
+  3. **Se o erro afeta dinheiro EM ABERTO** (ex.: recebimento duplicado), o acerto é proposto no **mês aberto atual**, como ajuste, e só com o ok da Elaine.
+  - A Conciliação atual pode divergir do rótulo congelado na foto (ex.: ago/2026 tem um DEPÓSITO de 5.006,70 em 13/08 rotulado "388", que é CORAVI #398/#446); isso fica na lista, a foto não muda.
 
 ## 3. Contas a Receber (CR)
 - Montado dos pedidos Venda/Troca, uma linha por forma/parcela.

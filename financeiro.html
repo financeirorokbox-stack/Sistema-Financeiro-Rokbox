@@ -516,8 +516,8 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}}};
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb')]);
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}}};
     _popMesSel();
     gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(el) el.textContent='💾 dados de '+_fmtAt(iso); });
     const mes=mesSel||mesAtual();
@@ -940,9 +940,15 @@ function renderRecebimentos(){
   const NAOAP=['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'];
   const opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
   const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase())) return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
-  // Recebido por pedido (bruto/taxa/líquido) — rateado se um recebimento cobre vários pedidos
-  const recPorPed={};
-  (F.receb||[]).forEach(r=>{ const nps=String(r.nped||'').split(',').map(s=>s.trim()).filter(Boolean); if(!nps.length) return; const n=nps.length; const liq=(+r.liq)||((+r.bruto||0)-(+r.taxa||0)); nps.forEach(np=>{ const t=recPorPed[np]||(recPorPed[np]={bruto:0,taxa:0,liq:0,gws:new Set(),data:''}); t.bruto+=(+r.bruto||0)/n; t.taxa+=(+r.taxa||0)/n; t.liq+=liq/n; if(r.gateway)t.gws.add(r.gateway); if(r.data&&(!t.data||r.data>t.data))t.data=r.data; }); });
+  // Recebido por pedido = MESMA fonte da Conciliação (flatReceb, gerado pelo Gestão via getRecebimentosDoPedido):
+  // mesma divisão (falta que resta), canal e data de liquidação por recebimento. Enquanto o flatReceb não foi
+  // gerado (1º deploy, antes do próximo "Atualizar Power BI"), cai no cálculo antigo (rateio igual) para não quebrar.
+  const recFlat=F.recFlat, recPorPed={}, usouFlat=!!recFlat;
+  if(recFlat){
+    Object.keys(recFlat).forEach(id=>{ const e=recFlat[id]||{}; recPorPed[id]={bruto:+e.bruto||0,taxa:+e.taxa||0,liq:+e.liq||0,dev:+e.dev||0,linhas:Array.isArray(e.linhas)?e.linhas:[],gws:new Set((e.linhas||[]).map(l=>l.canal).filter(Boolean))}; });
+  } else {
+    (F.receb||[]).forEach(r=>{ const nps=String(r.nped||'').split(',').map(s=>s.trim()).filter(Boolean); if(!nps.length) return; const n=nps.length; const liq=(+r.liq)||((+r.bruto||0)-(+r.taxa||0)); nps.forEach(np=>{ const t=recPorPed[np]||(recPorPed[np]={bruto:0,taxa:0,liq:0,gws:new Set(),linhas:[],data:''}); t.bruto+=(+r.bruto||0)/n; t.taxa+=(+r.taxa||0)/n; t.liq+=liq/n; if(r.gateway)t.gws.add(r.gateway); if(r.data&&(!t.data||r.data>t.data))t.data=r.data; }); });
+  }
   // Devolução (crédito de troca) por pedido — mesma lógica da Margem/Fluxo/CR
   const devAll=Array.isArray(F.dev)?F.dev:[], devCred=F.devCred||{};
   const pedById={}; pedidos.forEach(p=>{ pedById[String(p.id)]=p; });
@@ -956,7 +962,7 @@ function renderRecebimentos(){
   const cellBoleto=r=>{ if(r.falta<=0.01) return '<span style="color:var(--muted)">—</span>'; const b=boletoPorPed[r.id]; if(!b) return '<span style="color:var(--muted)">sem boleto</span>'; const vencs=b.vencs.slice().sort(); const v0=vencs[0]||''; const futuro=v0&&v0>=hojeISO; const rot=b.emitido?'🧾 emitido':'🕗 a emitir'; const venc=v0?` · vence ${fmtD(v0)}${vencs.length>1?` +${vencs.length-1}`:''}`:''; const cor=futuro?'#58a6ff':'var(--red)'; return `<span style="color:${cor}">${rot} ${brl(b.val)}${venc}${futuro?'':' ⚠ venceu'}</span>`; };
   // Linhas: um pedido por linha (Venda/Troca do mês)
   const rows=[];
-  pedidos.forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; if(!ehVT(p)) return; const id=String(p.id); const rec=recPorPed[id]||{bruto:0,taxa:0,liq:0,gws:new Set()}; const valor=+p.valor||0; const dev=devPorPed[id]||0; const falta=+(valor-rec.bruto-dev).toFixed(2); rows.push({id,nome:p.nome||'',loja:p.loja||'',valor,bruto:rec.bruto,taxa:rec.taxa,liq:rec.liq,dev,falta,gws:[...(rec.gws||[])]}); });
+  pedidos.forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; if(!ehVT(p)) return; const id=String(p.id); const rec=recPorPed[id]||{bruto:0,taxa:0,liq:0,gws:new Set(),linhas:[]}; const valor=+p.valor||0; const dev=usouFlat?(+rec.dev||0):(devPorPed[id]||0); const falta=+(valor-rec.bruto-dev).toFixed(2); rows.push({id,nome:p.nome||'',loja:p.loja||'',valor,bruto:rec.bruto,taxa:rec.taxa,liq:rec.liq,dev,falta,gws:[...(rec.gws||[])],linhas:rec.linhas||[],pedData:String(p.data||'').slice(0,7)}); });
   rows.sort((a,b)=> b.falta-a.falta || b.valor-a.valor);
   const T={valor:0,bruto:0,taxa:0,liq:0,dev:0,falta:0}; rows.forEach(r=>{ T.valor+=r.valor; T.bruto+=r.bruto; T.taxa+=r.taxa; T.liq+=r.liq; T.dev+=r.dev; T.falta+=r.falta; });
   const st=r=>{ if(Math.abs(r.falta)<=0.01) return '<span style="color:var(--lime)">✅ quitado</span>'; if(r.falta<-0.01) return '<span style="color:#58a6ff">🔵 a mais</span>'; if(r.bruto<=0.01&&r.dev<=0.01) return '<span style="color:var(--muted)">⬜ em aberto</span>'; return '<span style="color:var(--amber)">🟡 parcial</span>'; };
@@ -965,8 +971,11 @@ function renderRecebimentos(){
   // filtro por status mexe só na tabela; os cards de resumo continuam do mês inteiro
   const shown=rows.filter(r=>{ if(_recFiltro==='todos') return true; if(_recFiltro==='falta') return r.falta>0.01; return _recStatus(r)===_recFiltro; });
   const S={valor:0,bruto:0,taxa:0,liq:0,dev:0,falta:0}; shown.forEach(r=>{ S.valor+=r.valor; S.bruto+=r.bruto; S.taxa+=r.taxa; S.liq+=r.liq; S.dev+=r.dev; S.falta+=r.falta; });
-  const body=shown.map(r=>`<tr>
-    <td>#${r.id}${r.nome?` <span style="color:var(--muted)">· ${r.nome}</span>`:''}${r.gws.length?` <span style="color:var(--muted);font-size:10px">(${r.gws.join(', ')})</span>`:''}</td>
+  // canal + data de liquidação por recebimento (igual à Conciliação): dd/mm, ou dd/mm/aa se o pagamento é de outro mês (adiantamento)
+  const _recData=(iso,pedYM)=>{ if(!iso) return ''; const dd=iso.slice(8,10),mm=iso.slice(5,7),yy=iso.slice(2,4),ym=iso.slice(0,7); return (pedYM&&ym&&ym!==pedYM)?`${dd}/${mm}/${yy}`:`${dd}/${mm}`; };
+  const _canais=r=> (r.linhas&&r.linhas.length)? r.linhas.map(l=>`${l.canal}${l.data?' '+_recData(l.data,r.pedData):''}`).join(', ') : (r.gws.length?r.gws.join(', '):'');
+  const body=shown.map(r=>{ const cnl=_canais(r); return `<tr>
+    <td>#${r.id}${r.nome?` <span style="color:var(--muted)">· ${r.nome}</span>`:''}${cnl?` <span style="color:var(--muted);font-size:10px">(${cnl})</span>`:''}</td>
     <td style="color:var(--muted)">${r.loja}</td>
     <td class="v">${brl(r.valor)}</td>
     <td class="v" style="color:var(--lime)">${brl(r.bruto)}</td>
@@ -975,7 +984,7 @@ function renderRecebimentos(){
     <td class="v" style="color:var(--amber)">${r.dev>0?brl(r.dev):'—'}</td>
     <td class="v" style="font-weight:800;color:${Math.abs(r.falta)<=0.01?'var(--muted)':(r.falta>0?'var(--red)':'#58a6ff')}">${brl(r.falta)}</td>
     <td>${st(r)}</td>
-    <td>${cellBoleto(r)}</td></tr>`).join('') || `<tr><td colspan="10" style="color:var(--muted)">${_recFiltro!=='todos'?'Nenhum pedido nesse filtro. 🎉':'Sem pedidos de venda no mês.'}</td></tr>`;
+    <td>${cellBoleto(r)}</td></tr>`; }).join('') || `<tr><td colspan="10" style="color:var(--muted)">${_recFiltro!=='todos'?'Nenhum pedido nesse filtro. 🎉':'Sem pedidos de venda no mês.'}</td></tr>`;
   const foot=shown.length?`<tr class="tot"><td>TOTAL · ${shown.length} pedido(s)</td><td></td><td class="v">${brl(S.valor)}</td><td class="v" style="color:var(--lime)">${brl(S.bruto)}</td><td class="v" style="color:#e0823a">${brl(S.taxa)}</td><td class="v">${brl(S.liq)}</td><td class="v" style="color:var(--amber)">${brl(S.dev)}</td><td class="v" style="color:${S.falta>0?'var(--red)':'var(--muted)'}">${brl(S.falta)}</td><td></td><td></td></tr>`:'';
   el.innerHTML=`
     <h2>🧾 Recebimentos por pedido <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
@@ -1455,7 +1464,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-30.1';
+const BUILD='2026-10-30.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

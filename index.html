@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v746/10-799';
+const APP_VERSION = 'v747/10-800';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -634,7 +634,7 @@ function pedidoPorId(id) {
 // ── Confiabilidade de gravação (Fases 1+2 + quota): retry + fila de pendências PERSISTIDA + aviso + load protegido ──
 // Chaves GRANDES não ficam no localStorage no caso normal (economiza a quota de ~5MB). Mas se uma gravação
 // falhar e virar PENDÊNCIA, o valor é guardado localmente (sobrevive ao F5) e tem prioridade no próximo load.
-const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete']);
+const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete','flatReceb']);
 let _quotaCheia = false;
 let _pendentesSync = (() => { try { return JSON.parse(localStorage.getItem('_pendentesSync') || '{}') || {}; } catch (e) { return {}; } })();
 function _salvarPendentes() { try { localStorage.setItem('_pendentesSync', JSON.stringify(_pendentesSync)); } catch (e) {} }
@@ -5389,6 +5389,27 @@ async function _syncPowerBI() {
   });
   await saveData('flatVendas', vendasFlat);
   try { await saveData('flatBalancete', _exportBalancete()); } catch (e) { console.warn('balancete export falhou:', e.message); }
+  // RECEBIMENTOS por pedido para o Painel (aba Recebimentos): usa a MESMA fonte da Conciliação
+  // (getRecebimentosDoPedido → alocRecebGateway). Assim o Painel mostra a MESMA divisão, canal e data
+  // de liquidação, sem recalcular por conta própria. Devolução fica num campo à parte (igual à coluna do Painel);
+  // falta = valor − bruto − dev (mesmo resultado do "dif" da Conciliação, que soma a devolução no recebido).
+  try {
+    _invalidarAloc();
+    const recebFlat = {};
+    pedidos.forEach(p => {
+      let recs = []; try { recs = getRecebimentosDoPedido(p) || []; } catch (e) { recs = []; }
+      if (!recs.length) return;
+      let bruto = 0, taxa = 0, liq = 0, dev = 0; const linhas = [];
+      recs.forEach(r => {
+        if (r.gateway === 'Devolução') { dev += (+r.bruto || 0); return; }
+        if ((+r.bruto || 0) <= 0.005) return; // alocação 0 num recebimento compartilhado (ex.: #446 no crédito que foi todo p/ #398) — não polui a lista
+        bruto += (+r.bruto || 0); taxa += (+r.taxa || 0); liq += (+r.liq || 0);
+        linhas.push({ canal: r.gateway || '', data: dISO(r.dataLiq || r.data), bruto: +(+r.bruto || 0).toFixed(2), taxa: +(+r.taxa || 0).toFixed(2) });
+      });
+      recebFlat[String(p.id)] = { bruto: +bruto.toFixed(2), taxa: +taxa.toFixed(2), liq: +liq.toFixed(2), dev: +dev.toFixed(2), linhas };
+    });
+    await saveData('flatReceb', recebFlat);
+  } catch (e) { console.warn('flatReceb export falhou:', e.message); }
   return { cr: crFlat.length, cp: cpFlat.length, vendas: vendasFlat.length };
 }
 // BALANCETE pro painel: extrato categorizado (mesma lógica do renderFluxo/Balancete), 1 linha por lançamento
