@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v748/10-801';
+const APP_VERSION = 'v749/10-802';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -653,29 +653,84 @@ function _setPendenteLocal(key, str) {
   try { localStorage.setItem(_pendKey(key), str); return true; }
   catch (e) { _limparCacheGrandesLocal(); try { localStorage.setItem(_pendKey(key), str); return true; } catch (e2) { _quotaCheia = true; return false; } }
 }
-function _postSupabaseStr(key, valorStr) {
-  return sbFetch('POST', { id: rowId(key), device_id: getDeviceId(), chave: key, valor: valorStr, atualizado_em: new Date().toISOString() });
+function _postSupabaseStr(key, valorStr, atIso) {
+  return sbFetch('POST', { id: rowId(key), device_id: getDeviceId(), chave: key, valor: valorStr, atualizado_em: atIso || new Date().toISOString() });
 }
 function _postSupabase(key, data) { return _postSupabaseStr(key, JSON.stringify(data)); }
+// ── Item 0: controle de concorrência — NUNCA sobrescrever uma versão MAIS NOVA do banco (ex.: outra aba/sessão
+//    salvou, ou uma correção feita direto no banco). Confere o atualizado_em antes de gravar; se o banco é mais
+//    novo, JUNTA por item quando é seguro, senão recarrega e avisa (nunca perde alteração em silêncio). ──
+let _verKey = {};   // chave -> atualizado_em (ISO) que ESTA sessão viu por último (load ou último save)
+let _baseKey = {};  // chave -> base carregada (p/ merge 3-vias nas chaves de lista)
+const _dc = v => v instanceof Date ? v.toISOString() : String(v == null ? '' : v);
+const _idFns = {
+  pedidos: p => 'id:' + String(p.id),
+  recebimentosConsolidado: r => r._uid ? 'u:' + r._uid : 'k:' + [r.gateway, _dc(r.data), r.bruto, r.nped, (r.nome || '').trim().toLowerCase()].join('|'),
+  contasPagar: c => c._uid ? 'u:' + c._uid : 'k:' + [c.fornecedor, _dc(c.vencimento), c.valor, c.numero || ''].join('|'),
+  devolucoes: d => d._uid ? 'u:' + d._uid : 'k:' + [d.pedido, (d.cliente || ''), d.pedidoCredito || '', d.valorPago, _dc(d.dataTroca)].join('|'),
+  boletosAvulsos: b => b._uid ? 'u:' + b._uid : 'k:' + [b.pedido, _dc(b.vencimento), b.valorTitulo].join('|'),
+};
+function _telaDaChave(k) { return ({ pedidos: 'Vendas', recebimentosConsolidado: 'Recebimentos/Conciliação', contasPagar: 'Contas a Pagar', devolucoes: 'Dev/Troca', boletosAvulsos: 'Boletos' })[k] || k; }
+// merge 3-vias por item: base (o que carregamos) × theirs (banco agora) × ours (memória). Registro mudado só de um
+// lado entra com a versão daquele lado; mudado nos DOIS com valores diferentes = conflito (mantém o do banco e avisa).
+function _merge3(key, ours, theirs, base) {
+  const idf = _idFns[key]; if (!idf) return null;
+  const mp = arr => { const m = new Map(); (arr || []).forEach(x => { try { m.set(idf(x), x); } catch (e) {} }); return m; };
+  const B = mp(base), T = mp(theirs), O = mp(ours), S = x => x === undefined ? '\u0000' : JSON.stringify(x);
+  const merged = [], conflitos = [];
+  new Set([...B.keys(), ...T.keys(), ...O.keys()]).forEach(id => {
+    const b = B.get(id), t = T.get(id), o = O.get(id), ourCh = S(o) !== S(b), theirCh = S(t) !== S(b);
+    let keep; if (ourCh && theirCh && S(o) !== S(t)) { keep = t; conflitos.push(id.replace(/^[uk]:/, '')); } else if (ourCh) keep = o; else keep = t;
+    if (keep !== undefined) merged.push(keep);
+  });
+  return { merged, conflitos };
+}
+function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
 async function saveData(key, data) {
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   const str = JSON.stringify(data);
-  if (!_CHAVES_GRANDES.has(key)) _setLocalSeguro(key, str); // pequenas ficam no local; grandes só na nuvem (quota)
+  let writeStr = str, avisoMsg = '';
+  // ── Concorrência: confere o atualizado_em do banco ANTES de gravar (só se ESTA sessão já tinha a chave). ──
+  try {
+    if (_verKey[key]) {
+      const meta = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=atualizado_em`);
+      const dbAt = (meta && meta[0] && meta[0].atualizado_em) || null;
+      if (dbAt && dbAt > _verKey[key]) {             // banco MAIS NOVO → não sobrescreve cego
+        const rr = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
+        let theirs = null; try { theirs = JSON.parse(rr[0].valor); } catch (e) {}
+        if (_idFns[key] && Array.isArray(data) && Array.isArray(theirs) && Array.isArray(_baseKey[key])) {
+          const r = _merge3(key, data, theirs, _baseKey[key]);  // JUNTA por item
+          data.length = 0; r.merged.forEach(x => data.push(x));  // em memória (a tela reflete o merge)
+          writeStr = JSON.stringify(data);
+          if (r.conflitos.length) avisoMsg = `Juntei "${key}" com uma alteração de outra aba/sessão, mas ${r.conflitos.length} registro(s) mudaram dos dois lados — mantive a versão do banco. REFAÇA na tela de ${_telaDaChave(key)}: ${r.conflitos.slice(0, 8).join(', ')}.`;
+          else console.info('[conc] merge sem conflito em', key);
+        } else {                                      // não dá p/ juntar → não grava por cima, avisa o que refazer
+          _avisoConc(`O banco tem versão MAIS NOVA de "${key}" (outra aba/sessão salvou). NÃO gravei por cima. Dê F5 e refaça sua última alteração em ${_telaDaChave(key)}.`);
+          try { _atualizarAvisoSync(); } catch (e) {}
+          return false;
+        }
+      }
+    }
+  } catch (e) { /* conferência falhou (offline): segue o fluxo normal, não trava a gravação */ }
+  if (!_CHAVES_GRANDES.has(key)) _setLocalSeguro(key, writeStr); // pequenas ficam no local; grandes só na nuvem (quota)
   // Supabase com 2-3 tentativas; se falhar, vira PENDÊNCIA (não some calado) e o valor fica guardado local.
+  const at = new Date().toISOString();
   let ok = false, ultimoErro = '';
   for (let tent = 1; tent <= 3 && !ok; tent++) {
-    try { await _postSupabaseStr(key, str); ok = true; }
+    try { await _postSupabaseStr(key, writeStr, at); ok = true; }
     catch (e) { ultimoErro = (e && e.message) || String(e); if (tent < 3) await new Promise(r => setTimeout(r, 400 * tent)); }
   }
   if (ok) {
+    _verKey[key] = at; if (_idFns[key]) { try { _baseKey[key] = JSON.parse(writeStr); } catch (e) {} } // nossa gravação vira a nova base/versão
     if (_pendentesSync[key]) { delete _pendentesSync[key]; _removerPendenteLocal(key); _salvarPendentes(); }
   } else {
     _pendentesSync[key] = { em: new Date().toISOString(), erro: ultimoErro };
-    _setPendenteLocal(key, str); // sobrevive ao F5
+    _setPendenteLocal(key, writeStr); // sobrevive ao F5
     _salvarPendentes();
     console.warn('⚠ Supabase saveData FALHOU 3x (ficou pendente):', key, ultimoErro);
   }
   try { _atualizarAvisoSync(); } catch (e) {}
+  if (avisoMsg) _avisoConc(avisoMsg);
   return ok;
 }
 // Reenvia o que está pendente, lendo o valor GUARDADO localmente. Botão do aviso e load (Fase 2).
@@ -727,9 +782,10 @@ async function loadData(key) {
   let online = true;
   // Supabase primeiro (fonte da verdade quando tem o dado)
   try {
-    const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
+    const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor,atualizado_em`);
     if (rows && rows.length > 0 && rows[0].valor) {
       const val = JSON.parse(rows[0].valor);
+      try { _verKey[key] = rows[0].atualizado_em || _verKey[key]; if (_idFns[key]) _baseKey[key] = JSON.parse(rows[0].valor); } catch (e) {} // base p/ controle de concorrência
       // Atualiza localStorage com o dado mais recente do Supabase (chaves grandes não ficam no local: quota)
       if (!_CHAVES_GRANDES.has(key)) { try { localStorage.setItem(LS_PREFIX + key, rows[0].valor); } catch(e) {} }
       return val;
@@ -767,12 +823,13 @@ async function loadDataBulk(keys) {
   const chunks = [];
   for (let i = 0; i < keys.length; i += CHUNK) chunks.push(keys.slice(i, i + CHUNK));
   const cloud = {};                 // chave -> valor (texto) que a nuvem devolveu
+  const cloudAt = {};               // chave -> atualizado_em (p/ controle de concorrência)
   const reached = new Set();        // chaves cujo request respondeu (nuvem alcançável)
   await Promise.all(chunks.map(async ch => {
     try {
-      const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=in.(${ch.join(',')})&select=chave,valor`);
+      const rows = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=in.(${ch.join(',')})&select=chave,valor,atualizado_em`);
       ch.forEach(k => reached.add(k));
-      if (Array.isArray(rows)) rows.forEach(r => { if (r && r.chave) cloud[r.chave] = r.valor; });
+      if (Array.isArray(rows)) rows.forEach(r => { if (r && r.chave) { cloud[r.chave] = r.valor; cloudAt[r.chave] = r.atualizado_em; } });
     } catch(e) { console.warn('Supabase bulk (fatia) offline, usando localStorage:', e.message); }
   }));
   const out = {};
@@ -782,7 +839,10 @@ async function loadDataBulk(keys) {
     let val = null;
     if (cloud[k] != null) {
       try { val = JSON.parse(cloud[k]); } catch(e) { val = null; }
-      if (val !== null) { if (!_CHAVES_GRANDES.has(k)) { try { localStorage.setItem(LS_PREFIX + k, cloud[k]); } catch(e) {} } out[k] = val; continue; } // grandes não ficam no local (quota)
+      if (val !== null) {
+        try { _verKey[k] = cloudAt[k] || _verKey[k]; if (_idFns[k]) _baseKey[k] = JSON.parse(cloud[k]); } catch (e) {} // base p/ controle de concorrência
+        if (!_CHAVES_GRANDES.has(k)) { try { localStorage.setItem(LS_PREFIX + k, cloud[k]); } catch(e) {} } out[k] = val; continue; // grandes não ficam no local (quota)
+      }
     }
     try {
       const local = localStorage.getItem(LS_PREFIX + k);
