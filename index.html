@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v747/10-800';
+const APP_VERSION = 'v748/10-801';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8602,7 +8602,18 @@ function toggleBoletoEmitido(key, checked) {
 function syncBoletosToRecebimentos() {
   // Remove entradas antigas de boletos emitidos (mas PRESERVA os boletos pagos "diretos" —
   // pedidos do sistema fechados pelo relatório do Itaú no modelo cash-first, que não vêm da forma).
-  recebimentosConsolidado = recebimentosConsolidado.filter(r => r.gateway !== 'Boleto Itaú' || r._boletoPagoDireto);
+  // EXCEÇÃO: descarta o pago-direto que DUPLICA um boleto avulso do mesmo CLIENTE+DATA+VALOR (ex.: #417 era o
+  // mesmo boleto de 70.994,47 que já está avulso no #408). Cliente = nome do pedido (o avulso às vezes vem sem nome).
+  // Idempotente: roda a cada sync, então o duplicado não "volta sozinho".
+  const _diaB = v => { if (!v) return ''; if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; } const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); };
+  const _cliPed = nped => { const p = pedidoPorId(String(nped || '').split(',')[0].trim()); return _normNome(p ? p.nome : ''); };
+  const _sigAvulso = new Set((boletosAvulsos || []).map(b => _cliPed(b.pedido) + '|' + _diaB(b.dataPagamento || b.vencimento) + '|' + (+(b.valorPago != null ? b.valorPago : b.valorTitulo) || 0).toFixed(2)));
+  recebimentosConsolidado = recebimentosConsolidado.filter(r => {
+    if (r.gateway !== 'Boleto Itaú') return true;
+    if (!r._boletoPagoDireto) return false;                 // boleto "de forma" antigo → re-sincronizado abaixo
+    const sig = _cliPed(r.nped) + '|' + _diaB(r.data) + '|' + (+r.bruto || 0).toFixed(2);
+    return !_sigAvulso.has(sig);                             // pago-direto que duplica um avulso igual → descarta
+  });
 
   const boletos = getBoletosDaForma();
   boletos.forEach(b => {
@@ -8915,9 +8926,19 @@ function processCobrancaWorkbook(wb) {
     vistosSist.add(pid);
     inSistPagos.push({ pedido: pid, nome: c.pagador || ped.nome || '', valorTitulo: c.valorTitulo, valorPago: c.valorPago, dataPagamento: c.dataPagamento, vencimento: c.vencimento });
   });
-  let nDireto = 0;
+  let nDireto = 0, nDup = 0; const dupPulados = [];
+  // Anti-duplicata: não cria o "Boleto pago direto" se JÁ existe boleto avulso (ou outro pago direto) do MESMO
+  // cliente + data + valor — mesmo que esteja noutro nº de pedido (ex.: #417 era o mesmo boleto de 70.994,47 do #408).
+  const _diaBol = v => { if (!v) return ''; if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; } const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); };
+  const _jaTemBoletoIgual = n => {
+    const val = (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0; const dia = _diaBol(n.dataPagamento || n.vencimento);
+    const bate = (nm, dt, vl) => Math.abs((+vl || 0) - val) <= 0.01 && _diaBol(dt) === dia && nomesBatem(nm || '', n.nome || '');
+    return recebimentosConsolidado.some(r => r.gateway === 'Boleto Itaú' && (r._avulso || r._boletoPagoDireto) && bate(r.nome, r.data, r.bruto))
+        || (Array.isArray(boletosAvulsos) && boletosAvulsos.some(b => bate(b.nome || b.pagador, b.dataPagamento || b.vencimento, (b.valorPago != null ? b.valorPago : b.valorTitulo))));
+  };
   if (inSistPagos.length && confirm(`${inSistPagos.length} boleto(s) PAGO(s) de pedidos DO sistema (total ${fmtVal(inSistPagos.reduce((s, n) => s + (n.valorPago || n.valorTitulo || 0), 0))}).\n\nFechar esses pedidos no Contas a Receber como recebidos (Boleto Itaú)?`)) {
     inSistPagos.forEach(n => {
+      if (_jaTemBoletoIgual(n)) { nDup++; dupPulados.push('#' + n.pedido + ' ' + (n.nome || '') + ' ' + fmtVal((n.valorPago != null ? n.valorPago : n.valorTitulo) || 0)); return; } // já existe avulso do mesmo cliente/data/valor → não duplica
       recebimentosConsolidado.push({
         gateway: 'Boleto Itaú', bruto: (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0, taxa: 0,
         liq: n.valorTitulo || 0, juros: +(((n.valorPago || 0) - (n.valorTitulo || 0)) || 0).toFixed(2),
@@ -8931,7 +8952,7 @@ function processCobrancaWorkbook(wb) {
     saveData('formaOverrideMap', formaOverrideMap);
   }
 
-  alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\n• Baixados no sistema: ${nBaixados}\n• Pedidos do sistema fechados (Boleto pago): ${nDireto}\n• Atualizados (já existiam, sem duplicar): ${nAtualizados}\n• Adicionados (novos, fora do sistema): ${nAdd}` + ((nBaixados === 0 && nAdd === 0 && nAtualizados === 0 && nDireto === 0) ? `\n\nNenhum casou. Confirme que o "Seu Número" do relatório é o nº do pedido.` : ''));
+  alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\n• Baixados no sistema: ${nBaixados}\n• Pedidos do sistema fechados (Boleto pago): ${nDireto}\n• Atualizados (já existiam, sem duplicar): ${nAtualizados}\n• Adicionados (novos, fora do sistema): ${nAdd}` + (nDup ? `\n• Pulados por já ter boleto avulso igual (cliente/data/valor): ${nDup}${dupPulados.length ? '\n   ' + dupPulados.slice(0, 8).join('\n   ') : ''}` : '') + ((nBaixados === 0 && nAdd === 0 && nAtualizados === 0 && nDireto === 0 && nDup === 0) ? `\n\nNenhum casou. Confirme que o "Seu Número" do relatório é o nº do pedido.` : ''));
 
   syncBoletosToRecebimentos();
   try { renderContas(); } catch (e) {}
