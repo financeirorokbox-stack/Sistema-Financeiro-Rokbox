@@ -177,7 +177,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-11-03.1';
+const BUILD = '2026-11-03.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -568,6 +568,30 @@ function _vbiKPIs(facts){
   const pcs=facts.reduce((s,f)=>s+f.qtd,0);
   return { fat, peds, pcs, ticket: peds?fat/peds:0 };
 }
+// Os 4 cartões IGUAIS à tela de Vendas do Gestão (fonte Sistema): Total de pedidos,
+// Venda+Troca, Devoluções abatidas e Faturamento final. Calculados do flatVendas CRU
+// (1 linha/pedido; no mês fechado o flatVendas já é a FOTO do fechamento, trocada pelo
+// Gestão). Respeitam empresa/loja/vendedor e o período. Regra idêntica ao Gestão:
+// Total = soma de valor fora das situações ocultas (_VBI_NAOAP = SITUACOES_OCULTAS_GESTAO);
+// Venda+Troca e devoluções só nas operações Venda/Troca; Faturamento = Venda+Troca − devoluções.
+function _uvCards4(){
+  const F=_vbiF; let total=0, vt=0, dev=0;
+  (_vbiFV||[]).forEach(fv=>{
+    const data=String(fv.data||'').slice(0,10); if(!data) return;
+    if(F.de && F.ate){ if(data < F.de || data > F.ate) return; }
+    else { if(data.slice(0,7) !== (F.mes || _vbiMeses[0])) return; }
+    const loja=fv.loja||'(sem loja)', vend=fv.vendedor||'(sem)';
+    if(!_vbiEmpPass({empresa:fv.empresa||'', segmento:fv.segmento||'', loja})) return;
+    if(F.loja && _lojaGrupo(loja)!==F.loja) return;
+    if(F.vend && vend!==F.vend) return;
+    const sit=String(fv.situacao||'').toLowerCase();
+    const valor=+fv.valor||0, d=+fv.devolucao_abatida||0, op=_uvOpBucket(fv.operacao);
+    if(!_VBI_NAOAP.has(sit)) total+=valor;
+    if(op==='venda'||op==='troca'){ vt+=valor; dev+=d; }
+  });
+  total=+total.toFixed(2); vt=+vt.toFixed(2); dev=+dev.toFixed(2);
+  return { total, vt, dev, fat:+(vt-dev).toFixed(2) };
+}
 function _vbiPrevMes(m){ const [y,mm]=String(m).split('-').map(Number); const d=new Date(y,mm-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function _vbiKPIsPrev(){ // mesmo filtro, mês anterior, até o MESMO ponto do mês (mês fechado = mês cheio vs mês cheio)
   if(_vbiF.de && _vbiF.ate) return null; // intervalo custom: sem comparação de mês
@@ -779,6 +803,16 @@ function renderUV(){
     ${kpi('Ticket médio',k.ticket,kp&&kp.ticket,true)}
     ${kpi('Peças vendidas',k.pcs,kp&&kp.pcs,false)}
   </div>`;
+  // ── linha extra: os 4 cartões iguais à tela de Vendas do Gestão (só na fonte Sistema) ──
+  const _n2=x=>(+x||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const c4 = blingAtivo ? null : _uvCards4();
+  const kpisFat = blingAtivo ? '' : `<div class="vbi-fatcap">Faturamento do mês <span>(igual à tela de Vendas do Gestão)</span></div>
+  <div class="vbi-kpis vbi-kpis4">
+    <div class="vbi-kpi f4"><div class="kl">Total de pedidos</div><div class="kv">${brl(c4.total)}</div><div class="kfs">todos os pedidos (todas as lojas e operações)</div></div>
+    <div class="vbi-kpi f4"><div class="kl">Venda + Troca</div><div class="kv">${brl(c4.vt)}</div></div>
+    <div class="vbi-kpi f4 red"><div class="kl">Devoluções</div><div class="kv">${brl(c4.dev)}</div><div class="kfs">abatidas do faturamento</div></div>
+    <div class="vbi-kpi f4 fat"><div class="kl">Faturamento final</div><div class="kv">${brl(c4.fat)}</div><div class="kfs">${_n2(c4.vt)} − ${_n2(c4.dev)}</div></div>
+  </div>`;
   // ── Meta do mês (realizado = valor − frete − devolução; base da META, NÃO depende de recebimento) ──
   const gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8); // vendedor por faturamento (só quando NÃO há meta)
   const gVendMeta=_vbiComBaseVend();  // base da META do MÊS INTEIRO (p/ o % da meta e o cartão, sem filtro de empresa)
@@ -838,7 +872,7 @@ function renderUV(){
   const vdia=`<div class="vbi-ch wide" style="margin-top:12px"><h3>Vendedor × dia <span>(mês · valores em mil R$)</span></h3><div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="vd">${_uvVendDia(facts)}</table></div></div>`;
   // ── Prospecção · Varejo (CRM) — preenchido por renderProsp depois ──
   const prosp=`<section class="baixo" id="prosp-sec" style="display:none;margin-top:12px"><div class="card lojas" style="grid-column:1/-1"><h2>Prospecção · Varejo <span>(mês · trabalho da vendedora)</span></h2><div class="prosp-tops" id="prosp-tops"></div><div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px"><table class="vd" id="prosp-tab"></table></div><div id="prosp-upd" style="color:var(--muted);font-size:12px;margin-top:8px"></div></div></section>`;
-  root.innerHTML = topo+painel+kpis+charts+ranks+vdia+prosp;
+  root.innerHTML = topo+painel+kpis+kpisFat+charts+ranks+vdia+prosp;
   if(_uvProsp) try{ renderProsp(_uvProsp); }catch(e){}
   // textos do cabeçalho
   const mesNome=(()=>{const m=_vbiF.mes||_vbiMeses[0]; const n=new Date(m+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return n.charAt(0).toUpperCase()+n.slice(1);})();
@@ -881,6 +915,13 @@ const _VBI_CSS=`
 .vbi-kpi .kv{font-size:clamp(18px,2vw,26px);font-weight:900;color:var(--txt)}
 .vbi-var{display:inline-block;margin-top:5px;font-size:12px;font-weight:800}
 .vbi-var.up{color:var(--lime2)}.vbi-var.dn{color:#e5534b}
+.vbi-fatcap{font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:2px 2px 7px}
+.vbi-fatcap span{font-weight:600;text-transform:none;letter-spacing:0;opacity:.85}
+.vbi-kpi.f4{cursor:default}.vbi-kpi.f4:hover{border-color:var(--line)}
+.vbi-kpi.f4 .kfs{font-size:11px;color:var(--muted);font-weight:700;margin-top:5px}
+.vbi-kpi.f4.red .kv{color:#e5534b}
+.vbi-kpi.f4.fat{border-color:var(--lime);background:linear-gradient(180deg,rgba(126,231,135,.10),var(--bg2))}
+.vbi-kpi.f4.fat .kv{color:var(--lime2)}
 .vbi-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
 .vbi-ch{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
 .vbi-ch.wide{grid-column:1/-1}
