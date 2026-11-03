@@ -177,7 +177,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-11-03.2';
+const BUILD = '2026-11-03.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -507,9 +507,10 @@ function vbiBuildFacts(){
     const data = String(fv.data||'').slice(0,10); if(!data) return;
     mset.add(data.slice(0,7));
     const _opB=_uvOpBucket(fv.operacao);
-    // Base da META (realizado × meta): valor − frete − devolução, COM ou SEM recebimento. Só Venda/Troca em situação que entra na meta (_META_SIT: Verificado, Atendido, Checkout parcial). Em separação NÃO entra até avançar no Bling. NÃO é a base da comissão. Ver docs/regras.md §12.
-    const metaBase=((_opB==='venda'||_opB==='troca') && _META_SIT.has(String(fv.situacao||'').toLowerCase())) ? Math.max(0,+(((+fv.valor||0)-(+fv.frete||0)-(+fv.devolucao_abatida||0)).toFixed(2))) : 0;
-    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_opB, comissaoBase:(fv.comissao_base!=null?+fv.comissao_base:null), metaBase };
+    // Realizado da META = base da COMISSÃO do Gestão (comissao_base do flatVendas), pra bater 100% com a aba Comissão.
+    // A comissao_base já inclui "Em separação", é 0 fora de Venda/Troca e nas situações ocultas (SITUACOES_OCULTAS_GESTAO),
+    // e NÃO tem o desconto do valor em aberto. Ver docs/regras.md §12.
+    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_opB, comissaoBase:(fv.comissao_base!=null?+fv.comissao_base:null) };
     const ped=pedById[base.pedido];
     const linhas=(ped&&Array.isArray(ped.linhas))?ped.linhas:[];
     const lv=l=> (+l.valorLinha || (+l.precoUnit||0)*(+l.qtd||0) || 0);
@@ -735,14 +736,16 @@ function _vbiMetaPass(f){ const F=_vbiF;
   if(F.vend && f.vendedor!==F.vend) return false;
   return true;
 }
-// Realizado da META = valor − frete − devolução por pedido (SEMPRE do Sistema/flatVendas, mesmo no modo Bling). NÃO depende de recebimento. Soma metaBase por pedido (dedup), por vendedor. Ver docs/regras.md §12.
+// Realizado da META = base da COMISSÃO do Gestão (comissaoBase por pedido, dedup), por vendedor. Bate com a aba Comissão.
+// SEMPRE do Sistema/flatVendas (mesmo no modo Bling). _semCampo = flat ainda sem comissao_base → pedir Atualizar Power BI.
 function _vbiComBaseVend(){
   const mf=_vbiFacts.filter(_vbiMetaPass);
-  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:(+f.metaBase||0)}; });
+  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:f.comissaoBase}; });
+  const vals=Object.values(ped); const temCampo=vals.some(o=>o.mb!=null);
   const m={};
-  Object.values(ped).forEach(o=>{ const e=m[o.v]||(m[o.v]={val:0,np:0}); e.val+=o.mb; e.np++; });
+  vals.forEach(o=>{ const e=m[o.v]||(m[o.v]={val:0,np:0}); e.val+=(+o.mb||0); e.np++; });
   const arr=Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np})).sort((a,b)=>b.val-a.val);
-  arr._semCampo=false; return arr;
+  arr._semCampo=!temCampo; return arr;
 }
 // Como _vbiPass, mas SEM o filtro de operação (a base da comissão é Venda+Troca, igual à aba Comissão). Respeita empresa/loja/segmento/coleção/dia/período/vendedor.
 function _vbiMetaPass2(f){ const F=_vbiF;
@@ -759,7 +762,7 @@ function _vbiMetaPass2(f){ const F=_vbiF;
 // Base da META por vendedor RESPEITANDO os filtros (empresa/loja/coleção/período), usada no VALOR da barra "Por vendedor". Vendedor com 0 não aparece.
 function _vbiComBaseVendFiltrado(){
   const mf=_vbiFacts.filter(_vbiMetaPass2);
-  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:(+f.metaBase||0), tr:!!_LOJA_TROCA[f.loja]}; });
+  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:(f.comissaoBase!=null?+f.comissaoBase:0), tr:!!_LOJA_TROCA[f.loja]}; });
   const m={}; Object.values(ped).forEach(o=>{ const e=m[o.v]||(m[o.v]={val:0,np:0,troca:0}); e.val+=o.mb; e.np++; if(o.tr) e.troca+=o.mb; });
   return Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np,troca:e.troca})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val);
 }

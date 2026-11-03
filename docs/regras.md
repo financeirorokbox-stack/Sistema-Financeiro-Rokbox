@@ -78,7 +78,7 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 9. Situações não-venda (Bling)
 - Não contam como venda: cancelado, em aberto, em andamento, atualização de estoque, correios, sit#15. Checkout parcial CONTA como venda.
-- Base da META do Painel (§12): entram só Verificado, Atendido e Checkout parcial (Venda/Troca). Em separação NÃO entra na meta; quando o pedido avança no Bling pra Atendido/Verificado, passa a contar sozinho. Para venda, faturamento, comissão e aba NF, Em separação continua contando.
+- Base da META do Painel (§12): = base da COMISSÃO do Gestão (`comissao_base`), que já inclui "Em separação" (entra Venda/Troca fora das situações ocultas). Painel = aba Comissão ao centavo (BUILD 2026-11-03.3; antes a meta só contava Verificado/Atendido/Checkout parcial).
 
 ## 10. Empresas
 - Rokbox e Rk. São 2 contas Bling; a 2ª (Rk) é PL/White Label, CNPJ diferente, fica separada.
@@ -102,9 +102,9 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 12. Painel RK
 - Saldo em banco sempre ATUAL: último extrato de cada conta, com a data, independente do filtro de mês.
-- Base da META (realizado × meta, por vendedor) = valor do pedido − frete − devolução, para pedido de Venda ou Troca em situação que entra na meta (Verificado, Atendido, Checkout parcial), COM ou SEM recebimento lançado. Em separação fica de fora até avançar no Bling. A Troca entra e a devolução abate, com teto no valor do pedido. Checkout parcial conta o valor cheio (a NF de venda sai pelo total do pedido).
-- A base da META NÃO depende de recebimento, e é SÓ do Painel. A comissão a pagar no Gestão não muda: continua com a base dela (valor − frete − devolução − outras − o que está em aberto; boleto conta cheio). As duas bases podem divergir, e isso é esperado (antes, pedido sem recebimento zerava na meta; ex.: Atacado da Karen em out/2026, pedidos 41130/41291/41301/41330).
-- Fica num lugar só: placar.html, constante `_META_SIT` e o campo `metaBase` na `vbiBuildFacts`, somado em `_vbiComBaseVend` e `_vbiComBaseVendFiltrado`. Mudou a regra, muda aqui. (Antes a meta usava `comissao_base`, que descontava o valor em aberto e zerava pedido sem recebimento.)
+- Base da META (realizado × meta, por vendedor) = **base da COMISSÃO do Gestão** (`comissao_base` do flatVendas), pra bater 100% com a aba Comissão. Entra Venda/Troca em qualquer situação que NÃO seja oculta (SITUACOES_OCULTAS_GESTAO: cancelado, em aberto, em andamento, Correios, atualização de estoque) — portanto **inclui "Em separação"**. É 0 fora de Venda/Troca e pra vendedor sem comissão (ex.: Elaine Lima). NÃO depende de recebimento (SEM o desconto do valor em aberto).
+- Conceitualmente a base é valor − frete − devolução, mas o Painel usa a própria `comissao_base` pra casar ao centavo com a aba Comissão: elas podem diferir num pedido (ex.: #41327 tem valor 359,82 e base de comissão 349,02). Conferido out/2026 por vendedor (Ana Julia 15.756,83; Cristian I 25.094,90; Karen 72.965,87; etc.), Painel = aba Comissão.
+- Fica num lugar só: placar.html, campo `comissaoBase` na `vbiBuildFacts`, somado em `_vbiComBaseVend` e `_vbiComBaseVendFiltrado`. Mudou a regra, muda aqui. (BUILD 2026-11-03.3: trocado de `metaBase`/`_META_SIT` — que só contava Verificado/Atendido/Checkout parcial e deixava "Em separação" de fora — pra `comissao_base`.)
 
 ## 13. Pedido cancelado com dinheiro no banco (ex. #426 Mawu)
 - Se o pedido foi cancelado no Bling mas tem valor conciliado no banco: MANTER o recebido (o dinheiro entrou) e sinalizar em Pendências. Não apagar o recebido.
