@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v751/10-804';
+const APP_VERSION = 'v752/10-805';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18343,12 +18343,14 @@ async function _detectarAjustesVendasFechadas() {
   let r1 = null, r2 = null;
   try { r1 = await loadData('blingVendasRico'); } catch (e) {}
   try { r2 = await loadData('blingVendasRico2'); } catch (e) {}
-  const ricoBy = {};
-  [r1, r2].forEach(obj => ((obj && obj.registros) || []).forEach(r => { const n = String(r.numero || r.pedido || ''); if (n) ricoBy[n] = r; }));
+  const ricoBy = {}; const mesesNoRico = new Set();
+  [r1, r2].forEach(obj => ((obj && obj.registros) || []).forEach(r => { const n = String(r.numero || r.pedido || ''); if (n) ricoBy[n] = r; const mm = _ymDia(r.data); if (mm) mesesNoRico.add(mm); }));
   const norm = v => String(v == null ? '' : v).trim();
   const IGN = new Set(['Cancelado', 'Atualização de estoque', 'Atualização de Estoque', 'Correios']);
   const novos = [];
-  meses.forEach(m => {
+  // Só compara meses que o snapshot do Bling REALMENTE cobre (o rico traz só mês atual + anterior). Mês fora da janela
+  // (ex.: ago/set agora) não dá p/ comparar — senão todo pedido viraria "sumiu do Bling" (falso). Pula esses.
+  meses.filter(m => mesesNoRico.has(m)).forEach(m => {
     const foto = vendasFechado[m] || [], fotoBy = {}; foto.forEach(f => fotoBy[String(f.pedido)] = f);
     foto.forEach(f => {
       const r = ricoBy[String(f.pedido)];
