@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v754/10-807';
+const APP_VERSION = 'v755/10-808';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13690,7 +13690,7 @@ async function abrirFecharVendas() {
   let r1 = null, r2 = null; try { r1 = await loadData('blingVendasRico'); } catch (e) {} try { r2 = await loadData('blingVendasRico2'); } catch (e) {}
   window._fvRicoBy = {}; [r1, r2].forEach(o => ((o && o.registros) || []).forEach(r => { const n = String(r.numero || r.pedido || ''); if (n) window._fvRicoBy[n] = r; }));
   const abertos = _mesesComVendas().filter(m => !(vendasFechadas || []).includes(m));
-  _fvMesSel = _fvMesSel && abertos.includes(_fvMesSel) ? _fvMesSel : (abertos.find(m => m < (hojeIso() || '').slice(0, 7)) || abertos[0] || '');
+  _fvMesSel = _fvMesSel && abertos.includes(_fvMesSel) ? _fvMesSel : (abertos.find(m => m < _ymDia(new Date())) || abertos[0] || '');
   _renderModalFecharVendas();
 }
 function _renderModalFecharVendas() {
