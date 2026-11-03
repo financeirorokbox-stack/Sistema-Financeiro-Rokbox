@@ -519,7 +519,7 @@ async function carregar(){
     const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb')]);
     _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}}};
     _popMesSel();
-    gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(el) el.textContent='💾 dados de '+_fmtAt(iso); });
+    gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(!el) return; const velho=iso&&((Date.now()-new Date(iso).getTime())>2*3600*1000); el.style.color=velho?'#e6b800':''; el.style.fontWeight=velho?'800':''; el.textContent=velho?('⚠ dados desatualizados ('+_fmtAt(iso)+') — abra o Gestão'):('💾 dados de '+_fmtAt(iso)); });
     const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
     const _hj=new Date(); const hojeStr=_hj.getFullYear()+'-'+String(_hj.getMonth()+1).padStart(2,'0')+'-'+String(_hj.getDate()).padStart(2,'0');
@@ -1464,7 +1464,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-10-30.2';
+const BUILD='2026-11-03.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}

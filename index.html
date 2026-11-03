@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v752/10-805';
+const APP_VERSION = 'v753/10-806';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -722,6 +722,7 @@ async function saveData(key, data) {
   }
   if (ok) {
     _verKey[key] = at; if (_idFns[key]) { try { _baseKey[key] = JSON.parse(writeStr); } catch (e) {} } // nossa gravação vira a nova base/versão
+    try { if (typeof _PBI_TRIGGER !== 'undefined' && _PBI_TRIGGER.has(key) && !_pbiBusy) _agendarPowerBI(); } catch (e) {} // ação que mexe no CR/CP/recebido → agenda Atualizar Power BI (debounced, 2º plano)
     if (_pendentesSync[key]) { delete _pendentesSync[key]; _removerPendenteLocal(key); _salvarPendentes(); }
   } else {
     _pendentesSync[key] = { em: new Date().toISOString(), erro: ultimoErro };
@@ -18330,10 +18331,24 @@ async function _sincronizarBlingAuto() {
     const n = await _autoImportBling();          // recarrega o rico do banco e aplica (só mês aberto)
     try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {}
     try { await _detectarAjustesVendasFechadas(); } catch (e) {} // compara Bling × foto nos meses de vendas fechadas (só leitura) → avisos
-    if (n > 0) { try { await _syncPowerBI(); } catch (e) { console.warn('Power BI auto falhou:', e.message); } } // depois de mudar pedidos, o Painel acompanha
+    if (n > 0) _agendarPowerBI(3000); // mudou pedido → agenda o Power BI (em 2º plano, debounced)
     return n;
   } finally { _blingAutoBusy = false; }
 }
+// ── "Atualizar Power BI" AUTOMÁTICO: roda em 2º plano (debounced p/ juntar várias ações), sem travar a tela. ──
+// Gatilhos: abrir o Gestão, de hora em hora, e após ações que mexem no CR/CP/recebido (via saveData das chaves-gatilho).
+// Se falhar, marca aviso no Afazeres. O botão "☁ Power BI" continua forçando na hora.
+let _pbiTimer = null, _pbiBusy = false, _pbiFalhou = false, _pbiTimersOn = false;
+const _PBI_TRIGGER = new Set(['recebimentosConsolidado', 'extratoBancario', 'extratoLinks', 'debitoLinks', 'repasseLinks', 'receitaLinks', 'boletoCobrancaStatus', 'boletoStatus', 'devolucoes', 'devolucaoCredito', 'contasPagar', 'formaPagamento', 'creditosCliente']);
+function _agendarPowerBI(delayMs) { if (_pbiTimer) clearTimeout(_pbiTimer); _pbiTimer = setTimeout(() => { _pbiTimer = null; _rodarPowerBIBg(); }, delayMs == null ? 5000 : delayMs); }
+async function _rodarPowerBIBg() {
+  if (_pbiBusy) { _agendarPowerBI(8000); return; } // já rodando → re-agenda
+  _pbiBusy = true;
+  try { const r = await _syncPowerBI(); if (r && r.abortado) throw new Error('remontagem incompleta'); if (_pbiFalhou) { _pbiFalhou = false; try { atualizarBtnAfazeres(); } catch (e) {} } }
+  catch (e) { _pbiFalhou = true; console.warn('Power BI (auto) falhou:', e && e.message); try { atualizarBtnAfazeres(); } catch (_) {} }
+  finally { _pbiBusy = false; }
+}
+function _ligarPowerBIAuto() { if (_pbiTimersOn) return; _pbiTimersOn = true; setInterval(() => { _rodarPowerBIBg(); }, 60 * 60 * 1000); } // de hora em hora com o Gestão aberto
 // Compara o Bling (rico, só leitura) com a FOTO dos 2 últimos meses de vendas fechadas. Qualquer diferença (valor,
 // situação, cliente, loja, pedido novo ou sumido/cancelado) vira item em "Ajustes de meses fechados" + aviso no Afazeres.
 // A foto NÃO muda. Preserva o "ciente" que a Elaine já marcou (não repete). Não mexe em pedido nenhum.
@@ -18646,6 +18661,7 @@ async function carregarTudo() {
   try { const nB = await _autoImportBling(); if (nB) console.log('[Bling] ' + nB + ' venda(s) entraram no sistema automaticamente'); } catch (e) { console.warn('auto-import Bling:', e.message); } // vendas novas da Bling entram sozinhas (dedup por número)
   try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {} // marca a versão do rico já aplicada; os timers abaixo re-aplicam sozinhos quando mudar
   try { _ligarSyncBlingAuto(); } catch (e) {} // A: timer 30 min + poll do rico a cada 5 min (aplica sem F5)
+  try { _ligarPowerBIAuto(); _agendarPowerBI(4000); } catch (e) {} // Atualizar Power BI: ao abrir (em ~4s) + de hora em hora (2º plano)
   initLojaCadastro();
   try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
   try { const m = _migrarChavesCP(); if (m) console.log('[identidade CP] ' + m + ' vínculo(s) migrado(s) p/ número+vencimento+empresa'); } catch(e) {} // ANTES do aplicarBaixaConciliada: migra os vínculos p/ a identidade nova
@@ -19138,6 +19154,7 @@ const AF = (function () {
       }
     } catch (e) {}
     // ── Ajustes de meses fechados: mudança que chegou do Bling DEPOIS de fechar as vendas (a foto não mudou). ──
+    try { if (typeof _pbiFalhou !== 'undefined' && _pbiFalhou) add('pbi_falhou', 'Atualizar Power BI (automático) falhou — o Painel pode estar atrasado. Clique para tentar de novo.', '_rodarPowerBIBg()'); } catch (e) {}
     try {
       const aj = (ajustesMesFechado || []).filter(a => a && a.status !== 'ciente');
       if (aj.length) add('ajuste_vfech', aj.length + ' mudança(s) do Bling em mês de vendas FECHADAS (a foto não mudou)', 'abrirAjustesFechado()');
