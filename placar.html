@@ -177,7 +177,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-11-03.4';
+const BUILD = '2026-11-03.5';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -211,7 +211,9 @@ const PL_LOJA = new Set(['Vendas PL','Parceria PL']);
 const WL_LOJA = new Set(['Vendas White Label','Mostruário']);
 const segDe = loja => PL_LOJA.has(loja) ? 'PL' : (WL_LOJA.has(loja) ? 'WL' : (ATACADO.has(loja) ? 'Atacado' : 'Varejo'));
 const SEG_ORDER = ['Varejo','Atacado','PL','WL'];
-const SEG_META = { Varejo:{cls:'seg-varejo',ico:'🛍️'}, Atacado:{cls:'seg-atacado',ico:'📦'}, PL:{cls:'seg-pl',ico:'🏷️'}, WL:{cls:'seg-wl',ico:'🏭'} };
+const SEG_META = { Varejo:{cls:'seg-varejo',ico:'🛍️'}, Atacado:{cls:'seg-atacado',ico:'📦'}, PL:{cls:'seg-pl',ico:'🏷️'}, WL:{cls:'seg-wl',ico:'🏭'}, Site:{cls:'',ico:'🌐'}, Plano:{cls:'',ico:'📅'} };
+// Segmento REAL do pedido (campo do flatVendas, 6 segmentos: PL/Atacado/Varejo/Site/WL/Plano), com fallback no segDe da loja.
+function _segFato(f){ const s=(f && f.segmento!=null)?String(f.segmento).trim():''; return s || segDe(f.loja); }
 let empresaSel = 'ambas';
 function setEmpresa(v){ empresaSel = v; render(); }
 let mesSel = null; // null = mês vigente (Bling ao vivo); um mês passado = só Sistema (fechado)
@@ -559,7 +561,7 @@ function _vbiPass(f){
   else { if(f.data.slice(0,7) !== (F.mes || _vbiMeses[0])) return false; }
   if(F.op && F.op.size && !F.op.has(f.operacao)) return false;
   if(!_vbiEmpPass(f)) return false;
-  if(F.seg && segDe(f.loja)!==F.seg) return false;
+  if(F.seg && _segFato(f)!==F.seg) return false;
   if(F.loja && _lojaGrupo(f.loja)!==F.loja) return false;
   if(F.vend && f.vendedor!==F.vend) return false;
   if(F.col && f.colecao!==F.col) return false;
@@ -579,7 +581,10 @@ function _vbiKPIs(facts){
 // Total = soma de valor fora das situações ocultas (_VBI_NAOAP = SITUACOES_OCULTAS_GESTAO);
 // Venda+Troca e devoluções só nas operações Venda/Troca; Faturamento = Venda+Troca − devoluções.
 function _uvCards4(){
-  const F=_vbiF; let total=0, vt=0, dev=0;
+  const F=_vbiF;
+  const opSel = (F.op && F.op.size) ? F.op : new Set(['venda','troca']);
+  const isDefault = opSel.size===2 && opSel.has('venda') && opSel.has('troca'); // padrão = igual ao Gestão
+  let total=0, vt=0, dev=0;
   (_vbiFV||[]).forEach(fv=>{
     const data=String(fv.data||'').slice(0,10); if(!data) return;
     if(F.de && F.ate){ if(data < F.de || data > F.ate) return; }
@@ -588,14 +593,18 @@ function _uvCards4(){
     if(!_vbiEmpPass({empresa:fv.empresa||'', segmento:fv.segmento||'', loja})) return;
     if(F.loja && _lojaGrupo(loja)!==F.loja) return;
     if(F.vend && vend!==F.vend) return;
-    const sit=String(fv.situacao||'').toLowerCase();
+    const sit=String(fv.situacao||'').toLowerCase(); if(_VBI_NAOAP.has(sit)) return; // situações ocultas ficam fora de tudo
     const valor=+fv.valor||0, d=+fv.devolucao_abatida||0, op=_uvOpBucket(fv.operacao);
-    if(!_VBI_NAOAP.has(sit)) total+=valor;
-    if(op==='venda'||op==='troca'){ vt+=valor; dev+=d; }
+    // Total de pedidos: sem filtro de operação (padrão Venda+Troca) = TODOS (igual ao Gestão); com filtro = só a(s) operação(ões) escolhida(s).
+    if(isDefault || opSel.has(op)) total+=valor;
+    // Venda+Troca e devoluções: só operações Venda/Troca que estão no filtro (Amostra fica 0).
+    if((op==='venda'||op==='troca') && opSel.has(op)){ vt+=valor; dev+=d; }
   });
   total=+total.toFixed(2); vt=+vt.toFixed(2); dev=+dev.toFixed(2);
-  return { total, vt, dev, fat:+(vt-dev).toFixed(2) };
+  return { total, vt, dev, fat:+(vt-dev).toFixed(2), opSel:[...opSel], isDefault };
 }
+// Rótulo do filtro de operação aplicado nos 4 cartões.
+function _uvOpLabel(c4){ const nm={venda:'Venda',troca:'Troca',amostra:'Amostra',outras:'Outras'}; return c4.isDefault ? 'Venda + Troca (todas as operações, igual ao Gestão)' : (c4.opSel||[]).map(o=>nm[o]||o).join(' + '); }
 function _vbiPrevMes(m){ const [y,mm]=String(m).split('-').map(Number); const d=new Date(y,mm-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function _vbiKPIsPrev(){ // mesmo filtro, mês anterior, até o MESMO ponto do mês (mês fechado = mês cheio vs mês cheio)
   if(_vbiF.de && _vbiF.ate) return null; // intervalo custom: sem comparação de mês
@@ -609,7 +618,7 @@ function _vbiKPIsPrev(){ // mesmo filtro, mês anterior, até o MESMO ponto do m
     if((+f.data.slice(8,10))>corte) return false;
     if(F.op && F.op.size && !F.op.has(f.operacao)) return false;
     if(!_vbiEmpPass(f)) return false;
-    if(F.seg && segDe(f.loja)!==F.seg) return false;
+    if(F.seg && _segFato(f)!==F.seg) return false;
     if(F.loja && _lojaGrupo(f.loja)!==F.loja) return false;
     if(F.vend && f.vendedor!==F.vend) return false;
     if(F.col && f.colecao!==F.col) return false;
@@ -755,7 +764,7 @@ function _vbiMetaPass2(f){ const F=_vbiF;
   if(F.de && F.ate){ if(f.data < F.de || f.data > F.ate) return false; }
   else { if(f.data.slice(0,7) !== (F.mes || _vbiMeses[0])) return false; }
   if(!_vbiEmpPass(f)) return false;
-  if(F.seg && segDe(f.loja)!==F.seg) return false;
+  if(F.seg && _segFato(f)!==F.seg) return false;
   if(F.loja && _lojaGrupo(f.loja)!==F.loja) return false;
   if(F.vend && f.vendedor!==F.vend) return false;
   if(F.col && f.colecao!==F.col) return false;
@@ -801,24 +810,27 @@ function renderUV(){
     <div class="uv-fg"><label>Vendedor</label><select class="empresa-sel" onchange="vbiSetSel('vend',this.value)"><option value="">Todos</option>${vends.map(l=>`<option ${_vbiF.vend===l?'selected':''}>${_vbiE(l)}</option>`).join('')}</select></div>
     <div class="uv-fg"><label>Coleção</label><select class="empresa-sel" onchange="vbiSetSel('col',this.value)"><option value="">Todas</option>${cols.map(l=>`<option ${_vbiF.col===l?'selected':''}>${_vbiE(l)}</option>`).join('')}${temAcess?`<option value="Acessórios" ${_vbiF.col==='Acessórios'?'selected':''}>Acessórios (grupo)</option>`:''}<option value="(sem coleção)" ${_vbiF.col==='(sem coleção)'?'selected':''}>Sem coleção</option></select></div>
   </div>`;
-  // ── KPIs ──
-  const kpi=(lab,val,prev,money)=>`<div class="vbi-kpi" onclick="vbiDrillTotal('${lab}')" title="Ver os pedidos que compõem"><div class="kl">${lab}</div><div class="kv">${money?brl(val):nf(val)}</div>${vv(val,prev)}</div>`;
-  const kpis=`<div class="vbi-kpis">
-    ${kpi('Faturamento',k.fat,kp&&kp.fat,true)}
-    ${kpi('Nº de pedidos',k.peds,kp&&kp.peds,false)}
-    ${kpi('Ticket médio',k.ticket,kp&&kp.ticket,true)}
-    ${kpi('Peças vendidas',k.pcs,kp&&kp.pcs,false)}
-  </div>`;
-  // ── linha extra: os 4 cartões iguais à tela de Vendas do Gestão (só na fonte Sistema) ──
+  // ── KPIs ── (Faturamento = Faturamento final = Venda+Troca − devoluções, igual ao Gestão; respeita o filtro de Operação)
   const _n2=x=>(+x||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const c4 = blingAtivo ? null : _uvCards4();
-  const kpisFat = blingAtivo ? '' : `<div class="vbi-fatcap">Faturamento do mês <span>(igual à tela de Vendas do Gestão)</span></div>
+  const fatTop = blingAtivo ? k.fat : c4.fat;      // topo "Faturamento" = Faturamento final
+  const tkTop  = k.peds ? fatTop/k.peds : 0;       // ticket sobre o faturamento final
+  const kpi=(lab,val,prev,money)=>`<div class="vbi-kpi" onclick="vbiDrillTotal('${lab}')" title="Ver os pedidos que compõem"><div class="kl">${lab}</div><div class="kv">${money?brl(val):nf(val)}</div>${vv(val,prev)}</div>`;
+  const kpis=`<div class="vbi-kpis">
+    ${kpi('Faturamento',fatTop,kp&&kp.fat,true)}
+    ${kpi('Nº de pedidos',k.peds,kp&&kp.peds,false)}
+    ${kpi('Ticket médio',tkTop,kp&&kp.ticket,true)}
+    ${kpi('Peças vendidas',k.pcs,kp&&kp.pcs,false)}
+  </div>`;
+  // ── linha extra: os 4 cartões iguais à tela de Vendas do Gestão (só na fonte Sistema), respeitando o filtro de Operação ──
+  const kpisFat = blingAtivo ? '' : `<div class="vbi-fatcap">Faturamento do mês <span>(${c4.isDefault?'igual à tela de Vendas do Gestão':'filtrado — não é o total do Gestão'})</span></div>
   <div class="vbi-kpis vbi-kpis4">
-    <div class="vbi-kpi f4"><div class="kl">Total de pedidos</div><div class="kv">${brl(c4.total)}</div><div class="kfs">todos os pedidos (todas as lojas e operações)</div></div>
+    <div class="vbi-kpi f4"><div class="kl">Total de pedidos</div><div class="kv">${brl(c4.total)}</div><div class="kfs">${c4.isDefault?'todos os pedidos (todas as lojas e operações)':'só operação: '+_uvOpLabel(c4)}</div></div>
     <div class="vbi-kpi f4"><div class="kl">Venda + Troca</div><div class="kv">${brl(c4.vt)}</div></div>
     <div class="vbi-kpi f4 red"><div class="kl">Devoluções</div><div class="kv">${brl(c4.dev)}</div><div class="kfs">abatidas do faturamento</div></div>
     <div class="vbi-kpi f4 fat"><div class="kl">Faturamento final</div><div class="kv">${brl(c4.fat)}</div><div class="kfs">${_n2(c4.vt)} − ${_n2(c4.dev)}</div></div>
-  </div>`;
+  </div>
+  <div class="vbi-fatfiltro">Operação aplicada: <b>${_uvOpLabel(c4)}</b>${c4.isDefault?'':' · estes 4 cartões estão FILTRADOS (não batem com o total do Gestão)'}</div>`;
   // ── Meta do mês (realizado = valor − frete − devolução; base da META, NÃO depende de recebimento) ──
   const gVend=_vbiAgrupa(facts,'vendedor'), gVendTop=gVend.slice(0,8); // vendedor por faturamento (só quando NÃO há meta)
   const gVendMeta=_vbiComBaseVend();  // base da META do MÊS INTEIRO (p/ o % da meta e o cartão, sem filtro de empresa)
@@ -846,8 +858,8 @@ function renderUV(){
     : `<div class="mc-l">🎯 Meta do mês</div><div class="mc-sem">sem meta cadastrada para este mês · <span style="opacity:.85">cadastre em Gestão → Cadastro → Metas</span></div>`
   )+`</div>`;
   // ── cards de total por segmento (visual do Placar) ──
-  const segMap={}; facts.forEach(f=>{ const sg=segDe(f.loja); (segMap[sg]=segMap[sg]||{v:0,peds:{},pcs:0}); segMap[sg].v+=f.val; segMap[sg].peds[f.pedido]=1; segMap[sg].pcs+=f.qtd; });
-  let segs=SEG_ORDER.filter(sg=>segMap[sg]);
+  const segMap={}; facts.forEach(f=>{ const sg=_segFato(f); (segMap[sg]=segMap[sg]||{v:0,peds:{},pcs:0}); segMap[sg].v+=f.val; segMap[sg].peds[f.pedido]=1; segMap[sg].pcs+=f.qtd; });
+  let segs=Object.keys(segMap).sort((a,b)=>segMap[b].v-segMap[a].v); // 6 segmentos do flatVendas (PL/Atacado/Varejo/Site/WL/Plano), por faturamento
   let segHtml=''; let totG=k.fat, qG=k.peds, pcsG=k.pcs;
   segs.forEach(sg=>{ const o=segMap[sg]; const q=Object.keys(o.peds).length; const M=SEG_META[sg]||{cls:'',ico:'•'}; const on=_vbiF.seg===sg;
     segHtml+=`<div class="card ${M.cls}${on?' seg-on':''}" style="cursor:pointer" onclick="uvSetSeg('${sg}')"><div class="tlab"><span class="badge"></span>${M.ico} ${sg}</div><div class="col-tot">${brl(o.v)}</div><div class="tsub">${nf(q)} pedidos · ${nf(o.pcs)} peças · ticket ${brl(q?o.v/q:0)}</div></div>`; });
@@ -860,10 +872,22 @@ function renderUV(){
   // "Acessórios" e "(sem coleção)" não disputam o top das coleções sazonais; aparecem como grupos próprios no fim.
   const gCol=[...colAll.filter(c=>c.nome!=='(sem coleção)' && c.nome!=='Acessórios').slice(0,7), ...colAll.filter(c=>c.nome==='Acessórios'), ...colAll.filter(c=>c.nome==='(sem coleção)')];
   const colBlock = blingAtivo ? '<div class="vbi-empty">coleção disponível no cenário Sistema</div>' : _vbiBarras(gCol,'col',_vbiF.col,k.fat);
+  // ── Por vendedor: Faturamento (facts, respeita filtros) + Realizado da meta (metaBase, sem frete) + % da meta. Total. ──
+  let vendBloco;
+  if(blingAtivo){ vendBloco=`<div class="vbi-bars">${_vbiBarras(_vbiAgrupa(facts,'vendedor').slice(0,10),'vend',_vbiF.vend,k.fat)}</div>`; }
+  else {
+    const _fatV=_vbiAgrupa(facts,'vendedor'), _fatVMap={}; _fatV.forEach(x=>{_fatVMap[x.nome]=x.val;});
+    const _metaV=_vbiComBaseVendFiltrado(), _metaVMap={}; _metaV.forEach(x=>{_metaVMap[x.nome]=x.val;});
+    const _vn=[...new Set([..._fatV.map(x=>x.nome),..._metaV.map(x=>x.nome)])];
+    const _vr=_vn.map(v=>({nome:v,fat:_fatVMap[v]||0,meta:_metaVMap[v]||0,alvo:metasMes[v]||0})).filter(r=>r.fat>0.005||r.meta>0.005).sort((a,b)=>b.fat-a.fat);
+    const _tf=_vr.reduce((s,r)=>s+r.fat,0), _tm=_vr.reduce((s,r)=>s+r.meta,0);
+    const td='padding:5px 6px', tr='padding:5px 6px;text-align:right';
+    vendBloco=`<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--muted)"><th style="${td};text-align:left">Vendedor</th><th style="${tr}">Faturamento</th><th style="${tr}">Realizado meta</th><th style="${tr}">% meta</th></tr></thead><tbody>${_vr.map(r=>`<tr style="border-top:1px solid var(--line);cursor:pointer" onclick="vbiDrillDim('vendedor','${_vbiE(r.nome).replace(/'/g,"\\'")}')"><td style="${td}">${_vbiE(r.nome)}</td><td style="${tr};font-weight:700">${brl(r.fat)}</td><td style="${tr}">${brl(r.meta)}</td><td style="${tr}">${r.alvo>0?`<b>${(r.meta/r.alvo*100).toFixed(0)}%</b>`:'<span style="color:var(--muted)">—</span>'}</td></tr>`).join('')}<tr style="border-top:2px solid var(--line);font-weight:800"><td style="${td}">Total</td><td style="${tr}">${brl(_tf)}</td><td style="${tr}">${brl(_tm)}</td><td style="${tr}">${somaMetas>0?(_tm/somaMetas*100).toFixed(0)+'%':'—'}</td></tr></tbody></table>${metaSemCampo?'<div style="font-size:11px;color:var(--amber);margin-top:6px">⚠ Realizado da meta pode estar desatualizado — rode Atualizar Power BI.</div>':''}`;
+  }
   const charts=`${metaCard}${tops}<div class="vbi-charts">
     <div class="vbi-ch wide"><h3>Faturamento por dia <span>(clique num dia pra filtrar)</span></h3>${_vbiLinhaDia(facts)}</div>
     <div class="vbi-ch"><h3>Por loja</h3><div class="vbi-bars">${_vbiBarras(gLoja,'loja',_vbiF.loja,k.fat)}</div></div>
-    <div class="vbi-ch"><h3>Por vendedor ${blingAtivo?'<span>(valor Bling)</span>':(temMetas?(metaSemCampo?'<span>(rode Atualizar Power BI)</span>':'<span>(realizado × meta · base venda)</span>'):(rangeAtivo?'':'<span class="sem">(sem meta no mês)</span>'))}</h3><div class="vbi-bars">${(!blingAtivo&&temMetas&&!metaSemCampo)?_vbiBarrasVend(gVendMetaTop,metasMes,baseFullMap,_metaFiltro):_vbiBarras(gVendTop,'vend',_vbiF.vend,k.fat)}</div></div>
+    <div class="vbi-ch"><h3>Por vendedor <span>(faturamento × realizado da meta, sem frete)</span></h3>${vendBloco}</div>
     <div class="vbi-ch"><h3>Por coleção</h3><div class="vbi-bars">${colBlock}</div></div>
     <div class="vbi-ch"><h3>Por status</h3><div class="vbi-bars">${_uvStatus(facts)}</div></div>
   </div>`;
@@ -922,6 +946,7 @@ const _VBI_CSS=`
 .vbi-var{display:inline-block;margin-top:5px;font-size:12px;font-weight:800}
 .vbi-var.up{color:var(--lime2)}.vbi-var.dn{color:#e5534b}
 .vbi-fatcap{font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:2px 2px 7px}
+.vbi-fatfiltro{font-size:11.5px;color:var(--muted);margin:-6px 2px 14px}.vbi-fatfiltro b{color:var(--txt)}
 .vbi-fatcap span{font-weight:600;text-transform:none;letter-spacing:0;opacity:.85}
 .vbi-kpi.f4{cursor:default}.vbi-kpi.f4:hover{border-color:var(--line)}
 .vbi-kpi.f4 .kfs{font-size:11px;color:var(--muted);font-weight:700;margin-top:5px}
