@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v759/10-812';
+const APP_VERSION = 'v760/10-813';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3885,13 +3885,13 @@ function editarDiferencaPedido(pedId) {
   const emAberto = Math.max(0, +((p.valor || 0) - recebido).toFixed(2));
   const auto = ehBoletoPed(p) ? 0 : emAberto;
   const atual = (diferencaOverride[pedId] != null) ? diferencaOverride[pedId] : auto;
-  const s = prompt('Diferença do pedido #' + pedId + ' (o quanto ABATE a base da comissão).\nAutomático: ' + fmtVal(auto) + (ehBoletoPed(p) ? ' (boleto conta cheio)' : '') + '\n\nDigite o valor que deve abater (ou deixe vazio para voltar ao automático):', String(atual).replace('.', ','));
+  const s = prompt('Diferença do pedido #' + pedId + ' (o quanto ABATE a base da comissão).\nAutomático: ' + fmtVal(auto) + (ehBoletoPed(p) ? ' (boleto conta cheio)' : '') + '\n\nDigite o valor que deve abater. Use NEGATIVO para ADICIONAR à base (ex.: -0,01). Vazio volta ao automático:', String(atual).replace('.', ','));
   if (s === null) return;
   const t = s.trim();
   if (t === '') { delete diferencaOverride[pedId]; }
   else {
     const v = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t);
-    if (isNaN(v) || v < 0) { alert('Valor inválido.'); return; }
+    if (isNaN(v)) { alert('Valor inválido.'); return; }
     diferencaOverride[pedId] = +v.toFixed(2);
   }
   saveData('diferencaOverride', diferencaOverride);
@@ -18489,17 +18489,23 @@ async function _sincronizarBlingAuto() {
 // ── "Atualizar Power BI" AUTOMÁTICO: roda em 2º plano (debounced p/ juntar várias ações), sem travar a tela. ──
 // Gatilhos: abrir o Gestão, de hora em hora, e após ações que mexem no CR/CP/recebido (via saveData das chaves-gatilho).
 // Se falhar, marca aviso no Afazeres. O botão "☁ Power BI" continua forçando na hora.
-let _pbiTimer = null, _pbiBusy = false, _pbiFalhou = false, _pbiTimersOn = false;
+let _pbiTimer = null, _pbiBusy = false, _pbiFalhou = false, _pbiTimersOn = false, _lastInteract = Date.now();
+const _PBI_IDLE_MS = 12000; // idle-gate: o Power BI AUTOMÁTICO só roda após ~12s SEM clique/tecla, pra não travar a tela (ex.: Contas a Pagar) no meio do uso.
 const _PBI_TRIGGER = new Set(['recebimentosConsolidado', 'extratoBancario', 'extratoLinks', 'debitoLinks', 'repasseLinks', 'receitaLinks', 'boletoCobrancaStatus', 'boletoStatus', 'devolucoes', 'devolucaoCredito', 'contasPagar', 'formaPagamento', 'creditosCliente']);
-function _agendarPowerBI(delayMs) { if (_pbiTimer) clearTimeout(_pbiTimer); _pbiTimer = setTimeout(() => { _pbiTimer = null; _rodarPowerBIBg(); }, delayMs == null ? 5000 : delayMs); }
-async function _rodarPowerBIBg() {
+function _agendarPowerBI(delayMs) { if (_pbiTimer) clearTimeout(_pbiTimer); _pbiTimer = setTimeout(() => { _pbiTimer = null; _rodarPowerBIBg(true); }, delayMs == null ? 5000 : delayMs); }
+async function _rodarPowerBIBg(auto) {
   if (_pbiBusy) { _agendarPowerBI(8000); return; } // já rodando → re-agenda
+  if (auto && (Date.now() - _lastInteract) < _PBI_IDLE_MS) { _agendarPowerBI(_PBI_IDLE_MS); return; } // você ainda está mexendo → ADIA (só roda quando parar); o botão manual não passa por aqui
   _pbiBusy = true;
   try { const r = await _syncPowerBI(); if (r && r.abortado) throw new Error('remontagem incompleta'); if (_pbiFalhou) { _pbiFalhou = false; try { atualizarBtnAfazeres(); } catch (e) {} } }
   catch (e) { _pbiFalhou = true; console.warn('Power BI (auto) falhou:', e && e.message); try { atualizarBtnAfazeres(); } catch (_) {} }
   finally { _pbiBusy = false; }
 }
-function _ligarPowerBIAuto() { if (_pbiTimersOn) return; _pbiTimersOn = true; setInterval(() => { _rodarPowerBIBg(); }, 60 * 60 * 1000); } // de hora em hora com o Gestão aberto
+function _ligarPowerBIAuto() {
+  if (_pbiTimersOn) return; _pbiTimersOn = true;
+  try { ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { _lastInteract = Date.now(); }, { capture: true, passive: true })); } catch (e) {} // marca a última interação (p/ o idle-gate)
+  setInterval(() => { _rodarPowerBIBg(true); }, 60 * 60 * 1000); // de hora em hora com o Gestão aberto
+}
 // Compara o Bling (rico, só leitura) com a FOTO dos 2 últimos meses de vendas fechadas. Qualquer diferença (valor,
 // situação, cliente, loja, pedido novo ou sumido/cancelado) vira item em "Ajustes de meses fechados" + aviso no Afazeres.
 // A foto NÃO muda. Preserva o "ciente" que a Elaine já marcou (não repete). Não mexe em pedido nenhum.
