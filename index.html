@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v756/10-809';
+const APP_VERSION = 'v757/10-810';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3976,6 +3976,16 @@ function comissaoBaseDoPedido(p, devolMap) {
   const diferenca = diferencaDoPedido(p, emAberto);
   return Math.max(0, baseDoPedido(p, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2)));
 }
+// Base da META do Painel = a MESMA base da comissão, mas SEM o desconto do valor em aberto (a 'diferença').
+// Assim NÃO depende de recebimento: venda concluída sem recebimento, com recebimento, ou boleto, contam IGUAL
+// (= valor − frete − devolução − outras, com os mesmos overrides da comissão). Ver docs/regras.md §12.
+function metaBaseDoPedido(p, devolMap) {
+  if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return 0;
+  const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return 0;
+  const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
+  const devol = devolMap ? (devolMap[String(p.id)] || 0) : ((devolPorPedidoMap().porPed || {})[String(p.id)] || 0);
+  return Math.max(0, baseDoPedido(p, +((p.valor || 0) - frete - devol - outras).toFixed(2)));
+}
 function comissaoTotalVendedor(vend) {
   if (comissaoExcecoes.includes(vend)) return { total: 0, qtd: 0 };
   const devolPorPed = devolPorPedidoMap().porPed;
@@ -5449,7 +5459,8 @@ async function _syncPowerBI() {
       valor: +(+p.valor || 0).toFixed(2), frete: +(freteDoPedido(p) || 0).toFixed(2),
       desconto: +(+p.desconto || 0).toFixed(2), outras_despesas: +(+p.outrasDespesas || 0).toFixed(2),
       devolucao_abatida: devAbat,
-      comissao_base: +(comissaoBaseDoPedido(p, _devPorPed) || 0).toFixed(2), // base da comissão (= realizado da meta no Painel)
+      comissao_base: +(comissaoBaseDoPedido(p, _devPorPed) || 0).toFixed(2), // base da comissão a pagar (COM o desconto do valor em aberto)
+      meta_base: +(metaBaseDoPedido(p, _devPorPed) || 0).toFixed(2), // base da META do Painel (= comissão SEM o desconto do em aberto; não depende de recebimento)
       tem_nf: p.temNF || '', numero_doc: p.numeroDoc || '', cidade: p.cidade || '', uf: p.uf || '',
       qtd_itens: Array.isArray(p.linhas) ? p.linhas.length : 0
     };

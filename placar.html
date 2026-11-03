@@ -177,7 +177,7 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-11-03.3';
+const BUILD = '2026-11-03.4';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
@@ -467,7 +467,7 @@ function renderVendedorDia(vendas){
 let _vbiReady=false, _vbiFacts=[], _vbiFV=null, _vbiProdCol=null, _vbiMeses=[], _vbiMetas=null, _vbiColData=null, _vbiFlatAt=null;
 function _fmtAt(iso){ if(!iso) return '—'; try{ const d=new Date(iso); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' às '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return '—'; } }
 let _uvBling=[], _uvProsp=null, _uvFiltersOpen=false;
-let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'bling', op:new Set(['venda']) }; // abre no Bling (cru, ao vivo); Sistema é opção no Filtros
+let _vbiF={ mes:null, de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'bling', op:new Set(['venda','troca']) }; // abre no Bling (cru, ao vivo); Sistema é opção. Operação padrão Venda+Troca = faturamento do Gestão (Troca entra; Amostra é toggle)
 function _uvOpBucket(op){ op=String(op||'').toLowerCase(); if(op==='venda')return 'venda'; if(op==='troca')return 'troca'; if(op==='amostra')return 'amostra'; return 'outras'; }
 const _VBI_NAOAP=new Set(['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15']);
 // Situações que entram na base da META do Painel (realizado × meta). Em separação fica de fora até avançar no Bling. Ver docs/regras.md §12.
@@ -507,10 +507,13 @@ function vbiBuildFacts(){
     const data = String(fv.data||'').slice(0,10); if(!data) return;
     mset.add(data.slice(0,7));
     const _opB=_uvOpBucket(fv.operacao);
-    // Realizado da META = base da COMISSÃO do Gestão (comissao_base do flatVendas), pra bater 100% com a aba Comissão.
-    // A comissao_base já inclui "Em separação", é 0 fora de Venda/Troca e nas situações ocultas (SITUACOES_OCULTAS_GESTAO),
-    // e NÃO tem o desconto do valor em aberto. Ver docs/regras.md §12.
-    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_opB, comissaoBase:(fv.comissao_base!=null?+fv.comissao_base:null) };
+    // Realizado da META = base da comissão SEM o desconto do valor em aberto (NÃO depende de recebimento).
+    // Usa fv.meta_base (gravado pelo Gestão); fallback = valor − frete − devolução − outras enquanto o flat não tiver o campo.
+    // Inclui "Em separação" (entra qualquer Venda/Troca fora das situações ocultas). Ver docs/regras.md §12.
+    const metaBase = (_opB==='venda'||_opB==='troca')
+      ? (fv.meta_base!=null ? +fv.meta_base : Math.max(0, +(((+fv.valor||0)-(+fv.frete||0)-(+fv.devolucao_abatida||0)-(+fv.outras_despesas||0)).toFixed(2))))
+      : 0;
+    const base={ pedido:String(fv.pedido||''), data, empresa:fv.empresa||'', loja:fv.loja||'(sem loja)', vendedor:fv.vendedor||'(sem)', segmento:fv.segmento||'', cliente:(fv.cliente||'(sem nome)').trim()||'(sem nome)', situacao:_normSit(fv.situacao||''), operacao:_opB, comissaoBase:(fv.comissao_base!=null?+fv.comissao_base:null), metaBase };
     const ped=pedById[base.pedido];
     const linhas=(ped&&Array.isArray(ped.linhas))?ped.linhas:[];
     const lv=l=> (+l.valorLinha || (+l.precoUnit||0)*(+l.qtd||0) || 0);
@@ -631,12 +634,13 @@ function vbiSetSel(dim, val){ if(dim==='loja')_vbiF.loja=val; else if(dim==='ven
 function vbiToggleEmp(e){ if(_vbiF.emp.has(e)) _vbiF.emp.delete(e); else _vbiF.emp.add(e); renderUV(); }
 function vbiSetMes(m){ _vbiF.mes=m; _vbiF.de=''; _vbiF.ate=''; _vbiF.dia=''; renderUV(); }
 function vbiSetRange(k,v){ _vbiF[k]=v; if(_vbiF.de&&_vbiF.ate) _vbiF.dia=''; renderUV(); }
-function vbiLimpar(){ _vbiF={ mes:_vbiMeses[0]||hojeISO().slice(0,7), de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'bling', op:new Set(['venda']) }; renderUV(); }
+function vbiLimpar(){ _vbiF={ mes:_vbiMeses[0]||hojeISO().slice(0,7), de:'', ate:'', emp:new Set(), seg:'', loja:'', vend:'', col:'', dia:'', fonte:'bling', op:new Set(['venda','troca']) }; renderUV(); }
 function uvSetSeg(s){ _vbiF.seg=(_vbiF.seg===s?'':s); renderUV(); }
 function uvToggleFiltros(){ _uvFiltersOpen=!_uvFiltersOpen; renderUV(); }
 function uvSetFonte(f){ if(f==='bling' && !_uvBlingDisp()){ _vbiF.mes=(dados&&dados.mes)||hojeISO().slice(0,7); _vbiF.de=''; _vbiF.ate=''; } _vbiF.fonte=f; renderUV(); }
 function uvToggleOp(o){ const S=_vbiF.op; if(S.has(o)){ if(S.size===1) return; S.delete(o); } else S.add(o); renderUV(); }
-function uvResetOp(){ _vbiF.op=new Set(['venda']); renderUV(); }
+function uvResetOp(){ _vbiF.op=new Set(['venda','troca']); renderUV(); }
+function _opPadrao(){ return _vbiF.op.size===2 && _vbiF.op.has('venda') && _vbiF.op.has('troca'); } // padrão = Venda+Troca (faturamento do Gestão)
 function uvSetEmpresa(v){ _vbiF.emp=new Set(); if(v) _vbiF.emp.add(v); renderUV(); } // dropdown único: Todas/Rokbox/Rk(todas)/PL/White Label
 let _vbiVerTodos={cli:false,prod:false};
 function vbiVerTodos(k){ _vbiVerTodos[k]=!_vbiVerTodos[k]; renderUV(); }
@@ -725,7 +729,7 @@ function _uvChips(){
   if(F.col) c.push(`<span class="uv-chip">${_vbiE(F.col)}<i onclick="vbiSetSel('col','')">✕</i></span>`);
   if(F.dia) c.push(`<span class="uv-chip">${F.dia.slice(8,10)}/${F.dia.slice(5,7)}<i onclick="vbiFiltrar('dia','${F.dia}')">✕</i></span>`);
   if(F.fonte==='sistema') c.push(`<span class="uv-chip adv">Sistema<i onclick="uvSetFonte('bling')">✕</i></span>`);
-  if(!(F.op.size===1 && F.op.has('venda'))) c.push(`<span class="uv-chip adv">Op: ${[...F.op].join('/')}<i onclick="uvResetOp()">✕</i></span>`);
+  if(!_opPadrao()) c.push(`<span class="uv-chip adv">Op: ${[...F.op].join('/')}<i onclick="uvResetOp()">✕</i></span>`);
   return c.join('');
 }
 // Filtro da META = os MESMOS pedidos da comissão: só período (+ vendedor se filtrado). NÃO filtra empresa/loja/operação
@@ -736,16 +740,15 @@ function _vbiMetaPass(f){ const F=_vbiF;
   if(F.vend && f.vendedor!==F.vend) return false;
   return true;
 }
-// Realizado da META = base da COMISSÃO do Gestão (comissaoBase por pedido, dedup), por vendedor. Bate com a aba Comissão.
-// SEMPRE do Sistema/flatVendas (mesmo no modo Bling). _semCampo = flat ainda sem comissao_base → pedir Atualizar Power BI.
+// Realizado da META = base da comissão SEM o desconto do em aberto (metaBase por pedido, dedup), por vendedor.
+// NÃO depende de recebimento. SEMPRE do Sistema/flatVendas (mesmo no modo Bling).
 function _vbiComBaseVend(){
   const mf=_vbiFacts.filter(_vbiMetaPass);
-  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:f.comissaoBase}; });
-  const vals=Object.values(ped); const temCampo=vals.some(o=>o.mb!=null);
+  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:(+f.metaBase||0)}; });
   const m={};
-  vals.forEach(o=>{ const e=m[o.v]||(m[o.v]={val:0,np:0}); e.val+=(+o.mb||0); e.np++; });
+  Object.values(ped).forEach(o=>{ const e=m[o.v]||(m[o.v]={val:0,np:0}); e.val+=o.mb; e.np++; });
   const arr=Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np})).sort((a,b)=>b.val-a.val);
-  arr._semCampo=!temCampo; return arr;
+  arr._semCampo=false; return arr;
 }
 // Como _vbiPass, mas SEM o filtro de operação (a base da comissão é Venda+Troca, igual à aba Comissão). Respeita empresa/loja/segmento/coleção/dia/período/vendedor.
 function _vbiMetaPass2(f){ const F=_vbiF;
@@ -762,7 +765,7 @@ function _vbiMetaPass2(f){ const F=_vbiF;
 // Base da META por vendedor RESPEITANDO os filtros (empresa/loja/coleção/período), usada no VALOR da barra "Por vendedor". Vendedor com 0 não aparece.
 function _vbiComBaseVendFiltrado(){
   const mf=_vbiFacts.filter(_vbiMetaPass2);
-  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:(f.comissaoBase!=null?+f.comissaoBase:0), tr:!!_LOJA_TROCA[f.loja]}; });
+  const ped={}; mf.forEach(f=>{ if(!(f.pedido in ped)) ped[f.pedido]={v:f.vendedor, mb:(+f.metaBase||0), tr:!!_LOJA_TROCA[f.loja]}; });
   const m={}; Object.values(ped).forEach(o=>{ const e=m[o.v]||(m[o.v]={val:0,np:0,troca:0}); e.val+=o.mb; e.np++; if(o.tr) e.troca+=o.mb; });
   return Object.entries(m).map(([nome,e])=>({nome,val:e.val,np:e.np,troca:e.troca})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val);
 }
@@ -775,7 +778,7 @@ function renderUV(){
   const k=_vbiKPIs(facts), kp=_vbiKPIsPrev();
   const vv=(cur,prev)=>{ if(kp==null||prev==null) return ''; if(!prev){ return cur>0?'<span class="vbi-var up" title="mês anterior sem vendas no mesmo ponto">novo</span>':''; } const d=(cur-prev)/prev*100; const up=d>=0; return `<span class="vbi-var ${up?'up':'dn'}" title="vs mesmo ponto do mês anterior">${up?'▲':'▼'} ${_vbiPct(d)}</span>`; };
   // ── barra de cima: botão Filtros + etiquetas ativas ──
-  const nFiltros=(_vbiF.emp.size)+(_vbiF.seg?1:0)+(_vbiF.loja?1:0)+(_vbiF.vend?1:0)+(_vbiF.col?1:0)+(_vbiF.dia?1:0)+(_vbiF.fonte==='sistema'?1:0)+((_vbiF.op.size===1&&_vbiF.op.has('venda'))?0:1)+((_vbiF.de&&_vbiF.ate)?1:0);
+  const nFiltros=(_vbiF.emp.size)+(_vbiF.seg?1:0)+(_vbiF.loja?1:0)+(_vbiF.vend?1:0)+(_vbiF.col?1:0)+(_vbiF.dia?1:0)+(_vbiF.fonte==='sistema'?1:0)+(_opPadrao()?0:1)+((_vbiF.de&&_vbiF.ate)?1:0);
   const fonteLbl = blingAtivo ? 'Bling (cru, ao vivo)' : (_vbiF.fonte==='bling' ? 'Sistema (mês fechado)' : 'Sistema');
   const topo=`<div class="uv-topo"><button class="uv-fbtn${nFiltros?' on':''}" onclick="uvToggleFiltros()">🔎 Filtros${nFiltros?` · ${nFiltros}`:''}</button><span class="uv-fonte ${blingAtivo?'bl':'sis'}" title="Fonte dos números. Troca no botão Filtros.">Fonte: ${fonteLbl}</span><div class="uv-chips">${_uvChips()}</div>${nFiltros?`<button class="uv-limpar" onclick="vbiLimpar()">limpar tudo</button>`:''}</div>`;
   // ── painel de filtros (visual do Placar antigo, oculto dentro do botão Filtros) ──

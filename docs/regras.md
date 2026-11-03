@@ -78,7 +78,7 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 9. Situações não-venda (Bling)
 - Não contam como venda: cancelado, em aberto, em andamento, atualização de estoque, correios, sit#15. Checkout parcial CONTA como venda.
-- Base da META do Painel (§12): = base da COMISSÃO do Gestão (`comissao_base`), que já inclui "Em separação" (entra Venda/Troca fora das situações ocultas). Painel = aba Comissão ao centavo (BUILD 2026-11-03.3; antes a meta só contava Verificado/Atendido/Checkout parcial).
+- Base da META do Painel (§12): = base da comissão SEM o desconto do valor em aberto (`meta_base` = valor − frete − devolução − outras), NÃO depende de recebimento (venda sem receber conta cheia), inclui "Em separação". Campo `meta_base` no flatVendas (metaBaseDoPedido). NÃO é a `comissao_base` (essa abate o em aberto). BUILD 2026-11-03.4 / Gestão v757/10-810.
 
 ## 10. Empresas
 - Rokbox e Rk. São 2 contas Bling; a 2ª (Rk) é PL/White Label, CNPJ diferente, fica separada.
@@ -102,9 +102,9 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 12. Painel RK
 - Saldo em banco sempre ATUAL: último extrato de cada conta, com a data, independente do filtro de mês.
-- Base da META (realizado × meta, por vendedor) = **base da COMISSÃO do Gestão** (`comissao_base` do flatVendas), pra bater 100% com a aba Comissão. Entra Venda/Troca em qualquer situação que NÃO seja oculta (SITUACOES_OCULTAS_GESTAO: cancelado, em aberto, em andamento, Correios, atualização de estoque) — portanto **inclui "Em separação"**. É 0 fora de Venda/Troca e pra vendedor sem comissão (ex.: Elaine Lima). NÃO depende de recebimento (SEM o desconto do valor em aberto).
-- Conceitualmente a base é valor − frete − devolução, mas o Painel usa a própria `comissao_base` pra casar ao centavo com a aba Comissão: elas podem diferir num pedido (ex.: #41327 tem valor 359,82 e base de comissão 349,02). Conferido out/2026 por vendedor (Ana Julia 15.756,83; Cristian I 25.094,90; Karen 72.965,87; etc.), Painel = aba Comissão.
-- Fica num lugar só: placar.html, campo `comissaoBase` na `vbiBuildFacts`, somado em `_vbiComBaseVend` e `_vbiComBaseVendFiltrado`. Mudou a regra, muda aqui. (BUILD 2026-11-03.3: trocado de `metaBase`/`_META_SIT` — que só contava Verificado/Atendido/Checkout parcial e deixava "Em separação" de fora — pra `comissao_base`.)
+- Base da META (realizado × meta, por vendedor) = **base da comissão SEM o desconto do valor em aberto** = `valor − frete − devolução − outras` (com os mesmos overrides da comissão: freteOverride, baseOverride). **NÃO depende de recebimento**: venda concluída sem recebimento, com recebimento, ou boleto, contam IGUAL (valor cheio). Entra Venda/Troca em qualquer situação que NÃO seja oculta (SITUACOES_OCULTAS_GESTAO: cancelado, em aberto, em andamento, Correios, atualização de estoque) — portanto **inclui "Em separação"**. É 0 fora de Venda/Troca e pra vendedor sem comissão.
+- NÃO confundir com a `comissao_base` (a comissão A PAGAR): essa **desconta o valor em aberto** (a `diferença`, = o que falta receber; boleto conta cheio, exceção). Ex.: #41327 valor 359,82, recebido 349,02 → `comissao_base` 349,02 (abate 10,80 em aberto), mas `meta_base` 359,82 (cheio). Foi o erro de 03/11 que a Elaine pegou: por uma rodada a meta usou `comissao_base` e zerava venda sem recebimento (caso Karen #41130/#41291/#41301/#41330 da semana anterior).
+- Campo próprio `meta_base` no flatVendas, calculado no Gestão por `metaBaseDoPedido` (= `comissaoBaseDoPedido` com a diferença = 0). O Painel (placar.html) usa `fv.meta_base` no campo `metaBase` da `vbiBuildFacts` (fallback = valor − frete − devolução − outras enquanto o flat não tiver o campo), somado em `_vbiComBaseVend`/`_vbiComBaseVendFiltrado`. Conferido out/2026 por vendedor: Ana Julia 15.767,63 (inclui #41327 cheio), Cristian I 25.094,91, Karen 72.974,97. Mudou a regra, muda nos dois (Gestão metaBaseDoPedido + Painel). BUILD 2026-11-03.4, Gestão v757/10-810.
 
 ## 13. Pedido cancelado com dinheiro no banco (ex. #426 Mawu)
 - Se o pedido foi cancelado no Bling mas tem valor conciliado no banco: MANTER o recebido (o dinheiro entrou) e sinalizar em Pendências. Não apagar o recebido.
