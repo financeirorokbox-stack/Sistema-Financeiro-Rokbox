@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v755/10-808';
+const APP_VERSION = 'v756/10-809';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18524,33 +18524,25 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
         const vB = r.vendedor || '';
         if (vB && vB !== '(sem)' && !/^Vend\s/.test(vB) && ex.vendedor !== vB) { _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'aplicado', motivo: (vendedorFixes[num] != null ? 'Bling vence correção manual' : '') }); ex.vendedor = vB; mud = true; if (vendedorFixes[num] != null) { delete vendedorFixes[num]; _vendFixesMud = true; } }
         else if (vB && /^Vend\s/.test(vB) && !_blingUnmapSeen.has('vend|' + vB)) { _blingUnmapSeen.add('vend|' + vB); _blingLog({ pedido: num, conta: empresa, campo: 'vendedor', de: ex.vendedor || '', para: vB, resultado: 'bloqueado', motivo: 'vendedor novo NÃO mapeado na tabela da Edge (incluir no bling-sync)' }); _blingPend({ chave: 'vend-nao-mapeado|' + vB, conta: empresa, pedido: num, tipo: 'Vendedor novo não mapeado na Edge (incluir ' + vB + ' no bling-sync)', detalhe: vB }); }
-        // CLIENTE + ITENS: BLING VENCE, com camadas de proteção (tudo logado antes→depois):
-        //  a) "Atualização de estoque SAIDA" no Bling: NÃO toca (→ Pendências; deixou de ser venda?).
-        //  b) pedido tocado à mão (anotação em obsPedido OU itens com custo vindo da planilha): NÃO sobrescreve (→ Pendências).
-        //  c) cliente é OUTRA pessoa (não bate nem por prefixo) E o Gestão tem itens reais: possível REUSO DE NÚMERO
-        //     no Bling → NÃO aplica cliente nem itens, manda revisar (→ Pendências).
-        //  d) resto aplica: nome curto×completo da mesma pessoa, ou pedido-placeholder (ex.: só "Etiqueta de Correios").
+        // CLIENTE: BLING VENCE em mês aberto. ÚNICA exceção = o contato virou "Atualização de estoque SAIDA"
+        // no Bling (aí NÃO toca e vai p/ Pendências: deixou de ser venda?). Nome diferente (reuso de número) ou
+        // pedido tocado à mão NÃO bloqueiam mais o cliente — Elaine: o cliente segue o Bling. Essas duas camadas
+        // (_curado / _suspeitoReuso) seguem protegendo só os ITENS, logo abaixo.
         const cliB = (r.cliente || '').trim();
         const _saida = /^atualiza[çc]/i.test(cliB);
         const _curado = _pedCuradoBling(ex, num);
         const _gestaoPlaceholder = _blingItensSig(ex.linhas) === ''; // sem SKU real (ex.: "Etiqueta de Correios")
-        const _suspeitoReuso = cliB && !_saida && !_curado && !_gestaoPlaceholder && !_blingMesmaPessoa(ex.nome, cliB);
+        const _suspeitoReuso = cliB && !_saida && !_curado && !_gestaoPlaceholder && !_blingMesmaPessoa(ex.nome, cliB); // usado só p/ os ITENS
         if (cliB && String(ex.nome || '').trim() !== cliB) {
           if (_saida) {
             _blingPend({ chave: 'cliente-saida|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Contato virou "Atualização de estoque SAIDA" no Bling (revisar: deixou de ser venda?)', detalhe: 'Gestão ' + (ex.nome || '') + ' x Bling ' + cliB });
             _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'bloqueado', motivo: 'Atualização de estoque SAIDA' });
-          } else if (_curado) {
-            _blingPend({ chave: 'cliente-curado|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Cliente difere do Bling, mas o pedido foi tocado à mão (' + _curado + ') — revisar', detalhe: 'Gestão ' + (ex.nome || '') + ' x Bling ' + cliB });
-            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'bloqueado', motivo: 'tocado à mão: ' + _curado });
-          } else if (_suspeitoReuso) {
-            _blingPend({ chave: 'cliente-reuso|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Cliente é OUTRA pessoa no Bling e o Gestão tem itens reais (possível reuso de número) — revisar', detalhe: 'Gestão ' + (ex.nome || '') + ' x Bling ' + cliB });
-            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'bloqueado', motivo: 'pessoa diferente + itens reais (revisar)' });
           } else {
-            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'aplicado', motivo: _gestaoPlaceholder ? 'pedido-placeholder' : '' });
+            _blingLog({ pedido: num, conta: empresa, campo: 'cliente', de: ex.nome || '', para: cliB, resultado: 'aplicado', motivo: _curado ? ('Bling vence · pedido tocado à mão: ' + _curado) : (_suspeitoReuso ? 'Bling vence · nome diferente (cliente segue o Bling)' : (_gestaoPlaceholder ? 'pedido-placeholder' : '')) });
             ex.nome = cliB; mud = true;
             if (r.clienteId && String(ex.clienteId || '') !== String(r.clienteId)) ex.clienteId = String(r.clienteId);
           }
-        } else if (cliB && r.clienteId && String(ex.clienteId || '') !== String(r.clienteId) && !_saida && !_curado && !_suspeitoReuso) {
+        } else if (cliB && r.clienteId && String(ex.clienteId || '') !== String(r.clienteId) && !_saida) {
           ex.clienteId = String(r.clienteId); mud = true; // nome já igual, só completa o id do contato
         }
         // ITENS: espelha o detalhe do Bling (blingDetCache). Mesmas exceções (SAIDA / tocado à mão / suspeita de reuso → Pendências).
