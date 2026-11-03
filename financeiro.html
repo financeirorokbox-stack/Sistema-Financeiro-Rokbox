@@ -1075,6 +1075,101 @@ function renderNF(){
       ${shown.length>400?`<div style="color:var(--muted);font-size:11px;margin-top:4px">Mostrando 400 de ${shown.length}. Use os filtros.</div>`:''}
     </div>`;
 }
+// ════════════════ MARGEM · ANÁLISE POR PEDIDO (Fase 1: análise real, não grava nada) ════════════════
+let _margBuscaPed = '';
+const _PAYPAL_PARC = {1:2.1,2:2.5,3:2.9,4:3.3,5:3.7,6:4.2,7:4.6,8:5.0,9:5.4,10:5.8,12:6.7}; // tabela real PayPal (%)
+function setMargBusca(v){ _margBuscaPed = String(v||'').replace(/\D/g,''); renderMargem(); }
+function limparMargBusca(){ _margBuscaPed=''; const i=document.getElementById('marg-busca'); if(i)i.value=''; renderMargem(); }
+function _skuBaseM(s){ return String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim(); }
+function _empLabelM(e){ return (typeof NFRegras!=='undefined') ? NFRegras.empLabel(e) : ((/rk/i.test(e)&&!/rokbox/i.test(e))?'Rk':'Rokbox'); }
+function _aliqDeM(emp, ym){ const E=_empLabelM(emp); const bm=(_FIN.pgdas||{})[E]||{}; if(bm[ym]&&bm[ym].aliquota!=null) return {aliq:+bm[ym].aliquota, estimada:false}; const ant=Object.keys(bm).filter(m=>m<=ym&&bm[m]&&bm[m].aliquota!=null).sort(); if(ant.length) return {aliq:+bm[ant[ant.length-1]].aliquota, estimada:true}; return {aliq:(_impostoPct||0), estimada:true}; }
+function _taxaMediaMes(mes){ let t=0,b=0; (_FIN.receb||[]).forEach(r=>{ if(String(r.data||'').slice(0,7)!==mes) return; const tx=+r.taxa||0, br=+r.bruto||+r.liq||0; if(tx>0&&br>0){ t+=tx; b+=br; } }); return b>0 ? t/b : 0; }
+function _mesAnteriorM(ym){ const [y,m]=String(ym).split('-').map(Number); const d=new Date(y,(m||1)-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function _devDoPedidoM(p){ const devAll=Array.isArray(_FIN.dev)?_FIN.dev:[], devCred=_FIN.devCred||{}; const credDe=d=>{ const raw=devCred[d.pedido+'|'+d.cliente]; if(raw==='__editando__'||raw==='__vazio__')return''; const grp=devAll.filter(x=>String(x.pedido)===String(d.pedido)&&(x.cliente||'')===(d.cliente||'')); if(grp.length>1){const dist=new Set(grp.map(x=>(x.pedidoCredito||'').trim())); if(dist.size>1) return (d.pedidoCredito||'').trim()||raw||'';} return raw||d.pedidoCredito||''; }; let raw=0; devAll.forEach(d=>{ const cred=String(credDe(d)).match(/\d{4,6}/g)||[]; if(cred.includes(String(p.id))){ raw+=+(((+d.valorPago||0)/cred.length)).toFixed(2); } }); return +Math.min(raw, +p.valor||Infinity).toFixed(2); }
+function _comPctM(l){ const v=(_FIN.lc||{})[l]&&(_FIN.lc||{})[l].comissao; const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n/100; }
+function _segDeM(l){ return ((_FIN.lc||{})[l]&&(_FIN.lc||{})[l].segmento) ? (_FIN.lc||{})[l].segmento : 'Outros'; }
+// Calcula a análise (cascata real/estimada) de UM pedido. Não grava nada.
+function analiseDoPedido(pid){
+  if(!_FIN) return {erro:'Carregando…'};
+  const p=(_FIN.pedidos||[]).find(x=>String(x.id)===String(pid)); if(!p) return {erro:'Pedido #'+pid+' não encontrado neste Painel.'};
+  const bCustos=_FIN.bCustos||{}, pCol=_FIN.pCol||{};
+  const custoBase={}, precoBase={};
+  Object.entries(bCustos).forEach(([sku,info])=>{ const b=_skuBaseM(sku); const c=+(info&&info.custo)||0, pr=+(info&&info.preco)||0; if(custoBase[b]==null||(!custoBase[b]&&c)) custoBase[b]=c; if(precoBase[b]==null||(!precoBase[b]&&pr)) precoBase[b]=pr; });
+  const acct=_empLabelM(p.empresa)==='Rk'?2:1, mesPed=String(p.data||'').slice(0,10).slice(0,7);
+  const entNF=(_FIN.pedNF||{})[acct+'|'+p.id]; const nf=(entNF&&entNF.nf&&entNF.nf.id)?entNF.nf:null;
+  const autVenda = !!(nf && (nf.sit===5||nf.sit===6) && /venda de (mercadoria|produ)/i.test(nf.natNome||''));
+  const nfMonth=(nf&&nf.data)?String(nf.data).slice(0,7):mesPed;
+  const recs=(_FIN.receb||[]).filter(r=>{ if(r._estornoChave) return false; return String(r.nped||'').split(',').map(s=>s.trim()).includes(String(p.id)); });
+  const taxaReal=+recs.reduce((s,r)=>s+(+r.taxa||0),0).toFixed(2);
+  const formaGw=[...new Set(recs.map(r=>r.gateway).filter(Boolean))];
+  const parcMax=Math.max(0,...recs.map(r=>+r.parcelas||0));
+  const frete=+p.frete||0, total=+p.valor||0, outras=+p.outrasDespesas||0, devPed=_devDoPedidoM(p);
+  const vend=(Array.isArray(p.linhas)?p.linhas:[]).map(l=>{ const q=+l.qtd||0, val=+l.valorLinha||((+l.precoUnit||0)*q), pu=q>0?val/q:(+l.precoUnit||0); return {l,q,val,pu,brinde:pu<=0.011}; });
+  const totVenda=vend.filter(x=>!x.brinde).reduce((s,x)=>s+x.val,0);
+  const linhasIncompletas = (total - frete - totVenda) > Math.max(1, total*0.02); // total do pedido >> soma das linhas = faltam itens
+  let descPed=totVenda+frete-total; if(descPed<0)descPed=0;
+  const baseCom=Math.max(0,total-frete-outras-devPed);
+  const comPct=_comPctM(p.loja), isento=(_FIN.comExc||[]).includes(p.vendedor||'');
+  const comissao=+((isento?0:comPct)*baseCom).toFixed(2);
+  const receita=+(total-frete).toFixed(2);
+  // Imposto: NF autorizada = real; sem NF = estimado pela alíquota da empresa × receita.
+  let imposto, impInfo;
+  if(autVenda){ const a=_aliqDeM(p.empresa,nfMonth); imposto=+((a.aliq/100)*(+nf.valor||0)).toFixed(2); impInfo={aliq:a.aliq,estimada:a.estimada,real:true,base:+nf.valor||0}; }
+  else { const a=_aliqDeM(p.empresa,mesPed); imposto=+((a.aliq/100)*receita).toFixed(2); impInfo={aliq:a.aliq,estimada:true,real:false,semNF:true,base:receita}; }
+  // Taxa: recebimento = real; sem recebimento = estimado (forma+parcelas PayPal, senão média do mês).
+  let taxa, taxaInfo;
+  if(recs.length>0){ // tem recebimento → taxa REAL do gateway (PIX confirmado = 0, boleto = tarifa, cartão = taxa real)
+    taxa=taxaReal; taxaInfo={real:true, forma:(formaGw.join('/')||'confirmado')+(parcMax>0?(' '+parcMax+'x'):'')};
+  } else { // SEM recebimento → ESTIMA; nunca 0 p/ cartão/forma desconhecida. Ordem: média do mês → mês anterior → 2 meses atrás.
+    let m=_taxaMediaMes(mesPed), fonte='média do mês';
+    if(!(m>0)){ const p1=_mesAnteriorM(mesPed); m=_taxaMediaMes(p1); fonte='média de '+p1.split('-').reverse().join('/'); }
+    if(!(m>0)){ const p2=_mesAnteriorM(_mesAnteriorM(mesPed)); m=_taxaMediaMes(p2); fonte='média de '+p2.split('-').reverse().join('/'); }
+    taxa=+(m*receita).toFixed(2); taxaInfo={real:false, estimada:true, forma:'forma desconhecida — '+fonte, pct:+(m*100).toFixed(2)};
+  }
+  // Correios: custo real não existe aqui → usa o frete do pedido, estimado.
+  const correios=frete, correiosEst=frete>0;
+  // Linhas
+  const lines=vend.filter(x=>!x.brinde).map(x=>{ const b=_skuBaseM(x.l.sku), nome=String(x.l.descricao||'').replace(/\s*Tamanho:.*/i,'').trim()||b; const pr=precoBase[b]; const tabela=(pr&&pr>0)?pr*x.q:x.val; let descLinha=tabela-x.val; if(descLinha<0)descLinha=0; const descPedL=totVenda>0?descPed*(x.val/totVenda):0; const liq=+(x.val-descPedL).toFixed(2); const custoU=custoBase[b]; const custoT=(custoU||0)*x.q; const mb=liq-custoT; return { sku:x.l.sku, nome, qtd:x.q, tabelaU:(pr&&pr>0)?pr:x.pu, tabela, descLinha, descPct:tabela>0?descLinha/tabela*100:0, liq, custoU:(custoU==null?null:custoU), custoT, mb, mbPct:liq>0?mb/liq*100:0, semCusto:(custoU==null||custoU===0) }; });
+  const tabelaTot=lines.reduce((s,l)=>s+l.tabela,0), descLinhaTot=lines.reduce((s,l)=>s+l.descLinha,0), custoTot=lines.reduce((s,l)=>s+l.custoT,0);
+  const descTotal=+(descLinhaTot+descPed).toFixed(2);
+  const margemBruta=+(receita-custoTot).toFixed(2);
+  const margemFinal=+(receita-custoTot-taxa-imposto-comissao-correios).toFixed(2);
+  const seg=_segDeM(p.loja);
+  return { p, erro:null, linhasIncompletas, header:{ cliente:p.nome||'', loja:p.loja||'', segmento:seg, vendedor:p.vendedor||'', situacao:p.situacao||'', data:String(p.data||'').slice(0,10), empresa:p.empresa||'', forma:(recs.length?(formaGw.join('/')+(parcMax>0?(' '+parcMax+'x'):'')):(/aberto/i.test(p.situacao||'')?'em aberto (sem recebimento)':'sem recebimento lançado')), nf, autVenda, danfe:(nf&&nf.danfe)||'' },
+    lines, totVenda, cascade:{ tabelaTot, descLinhaTot, descPed, descTotal, descTotalPct:tabelaTot>0?descTotal/tabelaTot*100:0, receita, custoTot, margemBruta, margemBrutaPct:receita>0?margemBruta/receita*100:0, taxa, taxaInfo, imposto, impInfo, comissao, comPct:isento?0:comPct, baseCom, isento, correios, correiosEst, margemFinal, margemFinalPct:receita>0?margemFinal/receita*100:0, seg } };
+}
+function _escM(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderAnalisePedido(a){
+  if(!a) return '';
+  if(a.erro) return `<div class="card" style="margin-bottom:14px;border:1px solid var(--amber)"><b>🔎 Análise por pedido</b> <button onclick="limparMargBusca()" style="float:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:3px 9px;cursor:pointer">✕</button><div style="color:var(--amber);margin-top:6px">${_escM(a.erro)}</div></div>`;
+  const h=a.header, c=a.cascade;
+  const danfe = h.danfe ? `<a href="${h.danfe}" target="_blank" style="color:#58a6ff">DANFE</a>` : (h.nf?'<span style="color:var(--muted)">DANFE —</span>':'');
+  const nfTxt = h.nf ? ('NF '+(h.nf.num||'?')+' · '+(h.autVenda?'venda autorizada':'('+_escM(h.nf.natNome||'sem natureza')+')')+' '+danfe) : '<span style="color:var(--red)">sem NF</span>';
+  const linhasHtml = a.lines.map(l=>`<tr><td>${_escM(l.sku)}</td><td>${_escM(l.nome)}</td><td class="v">${l.qtd}</td><td class="v">${brl(l.tabelaU)}</td><td class="v" style="color:var(--amber)">${brl(l.descLinha)} <small style="opacity:.6">${l.descPct.toFixed(0)}%</small></td><td class="v">${brl(l.liq)}</td><td class="v">${l.semCusto?'<span style="color:var(--amber)">sem custo</span>':brl(l.custoU)}</td><td class="v">${l.semCusto?'—':brl(l.custoT)}</td><td class="v" style="color:${l.mb>=0?'var(--lime)':'var(--red)'};font-weight:700">${brl(l.mb)} <small style="opacity:.6">${l.mbPct.toFixed(0)}%</small></td></tr>`).join('');
+  const row=(lab,val,extra,strong)=>`<tr${strong?' style="font-weight:800"':''}><td style="padding:3px 8px">${lab}</td><td class="v" style="padding:3px 8px">${val}</td><td style="padding:3px 8px;color:var(--muted);font-size:11px">${extra||''}</td></tr>`;
+  const impExtra = c.impInfo.real ? (String(c.impInfo.aliq).replace('.',',')+'%'+(c.impInfo.estimada?' <span style="color:var(--amber)">estimada</span>':'')+' × NF '+brl(c.impInfo.base)) : ('<span style="color:var(--amber)">estimado</span> '+String(c.impInfo.aliq).replace('.',',')+'% × receita (sem NF)');
+  const taxaExtra = c.taxaInfo.real ? ('real · '+_escM(c.taxaInfo.forma)) : ('<span style="color:var(--amber)">estimada</span> · '+_escM(c.taxaInfo.forma));
+  return `<div class="card" style="margin-bottom:14px;border:1px solid var(--lime)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><b style="font-size:15px">🔎 Análise , Pedido #${_escM(String(a.p.id))}</b><button onclick="limparMargBusca()" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:4px 10px;cursor:pointer">✕ fechar</button></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:6px 0 10px;display:flex;gap:14px;flex-wrap:wrap"><span>👤 ${_escM(h.cliente)}</span><span>🏷️ ${_escM(h.loja)} · ${_escM(h.segmento)}</span><span>🧑‍💼 ${_escM(h.vendedor)}</span><span>• ${_escM(h.situacao)}</span><span>📅 ${h.data.split('-').reverse().join('/')}</span><span>💳 ${_escM(h.forma)}</span><span>🧾 ${nfTxt}</span></div>
+    ${a.linhasIncompletas?`<div style="color:var(--red);font-weight:700;background:rgba(229,83,75,.1);border:1px solid var(--red);border-radius:8px;padding:8px 10px;margin-bottom:10px">⚠ Itens incompletos: as linhas somam ${brl(a.totVenda)} mas o pedido é ${brl(+a.p.valor||0)}. Faltam itens (detalhe do pedido não sincronizado do Bling) , margem não confiável.</div>`:''}
+    <div class="card" style="overflow-x:auto;margin-bottom:12px;padding:8px"><table class="bal" style="width:100%;font-size:12px"><thead><tr><th>SKU</th><th>Descrição</th><th class="v">Qtd</th><th class="v">Tabela un.</th><th class="v">Desc. linha</th><th class="v">Líquido</th><th class="v">Custo un.</th><th class="v">Custo total</th><th class="v">Margem bruta</th></tr></thead><tbody>${linhasHtml}</tbody></table></div>
+    <div class="card" style="max-width:520px;padding:6px"><table style="width:100%;font-size:12.5px">
+      ${row('Valor de tabela total', brl(c.tabelaTot))}
+      ${row('(−) Desconto das linhas', brl(c.descLinhaTot))}
+      ${row('(−) Desconto do rodapé (rateado)', brl(c.descPed))}
+      ${row('= Desconto total', brl(c.descTotal), c.descTotalPct.toFixed(1)+'% da tabela')}
+      ${row('= Receita líquida', '<b>'+brl(c.receita)+'</b>', '', true)}
+      ${row('(−) Custo dos produtos', brl(c.custoTot))}
+      ${row('= Margem bruta', '<b style="color:var(--lime)">'+brl(c.margemBruta)+'</b>', c.margemBrutaPct.toFixed(1)+'%', true)}
+      ${row('(−) Taxa cartão/gateway', brl(c.taxa), taxaExtra)}
+      ${row('(−) Imposto', brl(c.imposto), impExtra)}
+      ${row('(−) Comissão', brl(c.comissao), (c.isento?'isento':String((c.comPct*100).toFixed(2)).replace('.',',')+'% × base '+brl(c.baseCom)))}
+      ${row('(−) Correios', brl(c.correios), c.correiosEst?'<span style="color:var(--amber)">estimado (frete do pedido)</span>':'(sem frete)')}
+      ${row('= MARGEM FINAL', '<b style="color:'+(c.margemFinal>=0?'var(--lime)':'var(--red)')+'">'+brl(c.margemFinal)+'</b>', '<b>'+c.margemFinalPct.toFixed(1)+'% da receita</b>', true)}
+    </table></div>
+  </div>`;
+}
 function renderMargem(){
   const el = document.getElementById('margem-conteudo'); if(!el) return;
   if(!_FIN){ el.innerHTML = '<div class="card">Carregando…</div>'; return; }
@@ -1183,6 +1278,8 @@ function renderMargem(){
   const _aRok = aliqDe('Rokbox', mes), _aRk = aliqDe('Rk', mes); const _aFmt = a => String(a.aliq).replace('.', ',') + '%' + (a.estimada ? ' <span style="color:var(--amber)">(estimada)</span>' : '');
   el.innerHTML = `
     <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
+    <div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>🔎 Análise por pedido</b> <input id="marg-busca" value="${_margBuscaPed}" placeholder="nº do pedido (Rokbox ou Rk)" onkeydown="if(event.key==='Enter')setMargBusca(this.value)" style="width:210px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:6px 9px"> <button onclick="setMargBusca(document.getElementById('marg-busca').value)" style="background:var(--lime,#7ee787);color:#08130b;border:none;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer">Buscar</button>${_margBuscaPed?' <button onclick="limparMargBusca()" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:6px 10px;cursor:pointer">✕ limpar</button>':''}</div>
+    ${_margBuscaPed ? renderAnalisePedido(analiseDoPedido(_margBuscaPed)) : ''}
     <div class="card" style="margin-bottom:12px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:13px">
       <span>Imposto (alíquota efetiva PGDAS, só sobre NF de venda): Rokbox ${_aFmt(_aRok)} · Rk ${_aFmt(_aRk)}</span>
       <label style="color:var(--muted)">fallback <input type="number" step="0.5" value="${_impostoPct}" onchange="setImposto(this.value)" title="só usado quando não há PGDAS de nenhum mês" style="width:56px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px;text-align:right">%</label>
@@ -1464,7 +1561,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-03.1';
+const BUILD='2026-11-03.2';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
