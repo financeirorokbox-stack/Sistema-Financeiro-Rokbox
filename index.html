@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v753/10-806';
+const APP_VERSION = 'v754/10-807';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9805,6 +9805,46 @@ function credDevolucao(d) {
   }
   return raw || d.pedidoCredito || '';
 }
+// Conflito de importação: você definiu à mão o "Pedido do Crédito" (devolucaoCredito) e a planilha OFICIAL trouxe
+// um valor DIFERENTE (ou a devolução nem veio mais). Lista para você decidir — nunca sobrescreve calado.
+function _conflitosDevolImport(novas) {
+  const out = [];
+  const byKey = {}; (novas || []).forEach(d => { const k = (d.pedido || '') + '|' + (d.cliente || ''); (byKey[k] = byKey[k] || []).push(d); });
+  Object.keys(devolucaoCredito || {}).forEach(k => {
+    const ov = devolucaoCredito[k];
+    if (!ov || ov === '__vazio__' || ov === '__editando__') return;   // só vínculos manuais de verdade
+    const [ped, cli] = k.split('|');
+    const grp = byKey[k];
+    if (!grp) { out.push({ key: k, pedido: ped, cliente: cli, gestao: String(ov), planilha: '(a devolução não veio mais na planilha)' }); return; }
+    const planStr = [...new Set(grp.map(d => (d.pedidoCredito || '').trim()).filter(Boolean))].join(',');
+    const ovN = (String(ov).match(/\d{4,6}/g) || []).sort().join(','), plN = (planStr.match(/\d{4,6}/g) || []).sort().join(',');
+    if (plN && ovN !== plN) out.push({ key: k, pedido: ped, cliente: cli, gestao: String(ov), planilha: planStr });
+  });
+  return out;
+}
+function _modalConflitosDevol(conf) {
+  if (!conf || !conf.length) return;
+  let ov = document.getElementById('cdev-modal');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'cdev-modal'; ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto'; document.body.appendChild(ov); }
+  window._cdevList = conf;
+  const linhas = conf.map((c, i) => `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 8px">#${c.pedido}${c.cliente ? ' · ' + c.cliente : ''}</td>
+    <td style="padding:5px 8px">pedido do crédito</td>
+    <td style="padding:5px 8px"><b>${c.gestao}</b> <span style="color:var(--muted)">(seu)</span></td>
+    <td style="padding:5px 8px">${c.planilha}</td>
+    <td style="padding:5px 8px;white-space:nowrap"><button class="btn ghost sm" onclick="resolverConflitoDevol(${i},'meu')" title="Mantém o seu vínculo">manter o meu</button> <button class="btn ghost sm" onclick="resolverConflitoDevol(${i},'planilha')" title="Passa a usar o valor da planilha (apaga seu vínculo)">aceitar a planilha</button></td></tr>`).join('');
+  ov.innerHTML = `<div style="background:var(--bg,#0f1419);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;padding:18px 20px;color:var(--text)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">🔄 Devoluções: seu vínculo × planilha OFICIAL</h3><button onclick="(document.getElementById('cdev-modal')||{}).remove&&document.getElementById('cdev-modal').remove()" class="btn ghost sm">✕</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Você definiu o "Pedido do Crédito" à mão e a planilha trouxe outro valor. Nada foi sobrescrito: escolha, por item, manter o seu ou aceitar a planilha. (Fonte oficial das devoluções = a planilha.)</div>
+    <div style="overflow:auto;max-height:60vh"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:5px 8px">Devolução</th><th style="padding:5px 8px">Campo</th><th style="padding:5px 8px">Gestão</th><th style="padding:5px 8px">Planilha</th><th style="padding:5px 8px">Decisão</th></tr></thead><tbody>${linhas}</tbody></table></div>
+  </div>`;
+}
+function resolverConflitoDevol(i, escolha) {
+  const c = (window._cdevList || [])[i]; if (!c) return;
+  if (escolha === 'planilha') { delete devolucaoCredito[c.key]; saveData('devolucaoCredito', devolucaoCredito); } // planilha vence → remove o vínculo manual
+  window._cdevList.splice(i, 1);
+  if (window._cdevList.length) _modalConflitosDevol(window._cdevList); else { const m = document.getElementById('cdev-modal'); if (m) m.remove(); try { renderDevolucao(); } catch (e) {} }
+}
 // Parcela de uma devolução que cabe a UM pedido de crédito: DIVIDE o valor entre os pedidos do crédito
 // (divisão simples). O TETO por valor do pedido é aplicado no total, em devolPorPedidoMap().
 function valorDevolucaoParaPedido(d, pedId) {
@@ -9929,6 +9969,8 @@ async function sincronizarDoDrive() {
 
     if (!novas.length) throw new Error('Nenhum dado encontrado nas abas. Verifique os nomes das abas no script.');
 
+    // Antes de trocar: acha conflitos entre o SEU vínculo manual e o crédito que a planilha trouxe (não sobrescreve calado).
+    const _confDev = _conflitosDevolImport(novas);
     devolucoes = novas;
     // Preserva os pedidos de crédito digitados manualmente — não sobrescreve ao sincronizar
     // devolucaoCredito continua intacto
@@ -9936,6 +9978,7 @@ async function sincronizarDoDrive() {
     saveData('driveLastSync', new Date().toISOString());
     devolucoesImportadoEm = new Date().toISOString(); saveData('devolucoesImportadoEm', devolucoesImportadoEm); // carimbo p/ a conferência de fechar vendas
     renderDevolucao();
+    if (_confDev.length) _modalConflitosDevol(_confDev); // seu vínculo × planilha: você decide item a item
 
   } catch (err) {
     alert('Erro ao sincronizar com o Drive:\n' + err.message);
@@ -10591,6 +10634,7 @@ function renderDevolucao() {
                  ? `<button class="btn ghost sm" onclick="cancelarEditCredito('${pEsc}','${cEsc}')">Cancelar</button>`
                  : ''}
              </div>
+             <div style="font-size:10px;color:var(--amber)">⚠ A fonte das devoluções é a planilha OFICIAL — para mudar os dados da devolução, corrija lá e reimporte. Aqui você só define o vínculo (pedido do crédito).</div>
            </div>`;
       const realDevIdx = devolucoes.indexOf(d);
       return `<tr>
@@ -10637,7 +10681,9 @@ function renderDevolucao() {
     });
     saveData('devolucoes', devolucoes);
     devolucoesImportadoEm = new Date().toISOString(); saveData('devolucoesImportadoEm', devolucoesImportadoEm); // carimbo p/ a conferência de fechar vendas
+    const _confDev = _conflitosDevolImport(devolucoes); // seu vínculo manual × crédito da planilha
     renderDevolucao();
+    if (_confDev.length) _modalConflitosDevol(_confDev);
   });
 }
 
