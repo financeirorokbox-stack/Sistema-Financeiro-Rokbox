@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v749/10-802';
+const APP_VERSION = 'v750/10-803';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2516,7 +2516,7 @@ function renderVendas() {
     ${filtrosBar({
       nAtivos: ['empresa','situacao','loja','vendedor','operacao'].filter(f => (vendasFilters[f]||[]).length).length + ((buscaPersist.vendas||'')?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosVendas()',
-      acoes: `<button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
+      acoes: `<button class="btn ghost sm" onclick="sincronizarBlingAgora(this)" title="Puxa o estado mais novo do Bling (situação, data, valor, cliente, itens) e aplica nos pedidos de mês ABERTO agora, sem precisar dar F5. Depois atualiza o Painel (Power BI). Mês fechado não é tocado.">🔄 Sincronizar Bling agora</button> <button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
       campos:
         fdRow('Pesquisar', `<input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">`) +
         ['empresa','situacao','loja','vendedor','operacao'].map(f =>
@@ -18181,6 +18181,39 @@ async function _autoImportBling() {
   await _flushBlingLogs();
   return n1 + n2;
 }
+// ── Sincronização AUTOMÁTICA do Bling (A + B): mantém os pedidos de mês ABERTO seguindo o Bling sem depender de F5. ──
+// _impBlingConta já protege mês fechado/congelado; quando as "vendas fechadas" existirem, o bloqueio delas entra lá também.
+let _blingAutoBusy = false, _blingRicoAtAplicado = {};
+async function _blingRicoAt() {
+  const q = k => sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${k}&select=atualizado_em`).then(r => (r && r[0] && r[0].atualizado_em) || null).catch(() => null);
+  return { 1: await q('blingVendasRico'), 2: await q('blingVendasRico2') };
+}
+async function _sincronizarBlingAuto() {
+  if (_blingAutoBusy) return 0;
+  _blingAutoBusy = true;
+  try {
+    const n = await _autoImportBling();          // recarrega o rico do banco e aplica (só mês aberto)
+    try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {}
+    if (n > 0) { try { await _syncPowerBI(); } catch (e) { console.warn('Power BI auto falhou:', e.message); } } // depois de mudar pedidos, o Painel acompanha
+    return n;
+  } finally { _blingAutoBusy = false; }
+}
+async function _blingPollRico() {                 // percebe quando o Edge atualizou o rico (atualizado_em) e aplica na hora
+  try { const a = await _blingRicoAt(); if ((a[1] && a[1] !== _blingRicoAtAplicado[1]) || (a[2] && a[2] !== _blingRicoAtAplicado[2])) await _sincronizarBlingAuto(); } catch (e) {}
+}
+let _blingTimersOn = false;
+function _ligarSyncBlingAuto() {
+  if (_blingTimersOn) return; _blingTimersOn = true;
+  setInterval(() => { _sincronizarBlingAuto(); }, 30 * 60 * 1000);  // A: re-aplica a cada 30 min
+  setInterval(() => { _blingPollRico(); }, 5 * 60 * 1000);          // A: percebe mudança do rico a cada 5 min
+}
+async function sincronizarBlingAgora(btn) {       // B: botão "🔄 Sincronizar Bling agora" (tela de Vendas)
+  const t0 = btn ? btn.innerHTML : ''; if (btn) { btn.disabled = true; btn.innerHTML = '🔄 Sincronizando…'; }
+  let n = 0, erro = ''; try { n = await _sincronizarBlingAuto(); } catch (e) { erro = (e && e.message) || String(e); }
+  if (btn) { btn.disabled = false; btn.innerHTML = t0 || '🔄 Sincronizar Bling agora'; }
+  try { if (typeof renderVendas === 'function') renderVendas(); } catch (e) {}
+  alert(erro ? ('Não consegui sincronizar agora: ' + erro) : (n > 0 ? ('✓ Sincronizado com o Bling: ' + n + ' pedido(s) atualizado(s). Atualizei o Painel (Power BI).') : '✓ Já estava tudo sincronizado com o Bling (nenhuma mudança).'));
+}
 async function _impBlingConta(ricoKey, detKey, empresa, flag) {
   let rico = null, det = null;
   try { rico = await loadData(ricoKey); } catch (e) {}
@@ -18244,7 +18277,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
           if (/cancelad/i.test(ex.situacao)) { ex._canceladoBling = true; if (_pedTemRecebimentoBling(num)) _blingPend({ pedido: num, conta: empresa, tipo: 'cancelado no Bling com recebimento/estorno vinculado', valor: +ex.valor || 0 }); }
           else if (ex._canceladoBling) { ex._canceladoBling = false; }
         }
-        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.05) { _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'aplicado', motivo: '' }); ex.valor = +r.valor || 0; mud = true; } // ignora diferença de centavos (<R$0,05 = arredondamento), não gera falsa divergência
+        if (Math.abs((+ex.valor || 0) - (+r.valor || 0)) > 0.005) { _blingLog({ pedido: num, conta: empresa, campo: 'valor', de: +ex.valor || 0, para: +r.valor || 0, resultado: 'aplicado', motivo: '' }); ex.valor = +r.valor || 0; mud = true; } // mês ABERTO usa o TOTAL do Bling exato (até centavo), sem recalcular — ex.: #41293 185,39→185,41, #41326 1.149,45→1.149,44
         if (Math.abs((+ex.frete || 0) - (+r.frete || 0)) > 0.005) { ex.frete = +r.frete || 0; mud = true; }
         // LOJA e VENDEDOR: BLING VENCE, inclusive sobre correção manual (Elaine: Bling é a fonte da verdade).
         // ÚNICA exceção TÉCNICA: valor NÃO-MAPEADO ("loja#<id>"/"Vend <id>"/"(sem)") não sobrescreve — a tabela de
@@ -18431,6 +18464,8 @@ async function carregarTudo() {
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
   try { const nB = await _autoImportBling(); if (nB) console.log('[Bling] ' + nB + ' venda(s) entraram no sistema automaticamente'); } catch (e) { console.warn('auto-import Bling:', e.message); } // vendas novas da Bling entram sozinhas (dedup por número)
+  try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {} // marca a versão do rico já aplicada; os timers abaixo re-aplicam sozinhos quando mudar
+  try { _ligarSyncBlingAuto(); } catch (e) {} // A: timer 30 min + poll do rico a cada 5 min (aplica sem F5)
   initLojaCadastro();
   try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
   try { const m = _migrarChavesCP(); if (m) console.log('[identidade CP] ' + m + ' vínculo(s) migrado(s) p/ número+vencimento+empresa'); } catch(e) {} // ANTES do aplicarBaixaConciliada: migra os vínculos p/ a identidade nova
