@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v760/10-813';
+const APP_VERSION = 'v761/10-814';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3978,15 +3978,21 @@ function comissaoBaseDoPedido(p, devolMap) {
   const diferenca = diferencaDoPedido(p, emAberto);
   return Math.max(0, baseDoPedido(p, +((p.valor || 0) - frete - devol - outras - diferenca).toFixed(2)));
 }
-// Base da META do Painel = a MESMA base da comissão, mas SEM o desconto do valor em aberto (a 'diferença').
-// Assim NÃO depende de recebimento: venda concluída sem recebimento, com recebimento, ou boleto, contam IGUAL
-// (= valor − frete − devolução − outras, com os mesmos overrides da comissão). Ver docs/regras.md §12.
+// Base da META do Painel. Regra do "em aberto" (Elaine 03/11):
+//  • Pedido SEM nenhum recebimento lançado (e não-boleto, sem diferença à mão): conta CHEIO
+//    (= valor − frete − devolução − outras). A meta NÃO depende de eu lançar o recebimento.
+//  • Pedido COM recebimento lançado, mas pago a menos (falta): a falta ABATE, IGUAL À COMISSÃO.
+//  • Boleto e diferença ajustada à mão: IGUAL À COMISSÃO (boleto conta cheio). Ver docs/regras.md §12.
 function metaBaseDoPedido(p, devolMap) {
   if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return 0;
   const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return 0;
-  const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
-  const devol = devolMap ? (devolMap[String(p.id)] || 0) : ((devolPorPedidoMap().porPed || {})[String(p.id)] || 0);
-  return Math.max(0, baseDoPedido(p, +((p.valor || 0) - frete - devol - outras).toFixed(2)));
+  const recebido = getRecebimentosDoPedido(p).reduce((s, r) => s + (r.bruto || 0), 0);
+  if (recebido <= 0.005 && !ehBoletoPed(p) && diferencaOverride[p.id] == null) { // sem recebimento → conta CHEIO
+    const frete = freteDoPedido(p), outras = p.outrasDespesas || 0;
+    const devol = devolMap ? (devolMap[String(p.id)] || 0) : ((devolPorPedidoMap().porPed || {})[String(p.id)] || 0);
+    return Math.max(0, baseDoPedido(p, +((p.valor || 0) - frete - devol - outras).toFixed(2)));
+  }
+  return comissaoBaseDoPedido(p, devolMap); // com recebimento (abate a falta), boleto, ou diferença à mão → igual à comissão
 }
 function comissaoTotalVendedor(vend) {
   if (comissaoExcecoes.includes(vend)) return { total: 0, qtd: 0 };

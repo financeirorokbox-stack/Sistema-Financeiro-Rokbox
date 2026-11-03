@@ -78,7 +78,7 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 9. Situações não-venda (Bling)
 - Não contam como venda: cancelado, em aberto, em andamento, atualização de estoque, correios, sit#15. Checkout parcial CONTA como venda.
-- Base da META do Painel (§12): = base da comissão SEM o desconto do valor em aberto (`meta_base` = valor − frete − devolução − outras), NÃO depende de recebimento (venda sem receber conta cheia), inclui "Em separação". Campo `meta_base` no flatVendas (metaBaseDoPedido). NÃO é a `comissao_base` (essa abate o em aberto). BUILD 2026-11-03.4 / Gestão v757/10-810.
+- Base da META do Painel (§12): pedido SEM nenhum recebimento → conta CHEIO; pedido COM recebimento mas pago a menos → abate a falta (igual à comissão); boleto/diferença à mão → igual à comissão. Inclui "Em separação". = comissao_base EXCETO os sem recebimento (contam cheio). Campo `meta_base` no flatVendas (metaBaseDoPedido); rodar Atualizar Power BI. Gestão v761/10-814.
 
 ## 10. Empresas
 - Rokbox e Rk. São 2 contas Bling; a 2ª (Rk) é PL/White Label, CNPJ diferente, fica separada.
@@ -102,9 +102,13 @@ Toda sessão lê isto ANTES de alterar o sistema.
 
 ## 12. Painel RK
 - Saldo em banco sempre ATUAL: último extrato de cada conta, com a data, independente do filtro de mês.
-- Base da META (realizado × meta, por vendedor) = **base da comissão SEM o desconto do valor em aberto** = `valor − frete − devolução − outras` (com os mesmos overrides da comissão: freteOverride, baseOverride). **NÃO depende de recebimento**: venda concluída sem recebimento, com recebimento, ou boleto, contam IGUAL (valor cheio). Entra Venda/Troca em qualquer situação que NÃO seja oculta (SITUACOES_OCULTAS_GESTAO: cancelado, em aberto, em andamento, Correios, atualização de estoque) — portanto **inclui "Em separação"**. É 0 fora de Venda/Troca e pra vendedor sem comissão.
-- NÃO confundir com a `comissao_base` (a comissão A PAGAR): essa **desconta o valor em aberto** (a `diferença`, = o que falta receber; boleto conta cheio, exceção). Ex.: #41327 valor 359,82, recebido 349,02 → `comissao_base` 349,02 (abate 10,80 em aberto), mas `meta_base` 359,82 (cheio). Foi o erro de 03/11 que a Elaine pegou: por uma rodada a meta usou `comissao_base` e zerava venda sem recebimento (caso Karen #41130/#41291/#41301/#41330 da semana anterior).
-- Campo próprio `meta_base` no flatVendas, calculado no Gestão por `metaBaseDoPedido` (= `comissaoBaseDoPedido` com a diferença = 0). O Painel (placar.html) usa `fv.meta_base` no campo `metaBase` da `vbiBuildFacts` (fallback = valor − frete − devolução − outras enquanto o flat não tiver o campo), somado em `_vbiComBaseVend`/`_vbiComBaseVendFiltrado`. Conferido out/2026 por vendedor: Ana Julia 15.767,63 (inclui #41327 cheio), Cristian I 25.094,91, Karen 72.974,97. Mudou a regra, muda nos dois (Gestão metaBaseDoPedido + Painel). BUILD 2026-11-03.4, Gestão v757/10-810.
+- Base da META (realizado × meta, por vendedor), regra do "em aberto" (Elaine 03/11/2026, Gestão v761/10-814):
+  - Pedido **SEM nenhum recebimento lançado** (e não-boleto, sem diferença à mão): conta **CHEIO** (`valor − frete − devolução − outras`, com os overrides freteOverride/baseOverride). A meta **NÃO depende de lançar o recebimento**.
+  - Pedido **COM recebimento lançado, mas pago a menos (falta)**: a falta **ABATE**, **IGUAL À COMISSÃO**.
+  - **Boleto** e **diferença ajustada à mão** (`diferencaOverride`): **igual à comissão** (boleto conta cheio).
+  - Entra Venda/Troca em qualquer situação NÃO oculta (SITUACOES_OCULTAS_GESTAO) → **inclui "Em separação"**. 0 fora de Venda/Troca.
+- Ou seja: a meta = `comissao_base` EXCETO nos pedidos sem nenhum recebimento (esses contam cheio em vez de zerar). `metaBaseDoPedido`: se `recebido<=0.005 && !ehBoletoPed && diferencaOverride==null` → cheio; senão → `comissaoBaseDoPedido`.
+- Campo próprio `meta_base` no flatVendas (Gestão, `metaBaseDoPedido`). Painel (placar.html) usa `fv.meta_base` no campo `metaBase` da `vbiBuildFacts` (fallback = valor−frete−devolução−outras até o flat ter o campo; **precisa rodar Atualizar Power BI** p/ o Painel refletir a regra), somado em `_vbiComBaseVend`/`_vbiComBaseVendFiltrado`. Conferido out/2026: **Karen 72.965,87** (abate 9,10 de pedidos pagos a menos), **Ana Julia 15.767,63** (#41327 tem `diferencaOverride=0`, ou seja a falta de 10,80 foi aceita à mão → conta cheio, igual à comissão), Felliphe 85.455,65, Cristian I 25.094,91, Karen H 19.799,50, Braavo 29.222,11; Elaine Lima 360,32 (sem recebimento → cheio, mas sem meta). Mudou a regra, muda nos dois (Gestão metaBaseDoPedido + Painel).
 
 ## 13. Pedido cancelado com dinheiro no banco (ex. #426 Mawu)
 - Se o pedido foi cancelado no Bling mas tem valor conciliado no banco: MANTER o recebido (o dinheiro entrou) e sinalizar em Pendências. Não apagar o recebido.
