@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v750/10-803';
+const APP_VERSION = 'v751/10-804';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -634,7 +634,7 @@ function pedidoPorId(id) {
 // ── Confiabilidade de gravação (Fases 1+2 + quota): retry + fila de pendências PERSISTIDA + aviso + load protegido ──
 // Chaves GRANDES não ficam no localStorage no caso normal (economiza a quota de ~5MB). Mas se uma gravação
 // falhar e virar PENDÊNCIA, o valor é guardado localmente (sobrevive ao F5) e tem prioridade no próximo load.
-const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete','flatReceb']);
+const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete','flatReceb','vendasFechado']);
 let _quotaCheia = false;
 let _pendentesSync = (() => { try { return JSON.parse(localStorage.getItem('_pendentesSync') || '{}') || {}; } catch (e) { return {}; } })();
 function _salvarPendentes() { try { localStorage.setItem('_pendentesSync', JSON.stringify(_pendentesSync)); } catch (e) {} }
@@ -861,7 +861,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1589,6 +1589,12 @@ let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do d
 // (o recálculo drifava: recebimentos mudavam de data/vínculo após o fechamento). Só mês ABERTO segue vivo. Ver _syncPowerBI.
 let crFechado = {};            // recebimentos oficiais congelados por mês fechado
 let cpFechado = {};            // contas pagas oficiais congeladas por mês fechado
+// ── FECHAR VENDAS DO MÊS (separado do fechamento financeiro da Conciliação) ──
+let vendasFechado = {};        // FOTO do faturamento por mês: { "YYYY-MM": [ {pedido,empresa,loja,vendedor,operacao,situacao,valor,devolucao,net} ] }. Painel/Power BI leem dela nos meses de vendas fechadas.
+let vendasFechadas = [];       // ['YYYY-MM'] com vendas fechadas (o sync para de mexer nos pedidos desse mês)
+let vendasFechadasLog = {};    // { "YYYY-MM": { fechou:{por,em}, reabriu:[{por,em,motivo}] } }
+let ajustesMesFechado = [];    // mudanças que chegaram DO BLING depois de fechar as vendas: {mes,pedido,campo,de,para,status:'novo'|'ciente',ts}
+let devolucoesImportadoEm = '';// data/hora ISO da última importação da planilha de devoluções (mostra na conferência de fechar vendas)
 let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI); vazio = hoje
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
 let _repSoMes = true;          // na conciliação, a lista de recebimentos p/ flegar mostra só o MÊS do depósito (senão enche de valores repetidos)
@@ -2516,7 +2522,7 @@ function renderVendas() {
     ${filtrosBar({
       nAtivos: ['empresa','situacao','loja','vendedor','operacao'].filter(f => (vendasFilters[f]||[]).length).length + ((buscaPersist.vendas||'')?1:0) + (dfAtivo()?1:0),
       limpar: 'limparFiltrosVendas()',
-      acoes: `<button class="btn ghost sm" onclick="sincronizarBlingAgora(this)" title="Puxa o estado mais novo do Bling (situação, data, valor, cliente, itens) e aplica nos pedidos de mês ABERTO agora, sem precisar dar F5. Depois atualiza o Painel (Power BI). Mês fechado não é tocado.">🔄 Sincronizar Bling agora</button> <button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
+      acoes: `<button class="btn ghost sm" onclick="sincronizarBlingAgora(this)" title="Puxa o estado mais novo do Bling (situação, data, valor, cliente, itens) e aplica nos pedidos de mês ABERTO agora, sem precisar dar F5. Depois atualiza o Painel (Power BI). Mês fechado não é tocado.">🔄 Sincronizar Bling agora</button> <button class="btn ghost sm" onclick="abrirFecharVendas()" title="Tira a foto do faturamento do mês (por pedido/empresa/loja/vendedor) e congela: o Painel passa a ler a foto e o sync para de mexer nos pedidos desse mês. Antes mostra a conferência (Gestão × comissão, divergências do Bling, última troca).">📸 Fechar vendas do mês</button> <button class="btn ghost sm" onclick="exportarVendas()" title="Exporta os pedidos do filtro atual para Excel, JÁ com as correções de loja/vendedor. 1 linha por pedido (o sistema junta os itens do pedido).">📤 Exportar</button>`,
       campos:
         fdRow('Pesquisar', `<input type="text" id="busca-vendas" value="${(buscaPersist.vendas||'').replace(/"/g,'&quot;')}" placeholder="Pedido, cliente..." oninput="buscaPersist.vendas=this.value;debounceRender('renderPedidosTable', 120)" onclick="event.stopPropagation()">`) +
         ['empresa','situacao','loja','vendedor','operacao'].map(f =>
@@ -5432,7 +5438,7 @@ async function _syncPowerBI() {
   // (a mesma conta da tela de Vendas: devolução vai pro pedido do crédito, com teto no valor do pedido, só Venda+Troca).
   const _devPorPed = (() => { try { return devolPorPedidoMap().porPed || {}; } catch (e) { return {}; } })();
   const _ehVT = p => { const op = (getClassificacao(p).operacao || '').toLowerCase(); return op === 'venda' || op === 'troca'; };
-  const vendasFlat = pedidos.map(p => {
+  let vendasFlat = pedidos.map(p => {
     const cls = getClassificacao(p);
     const devAbat = _ehVT(p) ? +(_devPorPed[String(p.id)] || 0).toFixed(2) : 0; // zera fora de Venda+Troca → soma bate com o Faturamento Real da tela
     return {
@@ -5447,6 +5453,14 @@ async function _syncPowerBI() {
       qtd_itens: Array.isArray(p.linhas) ? p.linhas.length : 0
     };
   });
+  // ── VENDAS FECHADAS: nos meses com foto, o Painel/Power BI leem a FOTO (congela o faturamento), igual crFechado faz no CR. ──
+  try {
+    const mesesVF = Object.keys(vendasFechado || {}).filter(m => (vendasFechadas || []).includes(m) && Array.isArray(vendasFechado[m]));
+    if (mesesVF.length) {
+      vendasFlat = vendasFlat.filter(r => !mesesVF.includes(String(r.data || '').slice(0, 7)));
+      mesesVF.forEach(m => (vendasFechado[m] || []).forEach(r => vendasFlat.push(r)));
+    }
+  } catch (e) { console.warn('vendasFechado swap falhou:', e.message); }
   await saveData('flatVendas', vendasFlat);
   try { await saveData('flatBalancete', _exportBalancete()); } catch (e) { console.warn('balancete export falhou:', e.message); }
   // RECEBIMENTOS por pedido para o Painel (aba Recebimentos): usa a MESMA fonte da Conciliação
@@ -9919,6 +9933,7 @@ async function sincronizarDoDrive() {
     // devolucaoCredito continua intacto
     saveData('devolucoes', devolucoes);
     saveData('driveLastSync', new Date().toISOString());
+    devolucoesImportadoEm = new Date().toISOString(); saveData('devolucoesImportadoEm', devolucoesImportadoEm); // carimbo p/ a conferência de fechar vendas
     renderDevolucao();
 
   } catch (err) {
@@ -10620,6 +10635,7 @@ function renderDevolucao() {
       });
     });
     saveData('devolucoes', devolucoes);
+    devolucoesImportadoEm = new Date().toISOString(); saveData('devolucoesImportadoEm', devolucoesImportadoEm); // carimbo p/ a conferência de fechar vendas
     renderDevolucao();
   });
 }
@@ -13467,6 +13483,9 @@ function mesEstaFechado(date) { const m = mesKeyOf(date); return !!m && mesesFec
 // Mês "congelado" p/ a exportação do CR: fechado (mesesFechados) OU com planilha oficial salva (crFechado/cpFechado).
 // Blindagem: julho tem planilha congelada mas pode NÃO estar em mesesFechados — mesmo assim não deve ser tocado.
 function _mesCongeladoCR(date) { const m = mesKeyOf(date); if (!m) return false; if (mesesFechados.includes(m)) return true; try { if ((typeof crFechado !== 'undefined' && crFechado && crFechado[m]) || (typeof cpFechado !== 'undefined' && cpFechado && cpFechado[m])) return true; } catch (e) {} return false; }
+// VENDAS fechadas (separado do financeiro): mês com foto vendasFechado tirada. O sync para de mexer nos pedidos desse mês.
+function _ymDia(v) { if (!v) return ''; if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2})/); if (m) return m[1]; } const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')); }
+function _mesVendasFechado(v) { const m = _ymDia(v); return !!m && (vendasFechadas || []).includes(m); }
 function diaFechado(date, banco) {
   const k = diaKey(date);
   if (!k) return false;
@@ -13547,8 +13566,13 @@ async function fecharMes(mk) {
   let aviso = '';
   if (!tv.ok) aviso += `⚠ Ainda há ${tv.credNC.length} crédito(s) (${fmtVal(tv.sCred)}) e ${tv.debNC.length} débito(s) (${fmtVal(tv.sDeb)}) NÃO conciliados no mês.\n`;
   if (semCat.length) aviso += `⚠ ${semCat.length} lançamento(s) do mês estão SEM categoria.\n`;
+  // Conferência de DEVOLUÇÕES (financeiro): quando a planilha OFICIAL foi importada + total de devoluções do mês (= total da planilha). Informativo, NÃO trava o fechamento.
+  const _totDevMes = (devolucoes || []).filter(d => (_diaCalBling(d.dataTroca) || '').slice(0, 7) === mk).reduce((s, d) => s + (+d.valorPago || 0), 0);
+  const _impDev = devolucoesImportadoEm ? (fmtDate(devolucoesImportadoEm) + ' ' + new Date(devolucoesImportadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })) : 'nunca importada';
+  const infoDev = `\n📋 Devoluções (planilha OFICIAL): importada em ${_impDev}. Total de devoluções de ${mesLabel(mk)}: ${fmtVal(_totDevMes)} (confira se bate com o total da planilha).`;
   const msg = `Fechar o mês de ${mesLabel(mk)}?\n\n`
     + (aviso ? aviso + '\nRecomendo conciliar/categorizar antes. ' : '✅ A conciliação do mês bate (tudo conciliado). ')
+    + infoDev
     + `\n\nAo fechar, EU GERO a foto oficial (crFechado/cpFechado) deste mês a partir do relatório correto, e travo tudo. Nada mais muda nem é excluído. Você pode reabrir depois (admin).`
     + (aviso ? '\n\nFechar MESMO ASSIM?' : '');
   if (!confirm(msg)) return;
@@ -13581,6 +13605,117 @@ function reabrirMes(mk) {
   mesesFechados = mesesFechados.filter(m => m !== mk);
   saveData('mesesFechados', mesesFechados);
   if (typeof renderBanco === 'function') renderBanco();
+}
+// ════════════════ FECHAR VENDAS DO MÊS (foto do faturamento; separado do fechamento financeiro) ════════════════
+function _mesesComVendas() { const s = new Set(); pedidos.forEach(p => { const m = _ymDia(p.data); if (m) s.add(m); }); return [...s].sort().reverse(); }
+// Conferência do FECHAR VENDAS (só o que vem do Bling): faturamento × base da meta (valor−frete−devolução) + frete,
+// o "ainda não recebido" só informativo, e as divergências do Bling. (Devolução é financeiro → vai no fechamento da Conciliação.)
+function _conferirVendas(m, ricoBy) {
+  const _devPorPed = (() => { try { return devolPorPedidoMap().porPed || {}; } catch (e) { return {}; } })();
+  const ehVT = p => { const op = (getClassificacao(p).operacao || '').toLowerCase(); return op === 'venda' || op === 'troca'; };
+  const doMes = pedidos.filter(p => _ymDia(p.data) === m);
+  const vt = doMes.filter(ehVT);
+  let fatGestao = 0, baseMeta = 0, freteTot = 0, naoRecebido = 0;
+  vt.forEach(p => {
+    const dev = +(_devPorPed[String(p.id)] || 0), frete = +freteDoPedido(p) || 0, val = +p.valor || 0;
+    fatGestao += val - dev;                    // faturamento = venda+troca − devoluções
+    baseMeta += val - frete - dev;             // base da meta (SEM o desconto do valor em aberto)
+    freteTot += frete;
+    naoRecebido += Math.max(0, (val - frete - dev) - (+(comissaoBaseDoPedido(p, _devPorPed) || 0))); // o que a comissão real desconta por não estar recebido (informativo)
+  });
+  fatGestao = +fatGestao.toFixed(2); baseMeta = +baseMeta.toFixed(2); freteTot = +freteTot.toFixed(2); naoRecebido = +naoRecebido.toFixed(2);
+  const norm = v => String(v == null ? '' : v).trim();
+  const diverg = [];
+  doMes.forEach(p => {
+    const r = ricoBy[String(p.id)];
+    if (!r) { diverg.push({ pedido: String(p.id), campo: 'não está no Bling', de: norm(p.situacao), para: 'sumiu/convertido' }); return; }
+    if (norm(p.situacao) !== norm(r.situacao)) diverg.push({ pedido: String(p.id), campo: 'situação', de: norm(p.situacao), para: norm(r.situacao) });
+    if (Math.abs((+p.valor || 0) - (+r.valor || 0)) > 0.005) diverg.push({ pedido: String(p.id), campo: 'valor', de: (+p.valor || 0).toFixed(2), para: (+r.valor || 0).toFixed(2) });
+    if (r.data && _diaCalBling(p.data) !== _diaCalBling(r.data)) diverg.push({ pedido: String(p.id), campo: 'data', de: _diaCalBling(p.data), para: _diaCalBling(r.data) });
+    if (r.loja && norm(p.loja) !== norm(r.loja)) diverg.push({ pedido: String(p.id), campo: 'loja', de: norm(p.loja), para: norm(r.loja) });
+    if (r.cliente && norm(p.nome) && norm(p.nome) !== norm(r.cliente)) diverg.push({ pedido: String(p.id), campo: 'cliente', de: norm(p.nome), para: norm(r.cliente) });
+  });
+  return { fatGestao, baseMeta, freteTot, naoRecebido, bate: Math.abs(fatGestao - (baseMeta + freteTot)) <= 0.05, nVT: vt.length, diverg };
+}
+let _fvMesSel = '';
+async function abrirFecharVendas() {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode fechar as vendas do mês.'); return; }
+  let r1 = null, r2 = null; try { r1 = await loadData('blingVendasRico'); } catch (e) {} try { r2 = await loadData('blingVendasRico2'); } catch (e) {}
+  window._fvRicoBy = {}; [r1, r2].forEach(o => ((o && o.registros) || []).forEach(r => { const n = String(r.numero || r.pedido || ''); if (n) window._fvRicoBy[n] = r; }));
+  const abertos = _mesesComVendas().filter(m => !(vendasFechadas || []).includes(m));
+  _fvMesSel = _fvMesSel && abertos.includes(_fvMesSel) ? _fvMesSel : (abertos.find(m => m < (hojeIso() || '').slice(0, 7)) || abertos[0] || '');
+  _renderModalFecharVendas();
+}
+function _renderModalFecharVendas() {
+  let ov = document.getElementById('fv-modal');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'fv-modal'; ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto'; document.body.appendChild(ov); }
+  const abertos = _mesesComVendas().filter(m => !(vendasFechadas || []).includes(m));
+  const fechadas = (vendasFechadas || []).slice().sort().reverse();
+  const m = _fvMesSel;
+  const c = m ? _conferirVendas(m, window._fvRicoBy || {}) : null;
+  const linhaChk = (ok, txt) => `<div style="display:flex;gap:8px;align-items:flex-start;margin:4px 0"><span style="color:${ok ? 'var(--green)' : 'var(--amber)'};font-weight:800">${ok ? '✓' : '⚠'}</span><span>${txt}</span></div>`;
+  const body = !m ? '<div style="color:var(--muted)">Nenhum mês de vendas em aberto.</div>' : `
+    ${linhaChk(c.bate, `Faturamento <b>${fmtVal(c.fatGestao)}</b> ${c.bate ? '=' : '≠'} base da meta (valor − frete − devolução) <b>${fmtVal(c.baseMeta)}</b> + frete <b>${fmtVal(c.freteTot)}</b>${c.bate ? '' : ' · diferença ' + fmtVal(c.fatGestao - (c.baseMeta + c.freteTot))}`)}
+    <div style="margin:4px 0;color:var(--muted);font-size:12px;padding-left:22px">ℹ Ainda não recebido (não entra no faturamento, só na comissão real): <b>${fmtVal(c.naoRecebido)}</b></div>
+    ${linhaChk(c.diverg.length === 0, c.diverg.length === 0 ? 'Nenhum pedido divergente do Bling' : `${c.diverg.length} pedido(s) divergente(s) do Bling (situação/valor/data/cliente/loja ou sumiu)`)}
+    ${c.diverg.length ? `<div style="max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-top:8px;font-size:12px">${c.diverg.slice(0, 60).map(d => `<div style="padding:4px 8px;border-bottom:1px solid var(--border)">#${d.pedido} · ${d.campo}: ${d.de} → <b>${d.para}</b></div>`).join('')}</div>` : ''}
+    <div style="margin-top:12px;font-size:12px;color:var(--muted)">Devolução é financeiro: a conferência da planilha de devoluções fica no fechamento da Conciliação. Aqui o faturamento já é venda + troca − devoluções.<br>Ao fechar: tiro a FOTO do faturamento de ${mesLabel(m)} (por pedido/empresa/loja/vendedor), o Painel passa a ler a foto e o sync PARA de mexer nos pedidos desse mês. Mudança posterior no Bling vira aviso em "Ajustes de meses fechados".</div>`;
+  ov.innerHTML = `<div style="background:var(--bg,#0f1419);border:1px solid var(--border);border-radius:14px;max-width:620px;width:100%;padding:18px 20px;color:var(--text)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">📸 Fechar vendas do mês</h3><button onclick="fecharModalVendas()" class="btn ghost sm">✕</button></div>
+    <div style="margin-bottom:10px">Mês: <select id="fv-mes" onchange="_fvMesSel=this.value;_renderModalFecharVendas()" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-weight:700">${abertos.map(x => `<option value="${x}"${x === m ? ' selected' : ''}>${mesLabel(x)}</option>`).join('') || '<option>—</option>'}</select></div>
+    ${body}
+    ${m ? `<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button onclick="fecharModalVendas()" class="btn ghost">Cancelar</button><button onclick="confirmarFecharVendas('${m}', ${c.bate && c.diverg.length === 0})" class="btn" style="background:var(--green);color:#042">📸 Fechar vendas de ${mesLabel(m)}</button></div>` : ''}
+    ${fechadas.length ? `<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:10px;font-size:12px"><b>Vendas já fechadas:</b> ${fechadas.map(x => `${mesLabel(x)} <button onclick="reabrirVendas('${x}')" class="btn ghost sm" title="Reabrir (admin)">↺ reabrir</button>`).join(' · ')}</div>` : ''}
+  </div>`;
+}
+function fecharModalVendas() { const ov = document.getElementById('fv-modal'); if (ov) ov.remove(); }
+async function confirmarFecharVendas(m, tudoOk) {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador.'); return; }
+  if (!tudoOk && !confirm('A conferência de ' + mesLabel(m) + ' tem pendência(s) (faturamento ≠ comissão e/ou divergência do Bling). Fechar MESMO ASSIM?\n\nA foto congela os valores de HOJE.')) return;
+  let _r = null; try { _r = await _syncPowerBI(); } catch (e) { _r = { erro: (e && e.message) || String(e) }; }
+  if (!_r || _r.abortado || _r.erro) { alert('⛔ Não fechei: não consegui gerar o flatVendas (Power BI). Tente de novo.'); return; }
+  const fv = (await loadData('flatVendas')) || [];
+  const foto = fv.filter(r => String(r.data || '').slice(0, 7) === m);
+  if (!foto.length) { alert('⛔ Não fechei: a foto de ' + mesLabel(m) + ' ficou vazia.'); return; }
+  vendasFechado[m] = foto; if (!vendasFechadas.includes(m)) vendasFechadas.push(m);
+  vendasFechadasLog[m] = vendasFechadasLog[m] || {}; vendasFechadasLog[m].fechou = { por: (currentUser.user || currentUser.email || 'admin'), em: new Date().toISOString() };
+  await saveData('vendasFechado', vendasFechado); await saveData('vendasFechadas', vendasFechadas); await saveData('vendasFechadasLog', vendasFechadasLog);
+  try { await _syncPowerBI(); } catch (e) {} // regrava o flat já com a foto congelada
+  fecharModalVendas();
+  alert('✓ Vendas de ' + mesLabel(m) + ' fechadas. Faturamento congelado na foto (' + foto.length + ' pedido(s)). O sync para de mexer nesse mês; mudança do Bling vira aviso em "Ajustes de meses fechados".');
+  try { renderVendas(); } catch (e) {}
+}
+function reabrirVendas(m) {
+  if (!currentUser || !currentUser.admin) { alert('Só administrador pode reabrir as vendas.'); return; }
+  const motivo = (prompt('Reabrir as vendas de ' + mesLabel(m) + '? Escreva o motivo (fica registrado):', '') || '').trim();
+  if (!motivo) return;
+  vendasFechadas = vendasFechadas.filter(x => x !== m); delete vendasFechado[m];
+  vendasFechadasLog[m] = vendasFechadasLog[m] || {}; (vendasFechadasLog[m].reabriu = vendasFechadasLog[m].reabriu || []).push({ por: (currentUser.user || currentUser.email || 'admin'), em: new Date().toISOString(), motivo });
+  saveData('vendasFechadas', vendasFechadas); saveData('vendasFechado', vendasFechado); saveData('vendasFechadasLog', vendasFechadasLog);
+  _syncPowerBI().catch(() => {});
+  try { fecharModalVendas(); } catch (e) {} try { renderVendas(); } catch (e) {}
+  alert('✓ Vendas de ' + mesLabel(m) + ' reabertas. O sync volta a seguir o Bling nesse mês.');
+}
+// Lista "Ajustes de meses fechados" (mudança do Bling depois de fechar as vendas). Cada item: ciente / reabrir / lançar no mês aberto.
+function abrirAjustesFechado() {
+  try { if (typeof AF !== 'undefined' && AF.fechar) AF.fechar(); } catch (e) {}
+  let ov = document.getElementById('ajfech-modal');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'ajfech-modal'; ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto'; document.body.appendChild(ov); }
+  const itens = (ajustesMesFechado || []);
+  const linhas = itens.map((a, i) => `<tr style="border-bottom:1px solid var(--border);${a.status === 'ciente' ? 'opacity:.55' : ''}">
+    <td style="padding:5px 8px;white-space:nowrap">${a.mes}</td><td style="padding:5px 8px">#${a.pedido}</td>
+    <td style="padding:5px 8px">${a.campo}</td><td style="padding:5px 8px;font-size:12px">${a.de} → <b>${a.para}</b></td>
+    <td style="padding:5px 8px;white-space:nowrap">${a.status === 'ciente' ? '<span style="color:var(--muted)">✓ ciente</span>' : `<button class="btn ghost sm" onclick="ajusteCiente(${i})" title="Só registra, para de avisar">✓ ciente</button> <button class="btn ghost sm" onclick="reabrirVendas('${a.mes}')" title="Reabrir as vendas desse mês (admin)">↺ reabrir</button> <button class="btn ghost sm" onclick="ajusteLancar(${i})" title="Tratar como ajuste no mês ABERTO atual (CR/CP)">➡ lançar no mês aberto</button>`}</td></tr>`).join('');
+  ov.innerHTML = `<div style="background:var(--bg,#0f1419);border:1px solid var(--border);border-radius:14px;max-width:760px;width:100%;padding:18px 20px;color:var(--text)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">🔒 Ajustes de meses fechados</h3><button onclick="(document.getElementById('ajfech-modal')||{}).remove&&document.getElementById('ajfech-modal').remove()" class="btn ghost sm">✕</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">O Bling mudou estes pedidos DEPOIS de você fechar as vendas do mês. A foto NÃO muda. Escolha, por item: ciente (só registra), reabrir o mês, ou lançar o ajuste no mês aberto.</div>
+    ${itens.length ? `<div style="overflow:auto;max-height:60vh"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:5px 8px">Mês</th><th style="padding:5px 8px">Pedido</th><th style="padding:5px 8px">Campo</th><th style="padding:5px 8px">Antes → Depois</th><th style="padding:5px 8px">Ação</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<div style="color:var(--muted)">Nada pendente. 🎉</div>'}
+  </div>`;
+}
+function ajusteCiente(i) { if (!ajustesMesFechado[i]) return; ajustesMesFechado[i].status = 'ciente'; saveData('ajustesMesFechado', ajustesMesFechado); abrirAjustesFechado(); }
+function ajusteLancar(i) { const a = ajustesMesFechado[i]; if (!a) return;
+  alert('Para lançar no mês ABERTO: registre o ajuste do #' + a.pedido + ' (' + a.campo + ': ' + a.de + ' → ' + a.para + ') no Contas a Receber/Pagar do mês atual, como um ajuste. A foto do mês fechado continua intacta.\n\nMarquei como ciente para não repetir o aviso.');
+  ajusteCiente(i);
 }
 // Barra "Fechamento do mês" no topo da Conciliação: seletor de mês + status + botão fechar/reabrir.
 function fechamentoMesHTML() {
@@ -18194,9 +18329,43 @@ async function _sincronizarBlingAuto() {
   try {
     const n = await _autoImportBling();          // recarrega o rico do banco e aplica (só mês aberto)
     try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {}
+    try { await _detectarAjustesVendasFechadas(); } catch (e) {} // compara Bling × foto nos meses de vendas fechadas (só leitura) → avisos
     if (n > 0) { try { await _syncPowerBI(); } catch (e) { console.warn('Power BI auto falhou:', e.message); } } // depois de mudar pedidos, o Painel acompanha
     return n;
   } finally { _blingAutoBusy = false; }
+}
+// Compara o Bling (rico, só leitura) com a FOTO dos 2 últimos meses de vendas fechadas. Qualquer diferença (valor,
+// situação, cliente, loja, pedido novo ou sumido/cancelado) vira item em "Ajustes de meses fechados" + aviso no Afazeres.
+// A foto NÃO muda. Preserva o "ciente" que a Elaine já marcou (não repete). Não mexe em pedido nenhum.
+async function _detectarAjustesVendasFechadas() {
+  const meses = (vendasFechadas || []).slice().sort().slice(-2);
+  if (!meses.length) return;
+  let r1 = null, r2 = null;
+  try { r1 = await loadData('blingVendasRico'); } catch (e) {}
+  try { r2 = await loadData('blingVendasRico2'); } catch (e) {}
+  const ricoBy = {};
+  [r1, r2].forEach(obj => ((obj && obj.registros) || []).forEach(r => { const n = String(r.numero || r.pedido || ''); if (n) ricoBy[n] = r; }));
+  const norm = v => String(v == null ? '' : v).trim();
+  const IGN = new Set(['Cancelado', 'Atualização de estoque', 'Atualização de Estoque', 'Correios']);
+  const novos = [];
+  meses.forEach(m => {
+    const foto = vendasFechado[m] || [], fotoBy = {}; foto.forEach(f => fotoBy[String(f.pedido)] = f);
+    foto.forEach(f => {
+      const r = ricoBy[String(f.pedido)];
+      if (!r || _ymDia(r.data) !== m) { novos.push({ mes: m, pedido: String(f.pedido), campo: 'sumiu/cancelado', de: norm(f.situacao) || 'na foto', para: r ? ('agora em ' + _ymDia(r.data)) : 'não está mais no Bling' }); return; }
+      if (norm(f.situacao) !== norm(r.situacao)) novos.push({ mes: m, pedido: String(f.pedido), campo: 'situação', de: norm(f.situacao), para: norm(r.situacao) });
+      if (Math.abs((+f.valor || 0) - (+r.valor || 0)) > 0.005) novos.push({ mes: m, pedido: String(f.pedido), campo: 'valor', de: (+f.valor || 0).toFixed(2), para: (+r.valor || 0).toFixed(2) });
+      if (r.loja && norm(f.loja) !== norm(r.loja)) novos.push({ mes: m, pedido: String(f.pedido), campo: 'loja', de: norm(f.loja), para: norm(r.loja) });
+      if (r.cliente && norm(f.cliente) && norm(f.cliente) !== norm(r.cliente)) novos.push({ mes: m, pedido: String(f.pedido), campo: 'cliente', de: norm(f.cliente), para: norm(r.cliente) });
+    });
+    Object.keys(ricoBy).forEach(num => { const r = ricoBy[num]; if (_ymDia(r.data) === m && !fotoBy[num] && !IGN.has(String(r.situacao || ''))) novos.push({ mes: m, pedido: num, campo: 'pedido novo', de: '(não existia na foto)', para: norm(r.situacao) }); });
+  });
+  const ck = x => [x.mes, x.pedido, x.campo, x.de, x.para].join('|');
+  const statusAntes = {}; (ajustesMesFechado || []).forEach(a => { statusAntes[ck(a)] = a.status; });
+  const nova = novos.map(x => ({ ...x, status: statusAntes[ck(x)] === 'ciente' ? 'ciente' : 'novo', ts: Date.now() }));
+  const mudou = JSON.stringify((ajustesMesFechado || []).map(ck).sort()) !== JSON.stringify(nova.map(ck).sort());
+  ajustesMesFechado = nova;
+  if (mudou) { try { await saveData('ajustesMesFechado', ajustesMesFechado); } catch (e) {} }
 }
 async function _blingPollRico() {                 // percebe quando o Edge atualizou o rico (atualizado_em) e aplica na hora
   try { const a = await _blingRicoAt(); if ((a[1] && a[1] !== _blingRicoAtAplicado[1]) || (a[2] && a[2] !== _blingRicoAtAplicado[2])) await _sincronizarBlingAuto(); } catch (e) {}
@@ -18243,6 +18412,9 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
         }
       }
       if (daConta) {
+        // PROTEÇÃO 0: VENDAS do mês já fechadas (foto tirada) → o sync NÃO mexe no pedido. A comparação Bling × foto
+        // é feita à parte (_detectarAjustesVendasFechadas) e vira aviso em "Ajustes de meses fechados".
+        if (_mesVendasFechado(ex.data)) return;
         // BLING = FONTE DA VERDADE: espelha o que a Bling mudou. NUNCA mexe em pedido da outra conta.
         // PROTEÇÃO 1: mês fechado/travado (origem) → não altera NADA. Só loga se há divergência.
         if (_mesFechadoBling(ex.data)) {
@@ -18341,6 +18513,7 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
     // Pedido NOVO: não cria para status que não são venda (Cancelado/Atualização de estoque/Correios).
     // Se o pedido JÁ existe, o cancelamento é aplicado no bloco acima (situacao -> Cancelado, para de contar).
     if (IGNORAR.has(String(r.situacao || ''))) return;
+    if (_mesVendasFechado(r.data)) return; // mês de vendas fechadas: não cria pedido novo (o detector avisa "pedido novo no Bling")
     const _d = r.data ? new Date(r.data + 'T03:00:00.000Z') : null;
     const d = det[num] || {};
     const linhas = _blingItensMap(d, r.valor);
@@ -18365,7 +18538,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -18431,6 +18604,11 @@ async function carregarTudo() {
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
     else if (k==='crFechado') crFechado = v || {};
+    else if (k==='vendasFechado') vendasFechado = v || {};
+    else if (k==='vendasFechadas') vendasFechadas = v || [];
+    else if (k==='vendasFechadasLog') vendasFechadasLog = v || {};
+    else if (k==='ajustesMesFechado') ajustesMesFechado = v || [];
+    else if (k==='devolucoesImportadoEm') devolucoesImportadoEm = v || '';
     else if (k==='cpFechado') cpFechado = v || {};
     else if (k==='produtoColecao') produtoColecao = v || {};
     else if (k==='colecaoSugerida') colecaoSugerida = v || {};
@@ -18956,6 +19134,11 @@ const AF = (function () {
           NFRegras.resumoAvisos(ctx, meses).forEach(a => { const emp = Object.entries(a.emp).map(([k, v]) => k + ' ' + v.n).join(' · '); const val = (a.valor != null) ? (' · ' + fmtBR(a.valor)) : ''; add('nf_' + a.selo, 'NF ' + a.icon + ' ' + a.label + ': ' + a.n + val + (emp ? (' · ' + emp) : ''), "AF._abrirNF('" + a.selo + "')"); });
         }
       }
+    } catch (e) {}
+    // ── Ajustes de meses fechados: mudança que chegou do Bling DEPOIS de fechar as vendas (a foto não mudou). ──
+    try {
+      const aj = (ajustesMesFechado || []).filter(a => a && a.status !== 'ciente');
+      if (aj.length) add('ajuste_vfech', aj.length + ' mudança(s) do Bling em mês de vendas FECHADAS (a foto não mudou)', 'abrirAjustesFechado()');
     } catch (e) {}
     return out;
   }
