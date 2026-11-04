@@ -517,7 +517,7 @@ function renderFechamento(){
 async function carregar(){
   try{
     const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{},brindeVinculo:brindeV||{}};
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},bCustosAt:(bCustos&&bCustos.atualizado)||null,pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{},brindeVinculo:brindeV||{}};
     _popMesSel();
     gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(!el) return; const velho=iso&&((Date.now()-new Date(iso).getTime())>2*3600*1000); el.style.color=velho?'#e6b800':''; el.style.fontWeight=velho?'800':''; el.textContent=velho?('⚠ dados desatualizados ('+_fmtAt(iso)+') — abra o Gestão'):('💾 dados de '+_fmtAt(iso)); });
     const mes=mesSel||mesAtual();
@@ -1078,6 +1078,28 @@ function renderNF(){
 // ════════════════ MARGEM · ANÁLISE POR PEDIDO (Fase 1: análise real, não grava nada) ════════════════
 let _margBuscaPed = '';
 const _PAYPAL_PARC = {1:2.1,2:2.5,3:2.9,4:3.3,5:3.7,6:4.2,7:4.6,8:5.0,9:5.4,10:5.8,12:6.7}; // tabela real PayPal (%)
+// ── Atualizar custos do Bling sob demanda (só admin). Chama a RPC atualizar_custos_bling (JWT do usuário); o secret fica no servidor. ──
+let _custosAtualizando=false, _custosMsg='';
+function _fmtDataHora(iso){ if(!iso) return '—'; const d=new Date(iso); if(isNaN(d)) return '—'; const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+async function atualizarCustosBling(){
+  if(_custosAtualizando) return;
+  if(!ehAdmin()){ alert('Apenas admin pode atualizar os custos.'); return; }
+  const b=await _sbToken(); if(!b){ alert('Faça login novamente para atualizar os custos.'); return; }
+  const antes=await gkMetaAt('blingCustos');
+  _custosAtualizando=true; _custosMsg='Atualizando os custos no Bling… pode levar alguns minutos (não feche a página).'; renderMargem();
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/rpc/atualizar_custos_bling`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b,'Content-Type':'application/json'},body:'{}'});
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error(t||('HTTP '+r.status)); }
+  }catch(e){ _custosAtualizando=false; _custosMsg='Não deu para iniciar a atualização: '+(e&&e.message||e); renderMargem(); return; }
+  // acompanha o 'atualizado' mudar (pull completo ~20-40s por conta)
+  for(let i=0;i<30;i++){
+    await new Promise(res=>setTimeout(res,10000));
+    let at=null; try{ at=await gkMetaAt('blingCustos'); }catch(e){}
+    if(at && at!==antes){ try{ const bc=await gk('blingCustos'); if(bc){ _FIN.bCustos=bc.map||_FIN.bCustos; _FIN.bCustosAt=bc.atualizado||at; _FIN._cb=null; } }catch(e){}
+      _custosAtualizando=false; _custosMsg='✅ Custos atualizados agora.'; renderMargem(); return; }
+  }
+  _custosAtualizando=false; _custosMsg='A atualização está demorando mais que o normal. Recarregue a página em alguns minutos.'; renderMargem();
+}
 function setMargBusca(v){ _margBuscaPed = String(v||'').replace(/\D/g,''); renderMargem(); }
 function limparMargBusca(){ _margBuscaPed=''; const i=document.getElementById('marg-busca'); if(i)i.value=''; renderMargem(); }
 function _skuBaseM(s){ return String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim(); }
@@ -1410,6 +1432,7 @@ function renderMargem(){
   const _aRok = aliqDe('Rokbox', mes), _aRk = aliqDe('Rk', mes); const _aFmt = a => String(a.aliq).replace('.', ',') + '%' + (a.estimada ? ' <span style="color:var(--amber)">(estimada)</span>' : '');
   el.innerHTML = `
     <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
+    <div class="card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px"><span>💲 Custos do Bling atualizados em <b>${_fmtDataHora(_FIN.bCustosAt)}</b></span>${ehAdmin()?`<button onclick="atualizarCustosBling()" ${_custosAtualizando?'disabled':''} style="background:${_custosAtualizando?'var(--bg2,#141a1f)':'var(--lime,#7ee787)'};color:${_custosAtualizando?'var(--muted)':'#08130b'};border:${_custosAtualizando?'1px solid var(--line,#233)':'none'};border-radius:8px;padding:5px 12px;font-weight:700;cursor:${_custosAtualizando?'default':'pointer'}">${_custosAtualizando?'⏳ atualizando…':'🔄 Atualizar custos'}</button>`:''}${_custosMsg?`<span style="color:${/não|demora/i.test(_custosMsg)?'var(--amber)':'var(--muted)'}">${_escM(_custosMsg)}</span>`:''}</div>
     <div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>🔎 Análise por pedido</b> <input id="marg-busca" value="${_margBuscaPed}" placeholder="nº do pedido (Rokbox ou Rk)" onkeydown="if(event.key==='Enter')setMargBusca(this.value)" style="width:210px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:6px 9px"> <button onclick="setMargBusca(document.getElementById('marg-busca').value)" style="background:var(--lime,#7ee787);color:#08130b;border:none;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer">Buscar</button>${_margBuscaPed?' <button onclick="limparMargBusca()" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:6px 10px;cursor:pointer">✕ limpar</button>':''}</div>
     ${_margBuscaPed ? renderAnalisePedido(analiseDoPedido(_margBuscaPed)) : ''}
     ${(()=>{ const _SEGS=['Atacado','Varejo','Site','PL','WL','Plano'];
@@ -1704,7 +1727,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-03.4';
+const BUILD='2026-11-04.1';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
