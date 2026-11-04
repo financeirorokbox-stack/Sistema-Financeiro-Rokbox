@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v768/10-821';
+const APP_VERSION = 'v769/10-822';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -671,18 +671,39 @@ const _idFns = {
   boletosAvulsos: b => b._uid ? 'u:' + b._uid : 'k:' + [b.pedido, _dc(b.vencimento), b.valorTitulo].join('|'),
 };
 function _telaDaChave(k) { return ({ pedidos: 'Vendas', recebimentosConsolidado: 'Recebimentos/Conciliação', contasPagar: 'Contas a Pagar', devolucoes: 'Dev/Troca', boletosAvulsos: 'Boletos' })[k] || k; }
+// Pedido "tocado à mão" (não é só sync do Bling): anotação em obsPedido, itens com custo da planilha de vendas,
+// ou campo editado à mão em mês fechado (carimbo _editadoMao). Só isso faz um pedido virar conflito de verdade.
+function _pedTocadoMao(p) {
+  try {
+    if (!p) return false;
+    if (p._editadoMao) return true;
+    const id = p.id; if (id != null && typeof obsPedido !== 'undefined' && obsPedido && obsPedido[String(id)] && String(obsPedido[String(id)]).trim()) return true;
+    if (Array.isArray(p.linhas) && p.linhas.some(l => (+l.precoCusto || 0) > 0)) return true;
+  } catch (e) {}
+  return false;
+}
+// Entre duas versões do MESMO pedido vindas só do Bling, a mais nova/completa: mais linhas vence; empate fica com a do banco.
+function _pedBlingMaisNova(o, t) { const no = (o && Array.isArray(o.linhas)) ? o.linhas.length : 0, nt = (t && Array.isArray(t.linhas)) ? t.linhas.length : 0; return no > nt ? o : t; }
 // merge 3-vias por item: base (o que carregamos) × theirs (banco agora) × ours (memória). Registro mudado só de um
 // lado entra com a versão daquele lado; mudado nos DOIS com valores diferentes = conflito (mantém o do banco e avisa).
+// EXCEÇÃO (pedidos): mudou dos dois lados mas NENHUM foi tocado à mão = só o sync do Bling nas duas telas →
+// NÃO é conflito: junta em silêncio ficando com a versão mais nova/completa do Bling (sem "REFAÇA").
 function _merge3(key, ours, theirs, base) {
   const idf = _idFns[key]; if (!idf) return null;
   const mp = arr => { const m = new Map(); (arr || []).forEach(x => { try { m.set(idf(x), x); } catch (e) {} }); return m; };
   const B = mp(base), T = mp(theirs), O = mp(ours), S = x => x === undefined ? '\u0000' : JSON.stringify(x);
   const merged = [], conflitos = [];
+  let blingSilenc = 0;
   new Set([...B.keys(), ...T.keys(), ...O.keys()]).forEach(id => {
     const b = B.get(id), t = T.get(id), o = O.get(id), ourCh = S(o) !== S(b), theirCh = S(t) !== S(b);
-    let keep; if (ourCh && theirCh && S(o) !== S(t)) { keep = t; conflitos.push(id.replace(/^[uk]:/, '')); } else if (ourCh) keep = o; else keep = t;
+    let keep;
+    if (ourCh && theirCh && S(o) !== S(t)) {                 // mudou dos DOIS lados
+      if (key === 'pedidos' && o && t && !_pedTocadoMao(o) && !_pedTocadoMao(t)) { keep = _pedBlingMaisNova(o, t); blingSilenc++; } // só sync do Bling → junta calado
+      else { keep = t; conflitos.push(id.replace(/^[uk]:/, '')); }   // edição minha dos dois lados → mantém o banco e avisa (REFAÇA)
+    } else if (ourCh) keep = o; else keep = t;
     if (keep !== undefined) merged.push(keep);
   });
+  if (blingSilenc) console.info('[conc] pedidos: ' + blingSilenc + ' registro(s) só do Bling juntados em silêncio (sem conflito)');
   return { merged, conflitos };
 }
 function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
@@ -776,6 +797,26 @@ window.addEventListener('beforeunload', function (e) {
   if (Object.keys(_pendentesSync).length) { e.preventDefault(); e.returnValue = 'Há alterações que ainda NÃO foram salvas na nuvem. Se sair agora, elas podem se perder.'; return e.returnValue; }
 });
 window.addEventListener('DOMContentLoaded', function () { try { _atualizarAvisoSync(); } catch (e) {} });
+
+// ── Aviso leve: outra tela do Gestão aberta no mesmo navegador. Não bloqueia nada (o merge do Bling já junta calado);
+//    só lembra de não editar o MESMO pedido à mão nas duas ao mesmo tempo. Faixa discreta no rodapé. ──
+(function _multiTab() {
+  let ch; try { ch = new BroadcastChannel('rk_gestao_tabs'); } catch (e) { return; } // navegador sem suporte: ignora
+  const meuId = Math.random().toString(36).slice(2) + Date.now();
+  const peers = new Map(); // id -> último "visto" (ms)
+  function _vivos() { const lim = Date.now() - 12000; let n = 0; peers.forEach((ts, id) => { if (ts >= lim) n++; else peers.delete(id); }); return n; }
+  function _render() {
+    const n = _vivos(); let el = document.getElementById('aviso-multitab');
+    if (n > 0) {
+      if (!el && document.body) { el = document.createElement('div'); el.id = 'aviso-multitab'; el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:999997;padding:7px 16px;font-size:12px;font-weight:700;text-align:center;background:#8e5a0b;color:#fff;box-shadow:0 -2px 10px rgba(0,0,0,.25)'; document.body.appendChild(el); }
+      if (el) { el.style.display = 'block'; el.textContent = '⚠ Há outra tela do Gestão aberta neste navegador. Pode usar as duas; só evite editar o MESMO pedido à mão nas duas ao mesmo tempo.'; }
+    } else if (el) el.style.display = 'none';
+  }
+  ch.onmessage = (e) => { const d = e.data || {}; if (!d.id || d.id === meuId) return; if (d.t === 'ping' || d.t === 'pong') { peers.set(d.id, Date.now()); if (d.t === 'ping') { try { ch.postMessage({ t: 'pong', id: meuId }); } catch (x) {} } _render(); } else if (d.t === 'bye') { peers.delete(d.id); _render(); } };
+  setInterval(() => { try { ch.postMessage({ t: 'ping', id: meuId }); } catch (e) {} _render(); }, 5000);
+  window.addEventListener('beforeunload', () => { try { ch.postMessage({ t: 'bye', id: meuId }); } catch (e) {} });
+  try { ch.postMessage({ t: 'ping', id: meuId }); } catch (e) {}
+})();
 
 async function loadData(key) {
   // Chave PENDENTE (não subiu): o valor local não-sincronizado GANHA da nuvem velha (Fase 2).
@@ -19391,6 +19432,7 @@ const AF = (function () {
     else if (campo === 'valor') p.valor = +para || 0;
     else if (campo === 'frete') p.frete = +para || 0;
     else { alert('Campo não suportado: ' + campo); return; }
+    p._editadoMao = new Date().toISOString(); // edição à mão: vira conflito de verdade se o Bling também mexer (controle de concorrência)
     try { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log.push({ ts: new Date().toISOString(), origem: 'manual', pedido, conta, campo, de, para, resultado: 'aplicado', motivo: 'aplicado manualmente em mês fechado (botão)' }); if (log.length > 3000) log = log.slice(log.length - 3000); await saveData('blingSyncLog', log); } catch (e) {}
     await saveData('pedidos', pedidos);
     if (btn) { btn.textContent = '✓ aplicado'; btn.disabled = true; btn.style.opacity = '.6'; btn.style.cursor = 'default'; }
