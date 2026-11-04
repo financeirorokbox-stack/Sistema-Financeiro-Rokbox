@@ -516,8 +516,8 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}}};
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg')]);
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{}};
     _popMesSel();
     gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(!el) return; const velho=iso&&((Date.now()-new Date(iso).getTime())>2*3600*1000); el.style.color=velho?'#e6b800':''; el.style.fontWeight=velho?'800':''; el.textContent=velho?('⚠ dados desatualizados ('+_fmtAt(iso)+') — abra o Gestão'):('💾 dados de '+_fmtAt(iso)); });
     const mes=mesSel||mesAtual();
@@ -1081,6 +1081,9 @@ const _PAYPAL_PARC = {1:2.1,2:2.5,3:2.9,4:3.3,5:3.7,6:4.2,7:4.6,8:5.0,9:5.4,10:5
 function setMargBusca(v){ _margBuscaPed = String(v||'').replace(/\D/g,''); renderMargem(); }
 function limparMargBusca(){ _margBuscaPed=''; const i=document.getElementById('marg-busca'); if(i)i.value=''; renderMargem(); }
 function _skuBaseM(s){ return String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim(); }
+function _margCustoBase(){ if(_FIN&&_FIN._cb) return _FIN._cb; const custoBase={}, precoBase={}; Object.entries((_FIN&&_FIN.bCustos)||{}).forEach(([sku,info])=>{ const b=_skuBaseM(sku); const c=+(info&&info.custo)||0, pr=+(info&&info.preco)||0; if(custoBase[b]==null||(!custoBase[b]&&c)) custoBase[b]=c; if(precoBase[b]==null||(!precoBase[b]&&pr)) precoBase[b]=pr; }); if(_FIN) _FIN._cb={custoBase,precoBase}; return {custoBase,precoBase}; }
+let _margForaF = { emp:'', seg:'', vend:'' }; // filtros da lista "Pedidos fora da margem"
+function setMargForaF(k,v){ _margForaF[k]=v; renderMargem(); }
 function _empLabelM(e){ return (typeof NFRegras!=='undefined') ? NFRegras.empLabel(e) : ((/rk/i.test(e)&&!/rokbox/i.test(e))?'Rk':'Rokbox'); }
 function _aliqDeM(emp, ym){ const E=_empLabelM(emp); const bm=(_FIN.pgdas||{})[E]||{}; if(bm[ym]&&bm[ym].aliquota!=null) return {aliq:+bm[ym].aliquota, estimada:false}; const ant=Object.keys(bm).filter(m=>m<=ym&&bm[m]&&bm[m].aliquota!=null).sort(); if(ant.length) return {aliq:+bm[ant[ant.length-1]].aliquota, estimada:true}; return {aliq:(_impostoPct||0), estimada:true}; }
 function _taxaMediaMes(mes){ let t=0,b=0; (_FIN.receb||[]).forEach(r=>{ if(String(r.data||'').slice(0,7)!==mes) return; const tx=+r.taxa||0, br=+r.bruto||+r.liq||0; if(tx>0&&br>0){ t+=tx; b+=br; } }); return b>0 ? t/b : 0; }
@@ -1092,9 +1095,8 @@ function _segDeM(l){ return ((_FIN.lc||{})[l]&&(_FIN.lc||{})[l].segmento) ? (_FI
 function analiseDoPedido(pid){
   if(!_FIN) return {erro:'Carregando…'};
   const p=(_FIN.pedidos||[]).find(x=>String(x.id)===String(pid)); if(!p) return {erro:'Pedido #'+pid+' não encontrado neste Painel.'};
-  const bCustos=_FIN.bCustos||{}, pCol=_FIN.pCol||{};
-  const custoBase={}, precoBase={};
-  Object.entries(bCustos).forEach(([sku,info])=>{ const b=_skuBaseM(sku); const c=+(info&&info.custo)||0, pr=+(info&&info.preco)||0; if(custoBase[b]==null||(!custoBase[b]&&c)) custoBase[b]=c; if(precoBase[b]==null||(!precoBase[b]&&pr)) precoBase[b]=pr; });
+  const pCol=_FIN.pCol||{};
+  const {custoBase,precoBase}=_margCustoBase();
   const acct=_empLabelM(p.empresa)==='Rk'?2:1, mesPed=String(p.data||'').slice(0,10).slice(0,7);
   const entNF=(_FIN.pedNF||{})[acct+'|'+p.id]; const nf=(entNF&&entNF.nf&&entNF.nf.id)?entNF.nf:null;
   const autVenda = !!(nf && (nf.sit===5||nf.sit===6) && /venda de (mercadoria|produ)/i.test(nf.natNome||''));
@@ -1126,8 +1128,10 @@ function analiseDoPedido(pid){
     if(!(m>0)){ const p2=_mesAnteriorM(_mesAnteriorM(mesPed)); m=_taxaMediaMes(p2); fonte='média de '+p2.split('-').reverse().join('/'); }
     taxa=+(m*receita).toFixed(2); taxaInfo={real:false, estimada:true, forma:'forma desconhecida — '+fonte, pct:+(m*100).toFixed(2)};
   }
-  // Correios: custo real não existe aqui → usa o frete do pedido, estimado.
-  const correios=frete, correiosEst=frete>0;
+  // Correios: valor INFORMADO à mão (salvo, "informado") tem prioridade; senão o frete do pedido (estimado).
+  const corrInfV=(_FIN.correiosInformado||{})[String(p.id)];
+  const correios = (corrInfV!=null)?+corrInfV:frete;
+  const correiosFonte = (corrInfV!=null)?'informado':(frete>0?'estimado':'sem frete');
   // Linhas
   const lines=vend.filter(x=>!x.brinde).map(x=>{ const b=_skuBaseM(x.l.sku), nome=String(x.l.descricao||'').replace(/\s*Tamanho:.*/i,'').trim()||b; const pr=precoBase[b]; const tabela=(pr&&pr>0)?pr*x.q:x.val; let descLinha=tabela-x.val; if(descLinha<0)descLinha=0; const descPedL=totVenda>0?descPed*(x.val/totVenda):0; const liq=+(x.val-descPedL).toFixed(2); const custoU=custoBase[b]; const custoT=(custoU||0)*x.q; const mb=liq-custoT; return { sku:x.l.sku, nome, qtd:x.q, tabelaU:(pr&&pr>0)?pr:x.pu, tabela, descLinha, descPct:tabela>0?descLinha/tabela*100:0, liq, custoU:(custoU==null?null:custoU), custoT, mb, mbPct:liq>0?mb/liq*100:0, semCusto:(custoU==null||custoU===0) }; });
   const tabelaTot=lines.reduce((s,l)=>s+l.tabela,0), descLinhaTot=lines.reduce((s,l)=>s+l.descLinha,0), custoTot=lines.reduce((s,l)=>s+l.custoT,0);
@@ -1135,10 +1139,43 @@ function analiseDoPedido(pid){
   const margemBruta=+(receita-custoTot).toFixed(2);
   const margemFinal=+(receita-custoTot-taxa-imposto-comissao-correios).toFixed(2);
   const seg=_segDeM(p.loja);
-  return { p, erro:null, linhasIncompletas, header:{ cliente:p.nome||'', loja:p.loja||'', segmento:seg, vendedor:p.vendedor||'', situacao:p.situacao||'', data:String(p.data||'').slice(0,10), empresa:p.empresa||'', forma:(recs.length?(formaGw.join('/')+(parcMax>0?(' '+parcMax+'x'):'')):(/aberto/i.test(p.situacao||'')?'em aberto (sem recebimento)':'sem recebimento lançado')), nf, autVenda, danfe:(nf&&nf.danfe)||'' },
-    lines, totVenda, cascade:{ tabelaTot, descLinhaTot, descPed, descTotal, descTotalPct:tabelaTot>0?descTotal/tabelaTot*100:0, receita, custoTot, margemBruta, margemBrutaPct:receita>0?margemBruta/receita*100:0, taxa, taxaInfo, imposto, impInfo, comissao, comPct:isento?0:comPct, baseCom, isento, correios, correiosEst, margemFinal, margemFinalPct:receita>0?margemFinal/receita*100:0, seg } };
+  const margemFinalPct = receita>0?margemFinal/receita*100:0;
+  const descTotalPct = tabelaTot>0?descTotal/tabelaTot*100:0;
+  const segMinRaw=(_FIN.margemMinSeg||{})[seg]; const segMin=(segMinRaw===''||segMinRaw==null)?null:+segMinRaw;
+  const foraMargem = (segMin!=null && !linhasIncompletas) ? (margemFinalPct < segMin) : false;
+  const faltouPts = foraMargem ? +(segMin - margemFinalPct).toFixed(1) : 0;
+  const faltouRs = foraMargem ? +((segMin/100)*receita - margemFinal).toFixed(2) : 0;
+  const avisos=[];
+  const descMax=(seg==='Atacado')?55:((seg==='Varejo'||seg==='Site')?15:null);
+  if(descMax!=null && descTotalPct>descMax) avisos.push('Desconto '+descTotalPct.toFixed(0)+'% acima do padrão de '+seg+' (>'+descMax+'%)');
+  const nSemCusto=lines.filter(l=>l.semCusto).reduce((s,l)=>s+l.qtd,0); if(nSemCusto>0) avisos.push(nSemCusto+' item(ns) sem custo (margem pode estar alta)');
+  if(!autVenda) avisos.push('Sem NF de venda (imposto estimado)');
+  if(!taxaInfo.real) avisos.push('Taxa estimada ('+taxaInfo.forma+')');
+  if(correiosFonte==='estimado') avisos.push('Correios estimado (frete do pedido)');
+  return { p, erro:null, linhasIncompletas, foraMargem, faltouPts, faltouRs, segMin, avisos,
+    header:{ cliente:p.nome||'', loja:p.loja||'', segmento:seg, vendedor:p.vendedor||'', situacao:p.situacao||'', data:String(p.data||'').slice(0,10), empresa:p.empresa||'', forma:(recs.length?(formaGw.join('/')+(parcMax>0?(' '+parcMax+'x'):'')):(/aberto/i.test(p.situacao||'')?'em aberto (sem recebimento)':'sem recebimento lançado')), nf, autVenda, danfe:(nf&&nf.danfe)||'' },
+    lines, totVenda, cascade:{ tabelaTot, descLinhaTot, descPed, descTotal, descTotalPct, receita, custoTot, margemBruta, margemBrutaPct:receita>0?margemBruta/receita*100:0, taxa, taxaInfo, imposto, impInfo, comissao, comPct:isento?0:comPct, baseCom, isento, correios, correiosFonte, margemFinal, margemFinalPct, seg } };
 }
+// ── salvar/editar (só admin): Correios informado por pedido + margem mínima por segmento (chaves próprias no Supabase) ──
+function setCorreiosPed(pid, v){ if(!_FIN) return; _FIN.correiosInformado=_FIN.correiosInformado||{}; const t=String(v==null?'':v).trim(); if(t===''){ delete _FIN.correiosInformado[String(pid)]; } else { const n=t.includes(',')?parseFloat(t.replace(/\./g,'').replace(',','.')):parseFloat(t); if(isNaN(n)||n<0){ alert('Valor de Correios inválido.'); renderMargem(); return; } _FIN.correiosInformado[String(pid)]=+n.toFixed(2); } _skPL('correiosInformado', _FIN.correiosInformado); renderMargem(); }
+function voltarCorreiosEstimado(pid){ if(_FIN&&_FIN.correiosInformado){ delete _FIN.correiosInformado[String(pid)]; _skPL('correiosInformado', _FIN.correiosInformado); } renderMargem(); }
+function setMargemMinSeg(seg, v){ if(!_FIN) return; _FIN.margemMinSeg=_FIN.margemMinSeg||{}; const t=String(v==null?'':v).replace(',','.').replace('%','').trim(); if(t===''){ delete _FIN.margemMinSeg[seg]; } else { const n=parseFloat(t); if(isNaN(n)||n<0||n>100){ alert('% inválido.'); renderMargem(); return; } _FIN.margemMinSeg[seg]=+n.toFixed(1); } _skPL('margemMinSeg', _FIN.margemMinSeg); renderMargem(); }
 function _escM(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Desconto máximo que mantém a margem mínima (aprox.: imposto/taxa/comissão variam com a receita). null se sem mínima.
+function _descontoMaximo(a){ const c=a.cascade; if(a.segMin==null) return null; const R=c.receita||0; const varRate = R>0 ? (c.taxa+c.imposto+c.comissao)/R : 0; const min=a.segMin/100; const denom=1-varRate-min; if(denom<=0) return null; const Rmin=(c.custoTot+c.correios)/denom; const dMaxTot=c.tabelaTot-Rmin, sobraRs=R-Rmin; return { dMaxTot:+dMaxTot.toFixed(2), dMaxPct:+(c.tabelaTot>0?dMaxTot/c.tabelaTot*100:0).toFixed(1), sobraRs:+sobraRs.toFixed(2), sobraPct:+(c.tabelaTot>0?sobraRs/c.tabelaTot*100:0).toFixed(1) }; }
+// Mensagem de conclusão (texto simples) embaixo da margem final.
+function _msgConclusao(a){ if(a.linhasIncompletas) return '⚠️ Itens incompletos , não dá para concluir a margem deste pedido (o detalhe do pedido não veio inteiro).'; const c=a.cascade;
+  const temEst = (!c.taxaInfo.real) || (!c.impInfo.real) || c.correiosFonte==='estimado' || a.lines.some(l=>l.semCusto);
+  const estTxt = temEst ? ' ℹ️ Alguns valores são estimados (imposto/taxa/Correios ou item sem custo) , o resultado pode mudar quando entrarem os reais.' : '';
+  if(a.segMin==null) return 'Margem final '+c.margemFinalPct.toFixed(1)+'%. Sem margem mínima cadastrada para '+c.seg+' , cadastre a mínima acima para ver se está dentro.'+estTxt;
+  const dm=_descontoMaximo(a);
+  if(a.foraMargem){ const R=c.receita||1; const descMax=(c.seg==='Atacado')?55:((c.seg==='Varejo'||c.seg==='Site')?15:9999);
+    const cand=[['desconto acima do padrão', c.descTotalPct>descMax?(c.descTotalPct-descMax):0],['custo alto', c.custoTot/R*100],['taxa de cartão', c.taxa/R*100],['imposto', c.imposto/R*100],['comissão', c.comissao/R*100],['Correios', c.correios/R*100]].sort((x,y)=>y[1]-x[1]);
+    const motivo = cand[0][1]>0 ? cand[0][0] : 'custo/deduções';
+    return '⚠️ FORA DA MARGEM: '+c.margemFinalPct.toFixed(1)+'% (mínima de '+c.seg+' é '+a.segMin+'%). Faltou '+brl(a.faltouRs)+' ('+a.faltouPts+' pontos). Principal motivo: '+motivo+'.'+(dm?(' Desconto máximo para ficar dentro: '+brl(dm.dMaxTot)+' ('+dm.dMaxPct.toFixed(0)+'% da tabela).'):'')+estTxt;
+  }
+  return '✅ DENTRO DA MARGEM: '+c.margemFinalPct.toFixed(1)+'% (mínima de '+c.seg+' é '+a.segMin+'%).'+(dm&&dm.sobraRs>0?(' Ainda cabe desconto: até '+brl(dm.sobraRs)+' ('+dm.sobraPct.toFixed(0)+'% da tabela) mantendo a mínima.'):'')+estTxt;
+}
 function renderAnalisePedido(a){
   if(!a) return '';
   if(a.erro) return `<div class="card" style="margin-bottom:14px;border:1px solid var(--amber)"><b>🔎 Análise por pedido</b> <button onclick="limparMargBusca()" style="float:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:3px 9px;cursor:pointer">✕</button><div style="color:var(--amber);margin-top:6px">${_escM(a.erro)}</div></div>`;
@@ -1165,9 +1202,12 @@ function renderAnalisePedido(a){
       ${row('(−) Taxa cartão/gateway', brl(c.taxa), taxaExtra)}
       ${row('(−) Imposto', brl(c.imposto), impExtra)}
       ${row('(−) Comissão', brl(c.comissao), (c.isento?'isento':String((c.comPct*100).toFixed(2)).replace('.',',')+'% × base '+brl(c.baseCom)))}
-      ${row('(−) Correios', brl(c.correios), c.correiosEst?'<span style="color:var(--amber)">estimado (frete do pedido)</span>':'(sem frete)')}
-      ${row('= MARGEM FINAL', '<b style="color:'+(c.margemFinal>=0?'var(--lime)':'var(--red)')+'">'+brl(c.margemFinal)+'</b>', '<b>'+c.margemFinalPct.toFixed(1)+'% da receita</b>', true)}
+      <tr><td style="padding:3px 8px">(−) Correios</td><td class="v" style="padding:3px 8px"><input value="${c.correiosFonte==='informado'?String((+c.correios).toFixed(2)).replace('.',','):''}" placeholder="${brl(c.correios).replace('R$ ','')}" onkeydown="if(event.key==='Enter')setCorreiosPed('${_escM(String(a.p.id))}',this.value)" onblur="setCorreiosPed('${_escM(String(a.p.id))}',this.value)" title="Digite o custo real dos Correios (fica salvo neste pedido, marcado 'informado'). Vazio = volta ao estimado." style="width:92px;text-align:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:2px 6px"></td><td style="padding:3px 8px;color:var(--muted);font-size:11px">${c.correiosFonte==='informado'?'<span style="color:var(--lime)">informado</span> · <a href="#" onclick="voltarCorreiosEstimado(\''+_escM(String(a.p.id))+'\');return false" style="color:var(--amber)">voltar ao estimado</a>':(c.correiosFonte==='estimado'?'<span style="color:var(--amber)">estimado (frete)</span>':'sem frete')}</td></tr>
+      ${row('= MARGEM FINAL', '<b style="color:'+(c.margemFinal>=0?'var(--lime)':'var(--red)')+'">'+brl(c.margemFinal)+'</b>', '<b>'+c.margemFinalPct.toFixed(1)+'% da receita</b>'+(a.foraMargem?' <span style="background:var(--red);color:#fff;border-radius:6px;padding:1px 7px;font-size:10px;font-weight:800">FORA DA MARGEM</span>':(a.segMin!=null?' <span style="color:var(--lime);font-size:10px">ok (mín '+a.segMin+'%)</span>':'')), true)}
+      ${a.foraMargem?`<tr><td colspan="3" style="padding:3px 8px;color:var(--red);font-size:11px">⚠ Abaixo da margem mínima de ${_escM(c.seg)} (${a.segMin}%): faltou ${brl(a.faltouRs)} (${a.faltouPts} pontos %).</td></tr>`:''}
     </table></div>
+    ${(()=>{ const m=_msgConclusao(a); return m?`<div style="margin-top:12px;padding:9px 11px;border-radius:8px;font-size:13px;line-height:1.5;background:${a.foraMargem?'rgba(229,83,75,.12)':(a.segMin==null?'rgba(255,255,255,.05)':'rgba(126,231,135,.10)')};border:1px solid ${a.foraMargem?'var(--red)':(a.segMin==null?'var(--line,#233)':'var(--lime)')}">${_escM(m)}</div>`:''; })()}
+    ${a.avisos&&a.avisos.length?`<div style="margin-top:8px;font-size:11.5px;color:var(--muted)"><b style="color:var(--amber)">⚠ Avisos:</b> ${a.avisos.map(x=>_escM(x)).join(' &nbsp;·&nbsp; ')}</div>`:''}
   </div>`;
 }
 function renderMargem(){
@@ -1280,6 +1320,17 @@ function renderMargem(){
     <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
     <div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>🔎 Análise por pedido</b> <input id="marg-busca" value="${_margBuscaPed}" placeholder="nº do pedido (Rokbox ou Rk)" onkeydown="if(event.key==='Enter')setMargBusca(this.value)" style="width:210px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:6px 9px"> <button onclick="setMargBusca(document.getElementById('marg-busca').value)" style="background:var(--lime,#7ee787);color:#08130b;border:none;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer">Buscar</button>${_margBuscaPed?' <button onclick="limparMargBusca()" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:6px 10px;cursor:pointer">✕ limpar</button>':''}</div>
     ${_margBuscaPed ? renderAnalisePedido(analiseDoPedido(_margBuscaPed)) : ''}
+    ${(()=>{ const _SEGS=['Atacado','Varejo','Site','PL','WL','Plano'];
+      const cfg = ehAdmin()? `<div class="card" style="margin-bottom:12px;font-size:12.5px"><b>🎯 Margem mínima por segmento</b> <span style="color:var(--muted)">(em branco = sem aviso; usada no selo "fora da margem")</span><div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">${_SEGS.map(s=>{const v=(_FIN.margemMinSeg||{})[s];return `<label style="color:var(--muted)">${s} <input value="${v!=null?String(v).replace('.',','):''}" placeholder="—" onkeydown="if(event.key==='Enter')setMargemMinSeg('${s}',this.value)" onblur="setMargemMinSeg('${s}',this.value)" style="width:52px;text-align:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:4px 6px">%</label>`;}).join('')}</div></div>`:'';
+      let foraHtml='';
+      if(Object.keys(_FIN.margemMinSeg||{}).length){ const fora=[];
+        (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; const o=opDe(p.loja); if(o!=='venda'&&o!=='troca') return; if(NAOAP.includes(String(p.situacao||'').toLowerCase())) return; const a=analiseDoPedido(p.id); if(a&&a.foraMargem) fora.push(a); });
+        const F=_margForaF; const fil=fora.filter(a=>(!F.emp||a.header.empresa===F.emp)&&(!F.seg||a.cascade.seg===F.seg)&&(!F.vend||a.header.vendedor===F.vend)).sort((x,y)=>y.faltouRs-x.faltouRs);
+        const selF=(k,opts,ph)=>`<select onchange="setMargForaF('${k}',this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px;font-size:12px"><option value="">${ph}</option>${opts.map(o=>`<option ${_margForaF[k]===o?'selected':''}>${_escM(o)}</option>`).join('')}</select>`;
+        foraHtml=`<div class="card" style="margin-bottom:12px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><b style="color:var(--red)">🚨 Pedidos fora da margem</b> <span style="color:var(--muted);font-size:12px">${fil.length} de ${fora.length}</span> ${selF('emp',[...new Set(fora.map(a=>a.header.empresa))].sort(),'Empresa')} ${selF('seg',[...new Set(fora.map(a=>a.cascade.seg))].sort(),'Segmento')} ${selF('vend',[...new Set(fora.map(a=>a.header.vendedor))].sort(),'Vendedor')}</div>${fil.length?`<div style="overflow-x:auto"><table class="bal" style="width:100%;font-size:12px"><thead><tr><th>Pedido</th><th>Cliente</th><th>Segmento</th><th>Vendedor</th><th class="v">Receita</th><th class="v">Margem</th><th class="v">Mín.</th><th class="v">Faltou</th></tr></thead><tbody>${fil.slice(0,100).map(a=>`<tr style="cursor:pointer" onclick="setMargBusca('${_escM(String(a.p.id))}')"><td><b>#${_escM(String(a.p.id))}</b></td><td>${_escM(a.header.cliente)}</td><td>${_escM(a.cascade.seg)}</td><td>${_escM(a.header.vendedor)}</td><td class="v">${brl(a.cascade.receita)}</td><td class="v" style="color:var(--red)">${a.cascade.margemFinalPct.toFixed(1)}%</td><td class="v">${a.segMin}%</td><td class="v" style="color:var(--red)">${brl(a.faltouRs)} (${a.faltouPts}pts)</td></tr>`).join('')}</tbody></table></div>`:'<div style="color:var(--muted);font-size:12px">Nenhum pedido fora da margem no mês/filtro. 🎉</div>'}</div>`;
+      }
+      return cfg+foraHtml;
+    })()}
     <div class="card" style="margin-bottom:12px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:13px">
       <span>Imposto (alíquota efetiva PGDAS, só sobre NF de venda): Rokbox ${_aFmt(_aRok)} · Rk ${_aFmt(_aRk)}</span>
       <label style="color:var(--muted)">fallback <input type="number" step="0.5" value="${_impostoPct}" onchange="setImposto(this.value)" title="só usado quando não há PGDAS de nenhum mês" style="width:56px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 8px;text-align:right">%</label>
@@ -1561,7 +1612,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-03.2';
+const BUILD='2026-11-03.3';
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){try{ if(_verChk||_gateVisivel()) return; const r=await fetch(location.pathname+'?cb='+Date.now(),{cache:'no-store'});const t=await r.text();const m=t.match(/BUILD\s*=\s*'([^']+)'/);if(m&&m[1]&&m[1]!==BUILD){_verChk=true;location.replace(location.pathname+'?cb='+Date.now());}}catch(e){}}
