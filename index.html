@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v764/10-817';
+const APP_VERSION = 'v765/10-818';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18430,6 +18430,16 @@ function _blingItensMap(detP, rTotal) {
   const its = (detP && Array.isArray(detP.itens)) ? detP.itens : [];
   return its.map(it => { const pu = +it.valor || 0, q = +it.qtd || 0; return { sku: it.sku || '', descricao: it.descricao || '', qtd: q, precoUnit: pu, valorLinha: +(pu * (q || 1)).toFixed(2), totalProdutos: +rTotal || 0, precoCusto: 0, frete: 0, outras: 0, desconto: 0 }; });
 }
+// Acrescenta ao pedido as linhas de BAIXO VALOR do Bling que faltam (sacola/embalagem/brinde ≤R$0,01), sem tocar nas linhas
+// já existentes (curadas da planilha). O valor do pedido NÃO muda. Retorna quantas foram adicionadas.
+function _blingMergeBrindes(ex, novasLinhas) {
+  if (!Array.isArray(ex.linhas)) ex.linhas = [];
+  const _ns = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const have = new Set(ex.linhas.map(l => _ns(l.sku)).filter(Boolean));
+  let add = 0;
+  (novasLinhas || []).forEach(nl => { const pu = +nl.precoUnit || 0; const ns = _ns(nl.sku); if (pu <= 0.011 && ns && !have.has(ns)) { ex.linhas.push(Object.assign({}, nl)); have.add(ns); add++; } });
+  return add;
+}
 // Assinatura normalizada das linhas (SKU alfanumérico + qtd) pra comparar Gestão x Bling sem falsa divergência de grafia.
 function _blingItensSig(linhas) {
   return (Array.isArray(linhas) ? linhas : []).map(l => String(l.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '') + '#' + Math.round(+l.qtd || 0)).filter(s => !/^#/.test(s)).sort().join('|');
@@ -18668,9 +18678,13 @@ async function _impBlingConta(ricoKey, detKey, empresa, flag) {
           const novasLinhas = _blingItensMap(_detP, r.valor);
           if (_blingItensSig(ex.linhas) !== _blingItensSig(novasLinhas)) {
             if (_curado) {
+              const _addBr = _blingMergeBrindes(ex, novasLinhas); // linhas curadas intactas; só acrescenta sacola/embalagem/brinde ≤R$0,01 que falta
+              if (_addBr) { mud = true; _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: '', para: '+' + _addBr + ' item(ns) ≤R$0,01', resultado: 'aplicado', motivo: 'sacola/embalagem/brinde do Bling adicionado (curadas mantidas)' }); }
               _blingPend({ chave: 'itens-curado|' + empresa + '|' + num, pedido: num, conta: empresa, tipo: 'Itens diferem do Bling, mas o pedido foi tocado à mão (' + _curado + ') — revisar', detalhe: _blingResumoItens(ex.linhas) + '  →  ' + _blingResumoItens(novasLinhas) });
               _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(novasLinhas), resultado: 'bloqueado', motivo: 'tocado à mão: ' + _curado });
             } else if (_suspeitoReuso) {
+              const _addBr = _blingMergeBrindes(ex, novasLinhas);
+              if (_addBr) { mud = true; _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: '', para: '+' + _addBr + ' item(ns) ≤R$0,01', resultado: 'aplicado', motivo: 'sacola/embalagem/brinde do Bling adicionado (reuso: reais mantidos)' }); }
               _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(novasLinhas), resultado: 'bloqueado', motivo: 'pessoa diferente + itens reais (revisar)' });
             } else {
               _blingLog({ pedido: num, conta: empresa, campo: 'itens', de: _blingResumoItens(ex.linhas), para: _blingResumoItens(novasLinhas), resultado: 'aplicado', motivo: '' });
