@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v769/10-822';
+const APP_VERSION = 'v770/10-823';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -578,7 +578,7 @@ function rowId(key) {
   return h;
 }
 
-async function sbFetch(method, body = null, extraPath = '') {
+async function sbFetch(method, body = null, extraPath = '', sbExtra = null) {
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${extraPath}`;
   // Etapa 1 (segurança): SEM sessão não cai mais na anon — exige login (a anon vai fechar no banco).
   const _tok = await _sbToken();
@@ -594,6 +594,7 @@ async function sbFetch(method, body = null, extraPath = '') {
     }
   };
   if (body) opts.body = JSON.stringify(body);
+  if (sbExtra && sbExtra.keepalive) opts.keepalive = true; // p/ gravação que precisa sobreviver ao fechar/recarregar
   const res = await fetch(url, opts);
   if (!res.ok) {
     const err = await res.text();
@@ -707,7 +708,33 @@ function _merge3(key, ours, theirs, base) {
   return { merged, conflitos };
 }
 function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
+// ── Preferências de TELA (filtros/visão, por dispositivo): dateFilters, vendasFilters. ──
+// Trocar filtro NÃO é mudança de dado: não pode invalidar os caches de performance (senão a tela
+// recalcula tudo e trava), não passa por concorrência (filtro não dá conflito) e não precisa esperar
+// a nuvem. Grava LOCAL na hora (sobrevive ao F5 neste aparelho) e empurra pra nuvem com atraso
+// (debounce) — ao clicar por vários meses seguidos, só o último estado sobe. NÃO dispara Power BI/Bling.
+const _VIEW_KEYS = new Set(['dateFilters', 'vendasFilters']);
+const _viewTimers = {};
+const _viewPending = {};
+const _VIEW_DEBOUNCE_MS = 1500;
+function _pushViewPref(key, keepalive) {
+  const str = _viewPending[key]; if (str == null) return Promise.resolve();
+  const at = new Date().toISOString();
+  return sbFetch('POST', { id: rowId(key), device_id: getDeviceId(), chave: key, valor: str, atualizado_em: at }, '', keepalive ? { keepalive: true } : null)
+    .then(() => { _verKey[key] = at; delete _viewPending[key]; })
+    .catch(e => { console.warn('[view] gravação do filtro na nuvem adiada falhou (fica salvo local):', key, (e && e.message) || e); });
+}
+function _saveViewPref(key, data) {
+  const str = JSON.stringify(data);
+  _viewPending[key] = str;
+  try { _setLocalSeguro(key, str); } catch (e) {}
+  if (_viewTimers[key]) clearTimeout(_viewTimers[key]);
+  _viewTimers[key] = setTimeout(() => { _viewTimers[key] = null; _pushViewPref(key, false); }, _VIEW_DEBOUNCE_MS);
+  return true;
+}
+function _flushViewPrefs() { Object.keys(_viewTimers).forEach(key => { if (_viewTimers[key]) { clearTimeout(_viewTimers[key]); _viewTimers[key] = null; try { _pushViewPref(key, true); } catch (e) {} } }); }
 async function saveData(key, data) {
+  if (_VIEW_KEYS.has(key)) return _saveViewPref(key, data); // filtro/visão de tela: caminho leve (sem recalcular dados, sem concorrência, nuvem com atraso)
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   const str = JSON.stringify(data);
   let writeStr = str, avisoMsg = '';
@@ -794,6 +821,7 @@ function _atualizarAvisoSync() {
 }
 // Bloqueia fechar/recarregar enquanto houver pendência (não deixa sair em silêncio).
 window.addEventListener('beforeunload', function (e) {
+  try { _flushViewPrefs(); } catch (ex) {} // empurra filtro pendente antes de sair (keepalive sobrevive ao unload)
   if (Object.keys(_pendentesSync).length) { e.preventDefault(); e.returnValue = 'Há alterações que ainda NÃO foram salvas na nuvem. Se sair agora, elas podem se perder.'; return e.returnValue; }
 });
 window.addEventListener('DOMContentLoaded', function () { try { _atualizarAvisoSync(); } catch (e) {} });
