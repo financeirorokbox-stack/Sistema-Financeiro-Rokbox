@@ -142,7 +142,7 @@
   <div id="view-main"><div id="uv-root"></div></div>
 
 
-  <div class="foot" id="foot">Painel RK · Placar de vendas ao vivo</div>
+  <div class="foot" id="foot">Painel RK · Placar de vendas ao vivo · <span id="selo-build"></span></div>
 </div>
 
 <script src="pecas-vendidas.js"></script>
@@ -178,7 +178,8 @@ async function _sbRefresh(){
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-11-05.1';
+const BUILD = '2026-11-05.2';
+try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
 async function checkVersao(){
