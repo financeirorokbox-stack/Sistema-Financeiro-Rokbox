@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v770/10-823';
+const APP_VERSION = 'v771/10-824';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4183,7 +4183,7 @@ function reabrirComissaoVendedor(vend) {
     if (!confirm('Reabrir a comissão' + (info._cupom ? ' por cupom' : '') + ' de ' + vend + ' e tirar da Folha (' + fmtVal(info.total) + ')?')) return;
     // SUBTRAI só a parte deste fechamento (preserva outras comissões somadas na mesma funcionária).
     try { const _r = _fRow(info._folhaMes, info._folhaFid);
-      if (info._cupom) { const _novo = +(((+_r.comissaoCupom) || 0) - info.total).toFixed(2); _r.comissaoCupom = _novo > 0.005 ? _novo : 0; }
+      if (info._cupom) { const _nc = +(((+_r.comissao) || 0) - info.total).toFixed(2); _r.comissao = _nc > 0.005 ? _nc : null; const _nk = +(((+_r.comissaoCupom) || 0) - info.total).toFixed(2); _r.comissaoCupom = _nk > 0.005 ? _nk : 0; }
       else { const _novo = +(((+_r.comissao) || 0) - info.total).toFixed(2); _r.comissao = _novo > 0.005 ? _novo : null; }
       saveData('folhaRH', folhaRH); } catch (e) {}
   } else {
@@ -4230,13 +4230,14 @@ function fecharCupomFolha(vend, valor) {
   const fid = _pedirFuncRH('Enviar a comissão por CUPOM de ' + vend + ' (' + fmtVal(valor) + ') para a FOLHA de qual funcionária?', vend);
   if (!fid) return;
   const _r = _fRow(mesRH, fid);
-  _r.comissaoCupom = +(((+_r.comissaoCupom) || 0) + valor).toFixed(2); // SOMA (campo separado da comissão normal)
+  _r.comissao = +(((+_r.comissao) || 0) + valor).toFixed(2);           // cupom entra NA comissão (regra: a comissão já inclui o cupom)
+  _r.comissaoCupom = +(((+_r.comissaoCupom) || 0) + valor).toFixed(2); // detalhe: quanto da comissão é cupom (mostrado como 'inclui cupom')
   comissaoFechada[key] = { vend, total: valor, qtd: 0, periodo: per.label, data: new Date().toISOString(), _folhaFid: fid, _folhaMes: mesRH, _cupom: true };
   saveData('folhaRH', folhaRH);
   saveData('comissaoFechada', comissaoFechada);
   renderComissao();
   const fn = funcionariosRH.find(f => f.id === fid);
-  alert('✅ Comissão por cupom de ' + vend + ' (' + fmtVal(valor) + ') lançada na FOLHA de ' + (fn ? fn.nome : '') + ' — ' + mesRH.split('-').reverse().join('/') + ' (linha separada "Comissão por cupom").\n\nNa aba RH, clique "Gerar folha" pra criar o pagamento (dia 05).');
+  alert('✅ Comissão por cupom de ' + vend + ' (' + fmtVal(valor) + ') lançada na FOLHA de ' + (fn ? fn.nome : '') + ' — ' + mesRH.split('-').reverse().join('/') + ' (somada à comissão; aparece como "inclui cupom").\n\nNa aba RH, clique "Gerar folha" pra criar o pagamento (dia 05).');
 }
 // Pedido é BOLETO? (p/ comissão: boleto conta cheio mesmo sem ter pago; os demais em aberto abatem a base)
 function ehBoletoPed(p) {
@@ -4502,7 +4503,7 @@ function renderComissao() {
       const optsVend = vendedores.filter(v=>v && v!=='Braavo' && v!=='Sem vendedor');
       const sel = x => `<select onchange="setIndicacaoCupom('${x.p.id}',this.value)" style="font-size:11px;padding:2px 4px"><option value="">—</option>${optsVend.map(v=>`<option ${x.vend===v?'selected':''}>${v}</option>`).join('')}</select>`;
       return `${resumo.length ? `<div class="table-wrap" style="max-width:640px;margin-bottom:12px"><table><thead><tr><th>Vendedora (cupom)</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Base</th><th style="text-align:right">Comissão ${(cupomPct()*100).toFixed(2).replace('.',',')}%</th><th></th></tr></thead><tbody>
-        ${resumo.map(([v,o])=>{ const ckey='CUPOM§'+v+'§'+comPeriodoInfo().key; const cfech=comissaoFechada[ckey]; const vjs=v.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); const val=+o.com.toFixed(2); return `<tr><td><strong>${v}</strong></td><td style="text-align:right;color:var(--muted)">${o.n}</td><td style="text-align:right;color:var(--muted)">${fmtVal(+o.base.toFixed(2))}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(cfech?cfech.total:val)}</td><td style="text-align:right">${cfech?`<span class="badge" style="background:var(--green);color:#fff;font-size:9px">✓ folha</span> <button class="btn ghost sm" style="color:var(--amber)" onclick="reabrirComissaoVendedor('${vjs}')" title="Tira da Folha e reabre">↩</button>`:`<button class="btn primary sm" style="font-size:11px" onclick="fecharCupomFolha('${vjs}',${val})" title="Lança a comissão por cupom na Folha (RH) da vendedora, em linha separada">→ Folha</button>`}</td></tr>`; }).join('')}
+        ${resumo.map(([v,o])=>{ const ckey='CUPOM§'+v+'§'+comPeriodoInfo().key; const cfech=comissaoFechada[ckey]; const vjs=v.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); const val=+o.com.toFixed(2); return `<tr><td><strong>${v}</strong></td><td style="text-align:right;color:var(--muted)">${o.n}</td><td style="text-align:right;color:var(--muted)">${fmtVal(+o.base.toFixed(2))}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(cfech?cfech.total:val)}</td><td style="text-align:right">${cfech?`<span class="badge" style="background:var(--green);color:#fff;font-size:9px">✓ folha</span> <button class="btn ghost sm" style="color:var(--amber)" onclick="reabrirComissaoVendedor('${vjs}')" title="Tira da Folha e reabre">↩</button>`:`<button class="btn primary sm" style="font-size:11px" onclick="fecharCupomFolha('${vjs}',${val})" title="Soma a comissão por cupom à comissão da vendedora na Folha (RH); aparece como 'inclui cupom'">→ Folha</button>`}</td></tr>`; }).join('')}
         <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="3">Total cupom</td><td style="text-align:right;color:var(--green)">${fmtVal(+totCup.toFixed(2))}</td><td></td></tr>
       </tbody></table></div>` : '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Nenhuma indicação marcada neste período.</div>'}
       ${cps.length ? `<details ${marc.length?'':'open'}><summary style="cursor:pointer;font-size:12px;color:var(--accent);margin-bottom:8px">Pedidos do site no período (${cps.length}) — marcar indicação</summary>
@@ -4516,12 +4517,12 @@ function renderComissao() {
     ${(() => {
       const mesR = _mesRHdoPeriodo();
       if (!mesR) return '';
-      const rel = funcionariosRH.filter(f => f.ativo !== false).map(f => { const r = (folhaRH[mesR] && folhaRH[mesR][f.id]) || {}; const com = +(r.comissao || 0); const cup = +(r.comissaoCupom || 0); return { nome: f.nome || '', empresa: f.empresa || '', com, cup, total: +(com + cup).toFixed(2) }; }).filter(x => x.total > 0.005).sort((a, b) => b.total - a.total);
+      const rel = funcionariosRH.filter(f => f.ativo !== false).map(f => { const r = (folhaRH[mesR] && folhaRH[mesR][f.id]) || {}; const com = +(r.comissao || 0); const cup = +(r.comissaoCupom || 0); return { nome: f.nome || '', empresa: f.empresa || '', com, cup, total: +com.toFixed(2) }; }).filter(x => x.total > 0.005).sort((a, b) => b.total - a.total);
       if (!rel.length) return '<div style="font-size:12px;color:var(--muted)">Nenhuma comissão lançada na folha deste mês ainda. Use os botões <strong>Fechar → Folha</strong> acima.</div>';
       const tot = +(rel.reduce((s, x) => s + x.total, 0)).toFixed(2);
       return `<div style="margin-bottom:6px"><button class="btn primary sm" onclick="exportarRelComissaoFolha()" title="Gera um PDF simples: nome completo, empresa e comissão (junta comissão + cupom + Outros). Abre a janela de impressão pra você salvar como PDF.">📄 Gerar PDF</button></div>
         <div class="table-wrap" style="max-width:640px"><table><thead><tr><th>Funcionário</th><th>Empresa</th><th style="text-align:right">Comissão</th></tr></thead><tbody>
-        ${rel.map(x => `<tr><td><strong>${x.nome}</strong></td><td>${x.empresa || '—'}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(x.total)}${x.cup > 0.005 ? `<div style="font-size:9px;font-weight:400;color:var(--muted)">comissão ${fmtVal(x.com)} + cupom ${fmtVal(x.cup)}</div>` : ''}</td></tr>`).join('')}
+        ${rel.map(x => `<tr><td><strong>${x.nome}</strong></td><td>${x.empresa || '—'}</td><td style="text-align:right;font-weight:700;color:var(--green)">${fmtVal(x.total)}${x.cup > 0.005 ? `<div style="font-size:9px;font-weight:400;color:var(--muted)">inclui cupom ${fmtVal(x.cup)}</div>` : ''}</td></tr>`).join('')}
         <tr style="border-top:2px solid var(--border);font-weight:700"><td colspan="2">Total</td><td style="text-align:right;color:var(--green)">${fmtVal(tot)}</td></tr>
         </tbody></table></div>`;
     })()}`;
@@ -4532,13 +4533,13 @@ function exportarRelComissaoFolha() {
   const mesR = _mesRHdoPeriodo();
   if (!mesR) { alert('Filtre a Comissão por 1 mês e 1 ano no Período antes de gerar o PDF.'); return; }
   const rel = funcionariosRH.filter(f => f.ativo !== false)
-    .map(f => { const r = (folhaRH[mesR] && folhaRH[mesR][f.id]) || {}; const com = +(r.comissao || 0); const cup = +(r.comissaoCupom || 0); return { nome: f.nome || '', empresa: f.empresa || '', com, cup, total: +(com + cup).toFixed(2) }; })
+    .map(f => { const r = (folhaRH[mesR] && folhaRH[mesR][f.id]) || {}; const com = +(r.comissao || 0); const cup = +(r.comissaoCupom || 0); return { nome: f.nome || '', empresa: f.empresa || '', com, cup, total: +com.toFixed(2) }; })
     .filter(x => x.total > 0.005).sort((a, b) => b.total - a.total);
   if (!rel.length) { alert('Nenhuma comissão lançada na folha deste mês. Use "Fechar → Folha" primeiro.'); return; }
   const tot = +(rel.reduce((s, x) => s + x.total, 0)).toFixed(2);
   const mesLbl = mesR.split('-').reverse().join('/');
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const linhas = rel.map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.empresa) || '—'}</td><td class="r">${fmtVal(x.total)}${x.cup > 0.005 ? `<div class="brk">comissão ${fmtVal(x.com)} + cupom ${fmtVal(x.cup)}</div>` : ''}</td></tr>`).join('');
+  const linhas = rel.map(x => `<tr><td>${esc(x.nome)}</td><td>${esc(x.empresa) || '—'}</td><td class="r">${fmtVal(x.total)}${x.cup > 0.005 ? `<div class="brk">inclui cupom ${fmtVal(x.cup)}</div>` : ''}</td></tr>`).join('');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Comissão ${mesLbl}</title>
     <style>body{font-family:Arial,Helvetica,sans-serif;margin:32px;color:#222}
     h1{font-size:19px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:18px}
@@ -17330,7 +17331,7 @@ function renderRH() {
     <div class="table-wrap"><table><thead><tr>
       <th>Nome</th><th style="text-align:right">Adiant. (dia 20)</th><th style="text-align:right">Sal. líquido</th><th style="text-align:right">Descontos −</th><th style="text-align:right">Comissão</th><th style="text-align:right">DSR</th><th style="text-align:right">Férias</th><th style="text-align:right">VT</th><th style="text-align:right">Extras</th><th>Categ. extras</th><th style="text-align:right">TOTAL (dia 05)</th>
     </tr></thead><tbody>
-    ${ativos.map(f => { const r = _fRow(mesAtual, f.id); const comAuto = comissaoMesRH(f.nome, mesAtual); const com = r.comissao != null ? r.comissao : comAuto; const dsrEst = dsrEstimadoRH(com, mesAtual, _rhFeriados); const dpF = descPedDe(f.id); const tot = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF) + com + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0) + (+r.comissaoCupom || 0)).toFixed(2);
+    ${ativos.map(f => { const r = _fRow(mesAtual, f.id); const comAuto = comissaoMesRH(f.nome, mesAtual); const com = r.comissao != null ? r.comissao : comAuto; const dsrEst = dsrEstimadoRH(com, mesAtual, _rhFeriados); const dpF = descPedDe(f.id); const tot = +(((+r.salLiq || 0) - (+r.descontos || 0) - dpF) + com + (+r.dsr || 0) + (+r.ferias || 0) + (+r.vt || 0) + (+r.extras || 0)).toFixed(2); // cupom NÃO soma aqui: já está incluído na comissão (r.comissao)
       const inp = (campo, val) => `<input class="inline-input" style="width:80px;text-align:right" value="${val ? (+val).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="0,00" onchange="updateFolhaRH('${mesAtual}','${f.id}','${campo}',this.value)">`;
       const _dt = _diasTrabRH(f.admissao, mesAtual); // admissão no meio do mês → dias trabalhados
       const _prop = _dt ? _salProporcionalRH(f.salario, f.admissao, mesAtual) : null;
@@ -17339,7 +17340,7 @@ function renderRH() {
         <td style="text-align:right">${inp('adiant', r.adiant)}</td>
         <td style="text-align:right">${inp('salLiq', r.salLiq)}${(_prop != null) ? `<div style="font-size:9px;color:var(--muted)" title="Salário do cadastro (${fmtVal(+f.salario||0)}) ÷ ${_dt.diasMes} dias × ${_dt.dias} trabalhados. Confira com o líquido do contador.">proporc. ${fmtVal(_prop)}</div>` : ''}</td>
         <td style="text-align:right">${inp('descontos', r.descontos)}</td>
-        <td style="text-align:right"><input class="inline-input" style="width:84px;text-align:right" value="${r.comissao != null ? (+r.comissao).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="${comAuto ? comAuto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}" title="Vazio = usa a comissão da aba 💸 Comissão (${fmtVal(comAuto)})" onchange="updateFolhaRH('${mesAtual}','${f.id}','comissao',this.value)">${(+r.comissaoCupom||0)>0?`<div style="font-size:9px;color:#1b7a3d" title="Comissão por cupom (indicação), lançada da aba 💸 Comissão. Paga em linha separada.">🎟️ + cupom ${fmtVal(+r.comissaoCupom)}</div>`:''}</td>
+        <td style="text-align:right"><input class="inline-input" style="width:84px;text-align:right" value="${r.comissao != null ? (+r.comissao).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}" placeholder="${comAuto ? comAuto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00'}" title="Vazio = usa a comissão da aba 💸 Comissão (${fmtVal(comAuto)})" onchange="updateFolhaRH('${mesAtual}','${f.id}','comissao',this.value)">${(+r.comissaoCupom||0)>0?`<div style="font-size:9px;color:#1b7a3d" title="Comissão por cupom (indicação): JÁ está incluída no valor da comissão acima. Mostrado só como detalhe — não soma de novo no total.">🎟️ inclui cupom ${fmtVal(+r.comissaoCupom)}</div>`:''}</td>
         <td style="text-align:right">${inp('dsr', r.dsr)}<div style="font-size:9px;color:var(--muted)" title="DSR estimado = comissão ÷ dias úteis × (domingos + feriados)">est. ${fmtVal(dsrEst)}</div></td>
         <td style="text-align:right">${inp('ferias', r.ferias)}</td>
         <td style="text-align:right">${inp('vt', r.vt)}${r.vtDias ? `<div style="font-size:9px;color:var(--muted)" title="Dias presenciais × VT/dia do cadastro">${r.vtDias} dia(s) × ${fmtVal(+f.vtDia || 0)}</div>` : ''}</td>
@@ -17788,7 +17789,8 @@ function gerarFolhaMes(soParte) {
     // se vazio, a comissão que vem da aba Comissão por nome (comissaoMesRH).
     const _comF = (r.comissao != null) ? +r.comissao : comissaoMesRH(f.nome, mes);
     upsert('folhaCom|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Comissão ' + mm, categoria: 'COMISSÃO', observacao: 'Folha ' + mm + ' — comissão', vencimento: venc05, valor: +((+_comF) || 0).toFixed(2) }));
-    upsert('folhaCup|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Comissão por cupom ' + mm, categoria: 'COMISSÃO', observacao: 'Folha ' + mm + ' — comissão por cupom (indicação)', vencimento: venc05, valor: +(+r.comissaoCupom || 0).toFixed(2) }));
+    // Cupom agora está DENTRO da comissão (não é mais linha à parte). Valor 0 remove qualquer 'Comissão por cupom' antiga ainda não paga, sem duplicar o pagamento.
+    upsert('folhaCup|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Comissão por cupom ' + mm, categoria: 'COMISSÃO', observacao: 'Folha ' + mm + ' — cupom já incluído na comissão', vencimento: venc05, valor: 0 }));
     upsert('folhaD|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'DSR ' + mm, categoria: 'COMISSÃO', observacao: 'Folha ' + mm + ' — DSR sobre comissão', vencimento: venc05, valor: +(+r.dsr || 0).toFixed(2) }));
     upsert('folhaF|' + f.id + '|' + mes, Object.assign({}, base, { descricao: 'Férias ' + mm, categoria: 'FÉRIAS', observacao: 'Folha ' + mm + ' — férias', vencimento: venc05, valor: +(+r.ferias || 0).toFixed(2) }));
     upsert('folhaV|' + f.id + '|' + mes, Object.assign({}, base, { competencia: mesSeg, descricao: 'Vale transporte ' + mm, categoria: 'VALE TRANSPORTE', observacao: 'Folha ' + mm + ' — VT', vencimento: venc05, valor: +(+r.vt || 0).toFixed(2) }));
