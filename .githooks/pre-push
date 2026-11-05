@@ -1,0 +1,15 @@
+#!/bin/sh
+# Gate automático: roda os testes ANTES de todo push e BLOQUEIA se reprovar.
+# Ativado por: git config core.hooksPath .githooks
+echo "→ Rodando o gate de testes (Playwright) antes do push..."
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT/tests" || { echo "⚠ pasta tests/ não encontrada"; exit 1; }
+npm run gate --silent
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ Gate REPROVOU — push BLOQUEADO."
+  echo "   Rode 'cd tests && npm run gate' para ver o que quebrou e corrija antes de publicar."
+  exit 1
+fi
+echo "✅ Gate passou — seguindo com o push."
+exit 0

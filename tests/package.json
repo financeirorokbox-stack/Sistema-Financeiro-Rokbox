@@ -1,0 +1,13 @@
+{
+  "name": "rokbox-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "gate": "playwright test --config=playwright.config.cjs",
+    "test": "playwright test --config=playwright.config.cjs",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0"
+  }
+}

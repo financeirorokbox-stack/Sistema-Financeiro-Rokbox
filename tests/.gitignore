@@ -1,0 +1,8 @@
+# dados reais (cópia local só pro teste) — NUNCA sobem pro GitHub
+.data/
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.last-run.json
+install*.log

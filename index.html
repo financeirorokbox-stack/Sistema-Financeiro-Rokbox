@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v775/10-828';
+const APP_VERSION = 'v776/10-829';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10873,6 +10873,30 @@ function parseOFX(text) {
   });
   return out;
 }
+// Dedup à prova de RE-UPLOAD por CONTEÚDO (NÃO pelo id do banco: o Bradesco troca o FITID do mesmo
+// lançamento a cada download — dia em andamento × dia fechado). Identidade = BANCO + DIA + VALOR +
+// DESCRIÇÃO normalizada, com QUANTIDADE por dia: se o arquivo tem N iguais e o sistema já tem M,
+// entram só N−M. Preserva lançamentos iguais legítimos (ex.: várias tarifas de R$1 no mesmo dia),
+// nunca duplica no re-upload e NUNCA apaga/altera o que já está gravado (só acrescenta). O DIA vem do
+// diaKey() (normaliza Date e texto salvo igual — era aí que o dedup antigo falhava). Devolve {add, jaTinha}.
+function dedupInserirExtrato(novas, banco) {
+  const descNorm = m => String(m || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  const chave = (bco, t) => (bco || '') + '|' + (diaKey(t.data) || '') + '|' + (+t.valor || 0).toFixed(2) + '|' + descNorm(t.memo);
+  const existe = {};
+  extratoBancario.forEach(t => { const k = chave(t.banco, t); existe[k] = (existe[k] || 0) + 1; });
+  const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
+  let add = 0, jaTinha = 0;
+  (novas || []).forEach(t => {
+    const k = chave(banco, t); // usa o banco escolhido (t.banco só é setado quando o lançamento entra)
+    if (existe[k] > 0) { existe[k]--; jaTinha++; return; } // já existe um igual nesse dia → re-upload, ignora
+    let id = String(t.id), n = 1;
+    while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); } // id interno único (os vínculos usam t.id; o _uid é a identidade imutável)
+    t.id = id; t.banco = banco; idsUsados.add(id);
+    extratoBancario.push(t);
+    add++;
+  });
+  return { add, jaTinha };
+}
 // Lê o SALDO REAL do banco no OFX (tag <LEDGERBAL>): o saldo que o próprio banco reporta no fim do extrato.
 // Retorna { valor, data } ou null. A data (DTASOF) às vezes vem zerada (ex.: Bradesco 00000000) -> data:null.
 function parseOFXSaldoFinal(text) {
@@ -11427,48 +11451,10 @@ function renderExtrato() {
         alert('⚠ Upload cancelado: é obrigatório informar o BANCO do extrato.\n\nCadastre o banco em Cadastro → Bancos (ou digite o nome quando o sistema perguntar) e suba o arquivo novamente.\n\nNenhum lançamento foi adicionado.');
         return;
       }
-      // ACUMULA sem duplicar — POR BANCO (FITIDs do Itaú colidem com outros bancos).
-      // Dedup à prova de RE-UPLOAD, SEM apagar lançamentos iguais legítimos:
-      // - TEM FITID (id do banco) → casa SÓ por FITID-base (id sem o sufixo _N). Duas transações reais
-      //   NUNCA têm o mesmo FITID, então dois lançamentos iguais no mesmo dia (2 tarifas, 2 PIX iguais) ENTRAM os dois.
-      // - SEM FITID (ofx-N) → casa por CONTEÚDO (data+valor+texto), única opção possível.
-      // Duplicata SÓ quando FITID-base E CONTEÚDO batem juntos. Motivo: o FITID do Itaú é data+posição
-      // (ex.: 20260630001), NÃO é fixo por transação — então sozinho ele "falsa-pula" créditos legítimos.
-      // E duas transações iguais no mesmo dia têm FITID diferente → as duas entram. Nunca perde lançamento.
-      const fitidBase = t => (t.id && !String(t.id).startsWith('ofx-')) ? String(t.id).split('_')[0] : '';
-      // NÃO usa o texto/memo na chave: o Itaú MUDA a "escrita" a cada exportação, e isso fazia o mesmo lançamento
-      // entrar de novo (com _1) no re-upload diário. Casa só por data + valor (a ORDEM/quantidade do mesmo dia é
-      // tratada pelo multiset contConta abaixo, que preserva 2 lançamentos iguais legítimos e barra a cópia repetida).
-      const conteudo = t => [t.data && t.data.getTime ? t.data.getTime() : t.data, t.valor].join('|');
-      const chaveDedup = t => fitidBase(t) + '§' + conteudo(t);
-      const porChave = {};
-      extratoBancario.forEach(t => { porChave[(t.banco || '') + '||' + chaveDedup(t)] = t; });
-      // Multiset por CONTEÚDO (banco+data+valor+texto): quantos JÁ existem de cada. Isto protege
-      // contra re-upload quando o FITID do Itaú é POSICIONAL (muda a cada download): mesmo o FITID
-      // sendo diferente, se o conteúdo idêntico já existe na mesma quantidade, NÃO adiciona de novo.
-      // E preserva duplicatas legítimas: um arquivo com 2 PIX iguais no mesmo dia entra os 2 na 1ª vez
-      // (existiam 0); no re-upload (existem 2) não entra nenhum. Nunca perde nem duplica.
-      const contConta = {};
-      extratoBancario.forEach(t => { const k = (t.banco || '') + '||' + conteudo(t); contConta[k] = (contConta[k] || 0) + 1; });
-      const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
-      let add = 0;
-      novas.forEach(t => {
-        const kc = banco + '||' + conteudo(t);
-        const existe = porChave[banco + '||' + chaveDedup(t)];
-        if (existe) { if (banco && !existe.banco) existe.banco = banco; if (contConta[kc] > 0) contConta[kc]--; return; } // mesmo FITID E conteúdo → já existe
-        // Sem match de FITID, mas o conteúdo idêntico já existe (FITID mudou no novo download) → é o mesmo lançamento, pula
-        if (contConta[kc] > 0) { contConta[kc]--; return; }
-        // Garante id único (evita colisão de FITID posicional / 'ofx-N', que quebraria os vínculos)
-        let id = String(t.id);
-        let n = 1;
-        while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); }
-        t.id = id;
-        t.banco = banco;
-        idsUsados.add(id);
-        porChave[banco + '||' + chaveDedup(t)] = t;
-        extratoBancario.push(t);
-        add++;
-      });
+      // Dedup por CONTEÚDO (banco + dia + valor + descrição), com quantidade por dia — ver dedupInserirExtrato.
+      // NÃO confia no FITID (o Bradesco troca a cada download), não apaga/altera nada já gravado.
+      const _res = dedupInserirExtrato(novas, banco);
+      const add = _res.add, jaTinha = _res.jaTinha;
       saveData('extratoBancario', extratoBancario);
       _healConciliacaoLinks(); // RE-AMARRA vínculos órfãos (ids do FITID mudam no re-upload) — antes se perdiam sozinhos
       syncExtratoToRecebimentos();
@@ -11491,12 +11477,12 @@ function renderExtrato() {
       }
       renderExtrato();
       const stEl = document.getElementById('status-ext');
-      if (stEl) stEl.textContent = '✓ ' + extratoBancario.length + ' lançamentos (+' + add + ' novos)';
+      if (stEl) stEl.textContent = '✓ ' + extratoBancario.length + ' lançamentos (+' + add + ' novos, ' + jaTinha + ' já existiam)';
       const cred = novas.filter(t => t.valor > 0).length, deb = novas.filter(t => t.valor < 0).length;
       const autoLinha = (auto.debitos || auto.repasses)
         ? `\n\n⚡ Conciliado automaticamente: ${auto.debitos} débito(s) + ${auto.repasses} repasse(s).`
         : `\n\n⚡ Nada bateu automático (valores sem correspondência única).`;
-      alert(`✓ Extrato "${file.name}" lido!\nBanco: ${banco || '(sem banco)'}\nTransações no arquivo: ${novas.length} (${cred} créditos, ${deb} débitos)\nNovas adicionadas: ${add}${add < novas.length ? ' (o resto já existia)' : ''}` +
+      alert(`✓ Extrato "${file.name}" lido!\nBanco: ${banco || '(sem banco)'}\nTransações no arquivo: ${novas.length} (${cred} créditos, ${deb} débitos)\nNovos adicionados: ${add}\nJá existiam (ignorados): ${jaTinha}` +
         autoLinha + sldLinha +
         `\n📌 Faltam ${pend} lançamento(s) de ${banco} pra conciliar manualmente (Conciliação Bancária).`);
     };
