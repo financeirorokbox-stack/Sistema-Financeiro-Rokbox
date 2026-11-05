@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v771/10-824';
+const APP_VERSION = 'v772/10-825';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18628,15 +18628,53 @@ async function _detectarAjustesVendasFechadas() {
   ajustesMesFechado = nova;
   if (mudou) { try { await saveData('ajustesMesFechado', ajustesMesFechado); } catch (e) {} }
 }
-async function _blingPollRico() {                 // percebe quando o Edge atualizou o rico (atualizado_em) e aplica na hora
-  try { const a = await _blingRicoAt(); if ((a[1] && a[1] !== _blingRicoAtAplicado[1]) || (a[2] && a[2] !== _blingRicoAtAplicado[2])) await _sincronizarBlingAuto(); } catch (e) {}
+// idle-gate do Bling (igual ao Power BI): o sync AUTOMÁTICO só roda com o Gestão PARADO (sem clique/tecla há ~12s),
+// NUNCA no meio de uma ação. Se você ainda está mexendo, ADIA pra quando parar. O botão "Sincronizar agora" não passa por aqui.
+function _blingAutoIdle() {
+  if (_blingAutoBusy) return;                                                                 // já rodando
+  if ((Date.now() - _lastInteract) < _PBI_IDLE_MS) { setTimeout(_blingAutoIdle, _PBI_IDLE_MS); return; } // mexendo → adia
+  _sincronizarBlingAuto();                                                                    // parado → aplica em 2º plano
+}
+async function _blingPollRico() {                 // percebe quando o Edge atualizou o rico (atualizado_em) e aplica QUANDO O GESTÃO PARAR
+  try { const a = await _blingRicoAt(); if ((a[1] && a[1] !== _blingRicoAtAplicado[1]) || (a[2] && a[2] !== _blingRicoAtAplicado[2])) _blingAutoIdle(); } catch (e) {}
 }
 let _blingTimersOn = false;
 function _ligarSyncBlingAuto() {
   if (_blingTimersOn) return; _blingTimersOn = true;
-  setInterval(() => { _sincronizarBlingAuto(); }, 30 * 60 * 1000);  // A: re-aplica a cada 30 min
-  setInterval(() => { _blingPollRico(); }, 5 * 60 * 1000);          // A: percebe mudança do rico a cada 5 min
+  setInterval(() => { _blingAutoIdle(); }, 30 * 60 * 1000);  // A: re-aplica a cada 30 min (só com o Gestão parado)
+  setInterval(() => { _blingPollRico(); }, 5 * 60 * 1000);   // A: percebe mudança do rico a cada 5 min (aplica quando parar)
 }
+// ── Medição de performance (perf): tempo e nº de chamadas das operações pesadas, pra achar o que trava. ──
+// No Gestão: abra o Console (F12 → Console) e digite  perf()  pra ver a tabela, ou  perfReset()  pra zerar e medir alguns minutos.
+const _perfAgg = {};
+function _perfRec(nome, ms) { const p = _perfAgg[nome] || (_perfAgg[nome] = { n: 0, ms: 0, max: 0, ult: 0 }); p.n++; p.ms += ms; if (ms > p.max) p.max = ms; p.ult = Date.now(); }
+function perf() {
+  const linhas = Object.keys(_perfAgg).map(k => { const p = _perfAgg[k]; return { 'operação': k, 'vezes': p.n, 'total (ms)': +p.ms.toFixed(0), 'média (ms)': +(p.ms / p.n).toFixed(1), 'pior (ms)': +p.max.toFixed(0), 'última': new Date(p.ult).toLocaleTimeString('pt-BR') }; });
+  linhas.sort((a, b) => b['total (ms)'] - a['total (ms)']);
+  try { console.table(linhas); } catch (e) { console.log(linhas); }
+  console.log('perfReset() zera a contagem. O aviso de 2 telas (BroadcastChannel) é um ping leve a cada 5s — não medido por ser insignificante.');
+  return linhas;
+}
+function perfReset() { Object.keys(_perfAgg).forEach(k => delete _perfAgg[k]); console.log('perf zerado — use o Gestão alguns minutos e rode perf().'); }
+try { window.perf = perf; window.perfReset = perfReset; window._perfAgg = _perfAgg; } catch (e) {}
+(function _perfLigar() {
+  const A = (nome, fn) => (typeof fn === 'function') ? async function () { const t = performance.now(); try { return await fn.apply(this, arguments); } finally { _perfRec(nome, performance.now() - t); } } : fn;
+  const S = (nome, fn) => (typeof fn === 'function') ? function () { const t = performance.now(); try { return fn.apply(this, arguments); } finally { _perfRec(nome, performance.now() - t); } } : fn;
+  try { saveData = A('gravação (saveData + concorrência)', saveData); } catch (e) {}
+  try { _merge3 = S('merge de listas grandes', _merge3); } catch (e) {}
+  try { _syncPowerBI = A('Power BI (sync)', _syncPowerBI); } catch (e) {}
+  try { _sincronizarBlingAuto = A('Bling sync (aplicar)', _sincronizarBlingAuto); } catch (e) {}
+  try { _blingPollRico = A('Bling poll (5 min)', _blingPollRico); } catch (e) {}
+  try { renderPagar = S('re-render Contas a Pagar', renderPagar); } catch (e) {}
+  try { renderContas = S('re-render Contas a Receber', renderContas); } catch (e) {}
+  try { renderVendas = S('re-render Vendas', renderVendas); } catch (e) {}
+  try { renderConc = S('re-render Conciliação', renderConc); } catch (e) {}
+  try { renderRecebimentos = S('re-render Recebimentos', renderRecebimentos); } catch (e) {}
+  try { renderComissao = S('re-render Comissão', renderComissao); } catch (e) {}
+  try { renderRH = S('re-render Folha/RH', renderRH); } catch (e) {}
+  try { renderBanco = S('re-render Banco', renderBanco); } catch (e) {}
+  try { renderFluxo = S('re-render Fluxo', renderFluxo); } catch (e) {}
+})();
 async function sincronizarBlingAgora(btn) {       // B: botão "🔄 Sincronizar Bling agora" (tela de Vendas)
   const t0 = btn ? btn.innerHTML : ''; if (btn) { btn.disabled = true; btn.innerHTML = '🔄 Sincronizando…'; }
   let n = 0, erro = ''; try { n = await _sincronizarBlingAuto(); } catch (e) { erro = (e && e.message) || String(e); }
