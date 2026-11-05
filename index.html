@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v773/10-826';
+const APP_VERSION = 'v774/10-827';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -578,7 +578,7 @@ function rowId(key) {
   return h;
 }
 
-async function sbFetch(method, body = null, extraPath = '', sbExtra = null) {
+async function sbFetch(method, body = null, extraPath = '') {
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${extraPath}`;
   // Etapa 1 (segurança): SEM sessão não cai mais na anon — exige login (a anon vai fechar no banco).
   const _tok = await _sbToken();
@@ -594,7 +594,6 @@ async function sbFetch(method, body = null, extraPath = '', sbExtra = null) {
     }
   };
   if (body) opts.body = JSON.stringify(body);
-  if (sbExtra && sbExtra.keepalive) opts.keepalive = true; // p/ gravação que precisa sobreviver ao fechar/recarregar
   const res = await fetch(url, opts);
   if (!res.ok) {
     const err = await res.text();
@@ -708,33 +707,7 @@ function _merge3(key, ours, theirs, base) {
   return { merged, conflitos };
 }
 function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
-// ── Preferências de TELA (filtros/visão, por dispositivo): dateFilters, vendasFilters. ──
-// Trocar filtro NÃO é mudança de dado: não pode invalidar os caches de performance (senão a tela
-// recalcula tudo e trava), não passa por concorrência (filtro não dá conflito) e não precisa esperar
-// a nuvem. Grava LOCAL na hora (sobrevive ao F5 neste aparelho) e empurra pra nuvem com atraso
-// (debounce) — ao clicar por vários meses seguidos, só o último estado sobe. NÃO dispara Power BI/Bling.
-const _VIEW_KEYS = new Set(['dateFilters', 'vendasFilters']);
-const _viewTimers = {};
-const _viewPending = {};
-const _VIEW_DEBOUNCE_MS = 1500;
-function _pushViewPref(key, keepalive) {
-  const str = _viewPending[key]; if (str == null) return Promise.resolve();
-  const at = new Date().toISOString();
-  return sbFetch('POST', { id: rowId(key), device_id: getDeviceId(), chave: key, valor: str, atualizado_em: at }, '', keepalive ? { keepalive: true } : null)
-    .then(() => { _verKey[key] = at; delete _viewPending[key]; })
-    .catch(e => { console.warn('[view] gravação do filtro na nuvem adiada falhou (fica salvo local):', key, (e && e.message) || e); });
-}
-function _saveViewPref(key, data) {
-  const str = JSON.stringify(data);
-  _viewPending[key] = str;
-  try { _setLocalSeguro(key, str); } catch (e) {}
-  if (_viewTimers[key]) clearTimeout(_viewTimers[key]);
-  _viewTimers[key] = setTimeout(() => { _viewTimers[key] = null; _pushViewPref(key, false); }, _VIEW_DEBOUNCE_MS);
-  return true;
-}
-function _flushViewPrefs() { Object.keys(_viewTimers).forEach(key => { if (_viewTimers[key]) { clearTimeout(_viewTimers[key]); _viewTimers[key] = null; try { _pushViewPref(key, true); } catch (e) {} } }); }
 async function saveData(key, data) {
-  if (_VIEW_KEYS.has(key)) return _saveViewPref(key, data); // filtro/visão de tela: caminho leve (sem recalcular dados, sem concorrência, nuvem com atraso)
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   const str = JSON.stringify(data);
   let writeStr = str, avisoMsg = '';
@@ -821,7 +794,6 @@ function _atualizarAvisoSync() {
 }
 // Bloqueia fechar/recarregar enquanto houver pendência (não deixa sair em silêncio).
 window.addEventListener('beforeunload', function (e) {
-  try { _flushViewPrefs(); } catch (ex) {} // empurra filtro pendente antes de sair (keepalive sobrevive ao unload)
   if (Object.keys(_pendentesSync).length) { e.preventDefault(); e.returnValue = 'Há alterações que ainda NÃO foram salvas na nuvem. Se sair agora, elas podem se perder.'; return e.returnValue; }
 });
 window.addEventListener('DOMContentLoaded', function () { try { _atualizarAvisoSync(); } catch (e) {} });
@@ -2889,7 +2861,7 @@ function setDateFilterRender(fn) {
 function setDfMes(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function setDfAno(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function setDfDia(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.dia = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
-function limparDfMini(key) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); _dfLimpaTudo(df); _salvarDfLimpo(); if (typeof window[key] === 'function') window[key](); }
+function limparDfMini(key) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = []; df.ano = []; df.dia = []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function dateMiniBar(key) {
   const df = dateFilters[key] || { ano: [], mes: [], dia: [] };
   const anosData = [...new Set((typeof pedidos !== 'undefined' ? pedidos : []).map(p => { const d = p.data instanceof Date ? p.data : (p.data ? new Date(p.data) : null); return d && !isNaN(d) ? d.getFullYear() : null; }).filter(Boolean))];
@@ -2969,30 +2941,9 @@ function dfToggleVal(field, value, checked) {
 }
 function dfClear() {
   // Limpa em LUGAR (mantém o vínculo com dateFilters[abaAtiva]).
-  _dfLimpaTudo(dateFilter);
-  _salvarDfLimpo();
+  dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; dateFilter.de = ''; dateFilter.ate = '';
+  saveData('dateFilters', dateFilters);
   if (_dfRenderFn) _dfRenderFn();
-}
-// Zera TODO o filtro de data da aba: ano/mês/dia E o intervalo De/Até. Sem isso, um "de"/"até" preso
-// (que o "limpar" antigo não tocava) mantinha "Filtros 1" e podia esconder todos os pedidos.
-function _dfLimpaTudo(df) { if (!df) return; df.ano = []; df.mes = []; df.dia = []; df.de = ''; df.ate = ''; }
-// Grava o filtro limpo e SOBE NA HORA (sem esperar o debounce de 1,5s) + já está no localStorage:
-// assim o filtro não "volta preso" se der F5 logo depois de limpar.
-function _salvarDfLimpo() { try { saveData('dateFilters', dateFilters); } catch (e) {} try { _flushViewPrefs(); } catch (e) {} }
-// SÓ o Fluxo e o Contas a Pagar usam o intervalo De/Até. Um "de"/"até" perdido em qualquer outra aba
-// (ex.: Vendas) é lixo que pode esconder TODOS os pedidos e o "limpar" antigo não removia. No carregamento,
-// tira esse resíduo das abas que não usam intervalo — assim o filtro preso se resolve sozinho no F5.
-const _DF_USA_INTERVALO = new Set(['renderFluxo', 'renderPagar']);
-function _sanearDateFilters() {
-  try {
-    let mud = false;
-    Object.keys(dateFilters || {}).forEach(k => {
-      const df = dateFilters[k]; if (!df || _DF_USA_INTERVALO.has(k)) return;
-      if (df.de) { df.de = ''; mud = true; }
-      if (df.ate) { df.ate = ''; mud = true; }
-    });
-    if (mud) { try { saveData('dateFilters', dateFilters); } catch (e) {} } // persiste o saneamento (local + nuvem)
-  } catch (e) {}
 }
 // Intervalo de datas (De/Até) — usado no Fluxo de Caixa. Guarda em dateFilter.de/.ate (ISO 'AAAA-MM-DD').
 function dfSetDe(v) { dateFilter.de = v || ''; saveData('dateFilters', dateFilters); if (_dfRenderFn) _dfRenderFn(); }
@@ -3865,7 +3816,7 @@ function limparFiltrosContas() {
   ['fc-cat','fc-emp','fc-op','fc-st','fc-conc','fc-q'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   const dp = document.getElementById('fc-datapor'); if (dp) dp.value = 'vencimento';
   buscaPersist.contas = '';
-  if (dateFilter) { _dfLimpaTudo(dateFilter); _salvarDfLimpo(); }
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
   renderContas();
 }
 // Limpa todos os filtros do Contas a Pagar.
@@ -3875,14 +3826,14 @@ function limparFiltrosPagar() {
   buscaPersist.pagar = '';
   // Limpa TAMBÉM o intervalo De/até (o período dos chips/range do Contas a Pagar); antes ele ficava
   // segurando a lista mesmo depois de clicar "✕ limpar" (parecia que o botão não funcionava).
-  if (dateFilter) { _dfLimpaTudo(dateFilter); _salvarDfLimpo(); }
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; dateFilter.de = ''; dateFilter.ate = ''; saveData('dateFilters', dateFilters); }
   renderPagar();
 }
 // Limpa data + uma lista de selects/inputs + uma chave de busca, e re-renderiza. Genérico p/ as telas.
 function limparFiltrosGen(ids, buscaKey, render) {
   (ids||[]).forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   if (buscaKey) buscaPersist[buscaKey] = '';
-  if (dateFilter) { _dfLimpaTudo(dateFilter); _salvarDfLimpo(); }
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
   if (typeof render === 'function') render();
 }
 function limparFiltrosExtrato() { limparFiltrosGen(['ext-banco','ext-emp','ext-q'], 'extrato', renderExtrato); }
@@ -3890,7 +3841,7 @@ function limparFiltrosReceb() { limparFiltrosGen(['rr-gw','rr-emp','rr-ped','rr-
 function limparFiltrosBoletos() { limparFiltrosGen(['bl-emp','bl-q'], 'boletos', renderBoletos); }
 function limparFiltrosDevolucao() { limparFiltrosGen(['dev-seg','dev-emp','dev-q'], null, renderDevolucao); }
 function limparFiltrosCobranca() { limparFiltrosGen(['cob-emp','cob-st','cob-q','cob-datapor'], null, renderCobranca); }
-function limparFiltrosBanco() { bancoConcSel = '__todos'; buscaPersist.banco = ''; if (dateFilter) { _dfLimpaTudo(dateFilter); _salvarDfLimpo(); } renderBanco(); }
+function limparFiltrosBanco() { bancoConcSel = '__todos'; buscaPersist.banco = ''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderBanco(); }
 // Seletor de Mês/Ano VISÍVEL (fora do drawer) da Conciliação Bancária — o dropdown no drawer abria cortado e não dava pra mexer.
 function setBancoMes(v){ const df = dateFilters['renderBanco'] || (dateFilters['renderBanco']={ano:[],mes:[],dia:[]}); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); renderBanco(); }
 function setBancoAno(v){ const df = dateFilters['renderBanco'] || (dateFilters['renderBanco']={ano:[],mes:[],dia:[]}); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); renderBanco(); }
@@ -3898,13 +3849,12 @@ function limparFiltrosVendas() {
   ['empresa','situacao','loja','vendedor','operacao'].forEach(f => vendasFilters[f] = []);
   buscaPersist.vendas = '';
   const bEl = document.getElementById('busca-vendas'); if (bEl) bEl.value = ''; // zera o campo na hora (o filtro lê dele)
-  if (dateFilter) { _dfLimpaTudo(dateFilter); }
+  if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); }
   saveData('vendasFilters', vendasFilters);
-  _salvarDfLimpo();
   renderVendas(); // render COMPLETO: redesenha busca + filtros + tabela (renderPedidosTable só refazia a tabela)
 }
-function limparFiltrosFluxo() { if (dateFilter) { _dfLimpaTudo(dateFilter); _salvarDfLimpo(); } renderFluxo(); }
-function limparFiltrosComissao() { const e=document.getElementById('com-vend'); if(e) e.value=''; if (dateFilter) { _dfLimpaTudo(dateFilter); _salvarDfLimpo(); } renderComissao(); }
+function limparFiltrosFluxo() { if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; dateFilter.de=''; dateFilter.ate=''; saveData('dateFilters', dateFilters); } renderFluxo(); }
+function limparFiltrosComissao() { const e=document.getElementById('com-vend'); if(e) e.value=''; if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); } renderComissao(); }
 // Seletor de Mês/Ano VISÍVEL (fora do drawer) da Comissão — o dropdown dentro do drawer abria cortado e não dava pra mexer.
 function setComissaoMes(v){ const df = dateFilters['renderComissao'] || (dateFilters['renderComissao']={ano:[],mes:[],dia:[]}); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); renderComissao(); }
 function setComissaoAno(v){ const df = dateFilters['renderComissao'] || (dateFilters['renderComissao']={ano:[],mes:[],dia:[]}); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); renderComissao(); }
@@ -18557,30 +18507,9 @@ function _blingMesmaPessoa(a, b) {
 let _blingLogBuf = [], _blingPendBuf = [], _lojaFixesMud = false, _vendFixesMud = false, _blingUnmapSeen = new Set();
 function _blingLog(e) { _blingLogBuf.push(Object.assign({ ts: new Date().toISOString(), origem: 'polling' }, e)); }
 function _blingPend(e) { _blingPendBuf.push(Object.assign({ ts: new Date().toISOString() }, e)); }
-// Log de sync do Bling: mantém só os últimos 30 dias no "vivo"; o resto vai UMA VEZ pra um arquivo privado
-// (não carrega na abertura). blingSyncLog saiu do load inicial (só carrega sob demanda, ao abrir o visualizador).
-const _BLING_LOG_DIAS = 30;
-function _blingLogCorte() { return Date.now() - _BLING_LOG_DIAS * 24 * 60 * 60 * 1000; }
-function _blingLog30(log) { const c = _blingLogCorte(); return (Array.isArray(log) ? log : []).filter(e => { const t = e && e.ts ? new Date(e.ts).getTime() : 0; return !t || t >= c; }); }
-let _blingLogArqFeito = false;
-async function _blingLogArquivarUmaVez() {
-  if (_blingLogArqFeito) return; _blingLogArqFeito = true;
-  try {
-    const log = (await loadData('blingSyncLog')) || [];
-    if (!Array.isArray(log) || !log.length) return;
-    const c = _blingLogCorte();
-    const antigos = log.filter(e => { const t = e && e.ts ? new Date(e.ts).getTime() : 0; return t && t < c; });
-    if (!antigos.length) return;                         // nada com mais de 30 dias → nada a arquivar
-    let arq = []; try { arq = (await _bkpNuvemLer('blingSyncLogArquivo')) || []; } catch (e) {}
-    if (!Array.isArray(arq)) arq = [];
-    await _bkpNuvemGravar('blingSyncLogArquivo', arq.concat(antigos)); // privado: não entra no load da abertura
-    await saveData('blingSyncLog', _blingLog30(log));                  // vivo fica só com os últimos 30 dias
-    console.info('[blingLog] arquivei ' + antigos.length + ' registro(s) antigos (privado); vivo com ' + (log.length - antigos.length) + ' (30 dias).');
-  } catch (e) { console.warn('[blingLog] arquivar falhou:', e && e.message); }
-}
 async function _flushBlingLogs() {
   try {
-    if (_blingLogBuf.length) { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log = log.concat(_blingLogBuf); log = _blingLog30(log); await saveData('blingSyncLog', log); }
+    if (_blingLogBuf.length) { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log = log.concat(_blingLogBuf); if (log.length > 3000) log = log.slice(log.length - 3000); await saveData('blingSyncLog', log); }
     if (_blingPendBuf.length) { let p = (await loadData('blingPendencias')) || []; if (!Array.isArray(p)) p = []; const _ex = new Set(p.map(x => x.chave).filter(Boolean)); const _nv = _blingPendBuf.filter(x => !x.chave || !_ex.has(x.chave)); if (_nv.length) { p = p.concat(_nv); if (p.length > 800) p = p.slice(p.length - 800); await saveData('blingPendencias', p); } } // dedup por chave (ex.: loja não-mapeada não repete)
     if (_lojaFixesMud) { await saveData('lojaFixes', lojaFixes); _lojaFixesMud = false; } // Bling venceu correção manual de loja → persiste a remoção do override
     if (_vendFixesMud) { await saveData('vendedorFixes', vendedorFixes); _vendFixesMud = false; }
@@ -18876,7 +18805,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -18924,7 +18853,7 @@ async function carregarTudo() {
     else if (k==='formaManualMap') formaManualMap = v;
     else if (k==='formaOverrideMap') formaOverrideMap = v;
     else if (k==='difAceita') difAceita = v;
-    else if (k==='dateFilters') { dateFilters = v || {}; _sanearDateFilters(); }
+    else if (k==='dateFilters') { dateFilters = v || {}; }
     else if (k==='dateFilter') { if (v) dateFilters._legado = v; } // compat: filtro antigo único
     else if (k==='debitoLinks') debitoLinks = v;
     else if (k==='extratoContaBanco') extratoContaBanco = v;
@@ -18984,7 +18913,6 @@ async function carregarTudo() {
   try { const nB = await _autoImportBling(); if (nB) console.log('[Bling] ' + nB + ' venda(s) entraram no sistema automaticamente'); } catch (e) { console.warn('auto-import Bling:', e.message); } // vendas novas da Bling entram sozinhas (dedup por número)
   try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {} // marca a versão do rico já aplicada; os timers abaixo re-aplicam sozinhos quando mudar
   try { _ligarSyncBlingAuto(); } catch (e) {} // A: timer 30 min + poll do rico a cada 5 min (aplica sem F5)
-  try { setTimeout(() => { _blingLogArquivarUmaVez(); }, 20000); } catch (e) {} // arquiva log antigo do Bling (uma vez, 2º plano, não atrapalha a abertura)
   try { _ligarPowerBIAuto(); _agendarPowerBI(4000); } catch (e) {} // Atualizar Power BI: ao abrir (em ~4s) + de hora em hora (2º plano)
   initLojaCadastro();
   try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
@@ -19545,7 +19473,7 @@ const AF = (function () {
     else if (campo === 'frete') p.frete = +para || 0;
     else { alert('Campo não suportado: ' + campo); return; }
     p._editadoMao = new Date().toISOString(); // edição à mão: vira conflito de verdade se o Bling também mexer (controle de concorrência)
-    try { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log.push({ ts: new Date().toISOString(), origem: 'manual', pedido, conta, campo, de, para, resultado: 'aplicado', motivo: 'aplicado manualmente em mês fechado (botão)' }); log = _blingLog30(log); await saveData('blingSyncLog', log); } catch (e) {}
+    try { let log = (await loadData('blingSyncLog')) || []; if (!Array.isArray(log)) log = []; log.push({ ts: new Date().toISOString(), origem: 'manual', pedido, conta, campo, de, para, resultado: 'aplicado', motivo: 'aplicado manualmente em mês fechado (botão)' }); if (log.length > 3000) log = log.slice(log.length - 3000); await saveData('blingSyncLog', log); } catch (e) {}
     await saveData('pedidos', pedidos);
     if (btn) { btn.textContent = '✓ aplicado'; btn.disabled = true; btn.style.opacity = '.6'; btn.style.cursor = 'default'; }
     try { if (typeof renderContas === 'function') renderContas(); } catch (e) {}
