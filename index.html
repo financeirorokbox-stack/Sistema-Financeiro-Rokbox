@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v776/10-829';
+const APP_VERSION = 'v777/10-830';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2858,10 +2858,15 @@ function setDateFilterRender(fn) {
 // dateMiniBar(key) devolve o HTML pra colar logo após o filtrosBar de cada tela.
 // key = nome da função de render (mesma chave de dateFilters). Aditivo: o drawer continua
 // pro multi-mês/dia; a mini-barra é só o atalho de 1 mês. Mesma lógica de Comissão/Banco.
-function setDfMes(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
-function setDfAno(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.ano = v ? [String(v)] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
-function setDfDia(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.dia = v ? [v] : []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
-function limparDfMini(key) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = []; df.ano = []; df.dia = []; saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+// A mini-barra (Mês/Ano/Dia) é usada por telas SEM De/Até (Vendas, Contas a Receber, Extrato...).
+// O De/Até é só do Fluxo/Contas a Pagar (barra cheia, funções dfSet*). Então, ao mexer na mini-barra,
+// LIMPAMOS qualquer de/ate preso (resíduo invisível que escondia o mês — ex.: Contas a Receber ficava
+// num intervalo de novembro e Out/2026 aparecia vazio). Isto NÃO afeta Fluxo/Pagar (eles não usam estas funções).
+function _dfLimpaInt(df) { if (df.de) df.de = ''; if (df.ate) df.ate = ''; }
+function setDfMes(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = v ? [v] : []; _dfLimpaInt(df); saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function setDfAno(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.ano = v ? [String(v)] : []; _dfLimpaInt(df); saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function setDfDia(key, v) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.dia = v ? [v] : []; _dfLimpaInt(df); saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
+function limparDfMini(key) { const df = dateFilters[key] || (dateFilters[key] = { ano: [], mes: [], dia: [] }); df.mes = []; df.ano = []; df.dia = []; _dfLimpaInt(df); saveData('dateFilters', dateFilters); if (typeof window[key] === 'function') window[key](); }
 function dateMiniBar(key) {
   const df = dateFilters[key] || { ano: [], mes: [], dia: [] };
   const anosData = [...new Set((typeof pedidos !== 'undefined' ? pedidos : []).map(p => { const d = p.data instanceof Date ? p.data : (p.data ? new Date(p.data) : null); return d && !isNaN(d) ? d.getFullYear() : null; }).filter(Boolean))];

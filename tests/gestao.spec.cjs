@@ -44,6 +44,44 @@ test('Vendas: filtro de mês filtra (Out/26 = 302.263,84 / Fat real 251.152,02; 
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
+test('Contas a Receber: De/Até preso em novembro não esconde o mês (Jun e Out mostram seus pedidos)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+
+  const r = await page.evaluate(() => {
+    const antes = JSON.parse(JSON.stringify(dateFilters.renderContas || {})); // estado real: de/ate preso em novembro
+    const leMes = (mm) => {
+      setDfMes('renderContas', mm); // a usuária escolhe o mês na mini-barra
+      renderContas();
+      const el = document.getElementById('v-contas');
+      const card = (lab) => {
+        let v = '';
+        el.querySelectorAll('.card').forEach(c => {
+          const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*\(filtro\).*/, '').trim();
+          if (l === lab) v = ((c.querySelector('.c-val') || {}).textContent || '').trim();
+        });
+        return v;
+      };
+      return { de: dateFilters.renderContas.de, total: card('Total a Receber'), aberto: card('Em Aberto'), pago: card('Pago') };
+    };
+    return { antesDe: antes.de, jun: leMes('06'), out: leMes('10') };
+  });
+
+  expect(r.antesDe).toBe('2026-11-01'); // o De/Até preso de novembro que escondia o mês
+  // Junho — contas a receber (pedidos) do mês
+  expect(r.jun.de).toBe(''); // ao escolher o mês, o intervalo preso foi limpo (fix)
+  expect(r.jun.total).toContain('222.538,93');
+  expect(r.jun.aberto).toBe('2');
+  expect(r.jun.pago).toBe('393');
+  // Outubro — contas a receber (pedidos) do mês
+  expect(r.out.total).toContain('45.979,20');
+  expect(r.out.aberto).toBe('4');
+  expect(r.out.pago).toBe('31');
+  // o filtro realmente troca de mês (não ficou preso em novembro)
+  expect(r.jun.total).not.toBe(r.out.total);
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
 test('Contas a Pagar: abre e filtra por mês sem erro', async ({ page }) => {
   const errors = trackErrors(page);
   await boot(page);
