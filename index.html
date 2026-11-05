@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v774/10-827';
+const APP_VERSION = 'v775/10-828';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18630,8 +18630,11 @@ function perf() {
 function perfReset() { Object.keys(_perfAgg).forEach(k => delete _perfAgg[k]); console.log('perf zerado — use o Gestão alguns minutos e rode perf().'); }
 try { window.perf = perf; window.perfReset = perfReset; window._perfAgg = _perfAgg; } catch (e) {}
 (function _perfLigar() {
-  const A = (nome, fn) => (typeof fn === 'function') ? async function () { const t = performance.now(); try { return await fn.apply(this, arguments); } finally { _perfRec(nome, performance.now() - t); } } : fn;
-  const S = (nome, fn) => (typeof fn === 'function') ? function () { const t = performance.now(); try { return fn.apply(this, arguments); } finally { _perfRec(nome, performance.now() - t); } } : fn;
+  // PRESERVA o .name da função original (senão o wrapper fica anônimo e quebra quem usa fn.name,
+  // ex.: setDateFilterRender, que casava a aba pelo nome e caía no bucket vazio '_').
+  const _keepName = (w, fn) => { try { Object.defineProperty(w, 'name', { value: fn.name, configurable: true }); } catch (e) {} return w; };
+  const A = (nome, fn) => (typeof fn === 'function') ? _keepName(async function () { const t = performance.now(); try { return await fn.apply(this, arguments); } finally { _perfRec(nome, performance.now() - t); } }, fn) : fn;
+  const S = (nome, fn) => (typeof fn === 'function') ? _keepName(function () { const t = performance.now(); try { return fn.apply(this, arguments); } finally { _perfRec(nome, performance.now() - t); } }, fn) : fn;
   try { saveData = A('gravação (saveData + concorrência)', saveData); } catch (e) {}
   try { _merge3 = S('merge de listas grandes', _merge3); } catch (e) {}
   try { _syncPowerBI = A('Power BI (sync)', _syncPowerBI); } catch (e) {}
