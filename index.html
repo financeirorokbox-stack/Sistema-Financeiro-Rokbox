@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v778/10-831';
+const APP_VERSION = 'v779/10-832';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -7922,12 +7922,16 @@ function estornoParaPagar(idx) {
   const ehTarifa = /tarifa/i.test(r.nome || '');
   const _cat = ehTarifa ? 'TARIFAS' : 'ESTORNO';
   if (!confirm(`Lançar ${ehTarifa ? 'a tarifa' : 'o estorno'} de ${fmtVal(valor)} (${r.nome||'cliente'}) em Contas a Pagar como DESPESA já paga (categoria ${_cat})?`)) return;
+  // Estorno de gateway liquida na data do REPASSE conciliado no banco que o abateu (igual ao recebimento),
+  // NÃO na data do lançamento. Sem repasse ligado ainda → fica "a liquidar" (pago=false, sem dataPag),
+  // pra não cair num mês errado (ex.: estorno de 30/10 abatido no TED PayPal de 03/11 liquida em novembro).
+  const _repasse = dataRepasseBanco(r) || null;
   const conta = {
     numero: '', fornecedor: r.nome || (r.gateway + (ehTarifa ? ' (tarifa)' : ' (estorno)')),
     descricao: (ehTarifa ? 'Tarifa ' : 'Estorno ') + (r.gateway || '') + (r.nped ? ' — pedido #' + r.nped : ''),
     categoria: _cat, observacao: 'Estorno lançado a partir de Recebimentos', empresa: r.empresa || '', rateio: [],
-    vencimento: r.data || null, dataPag: r.data || null,
-    valor, situacao: 'Pago', pago: true, _origemEstorno: true
+    vencimento: r.data || null, dataPag: _repasse,
+    valor, situacao: _repasse ? 'Pago' : 'Em Aberto', pago: !!_repasse, _origemEstorno: true
   };
   contasPagar.push(conta);
   r._estornoChave = chaveContaPagar(conta); // liga p/ poder desfazer

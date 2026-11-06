@@ -142,6 +142,35 @@ test('Contas a Receber: nenhum pedido de Venda/Troca some do CR (ago–nov)', as
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
+test('Estorno de gateway: liquida na data do repasse conciliado, nunca antes (estornoParaPagar)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+
+  const r = await page.evaluate(() => {
+    window.confirm = () => true; window.alert = () => {}; window.renderRecebimentos = () => {};
+    // acha um recebimento cujo repasse foi conciliado numa data DIFERENTE do dia do recebimento
+    let idx = -1, rep = null, recData = null;
+    for (let i = 0; i < recebimentosConsolidado.length; i++) {
+      const rr = recebimentosConsolidado[i]; const dr = dataRepasseBanco(rr);
+      if (dr && rr.data && (+new Date(dr) !== +new Date(rr.data))) { idx = i; rep = +new Date(dr); recData = +new Date(rr.data); break; }
+    }
+    if (idx < 0) return { semCaso: true };
+    const before = contasPagar.length;
+    estornoParaPagar(idx);
+    const c = contasPagar[contasPagar.length - 1];
+    return { added: contasPagar.length - before, dataPag: c.dataPag ? +new Date(c.dataPag) : null, pago: c.pago, origem: !!c._origemEstorno, rep, recData };
+  });
+
+  if (r.semCaso) return; // snapshot sem caso adequado — não falha
+  expect(r.added).toBe(1);
+  expect(r.origem).toBe(true);
+  expect(r.dataPag).toBe(r.rep);            // liquida na data do REPASSE conciliado
+  expect(r.dataPag).not.toBe(r.recData);    // NÃO na data do lançamento/recebimento
+  expect(r.dataPag).toBeGreaterThanOrEqual(r.recData); // nunca antes do repasse
+  expect(r.pago).toBe(true);
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
 test('Contas a Pagar: abre e filtra por mês sem erro', async ({ page }) => {
   const errors = trackErrors(page);
   await boot(page);
