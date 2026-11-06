@@ -44,41 +44,60 @@ test('Vendas: filtro de mês filtra (Out/26 = 302.263,84 / Fat real 251.152,02; 
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
-test('Contas a Receber: De/Até preso em novembro não esconde o mês (Jun e Out mostram seus pedidos)', async ({ page }) => {
+test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os pedidos (Vencimento e Liquidação)', async ({ page }) => {
   const errors = trackErrors(page);
   await boot(page);
 
   const r = await page.evaluate(() => {
-    const antes = JSON.parse(JSON.stringify(dateFilters.renderContas || {})); // estado real: de/ate preso em novembro
-    const leMes = (mm) => {
-      setDfMes('renderContas', mm); // a usuária escolhe o mês na mini-barra
-      renderContas();
-      const el = document.getElementById('v-contas');
-      const card = (lab) => {
-        let v = '';
-        el.querySelectorAll('.card').forEach(c => {
-          const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*\(filtro\).*/, '').trim();
-          if (l === lab) v = ((c.querySelector('.c-val') || {}).textContent || '').trim();
-        });
-        return v;
-      };
-      return { de: dateFilters.renderContas.de, total: card('Total a Receber'), aberto: card('Em Aberto'), pago: card('Pago') };
+    renderContas(); // garante os controles na tela
+    const antesDe = (dateFilters.renderContas || {}).de;
+    // 1) o botão REAL da tela ("✕ limpar" = limparFiltrosContas) tem que limpar o De/Até
+    limparFiltrosContas();
+    const posLimpar = JSON.parse(JSON.stringify(dateFilters.renderContas || {}));
+
+    const card = (lab) => {
+      let v = ''; const el = document.getElementById('v-contas');
+      el.querySelectorAll('.card').forEach(c => {
+        const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*\(filtro\).*/, '').trim();
+        if (l === lab) v = ((c.querySelector('.c-val') || {}).textContent || '').trim();
+      });
+      return v;
     };
-    return { antesDe: antes.de, jun: leMes('06'), out: leMes('10') };
+    const leVisao = (dp) => {
+      setDfMes('renderContas', '10'); renderContas();
+      const s = document.getElementById('fc-datapor'); if (s) s.value = dp; renderContas();
+      return { total: card('Total a Receber'), aberto: card('Em Aberto'), pago: card('Pago') };
+    };
+    const venc = leVisao('vencimento');
+    const liq = leVisao('liquidacao');
+
+    // referência: soma Venda+Troca dos pedidos de outubro (pela data do pedido)
+    const NAOAP = (typeof SITUACOES_NAO_APLICAVEL !== 'undefined') ? SITUACOES_NAO_APLICAVEL : [];
+    let vtOut = 0, nOut = 0;
+    pedidos.forEach(p => {
+      const m = String(p.data instanceof Date ? p.data.toISOString() : p.data).slice(0, 7);
+      if (m !== '2026-10') return;
+      if (NAOAP.includes((p.situacao || '').toLowerCase())) return;
+      const op = (getClassificacao(p).operacao || '').toLowerCase();
+      if (op === 'venda' || op === 'troca') { vtOut += (+p.valor || 0); nOut++; }
+    });
+    return { antesDe, limparDe: posLimpar.de, limparAte: posLimpar.ate, venc, liq, vtOut: +vtOut.toFixed(2), nOut };
   });
 
-  expect(r.antesDe).toBe('2026-11-01'); // o De/Até preso de novembro que escondia o mês
-  // Junho — contas a receber (pedidos) do mês
-  expect(r.jun.de).toBe(''); // ao escolher o mês, o intervalo preso foi limpo (fix)
-  expect(r.jun.total).toContain('222.538,93');
-  expect(r.jun.aberto).toBe('2');
-  expect(r.jun.pago).toBe('393');
-  // Outubro — contas a receber (pedidos) do mês
-  expect(r.out.total).toContain('45.979,20');
-  expect(r.out.aberto).toBe('4');
-  expect(r.out.pago).toBe('31');
-  // o filtro realmente troca de mês (não ficou preso em novembro)
-  expect(r.jun.total).not.toBe(r.out.total);
+  // 1) o botão "limpar" da tela agora limpa o De/Até preso de novembro
+  expect(r.antesDe).toBe('2026-11-01');
+  expect(r.limparDe).toBe('');
+  expect(r.limparAte).toBe('');
+  // 2) Vencimento: os pedidos de outubro aparecem (antes sumiam → 45.979,20)
+  expect(r.venc.total).toContain('284.789,53');
+  expect(r.venc.aberto).toBe('48');
+  expect(r.venc.pago).toBe('194');
+  expect(r.venc.total).not.toContain('45.979,20');
+  // o total da visão Vencimento cobre todos os Venda/Troca de outubro (nenhum some)
+  const vencNum = +r.venc.total.replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
+  expect(vencNum).toBeGreaterThanOrEqual(r.vtOut - 0.01);
+  // 3) Liquidação (recebimentos) — não muda com o fix de Vencimento
+  expect(r.liq.total).toContain('306.095,79');
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 

@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v777/10-830';
+const APP_VERSION = 'v778/10-831';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3433,7 +3433,11 @@ function _renderContasImpl(el) {
           }
         }
       }
-      linhas.push({ ped, f: { pedido: ped.id, descricao, valor: ped.valor, vencimento: null }, cat, st, venc: null, realIdx: -1, semForma: semFormaVal });
+      // CR é do Gestão, NÃO depende da Bling: pedido sem formaPagamento (nada desde ago/26) NUNCA fica
+      // sem data na visão Vencimento. Data = parcela do boleto do Gestão (acima) quando houver; senão a
+      // data do pedido. Sem isto, venc=null e passaData(null)=false fazia o pedido sumir com filtro de data.
+      // Só afeta a visão "Vencimento" (a "Liquidação" filtra pela data do recebimento, não por l.venc).
+      linhas.push({ ped, f: { pedido: ped.id, descricao, valor: ped.valor, vencimento: ped.data || null }, cat, st, venc: ped.data || null, realIdx: -1, semForma: semFormaVal });
     } else {
       formas.forEach(f => {
         // Trocar forma: override manual sobrepõe a categoria detectada
@@ -3463,7 +3467,7 @@ function _renderContasImpl(el) {
         }
 
         const realIdx = formaPagamento.indexOf(f);
-        linhas.push({ ped, f, cat: c.categoria, st, venc, realIdx });
+        linhas.push({ ped, f, cat: c.categoria, st, venc: venc || ped.data || null, realIdx }); // forma sem vencimento → data do pedido (visão Vencimento; nunca some com filtro)
       });
 
     }
@@ -3821,7 +3825,7 @@ function limparFiltrosContas() {
   ['fc-cat','fc-emp','fc-op','fc-st','fc-conc','fc-q'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   const dp = document.getElementById('fc-datapor'); if (dp) dp.value = 'vencimento';
   buscaPersist.contas = '';
-  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; dateFilter.de = ''; dateFilter.ate = ''; saveData('dateFilters', dateFilters); } // também limpa o De/Até (era o que não limpava e deixava o CR preso em novembro)
   renderContas();
 }
 // Limpa todos os filtros do Contas a Pagar.
@@ -3854,7 +3858,7 @@ function limparFiltrosVendas() {
   ['empresa','situacao','loja','vendedor','operacao'].forEach(f => vendasFilters[f] = []);
   buscaPersist.vendas = '';
   const bEl = document.getElementById('busca-vendas'); if (bEl) bEl.value = ''; // zera o campo na hora (o filtro lê dele)
-  if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; saveData('dateFilters', dateFilters); }
+  if (dateFilter) { dateFilter.ano=[]; dateFilter.mes=[]; dateFilter.dia=[]; dateFilter.de=''; dateFilter.ate=''; saveData('dateFilters', dateFilters); } // também limpa De/Até (mesmo bug latente do CR)
   saveData('vendasFilters', vendasFilters);
   renderVendas(); // render COMPLETO: redesenha busca + filtros + tabela (renderPedidosTable só refazia a tabela)
 }
