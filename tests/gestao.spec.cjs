@@ -101,6 +101,47 @@ test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
+test('Contas a Receber: nenhum pedido de Venda/Troca some do CR (ago–nov)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+
+  const r = await page.evaluate(() => {
+    const NAOAP = (typeof SITUACOES_NAO_APLICAVEL !== 'undefined') ? SITUACOES_NAO_APLICAVEL : [];
+    const mOf = p => String(p.data instanceof Date ? p.data.toISOString() : p.data).slice(0, 7);
+    const vt = {};
+    pedidos.forEach(p => {
+      if (NAOAP.includes((p.situacao || '').toLowerCase())) return;
+      const op = (getClassificacao(p).operacao || '').toLowerCase();
+      if (op !== 'venda' && op !== 'troca') return;
+      const m = mOf(p); if (!['2026-08', '2026-09', '2026-10', '2026-11'].includes(m)) return;
+      (vt[m] = vt[m] || new Set()).add(String(p.id));
+    });
+    // CR sem filtro de data (todos os pedidos)
+    dateFilters.renderContas = { ano: [], mes: [], dia: [], de: '', ate: '' };
+    renderContas();
+    const noCR = new Set();
+    document.querySelectorAll('#v-contas .table-wrap tbody tr').forEach(tr => {
+      const td = tr.querySelector('td:nth-child(2)'); // coluna "Pedido"
+      const id = td ? td.textContent.replace(/[^\d]/g, '') : '';
+      if (id) noCR.add(id);
+    });
+    const faltam = {};
+    for (const m of Object.keys(vt)) {
+      const miss = [...vt[m]].filter(id => !noCR.has(id));
+      faltam[m] = { nVT: vt[m].size, faltam: miss.length, ids: miss.slice(0, 5) };
+    }
+    return faltam;
+  });
+
+  // nenhum pedido de Venda/Troca pode faltar no CR
+  for (const m of ['2026-08', '2026-09', '2026-10', '2026-11']) {
+    expect(r[m].nVT).toBeGreaterThan(0);
+    expect(r[m].faltam, `${m} faltam no CR: ${JSON.stringify(r[m].ids)}`).toBe(0);
+  }
+  expect(r['2026-10'].nVT).toBe(211); // Out/26 = 211 pedidos Venda/Troca
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
 test('Contas a Pagar: abre e filtra por mês sem erro', async ({ page }) => {
   const errors = trackErrors(page);
   await boot(page);
