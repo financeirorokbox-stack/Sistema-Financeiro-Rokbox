@@ -153,12 +153,12 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
 
   const r = await page.evaluate(() => {
     const inM = (d, m) => { const x = d instanceof Date ? d : (d ? new Date(d) : null); return x && !isNaN(x) && (x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')) === m; };
-    const card = (lab) => { let o = { val: '', sub: '' }; document.querySelectorAll('#v-contas .card').forEach(c => { const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*[›●ⓘ].*/, '').replace(/\s*\(filtro\).*/, '').trim(); if (l === lab) o = { val: ((c.querySelector('.c-val') || {}).textContent || '').trim(), sub: ((c.querySelector('.c-sub') || {}).textContent || '').trim() }; }); return o; };
+    const card = (lab) => { let o = { val: '', sub: '' }; document.querySelectorAll('#v-contas .card').forEach(c => { const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*\(filtro\).*/, '').replace(/\s*[^\wÀ-ÿ ].*$/, '').trim(); if (l === lab) o = { val: ((c.querySelector('.c-val') || {}).textContent || '').trim(), sub: ((c.querySelector('.c-sub') || {}).textContent || '').trim() }; }); return o; };
     const setDP = v => { const s = document.getElementById('fc-datapor'); if (s) s.value = v; renderContas(); };
     setDfMes('renderContas', '10'); renderContas();
     setDP('liquidacao');
     // cards da visão Liquidação: 3 (Recebido dos clientes · Rendimentos · Total recebido)
-    const cLiq = { clientes: card('Recebido dos clientes'), rend: card('Rendimentos'), resg: card('Resgates'), total: card('Total recebido') };
+    const cLiq = { clientes: card('Recebido dos clientes'), entrou: card('Entrou no banco'), rend: card('Rendimentos'), total: card('Total recebido') };
     // cards da visão Vencimento: Atrasado + lista
     setDP('vencimento');
     const cAtras = card('Atrasado');
@@ -190,7 +190,7 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
       recCli: +recCli.toFixed(2), pbiCli: +pbiCli.toFixed(2),
       resgExport: +resgExport.toFixed(2), rendAvul: +rendAvul.toFixed(2), resgNaTela, resgJunSet,
       casos: { p40454: +(byPed['40454'] || 0).toFixed(2), p40669: +(byPed['40669'] || 0).toFixed(2), p40312: +(byPed['40312'] || 0).toFixed(2), p40110: +(byPed['40110'] || 0).toFixed(2), p40352: +(byPed['40352'] || 0).toFixed(2) },
-      _n: { cli: _n(cLiq.clientes.val), rend: _n(cLiq.rend.val), resg: _n(cLiq.resg.val), tot: _n(cLiq.total.val), atras: _n(cAtras.val) }
+      _n: { cli: _n(cLiq.clientes.val), entrou: _n(cLiq.entrou.val), rend: _n(cLiq.rend.val), tot: _n(cLiq.total.val), atras: _n(cAtras.val) }
     };
   });
 
@@ -202,11 +202,13 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
   expect(r.rendAvul).toBeGreaterThan(0);
   expect(r.rendAvul).toBeLessThan(10);
   expect(r.resgJunSet).toBe(0); // fotos jun–set não mudam
-  // RECEITA SEPARADA (visão Liquidação) out/26: Clientes 263.251,05 · Rendimentos 2,30 · Resgates 23.849,48 · Total 287.102,83
+  // RECEITA SEPARADA (visão Liquidação) out/26: Clientes 263.251,05 · Rendimentos 2,30 · Total 287.102,83
   expect(r._n.cli).toBe(263251.05);
   expect(r._n.rend).toBe(2.30);
-  expect(r._n.resg).toBe(23849.48); // resgate informativo (fora da receita)
   expect(r._n.tot).toBe(287102.83); // clientes + rendimentos + resgates
+  // "Entrou no banco" (CAIXA) = MESMO número do Painel RK/Fechamento
+  expect(r._n.entrou).toBe(281998.02);
+  expect(r.cLiq.entrou.sub).toContain('23.849,48'); // vendas 258.148,54 + resgates 23.849,48
   expect(r.cLiq.clientes.sub).toContain('216 pedido'); // pedidos distintos
   // ATRASADO (visão Vencimento) out/26 = 16.611,84; quitados/sobra nunca aparecem
   expect(r._n.atras).toBe(16602.74); // #41041 (9,10) tem diferença aceita → fora do atraso

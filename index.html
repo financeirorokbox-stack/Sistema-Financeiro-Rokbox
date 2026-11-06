@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v781/10-834';
+const APP_VERSION = 'v782/10-835';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3366,6 +3366,33 @@ function _seloFechCR(l, concBanco) {
   return chip('#e6f4ea', '#1b7a3d', '💰 pago', 'Recebido (dinheiro) — ainda não casado com o extrato do banco.');
 }
 function _toggleAtrasadosCR() { const b = document.getElementById('cr-atrasados-box'); if (b) b.style.display = (b.style.display === 'none' ? 'block' : 'none'); }
+function _mostrarPonteCR() {
+  const box = document.getElementById('cr-ponte-box'); if (!box) return;
+  if (box.style.display !== 'none' && box.innerHTML) { box.style.display = 'none'; return; }
+  box.style.display = 'block'; box.innerHTML = '<div style="color:var(--muted)">calculando…</div>';
+  setTimeout(() => {
+    // Principal motivo da diferença competência×caixa: venda paga no GATEWAY no período (conta no "Recebido dos
+    // clientes"), mas o repasse caiu/cai no banco depois (ex.: PayPal fim do mês → banco no mês seguinte).
+    const itens = [];
+    (recebimentosConsolidado || []).forEach(r => {
+      if (r._estornoChave) return;
+      const gw = r.gateway; if (gw !== 'PayPal' && gw !== 'BraavoPay' && gw !== 'Rede' && gw !== 'Pagar.me') return; // só gateway tem repasse separado
+      const rep = (typeof dataRepasseBanco === 'function') ? dataRepasseBanco(r) : null;
+      const dLiq = rep || r.data;                         // data que o flatCR usa (competência)
+      if (dfAtivo() && !passaData(dLiq)) return;           // só o que o período conta
+      if (rep && (!dfAtivo() || passaData(rep))) return;   // repasse já caiu no banco no período → não explica a ponte
+      const liq = +(r.liq != null ? r.liq : ((r.bruto || 0) - (r.taxa || 0))).toFixed(2);
+      itens.push({ ped: r.nped || '', nome: r.nome || '', gw, data: String(r.data).slice(0, 10), liq });
+    });
+    itens.sort((a, b) => b.liq - a.liq);
+    const soma = +itens.reduce((s, i) => s + i.liq, 0).toFixed(2);
+    const porGw = {}; itens.forEach(i => porGw[i.gw] = +((porGw[i.gw] || 0) + i.liq).toFixed(2));
+    box.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Pago no gateway no período, repasse no banco depois — ${itens.length} recebimento(s), total bruto do motivo ${fmtVal(soma)} (por gateway: ${Object.entries(porGw).map(([g, v]) => g + ' ' + fmtVal(v)).join(' · ') || '—'}). A diferença LÍQUIDA final (5.104,81 em out) é esse motivo compensado pelos repasses que entraram no período vindos do mês anterior, mais taxas/estornos.</div>
+      ${itens.slice(0, 50).map(i => `<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0;border-bottom:1px solid var(--border)"><span>${i.nome || '—'} <span style="color:var(--muted)">#${i.ped} · ${i.gw} · pago ${i.data.slice(8, 10)}/${i.data.slice(5, 7)}</span></span><span style="font-weight:700">${fmtVal(i.liq)}</span></div>`).join('') || '<div style="color:var(--muted)">nada a mostrar</div>'}
+    </div>`;
+  }, 20);
+}
 function _mostrarConferenciasCR() {
   const box = document.getElementById('cr-conferencias-box'); if (!box) return;
   if (box.style.display !== 'none' && box.innerHTML) { box.style.display = 'none'; return; }
@@ -3764,6 +3791,14 @@ function _renderContasImpl(el) {
   receitasAvulsas.forEach(r => { if (!_ehResgateReceita(r)) return; if (fEmp && (r.empresa || '') !== fEmp) return; if (dfAtivo() && !passaData(r.data)) return; resgatesLiq += (+r.valor || 0); });
   resgatesLiq = +resgatesLiq.toFixed(2);
   const recTotal = +(vPagoLiq + recRendimento + resgatesLiq).toFixed(2); // clientes + rendimentos + resgates (tudo que entrou)
+  // "Entrou no banco" (CAIXA) = créditos do Balancete do período = MESMO número do Painel RK/Fechamento.
+  // Vendas (caíram no banco) + resgates. A diferença pra "Recebido dos clientes" (competência) é a ponte.
+  let entrouBanco = 0, resgBanco = 0;
+  (_balanceteCR().rows || []).forEach(r => { if (r.tipo !== 'R') return; if (dfAtivo() && !passaData(new Date(r.mes + '-15T12:00:00'))) return; entrouBanco += (+r.valor || 0); if (r.grupo === 'TRANSFERÊNCIA INTERNA') resgBanco += (+r.valor || 0); });
+  entrouBanco = +entrouBanco.toFixed(2); resgBanco = +resgBanco.toFixed(2);
+  const vendasBanco = +(entrouBanco - resgBanco).toFixed(2);               // vendas que caíram no banco (+ rendimentos)
+  const clientesNoBanco = +(vendasBanco - recRendimento).toFixed(2);        // só clientes, no caixa
+  const difPonte = +(vPagoLiq - clientesNoBanco).toFixed(2);                // recebido clientes (competência) − clientes no banco
   const totalCR  = vAberto + vPago; // total de Contas a Receber (em aberto + pago) — SÓ pedidos (cross-check VT)
   const flt = !!(dfAtivo() || fCat || fEmp || fOp || fSt || fConc || fQraw); // há filtro ativo?
 
@@ -3866,10 +3901,10 @@ function _renderContasImpl(el) {
     ${dateMiniBar('renderContas')}
     <div class="cards-row">
     ${_porLiqCR ? `
-      <div class="card dark" title="Dinheiro que entrou no mês, dos clientes. Mesma conta do Power BI/flatCR: sem duplicar parcela, entrada na data certa, repasse de gateway pendente e resgate de aplicação ficam fora."><div class="c-label">Recebido dos clientes</div><div class="c-val" style="color:var(--green)">${fmtVal(vPagoLiq)}</div><div class="c-sub">${nPedReceb} pedido(s) · ${fmtVal(recBruto)} bruto − ${fmtVal(+(recBruto - vPagoLiq).toFixed(2))} taxas</div></div>
+      <div class="card dark" title="Recebido dos clientes por COMPETÊNCIA (quando o cliente pagou/liquidou). Mesma conta do flatCR/Power BI: sem duplicar parcela, entrada na data certa, resgate fora."><div class="c-label">Recebido dos clientes</div><div class="c-val" style="color:var(--green)">${fmtVal(vPagoLiq)}</div><div class="c-sub">${nPedReceb} pedido(s) · ${fmtVal(recBruto)} bruto − ${fmtVal(+(recBruto - vPagoLiq).toFixed(2))} taxas</div></div>
+      <div class="card blue" title="CAIXA: o que de fato entrou no banco no período (créditos do extrato categorizados). MESMO número do Painel RK e do Fechamento. = vendas no banco + resgates."><div class="c-label">Entrou no banco 💰</div><div class="c-val">${fmtVal(entrouBanco)}</div><div class="c-sub">vendas ${fmtVal(vendasBanco)} + resgates ${fmtVal(resgBanco)}</div></div>
       <div class="card" title="Rendimentos da aplicação (RENTAB / REND PAGO / JUROS). É receita financeira."><div class="c-label">Rendimentos</div><div class="c-val">${fmtVal(recRendimento)}</div><div class="c-sub">receita financeira</div></div>
-      <div class="card" title="Resgate de aplicação (RESG AUTOMATICO / RESG VENCTO CDB) = transferência interna. Mostrado só para conferência; NÃO é receita (fica fora do DRE/Balancete/Power BI)."><div class="c-label">Resgates ⓘ</div><div class="c-val" style="color:var(--muted)">${fmtVal(resgatesLiq)}</div><div class="c-sub">transferência interna (fora da receita)</div></div>
-      <div class="card blue" title="Tudo que entrou no banco no mês = clientes + rendimentos + resgates."><div class="c-label">Total recebido</div><div class="c-val">${fmtVal(recTotal)}</div><div class="c-sub">clientes + rendimentos + resgates</div></div>
+      <div class="card" title="Total que entrou = clientes (competência) + rendimentos + resgates."><div class="c-label">Total recebido</div><div class="c-val">${fmtVal(recTotal)}</div><div class="c-sub">clientes + rendimentos + resgates</div></div>
     ` : `
       <div class="card"><div class="c-label">Valor dos pedidos${flt?' (filtro)':''}</div><div class="c-val">${fmtVal(vcValor)}</div><div class="c-sub">venceram no período</div></div>
       <div class="card dark"><div class="c-label">Recebido</div><div class="c-val" style="color:var(--green)">${fmtVal(vcRecebido)}</div><div class="c-sub">o cliente já pagou</div></div>
@@ -3877,6 +3912,7 @@ function _renderContasImpl(el) {
       <div class="card red" style="cursor:pointer" title="Vencido e NÃO quitado. Quem pagou (inclusive no gateway aguardando repasse) ou pagou a mais não entra. Parcial mostra só o que falta." onclick="_toggleAtrasadosCR()"><div class="c-label">Atrasado ›</div><div class="c-val">${fmtVal(vcAtrasado)}</div><div class="c-sub">${_atrasadosCR.length} pedido(s) vencido(s)</div></div>
     `}
     </div>
+    ${_porLiqCR ? `<div style="margin:2px 0 14px;font-size:12.5px;color:var(--muted)">Diferença competência × caixa: <strong style="color:var(--text)">${fmtVal(difPonte)}</strong> (recebido dos clientes ${fmtVal(vPagoLiq)} − clientes no banco ${fmtVal(clientesNoBanco)}) <button class="btn ghost sm" style="margin-left:6px" onclick="_mostrarPonteCR()">ver detalhe</button><div id="cr-ponte-box" style="display:none;margin-top:8px"></div></div>` : ''}
     ${!_porLiqCR ? `<div id="cr-atrasados-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:2px 0 14px">
       <div style="font-size:13px;font-weight:800;margin-bottom:6px">Atrasados (vencido e não quitado) — ${_atrasadosCR.length} · ${fmtVal(vcAtrasado)}</div>
       ${_atrasadosCR.length ? _atrasadosCR.map(a => `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${a.venc ? a.venc.slice(8,10)+'/'+a.venc.slice(5,7) : '—'} · ${a.nome||'—'} <span style="color:var(--muted)">#${a.pedido}</span></span><span style="font-weight:700;color:var(--red)">${fmtVal(a.valor)}</span></div>`).join('') : '<div style="color:var(--muted)">nada atrasado 🎉</div>'}
@@ -5935,6 +5971,10 @@ function _exportBalancete() {
   const base = Object.values(saldosIniciais || {}).reduce((s, c) => s + (+c.valor || 0), 0);
   return { rows, base };
 }
+// Balancete em cache (só recalcula quando os dados mudam) — pra a tela do CR mostrar "Entrou no banco"
+// com a MESMA conta do Painel RK/Fechamento sem recalcular tudo a cada render.
+let _balCacheCR = null, _balVerCR = -1;
+function _balanceteCR() { if (_balVerCR === _dataVersion && _balCacheCR) return _balCacheCR; try { _balCacheCR = _exportBalancete(); } catch (e) { _balCacheCR = { rows: [], base: 0 }; } _balVerCR = _dataVersion; return _balCacheCR; }
 // Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
 // (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
 function exportarVendas() {
