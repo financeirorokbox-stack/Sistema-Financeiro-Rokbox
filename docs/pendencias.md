@@ -31,7 +31,13 @@ de publicar**; **teste automático junto**.
     fechados = #39526/#40060/#40254/#40514/#40608. **20 testes verdes.**
   - Snapshot do gate = dados AO VIVO + flatCR/flatBalancete/flatConferencias **regerados** pelo
     próprio código (simula o Atualizar Power BI). Ao refazer: regerar o snapshot.
-- PENDENTE depois do v781: **CHECKUP COMPLETO** (a Elaine vai pedir). Ponte 263.253,35→
+- **v782/10-835 (Gestão)** , CR visão Liquidação ganhou card **"Entrou no banco"** (caixa =
+  créditos do Balancete do período, = Painel RK/Fechamento; out/26 = **281.998,02** nas 3 telas)
+  + linha "Diferença competência × caixa 5.104,81 · ver detalhe" (motivo: venda paga no gateway
+  com repasse pro banco depois; o detalhe mostra o motivo+nota, NÃO fecha pedido-a-pedido exato
+  , a Elaine aprovou publicar assim). `_balanceteCR()` em cache.
+- PENDENTE depois do v782: **CHECKUP COMPLETO** (a Elaine vai pedir). Split exato da ponte
+  5.104,81 (casar repasse×crédito do extrato) só se ela pedir. Ponte 263.253,35→
   258.148,54 (5.104,81) está só no card; split PayPal-a-PayPal se ela pedir. Itens antigos:
   vínculo extrato↔CP por _uid (tarifa 17/06), CR completo ago–nov, Conciliação A/B/C, junho
   sem empresa. **Lembrar: desligar FIN_MANUTENCAO quando ela mandar.**
