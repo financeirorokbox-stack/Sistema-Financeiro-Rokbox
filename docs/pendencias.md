@@ -1,0 +1,105 @@
+# Pendências e estado da sessão (Rokbox) , atualizado 06/11/2026
+
+Documento de continuidade: se abrir uma conversa nova, começar daqui. Regra fixa: **mês
+fechado (jun–set) nunca muda** (só vai para "Ajustes de meses fechados"); **nada publica
+sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Power BI"**
+(o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
+de publicar**; **teste automático junto**.
+
+## Publicado hoje (06/11/2026)
+- **Gestão v775/10-828** , filtro de mês voltou a filtrar (o `perf()` da v772 deixava as
+  funções de render anônimas e `setDateFilterRender` caía no bucket vazio; fix = `perf`
+  preserva o `.name`).
+- **Painel de Vendas + Financeiro BUILD 2026-11-05.2** , `pecas-vendidas.js` (regra única
+  de Peças vendidas / amostras / brindes, Out/26 = 2.854) + **selo visível "BUILD" no
+  rodapé** dos dois painéis.
+- **Gestão v776/10-829** , extrato: `dedupInserirExtrato` casa por banco+dia+valor+
+  descrição (não pelo FITID, que o Bradesco troca a cada download) + **gate de testes
+  automático** (`tests/`, Playwright, hook `pre-push` que BLOQUEIA o push se reprovar;
+  dados reais em `tests/.data/snapshot.json`, gitignorado).
+- **Gestão v777/10-830** , Contas a Receber: a mini-barra (setDfMes/setDfAno/setDfDia/
+  limparDfMini) passou a limpar o De/Até preso.
+- **Gestão v778/10-831** , CR: o botão "✕ limpar" (`limparFiltrosContas`) e o de Vendas
+  (`limparFiltrosVendas`) agora limpam o De/Até; e **pedido sem formaPagamento** (nada
+  desde ago/26) usa a **data do pedido** na visão Vencimento (antes `venc=null` sumia com
+  filtro). Só afeta a visão Vencimento; Liquidação e o resto não mudam.
+- **Gestão v779/10-832** , estorno de gateway (`estornoParaPagar`): `dataPag` passa a ser
+  a **data do repasse conciliado** (`dataRepasseBanco`); sem repasse → "a liquidar". Só
+  criações novas; não mexe em estorno existente.
+- **Correção de dados** , 3 estornos PayPal de 30/10 (Camila Couto 260,91, Clayton Silva
+  332,91, Ana Valeretto 332,91) → `dataPag` 03/11 (repasse TED PayPal 25.862,86 no
+  Bradesco-Rokbox). **Backup: `privado.bkp_contasPagar_20261106`** (1887 itens). Confirmado:
+  CP Out liquidado 279.175,57 → **278.248,84** (−926,73); Nov +926,73. flatCP re-exportado
+  (export 12:10) já em 278.248,84.
+
+## Gate de testes (tests/)
+Roda no Chrome do sistema; `npm run gate`. Mock do Supabase (lê do snapshot, escrita
+no-op). 12 testes verdes: peças 2.854 nas duas telas, soma por vendedor/segmento, fotos
+jun–set, filtro de mês do Gestão, CR limpar De/Até + Out nas duas visões, **CR completude
+(nenhum Venda/Troca some, Out=211)**, estorno liquida no repasse, extrato 2x não duplica,
+Margem #41020=527,47, Conciliação. **Atualizar o snapshot = puxar as chaves do device
+`rokbox_financeiro` (sem backups) para `tests/.data/snapshot.json`.**
+
+## Lista 0→6 (status)
+- **0) Power BI/recebido , PARCIAL.** CP Out = 278.248,84 ✅ (tela e flatCP). **Recebido:
+  tela do CR × flatCR divergem** (12:28: tela líquido 264.016,81 × flatCR 260.751,20 =
+  **3.265,61**; "bruto" da tela = valor dos pedidos 321.986,70 × flatCR 264.838,17). Raiz:
+  **dois caminhos de cálculo** , tela usa `vPagoLiq` (inline em `_renderContasImpl`);
+  flatCR usa `_crRowsAOA` (coluna "Recebido" = Valor − Taxa; multa em Acréscimo/Juros).
+  PENDENTE: decompor o 3.265,61 com **dados congelados** e unificar numa conta só.
+- **1) Vínculo extrato↔CP por _uid , PENDENTE.** Hoje casa por `fornecedor|data|valor`
+  (não é único): a tarifa de 17/06 (`_uid ums7lrj7i_69h84b`) está pegando um débito de
+  04/11. Usar o `_uid` do CP no vínculo (débitoLinks). Junho não muda.
+- **2) Painel RK "A receber" = status da tela de Recebimentos , PENDENTE.** Quitado (cliente
+  pagou o cheio, qualquer meio) = recebido, nunca Atrasado (ex.: #40877 PayPal 30/10,
+  #41020 PayPal 31/10). Atrasado = vencido e NÃO quitado. Troca paga com crédito de
+  devolução = quitada (conferir #41041 Laura 899,65). "Recebido no mês" pela data que o
+  dinheiro entrou no banco. Trocar rótulo "Recebido no mês (entrou no banco)" →
+  **"Recebido dos clientes no mês"**. Mostrar Atrasado de out antes/depois, pedido a pedido.
+- **3) CR completo (conferência) , FEITO (diagnóstico).** Sem filtro, 100% dos pedidos
+  Venda/Troca aparecem no CR em ago–nov (faltam=0). Out/26 = **211 pedidos / 256.153,16**.
+  Mismatches soma-linhas × valor: #408 (+125.858,95 = dois boletos avulsos Itaú/CORAVI
+  grudados, venc 24/07 e 27/08, títulos separados) + pequenos (multa de boleto). Teste de
+  completude no gate.
+- **4) Conciliação A/B/C , PARTE A PRONTA (LOCAL, não publicada).** A) saldo inicial do dia
+  = final do dia útil anterior CALCULADO (`saldoFinalDia` encadeado, deixa de ancorar no
+  último gravado) + alerta neutro "difere R$ X desde DD/MM , falta lançamento no extrato
+  ou saldo gravado velho". B) corrigir Bradesco-Rokbox 19/10 → 4.124,73 (final 6.853,99).
+  C) selo "possível duplicado" + Excluir (lixeira com restaurar) + "Não é duplicado"; mês
+  fechado não exclui. **Código da Parte A está em
+  `<scratchpad>/index_both.html`** (reaplicar sobre o index atual, com teste
+  `Bradesco-Rokbox 19/10 final=6.853,99`). Divergências de saldo já levantadas (dados ao
+  vivo): Bradesco-Rokbox 19/10 gravado 14.278,16→calc 4.124,73; Bradesco-Rkbx −183 (tarifa
+  Max Empresarial faltando no extrato do Rkbx); Itaú-Rokbox +47,67; Itaú-Rk saltos (saldo
+  gravado velho em dias sem movimento). O calculado é a fonte certa.
+- **5) Junho: 20 despesas sem empresa → "Rokbox" , PENDENTE.** Os 20 batem com a foto
+  (cpFechado 2026-06) como "Rokbox" (só preencher empresa; nenhum outro campo). Junho
+  continua 333 / R$ 398.706,00. Backup + lista antes de gravar. (Há também ~8 despesas com
+  data de pagamento diferente da foto , só listar, não tocar.)
+- **6) Resgates fora da receita , FEITO (diagnóstico).** RESG AUTOMATICO / RESG VENCTO CDB
+  estão em `receitasAvulsas` como "RENDIMENTOS / APLICAÇÃO": **só em outubro, R$ 23.849,48**
+  (3 lançamentos: 13.705,81 + 8.413,50 + 1.730,17); jun–set = 0; nov = 0. Entram em
+  receitasAvulsas → flatCR (Painel RK/Power BI) → Balancete/DRE → card "Outras receitas".
+  Resgate é **transferência interna**, não receita. Proposta: marcar como transf. interna
+  (fora de receita/CR/flatCR/Balancete); manter rendimento de centavos (RENTAB) como
+  receita financeira separada. PENDENTE: implementar.
+
+## CR "uma conta só" (bloco que fecha o item 0) , PENDENTE, aguardando ok
+Fazer a **tela do CR ler o mesmo cálculo do `_crRowsAOA`** (a conta que vai pro Power BI),
+com: card "bruto" renomeado **"Valor dos pedidos"**, novo card **"Recebido bruto"**, e
+**"Recebido dos clientes no mês"** = clientes pagaram − taxa de gateway + multa/juros de
+boleto (= o que concilia com o banco). Incluir o **item 6** (resgates fora). Teste:
+**tela CR = flatCR = Power BI** em out/26 nas duas visões; jun–set inalterados.
+Pré-requisito: decompor o 3.265,61 com dados congelados e a Elaine escolher a conta certa.
+
+## Decisões fixas (combinadas)
+- Tolerância de arredondamento: **R$ 0,05** por lançamento.
+- Drive automático: processa **só os novos** (sync só adiciona).
+- Forma de pagamento: a do **Gestão** (manual / trocar forma / boleto / recebimento); a da
+  Bling só complementa meses antigos, nunca obrigatória.
+- **Boletos + Cobrança numa tela só** (combinado, ainda não feito).
+- **Fechamentos separados** (combinado).
+- Depois dos itens 0–3 conferidos: **REGRA ÚNICA do Contas a Receber + Drive automático**
+  (prompt já combinado).
+
+Ver também `docs/regras.md` (regras de negócio) e a memória da sessão.
