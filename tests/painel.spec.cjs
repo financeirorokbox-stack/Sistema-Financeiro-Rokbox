@@ -58,6 +58,50 @@ test('Relatório de Fechamento: Peças vendidas Out/26 = 2.854 + amostras/brinde
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
+test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, saldo fim 46.417,76, atrasado 16.611,84', async ({ page }) => {
+  const errors = trackErrors(page);
+  await installMock(page);
+  await page.goto('/financeiro.html');
+
+  const r = await page.evaluate(async () => {
+    mesSel = '2026-10';
+    await carregar();
+    renderFechamento();
+    const fech = document.getElementById('fechamento-conteudo').innerText;
+    const num = re => { const m = fech.match(re); return m ? +m[1].replace(/\./g, '').replace(',', '.') : null; };
+    const _n = s => +String(s || '').replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
+    return {
+      fat: num(/Faturamento\s*R\$\s*([\d.,]+)/),
+      pedidos: num(/Pedidos\s*([\d.]+)/),
+      vendasCaixa: num(/Vendas \(caíram no banco\)\s*R\$\s*([\d.,]+)/),
+      resgates: num(/Resgates[^R]*R\$\s*([\d.,]+)/),
+      entrou: num(/Total que entrou\s*R\$\s*([\d.,]+)/),
+      pago: num(/Pago no mês\s*R\$\s*([\d.,]+)/),
+      resultadoCaixa: num(/Resultado do caixa\s*R\$\s*([\d.,]+)/),
+      resultadoOper: num(/Resultado operacional[^\d]*([\d.,]+)/),
+      recCli: num(/Recebido dos clientes[^R]*R\$\s*([\d.,]+)/),
+      saldoIni: num(/Saldo início do mês\s*R\$\s*([\d.,]+)/),
+      saldoFim: num(/Saldo fim do mês\s*R\$\s*([\d.,]+)/),
+      crAtraso: _n((document.getElementById('cr-atraso') || {}).textContent || '')
+    };
+  });
+
+  const near = (v, alvo, tol = 0.02) => Math.abs(v - alvo) <= tol;
+  expect(r.fat).toBe(251152.02);           // faturamento
+  expect(r.pedidos).toBe(211);             // pedidos
+  expect(r.vendasCaixa).toBe(258148.54);   // vendas que caíram no banco
+  expect(r.resgates).toBe(23849.48);       // resgates (transferência interna)
+  expect(r.entrou).toBe(281998.02);        // entrou no banco = vendas + resgates
+  expect(near(r.pago, 278248.84, 0.02)).toBe(true);   // pago
+  expect(near(r.resultadoCaixa, 3749.18)).toBe(true); // entrou − pago = variação do saldo
+  expect(near(r.resultadoOper, 20100.30)).toBe(true); // operacional (sem resgates) −20.100,30
+  expect(r.recCli).toBe(263253.35);        // recebido dos clientes (apoio)
+  expect(r.saldoIni).toBe(42668.58);       // saldo início
+  expect(near(r.saldoFim, 46417.76)).toBe(true);      // saldo fim (±0,02)
+  expect(r.crAtraso).toBe(16602.74);  // atrasado (regra nova; #41041 aceito fora)
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
 test('Painel de Vendas Out/26: soma por vendedor e por segmento = 251.152,02', async ({ page }) => {
   const errors = trackErrors(page);
   await installMock(page);

@@ -129,11 +129,13 @@
   <div class="grid2">
     <div class="card">
       <div class="lab" style="color:var(--lime)">A Receber</div>
-      <div class="kv"><span class="k">Recebido no mês <span style="color:var(--muted);font-weight:400;font-size:.85em">(entrou no banco)</span></span><span class="n" id="cr-mes">—</span></div>
+      <div class="kv"><span class="k">Recebido dos clientes <span style="color:var(--muted);font-weight:400;font-size:.85em">(no mês)</span></span><span class="n" id="cr-mes">—</span></div>
       <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-vencer')" title="Em aberto que vence de hoje até o fim do mês, mais os vencidos há até 3 dias (ainda no prazo de baixa). Conta pelo vencimento efetivo: se cai em sábado, domingo ou feriado nacional, vale o próximo dia útil (regra do banco). A tela mostra o vencimento original."><span class="k">A vencer (hoje → fim do mês) 🔎</span><span class="n" id="cr-vencer">—</span></div>
       <div class="lista hidden" id="cr-vencer-lista"></div>
-      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Em aberto, vencido NESTE MÊS há 4 dias ou mais. Conta pelo vencimento efetivo (sáb/dom/feriado = próximo dia útil). Os vencidos há até 3 dias ficam no 'A vencer'. Valores abaixo de R$ 5 não entram. A tela mostra o vencimento original."><span class="k">Atrasado (deste mês, 4+ dias) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-atraso')" title="Em aberto, vencido NESTE MÊS há 4 dias ou mais. Conta pelo vencimento efetivo (sáb/dom/feriado = próximo dia útil). Os vencidos há até 3 dias ficam no 'A vencer'. Valores abaixo de R$ 5 não entram. Pedido já quitado no gateway (aguardando repasse) NÃO entra. A tela mostra o vencimento original."><span class="k">Atrasado (deste mês, 4+ dias) 🔎</span><span class="n" id="cr-atraso" style="color:var(--red)">—</span></div>
       <div class="lista hidden" id="cr-atraso-lista"></div>
+      <div class="kv" style="cursor:pointer" onclick="toggleLista('cr-sobra')" title="Pedidos onde o cliente pagou A MAIS (sobra). Não é atrasado — é pra resolver (devolver/creditar). Atualiza ao rodar o Atualizar Power BI no Gestão."><span class="k">Sobras a resolver 🔎</span><span class="n" id="cr-sobra" style="color:var(--amber)">—</span></div>
+      <div class="lista hidden" id="cr-sobra-lista"></div>
     </div>
     <div class="card">
       <div class="lab" style="color:var(--amber)">A Pagar</div>
@@ -425,20 +427,29 @@ function renderFechamento(){
       ? crA.filter(r=>_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.recebido_liquido||0),0)
       : extArr.filter(t=>(+t.valor||0)>0 && _mExt(t.data)===M).reduce((s,t)=>s+(+t.valor||0),0);
     const pago=cpA.filter(r=>!r.cancelado&&_m(r.data_liquidacao)===M).reduce((s,r)=>s+(+r.valor||0),0);
-    const crAb=crA.filter(r=>!r.data_liquidacao&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor_bruto||0),0);
+    // A receber EM ABERTO = o que o cliente ainda deve de verdade (atraso_real, gravado pelo Gestão): pedido já
+    // quitado no gateway aguardando repasse NÃO conta; parcial conta só o que falta. Fallback = valor_bruto (flat antigo).
+    const crAb=crA.filter(r=>!r.data_liquidacao&&_m(r.vencimento)===M).reduce((s,r)=>s+(+(r.atraso_real!=null?r.atraso_real:r.valor_bruto)||0),0);
     const cpAb=cpA.filter(r=>!r.cancelado&&!r.data_liquidacao&&!r.pago&&_m(r.vencimento)===M).reduce((s,r)=>s+(+r.valor||0),0);
     const netAnt=(bal&&bal.rows||[]).filter(r=>r.mes<M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
-    const netMes=(bal&&bal.rows||[]).filter(r=>r.mes===M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
-    let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg, _vend=vend, _qped=qped, _qpcs=qpcs;
+    // CAIXA (o que fecha com o banco): ENTROU no banco = créditos do extrato categorizados (Balancete, tipo R) =
+    // vendas que caíram no banco + resgates. É o número principal do Fechamento. Resgate é transferência interna:
+    // entra no caixa/saldo mas NÃO é receita (fica fora do Resultado operacional).
+    const resgates=(bal&&bal.rows||[]).filter(r=>r.mes===M&&r.grupo==='TRANSFERÊNCIA INTERNA').reduce((s,r)=>s+(+r.valor||0),0);
+    const entrou=(bal&&bal.rows||[]).filter(r=>r.mes===M&&r.tipo==='R').reduce((s,r)=>s+(+r.valor||0),0); // tudo que entrou no banco
+    let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg, _vend=vend, _qped=qped, _qpcs=qpcs, _resg=+resgates.toFixed(2);
+    let _entrou=+entrou.toFixed(2), _vendasCaixa=+(entrou-resgates).toFixed(2); // vendas que caíram no banco = entrou − resgates
     let saldoIni=+(base0+netAnt).toFixed(2);
-    let saldoFim=+(saldoIni+netMes).toFixed(2);
-    let resultado=+(_receb-_pago).toFixed(2);
+    let saldoFim=+(saldoIni+_entrou-_pago).toFixed(2);            // CAIXA: início + entrou no banco − pago
+    let resultadoCaixa=+(_entrou-_pago).toFixed(2);               // variação do saldo (com resgates)
+    let resultadoOper=+(_vendasCaixa-_pago).toFixed(2);          // operacional (SEM resgates)
+    let pontePagoBanco=+(_receb-_vendasCaixa).toFixed(2);         // recebido clientes (competência) − vendas no caixa
     // Antes de 06/26 (≤05/26) não havia essa informação ainda → zera o mês inteiro (todos os gráficos e cards do Fechamento ficam zerados).
-    if(M<='2026-05'){ _fat=0; _receb=0; _pago=0; _crAb=0; _cpAb=0; _emp={}; _seg={}; _vend={}; resultado=0; saldoIni=0; saldoFim=0; _qped=0; _qpcs=0; _amostra=0; _brinde=0; _amostraPeds=0; _brindePeds=0; }
+    if(M<='2026-05'){ _fat=0; _receb=0; _pago=0; _crAb=0; _cpAb=0; _emp={}; _seg={}; _vend={}; saldoIni=0; saldoFim=0; _qped=0; _qpcs=0; _amostra=0; _brinde=0; _amostraPeds=0; _brindePeds=0; _resg=0; _entrou=0; _vendasCaixa=0; resultadoCaixa=0; resultadoOper=0; pontePagoBanco=0; }
     const ticket=_qped>0?+(_fat/_qped).toFixed(2):0;
-    return {mes:M,fat:_fat,emp:_emp,seg:_seg,vend:_vend,receb:_receb,pago:_pago,resultado,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim,qped:_qped,qpcs:_qpcs,amostra:_amostra,brinde:_brinde,amostraPeds:_amostraPeds,brindePeds:_brindePeds,ticket};
+    return {mes:M,fat:_fat,emp:_emp,seg:_seg,vend:_vend,receb:_receb,resgates:_resg,entrou:_entrou,vendasCaixa:_vendasCaixa,resultadoCaixa,resultadoOper,pontePagoBanco,pago:_pago,resultado:resultadoCaixa,crAb:_crAb,cpAb:_cpAb,saldoIni,saldoFim,qped:_qped,qpcs:_qpcs,amostra:_amostra,brinde:_brinde,amostraPeds:_amostraPeds,brindePeds:_brindePeds,ticket};
   });
-  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},vend:{},receb:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0,qped:0,qpcs:0,ticket:0};
+  const D=serie.find(x=>x.mes===mesR)||serie[serie.length-1]||{mes:mesR,fat:0,emp:{},seg:{},vend:{},receb:0,resgates:0,entrou:0,vendasCaixa:0,resultadoCaixa:0,resultadoOper:0,pontePagoBanco:0,pago:0,resultado:0,crAb:0,cpAb:0,saldoIni:0,saldoFim:0,qped:0,qpcs:0,ticket:0};
   // Gráficos e evolução PARAM no mês do relatório (não mostram meses depois do selecionado).
   const serieC=serie.filter(s=>s.mes<=D.mes);
   // Taxas de gateway pagas no mês (custo de receber): soma taxa e bruto por gateway dos recebimentos do mês. Zera ≤05/26.
@@ -481,7 +492,7 @@ function renderFechamento(){
   // Comparativo com o mês ANTERIOR (▲/▼ %). Só quando o mês anterior tem dado real (>05/26).
   const _iD=serie.findIndex(x=>x.mes===D.mes), prevD=_iD>0?serie[_iD-1]:null;
   const vari=(field)=>{ if(!prevD||prevD.mes<='2026-05') return ''; const cur=+D[field]||0, prev=+prevD[field]||0; if(prev===0) return cur>0?`<div style="font-size:10.5px;color:#6b7280;font-weight:700;margin-top:2px">novo <span style="font-weight:400">vs mês ant.</span></div>`:''; const pc=(cur-prev)/Math.abs(prev)*100; const arr=pc>=0?'▲':'▼'; return `<div style="font-size:10.5px;color:#6b7280;font-weight:700;margin-top:2px">${arr} ${pc>=0?'+':''}${pc.toFixed(0)}% <span style="font-weight:400">vs mês ant.</span></div>`; };
-  const cardsTop=[['Faturamento',D.fat,'#059669',null,'fat'],['Pedidos',D.qped,'#111827','num','qped'],['Ticket médio',D.ticket,'#059669',null,'ticket'],['Peças vendidas',D.qpcs,'#111827','num','qpcs'],['Recebido no mês',D.receb,'#059669',null,'receb'],['Pago no mês',D.pago,'#dc2626',null,'pago'],['Resultado (Rec−Pago)',D.resultado,D.resultado>=0?'#059669':'#dc2626',null,'resultado'],['A receber (em aberto)',D.crAb,'#0284c7',null,'crAb'],['A pagar (em aberto)',D.cpAb,'#d97706',null,'cpAb'],['Saldo início do mês',D.saldoIni,'#111827',null,'saldoIni'],['Saldo fim do mês',D.saldoFim,'#111827',null,'saldoFim']];
+  const cardsTop=[['Faturamento',D.fat,'#059669',null,'fat'],['Pedidos',D.qped,'#111827','num','qped'],['Ticket médio',D.ticket,'#059669',null,'ticket'],['Peças vendidas',D.qpcs,'#111827','num','qpcs'],['Entrou no banco no mês',D.entrou,'#059669',null,'entrou'],['Pago no mês',D.pago,'#dc2626',null,'pago'],['Resultado do caixa',D.resultadoCaixa,D.resultadoCaixa>=0?'#059669':'#dc2626',null,'resultadoCaixa'],['Resultado operacional',D.resultadoOper,D.resultadoOper>=0?'#059669':'#dc2626',null,'resultadoOper'],['Recebido dos clientes',D.receb,'#0284c7',null,'receb'],['A receber (em aberto)',D.crAb,'#0284c7',null,'crAb'],['A pagar (em aberto)',D.cpAb,'#d97706',null,'cpAb'],['Saldo início do mês',D.saldoIni,'#111827',null,'saldoIni'],['Saldo fim do mês',D.saldoFim,'#111827',null,'saldoFim']];
   el.innerHTML=`
   <div id="fech-doc" style="background:#eef1f4;color:#111;border-radius:12px;padding:22px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:4px">
@@ -490,7 +501,15 @@ function renderFechamento(){
     </div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:16px">Gerado em ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px">
-      ${cardsTop.map(([l,v,c,f,field])=>`<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">${l}</div><div style="font-size:19px;font-weight:800;color:${c};margin-top:4px">${f==='num'?_n0(v):brl(v)}</div>${vari(field)}</div>`).join('')}
+      ${cardsTop.map(([l,v,c,f,field])=>{
+        if(field==='entrou'){ return `<div style="background:#fff;border:2px solid #059669;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">Entrou no banco no mês 💰</div>
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:5px"><span style="color:#374151">Vendas (caíram no banco)</span><span style="font-weight:700;color:#059669">${brl(D.vendasCaixa)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:2px" title="Resgate de aplicação = transferência interna (dinheiro do CDB voltando pra conta). Entra no caixa/saldo, mas NÃO é receita."><span style="color:#374151">Resgates ⓘ</span><span style="font-weight:700;color:#6b7280">${brl(D.resgates)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:14px;margin-top:4px;border-top:1px solid #e5e7eb;padding-top:4px"><span style="font-weight:800">Total que entrou</span><span style="font-weight:800;color:#059669">${brl(D.entrou)}</span></div></div>`; }
+        if(field==='receb'){ return `<div style="background:#f3f8ff;border:1px solid #cfe0f5;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">Recebido dos clientes <span style="font-weight:400;text-transform:none">(apoio)</span></div><div style="font-size:19px;font-weight:800;color:#0284c7;margin-top:4px">${brl(D.receb)}</div><div style="font-size:10.5px;color:#6b7280;margin-top:3px">inclui vendas pagas no mês que caíram no banco no mês seguinte · ponte p/ caixa ${brl(D.pontePagoBanco)}</div></div>`; }
+        const sub = field==='resultadoOper' ? '<div style="font-size:10.5px;color:#6b7280;margin-top:2px">sem resgates (só operação)</div>' : (field==='resultadoCaixa' ? '<div style="font-size:10.5px;color:#6b7280;margin-top:2px">= variação do saldo</div>' : vari(field));
+        return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;font-weight:700">${l}</div><div style="font-size:19px;font-weight:800;color:${c};margin-top:4px">${f==='num'?_n0(v):brl(v)}</div>${sub}</div>`;
+      }).join('')}
     </div>
     ${((D.amostra||0)>0||(D.brinde||0)>0)?`<div style="display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12.5px;color:#6b7280;margin:-8px 0 18px">${(D.amostra||0)>0?`<span>🎁 <b>${_n0(D.amostra)}</b> amostra(s) em pedido de venda <span style="opacity:.75">(${D.amostraPeds} ped.)</span></span>`:''}${(D.brinde||0)>0?`<span>🛍️ <b>${_n0(D.brinde)}</b> brinde(s) em pedido de Atacado <span style="opacity:.75">(${D.brindePeds} ped.)</span></span>`:''}<span style="opacity:.7">peças com preço &le; R$ 0,01 — não contam nas Peças vendidas</span></div>`:''}
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
@@ -565,11 +584,14 @@ async function carregar(){
     // A vencer = de hoje até o fim do mês + os vencidos há ATÉ 3 dias (não somem do total).
     const _corteAtraso=_isoMaisDias(hojeStr,-4), _iniVencer=_isoMaisDias(hojeStr,-3);
     const _fimMes=(()=>{const _p=mes.split('-').map(Number); return _isoDe(new Date(_p[0],_p[1],0));})();
-    const _crAb=crA.filter(r=>!r.data_liquidacao && r.vencimento);
+    // O que o cliente REALMENTE ainda deve = atraso_real (gravado pelo Gestão: pedido quitado no gateway aguardando
+    // repasse NÃO conta; parcial conta só o que falta). Fallback = valor_bruto (flat antigo, antes de rodar o sync).
+    const _aReal=r=>+(r.atraso_real!=null?r.atraso_real:r.valor_bruto)||0;
+    const _crAb=crA.filter(r=>!r.data_liquidacao && r.vencimento && _aReal(r)>0.005);
     const crVencerArr=_crAb.filter(r=>{ const vf=_vencEfetivo(r.vencimento); return vf>=_iniVencer && vf<=_fimMes; });
-    // Atrasado = em aberto, vencido NESTE MÊS (selecionado), há 4+ dias (vencimento efetivo), piso R$ 5. Abaixo de R$ 5 fica fora (não aparece no Painel).
-    const crAtrasoArr=_crAb.filter(r=>emMes(r.vencimento) && _vencEfetivo(r.vencimento)<=_corteAtraso && (+r.valor_bruto||0)>=5);
-    const crVencer=sVal(crVencerArr,'valor_bruto'), crAtraso=sVal(crAtrasoArr,'valor_bruto');
+    // Atrasado = em aberto, vencido NESTE MÊS (selecionado), há 4+ dias (vencimento efetivo), piso R$ 5 sobre o que falta de verdade.
+    const crAtrasoArr=_crAb.filter(r=>emMes(r.vencimento) && _vencEfetivo(r.vencimento)<=_corteAtraso && _aReal(r)>=5);
+    const crVencer=+crVencerArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2), crAtraso=+crAtrasoArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2);
     const crAberto=+(crVencer+crAtraso).toFixed(2);
     document.getElementById('cr-mes').textContent=brl(crMes);
     document.getElementById('cr-vencer').textContent=brl(crVencer);
@@ -588,10 +610,13 @@ async function carregar(){
     document.getElementById('cp-atraso').textContent=brl(cpAtraso);
     // ── listas do que está EM ABERTO (clientes/fornecedores que compõem cada valor) ──
     const _liLista=(items,nomeC,vencC,valC)=>{ const arr=items.slice().sort((a,b)=>String(a[vencC]||'').localeCompare(String(b[vencC]||''))); return arr.length ? arr.map(r=>{ const v=String(r[vencC]||''); const dm=v?v.slice(8,10)+'/'+v.slice(5,7):'—'; const selo=r.a_emitir?' <span style="background:var(--blue);color:#04121f;border-radius:6px;padding:0 5px;font-size:10px;font-weight:800;white-space:nowrap" title="Boleto ainda não emitido (azul na tela Boletos a Emitir)">🧾 a emitir</span>':''; return `<div class="li"><span>${dm} · ${r[nomeC]||'—'}${r.pedido?' <span style="color:var(--muted)">#'+r.pedido+'</span>':''}${selo}</span><span class="vv">${brl(+r[valC]||0)}</span></div>`; }).join('') : '<div class="li" style="color:var(--muted)">nada aqui 🎉</div>'; };
-    document.getElementById('cr-vencer-lista').innerHTML=_liLista(crVencerArr,'cliente','vencimento','valor_bruto');
-    document.getElementById('cr-atraso-lista').innerHTML=_liLista(crAtrasoArr,'cliente','vencimento','valor_bruto');
+    const _comReal=arr=>arr.map(r=>({...r,_vreal:_aReal(r)}));
+    document.getElementById('cr-vencer-lista').innerHTML=_liLista(_comReal(crVencerArr),'cliente','vencimento','_vreal');
+    document.getElementById('cr-atraso-lista').innerHTML=_liLista(_comReal(crAtrasoArr),'cliente','vencimento','_vreal');
     document.getElementById('cp-vencer-lista').innerHTML=_liLista(cpVencerArr,'fornecedor','vencimento','valor');
     document.getElementById('cp-atraso-lista').innerHTML=_liLista(cpAtrasoArr,'fornecedor','vencimento','valor');
+    // Sobras a resolver (cliente pagou a mais) — vêm do flatConferencias (gravado pelo Gestão no Atualizar Power BI).
+    gk('flatConferencias').then(cf=>{ const s=((cf&&cf.sobras)||[]).filter(x=>empSel==='todas'||_empG(x.empresa)===empSel); const tot=s.reduce((a,x)=>a+(+x.sobra||0),0); const el=document.getElementById('cr-sobra'); if(el) el.textContent=brl(tot); const l=document.getElementById('cr-sobra-lista'); if(l) l.innerHTML=s.length?s.map(x=>`<div class="li"><span>${x.cliente||'—'} <span style="color:var(--muted)">#${x.pedido} · ${x.mes}</span></span><span class="vv">${brl(x.sobra)}</span></div>`).join(''):'<div class="li" style="color:var(--muted)">nenhuma 🎉</div>'; }).catch(()=>{});
     // ── Saldo do mês, coerente pro PASSADO (real), VIGENTE (projetado de hoje) e FUTURO (rolado) ──
     // PASSADO (mês fechado): usa o REAL que aconteceu no banco (base do Balancete + movimento até/no mês), igual à aba Balancete.
     //   Assim o "saldo inicial" de um mês fechado = o saldo FINAL real do mês anterior, e não o saldo de hoje.
@@ -834,7 +859,9 @@ function renderBalancete(){
   const netAntes=bal.rows.filter(r=>r.mes<mes).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
   const saldoAnt=+(( +bal.base||0)+netAntes).toFixed(2);
   // agrupa por tipo→grupo→sub, com por-empresa
-  const arv=(tipo)=>{ const g={}; rows.filter(r=>r.tipo===tipo).forEach(r=>{ const G=g[r.grupo]=g[r.grupo]||{tot:0,emp:{},sub:{}}; G.tot+=r.valor; G.emp[r.emp]=(G.emp[r.emp]||0)+r.valor; const S=G.sub[r.sub]=G.sub[r.sub]||{tot:0,emp:{},col:{}}; S.tot+=r.valor; S.emp[r.emp]=(S.emp[r.emp]||0)+r.valor; const cn=r.col||'(sem coleção)'; const C=S.col[cn]=S.col[cn]||{tot:0,emp:{}}; C.tot+=r.valor; C.emp[r.emp]=(C.emp[r.emp]||0)+r.valor; }); return g; };
+  // Resgate de aplicação (grupo TRANSFERÊNCIA INTERNA) NÃO é receita: fica fora da Receita do DRE (mas segue no
+  // saldo, que usa o net de todas as linhas). Só é transferência do CDB de volta pra conta.
+  const arv=(tipo)=>{ const g={}; rows.filter(r=>r.tipo===tipo && !(tipo==='R' && r.grupo==='TRANSFERÊNCIA INTERNA')).forEach(r=>{ const G=g[r.grupo]=g[r.grupo]||{tot:0,emp:{},sub:{}}; G.tot+=r.valor; G.emp[r.emp]=(G.emp[r.emp]||0)+r.valor; const S=G.sub[r.sub]=G.sub[r.sub]||{tot:0,emp:{},col:{}}; S.tot+=r.valor; S.emp[r.emp]=(S.emp[r.emp]||0)+r.valor; const cn=r.col||'(sem coleção)'; const C=S.col[cn]=S.col[cn]||{tot:0,emp:{}}; C.tot+=r.valor; C.emp[r.emp]=(C.emp[r.emp]||0)+r.valor; }); return g; };
   const gR=arv('R'), gD=arv('D');
   const totR=+Object.values(gR).reduce((s,x)=>s+x.tot,0).toFixed(2);
   const totD=+Object.values(gD).reduce((s,x)=>s+x.tot,0).toFixed(2);
@@ -1840,7 +1867,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-05.2';
+const BUILD='2026-11-06.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

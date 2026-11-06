@@ -57,6 +57,13 @@ test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os
     limparFiltrosContas();
     const posLimpar = JSON.parse(JSON.stringify(dateFilters.renderContas || {}));
 
+    // 1b) o mesmo tem que valer pra VENDAS (limparFiltrosVendas) — injeta preso e limpa
+    dateFilters.renderVendas = Object.assign({ ano: [], mes: [], dia: [] }, dateFilters.renderVendas, { de: '2026-11-01', ate: '2026-11-30' });
+    renderVendas();
+    const vendasAntesDe = (dateFilters.renderVendas || {}).de;
+    limparFiltrosVendas();
+    const vendasPos = JSON.parse(JSON.stringify(dateFilters.renderVendas || {}));
+
     const card = (lab) => {
       let v = ''; const el = document.getElementById('v-contas');
       el.querySelectorAll('.card').forEach(c => {
@@ -65,13 +72,9 @@ test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os
       });
       return v;
     };
-    const leVisao = (dp) => {
-      setDfMes('renderContas', '10'); renderContas();
-      const s = document.getElementById('fc-datapor'); if (s) s.value = dp; renderContas();
-      return { total: card('Total a Receber'), aberto: card('Em Aberto'), pago: card('Pago') };
-    };
-    const venc = leVisao('vencimento');
-    const liq = leVisao('liquidacao');
+    const setDP = (dp) => { setDfMes('renderContas', '10'); const s = document.getElementById('fc-datapor'); if (s) s.value = dp; renderContas(); };
+    setDP('vencimento'); const venc = { valor: card('Valor dos pedidos'), recebido: card('Recebido'), atrasado: card('Atrasado') };
+    setDP('liquidacao'); const liq = { clientes: card('Recebido dos clientes'), total: card('Total recebido') };
 
     // referência: soma Venda+Troca dos pedidos de outubro (pela data do pedido)
     const NAOAP = (typeof SITUACOES_NAO_APLICAVEL !== 'undefined') ? SITUACOES_NAO_APLICAVEL : [];
@@ -83,21 +86,23 @@ test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os
       const op = (getClassificacao(p).operacao || '').toLowerCase();
       if (op === 'venda' || op === 'troca') { vtOut += (+p.valor || 0); nOut++; }
     });
-    return { antesDe, limparDe: posLimpar.de, limparAte: posLimpar.ate, venc, liq, vtOut: +vtOut.toFixed(2), nOut };
+    return { antesDe, limparDe: posLimpar.de, limparAte: posLimpar.ate, vendasAntesDe, vendasDe: vendasPos.de, vendasAte: vendasPos.ate, venc, liq, vtOut: +vtOut.toFixed(2), nOut };
   });
 
-  // 1) o botão "limpar" da tela limpa o De/Até preso de novembro
+  // 1) o botão "limpar" da tela limpa o De/Até preso de novembro (CR e Vendas)
   expect(r.antesDe).toBe('2026-11-01');
   expect(r.limparDe).toBe('');
   expect(r.limparAte).toBe('');
-  // 2) Vencimento: os pedidos de outubro aparecem (antes sumiam) — o total cobre TODOS os Venda/Troca de out
-  const vencNum = +r.venc.total.replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
-  expect(vencNum).toBeGreaterThanOrEqual(r.vtOut - 0.01);
-  expect(+r.venc.aberto).toBeGreaterThan(0);
-  expect(+r.venc.pago).toBeGreaterThan(0);
-  // 3) Liquidação (recebimentos) — mostra um total real de outubro
-  const liqNum = +r.liq.total.replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
-  expect(liqNum).toBeGreaterThan(100000);
+  expect(r.vendasAntesDe).toBe('2026-11-01');
+  expect(r.vendasDe).toBe('');
+  expect(r.vendasAte).toBe('');
+  // 2) Vencimento: os pedidos de outubro aparecem (antes sumiam) — "Valor dos pedidos" cobre todos os Venda/Troca de out
+  const _n = s => +String(s || '').replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
+  expect(_n(r.venc.valor)).toBeGreaterThanOrEqual(r.vtOut - 0.01);
+  expect(_n(r.venc.recebido)).toBeGreaterThan(0);
+  // 3) Liquidação: "Recebido dos clientes" e "Total recebido" mostram valores reais de outubro
+  expect(_n(r.liq.clientes)).toBeGreaterThan(100000);
+  expect(_n(r.liq.total)).toBeGreaterThan(100000);
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
@@ -148,15 +153,18 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
 
   const r = await page.evaluate(() => {
     const inM = (d, m) => { const x = d instanceof Date ? d : (d ? new Date(d) : null); return x && !isNaN(x) && (x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')) === m; };
+    const card = (lab) => { let o = { val: '', sub: '' }; document.querySelectorAll('#v-contas .card').forEach(c => { const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*[›●ⓘ].*/, '').replace(/\s*\(filtro\).*/, '').trim(); if (l === lab) o = { val: ((c.querySelector('.c-val') || {}).textContent || '').trim(), sub: ((c.querySelector('.c-sub') || {}).textContent || '').trim() }; }); return o; };
+    const setDP = v => { const s = document.getElementById('fc-datapor'); if (s) s.value = v; renderContas(); };
     setDfMes('renderContas', '10'); renderContas();
-    const s = document.getElementById('fc-datapor'); if (s) s.value = 'liquidacao'; renderContas();
-
-    // card "Recebido dos clientes no mês"
-    let cardSub = '';
-    document.querySelectorAll('#v-contas .card').forEach(c => {
-      const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*\(filtro\).*/, '').trim();
-      if (l === 'Pago') cardSub = ((c.querySelector('.c-sub') || {}).textContent || '').trim();
-    });
+    setDP('liquidacao');
+    // cards da visão Liquidação: 3 (Recebido dos clientes · Rendimentos · Total recebido)
+    const cLiq = { clientes: card('Recebido dos clientes'), rend: card('Rendimentos'), resg: card('Resgates'), total: card('Total recebido') };
+    // cards da visão Vencimento: Atrasado + lista
+    setDP('vencimento');
+    const cAtras = card('Atrasado');
+    const box = document.getElementById('cr-atrasados-box');
+    const atrasPeds = box ? [...box.querySelectorAll('span')].map(s => (s.textContent.match(/#(AV)?\d+/) || [''])[0]).filter(Boolean) : [];
+    setDP('liquidacao');
 
     const aoa = _crRowsAOA(false);
     const byPed = {}; let recCli = 0, resgExport = 0, rendAvul = 0;
@@ -176,10 +184,13 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
     // resgates em meses-foto (jun–set) devem ser 0 → nada muda nas fotos
     const resgJunSet = (typeof receitasAvulsas !== 'undefined' ? receitasAvulsas : []).filter(x => /\bresg/i.test(x.descricao || '') && ['2026-06', '2026-07', '2026-08', '2026-09'].includes(String(x.data instanceof Date ? x.data.toISOString() : x.data).slice(0, 7))).length;
 
+    const _n = s => +String(s || '').replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
     return {
-      cardSub, recCli: +recCli.toFixed(2), pbiCli: +pbiCli.toFixed(2),
+      cLiq, cAtras, atrasPeds,
+      recCli: +recCli.toFixed(2), pbiCli: +pbiCli.toFixed(2),
       resgExport: +resgExport.toFixed(2), rendAvul: +rendAvul.toFixed(2), resgNaTela, resgJunSet,
-      casos: { p40454: +(byPed['40454'] || 0).toFixed(2), p40669: +(byPed['40669'] || 0).toFixed(2), p40312: +(byPed['40312'] || 0).toFixed(2), p40110: +(byPed['40110'] || 0).toFixed(2), p40352: +(byPed['40352'] || 0).toFixed(2) }
+      casos: { p40454: +(byPed['40454'] || 0).toFixed(2), p40669: +(byPed['40669'] || 0).toFixed(2), p40312: +(byPed['40312'] || 0).toFixed(2), p40110: +(byPed['40110'] || 0).toFixed(2), p40352: +(byPed['40352'] || 0).toFixed(2) },
+      _n: { cli: _n(cLiq.clientes.val), rend: _n(cLiq.rend.val), resg: _n(cLiq.resg.val), tot: _n(cLiq.total.val), atras: _n(cAtras.val) }
     };
   });
 
@@ -190,20 +201,98 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
   expect(r.resgNaTela).toBe(false);
   expect(r.rendAvul).toBeGreaterThan(0);
   expect(r.rendAvul).toBeLessThan(10);
-  // fotos jun–set não mudam (não havia resgate nelas)
-  expect(r.resgJunSet).toBe(0);
-  // o card mostra os três rótulos
-  expect(r.cardSub).toContain('Valor dos pedidos');
-  expect(r.cardSub).toContain('Recebido bruto');
-  expect(r.cardSub).toContain('Recebido dos clientes no mês');
+  expect(r.resgJunSet).toBe(0); // fotos jun–set não mudam
+  // RECEITA SEPARADA (visão Liquidação) out/26: Clientes 263.251,05 · Rendimentos 2,30 · Resgates 23.849,48 · Total 287.102,83
+  expect(r._n.cli).toBe(263251.05);
+  expect(r._n.rend).toBe(2.30);
+  expect(r._n.resg).toBe(23849.48); // resgate informativo (fora da receita)
+  expect(r._n.tot).toBe(287102.83); // clientes + rendimentos + resgates
+  expect(r.cLiq.clientes.sub).toContain('216 pedido'); // pedidos distintos
+  // ATRASADO (visão Vencimento) out/26 = 16.611,84; quitados/sobra nunca aparecem
+  expect(r._n.atras).toBe(16602.74); // #41041 (9,10) tem diferença aceita → fora do atraso
+  expect(r.atrasPeds).toContain('#41241');
+  expect(r.atrasPeds).toContain('#AV103');
+  expect(r.atrasPeds).not.toContain('#40877'); // quitado no gateway (PayPal) → nunca atrasado
+  expect(r.atrasPeds).not.toContain('#41020'); // idem
+  expect(r.atrasPeds).not.toContain('#429');   // pagou a mais (sobra) → não é atraso
   // casos fixos out/26 (dedup + entrada na data certa)
   expect(r.casos.p40454).toBe(2509.52);
   expect(r.casos.p40669).toBe(643.59);
   expect(r.casos.p40312).toBe(632.32);
   expect(r.casos.p40110).toBe(119.95);
   expect(r.casos.p40352).toBe(2158.01); // entrada PIX de 2.111,23 fica em julho
-  // total "Recebido dos clientes no mês" de out/26
   expect(r.recCli).toBe(263251.05);
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
+test('Boletos a Emitir: pedido já pago (nada a emitir) não aparece (ex.: #417)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+  const r = await page.evaluate(() => {
+    renderBoletos();
+    const linhas = [...document.querySelectorAll('#v-boletos table tbody tr')].map(tr => (tr.textContent.match(/#?(\d{3,6})/) || [])[1]).filter(Boolean);
+    const temRecebimento = typeof getRecebimentosDoPedido === 'function';
+    const falta417 = (() => { const p = pedidos.find(x => String(x.id) === '417'); return p ? _faltaPedido(p) : null; })();
+    return { n: linhas.length, tem417: linhas.includes('417'), falta417: falta417 != null ? +falta417.toFixed(2) : null, temRecebimento };
+  });
+  expect(r.tem417).toBe(false);          // #417 está pago (sobra) → fora da lista
+  expect(r.falta417).toBeLessThanOrEqual(0.05); // confirma que #417 não deve nada
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
+test('Conferências CR: Sobras a resolver (0,05) e Ajustes de meses fechados', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+
+  const r = await page.evaluate(() => {
+    const c = _scanConferenciasCR();
+    const sob = {}; c.sobras.forEach(s => sob[s.pedido] = s.sobra);
+    const aj = {}; c.ajustesFechados.forEach(a => aj[a.pedido] = a.falta);
+    return { nSob: c.sobras.length, nAj: c.ajustesFechados.length, sob, aj };
+  });
+
+  // Sobras a resolver = banda de centavos a mais (a tolerância 0,05 passou a mostrar). #429 e #41137 têm
+  // diferença ACEITA (difAceita='aceito') → NÃO aparecem em nenhuma lista.
+  expect(r.sob['429']).toBeUndefined();
+  expect(r.sob['41137']).toBeUndefined();
+  expect(r.sob['40414']).toBe(0.11);
+  expect(r.sob['41165']).toBe(0.10);
+  expect(r.sob['41107']).toBe(0.21);
+  expect(r.sob['40039']).toBe(0.47); // crédito de devolução
+  expect(r.sob['40900']).toBe(0.35); // crédito de devolução
+  // Ajustes de meses fechados (falta de centavos, 0,05–0,50, mês fechado) = os 5 confirmados
+  expect(r.nAj).toBe(5);
+  expect(r.aj['39526']).toBe(0.20);
+  expect(r.aj['40060']).toBe(0.07);
+  expect(r.aj['40254']).toBe(0.06);
+  expect(r.aj['40514']).toBe(0.40); // crédito de devolução
+  expect(r.aj['40608']).toBe(0.07);
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
+test('Exportar conciliado (banco): resgate aparece como transferência interna, não como Outras receitas', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+
+  const r = await page.evaluate(() => {
+    setDfMes('renderContas', '10'); renderContas(); // ativa o filtro de out
+    const res = buildConciliadoBanco(_conciliadoBancoG());
+    const cr = res.crRows.slice(1);
+    const resg = cr.filter(row => /\bresg/i.test(String(row[23] || '') + String(row[13] || '')));
+    return {
+      nResg: resg.length,
+      cats: [...new Set(resg.map(row => String(row[15] || '')))],
+      tipos: [...new Set(resg.map(row => String(row[25] || '')))],
+      resgEmOutras: cr.filter(row => String(row[15] || '') === 'OUTRAS RECEITAS' && /\bresg/i.test(String(row[23] || ''))).length,
+      soma: +resg.reduce((s, row) => s + (+row[24] || 0), 0).toFixed(2)
+    };
+  });
+
+  expect(r.nResg).toBe(3); // out/26: RESG AUTOMATICO x2 + RESG/VENCTO CDB
+  expect(r.cats).toEqual(['RESGATE / TRANSFERÊNCIA INTERNA']);
+  expect(r.tipos).toEqual(['transferência interna']);
+  expect(r.resgEmOutras).toBe(0);
+  expect(r.soma).toBe(23849.48);
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 

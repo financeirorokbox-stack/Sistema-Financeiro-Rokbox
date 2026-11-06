@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v780/10-833';
+const APP_VERSION = 'v781/10-834';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1684,6 +1684,52 @@ let _linhasCRDataPor = 'vencimento'; // tipo do filtro de data ('vencimento' | '
 // pra conta), NÃO é receita de cliente. Fica FORA de receita/CR/Painel RK/Power BI/Balancete. Os rendimentos
 // de centavos (RENTAB / REND PAGO / RENDIMENTOS / JUROS) continuam como receita financeira (não têm "RESG").
 function _ehResgateReceita(r) { return !!(r && /\bresg/i.test(r.descricao || '')); }
+// Tolerância de recebimento (centavos). Decidido com a Elaine: 0,05.
+const TOL_RECEB = 0.05;
+// Falta do cliente num pedido = valor do pedido − soma de TODOS os recebimentos (gateway inclusive repasse
+// pendente, PIX, boleto, crédito de devolução). >0 = ainda deve; <=0 = pagou tudo (ou a mais = sobra).
+// Cache por render (_faltaCache) pra não varrer os recebimentos N vezes.
+let _faltaCache = null;
+function _invalidarFaltaCache() { _faltaCache = null; }
+function _faltaPedido(ped) {
+  if (!ped) return 0;
+  const id = String(ped.id);
+  if (_faltaCache && id in _faltaCache) return _faltaCache[id];
+  const recs = (typeof getRecebimentosDoPedido === 'function') ? getRecebimentosDoPedido(ped) : [];
+  const soma = recs.reduce((s, r) => s + (+r.bruto || 0), 0);
+  const falta = +(((ped.valor || 0) - soma)).toFixed(2);
+  if (_faltaCache) _faltaCache[id] = falta;
+  return falta;
+}
+// Quitado para efeito de ATRASO = cliente pagou pelo menos o valor (dentro da tolerância) OU pagou a mais.
+// Só NÃO é quitado quem ainda deve mais que a tolerância. Quitado/sobra nunca é atrasado.
+function _pedidoQuitadoReceb(ped) { return _faltaPedido(ped) <= TOL_RECEB; }
+// Diferença ACEITA na aba Recebimentos (difAceita = 'aceito'): a Elaine já conferiu e aceitou a diferença do pedido.
+// Ele some de TODAS as listas de pendência (atrasado, parcial, sobra, ajustes). 'cobrar' NÃO: continua pendente.
+function _pedidoAceito(id) { return typeof difAceita !== 'undefined' && difAceita[String(id)] === 'aceito'; }
+// Conferências de centavos (tolerância 0,05): SOBRAS A RESOLVER (cliente pagou a mais, falta < −0,05) e AJUSTES DE
+// MESES FECHADOS (falta a menos de 0,05 a 0,50 em mês fechado — não muda a foto, só avisa). Usado no CR, no Painel
+// RK (via flatConferencias) e no sync. Varre os pedidos uma vez (como a aba Recebimentos).
+function _scanConferenciasCR() {
+  _faltaCache = _faltaCache || {};
+  const sobras = [], ajustesFechados = [];
+  const _fech = m => (typeof mesesFechados !== 'undefined' ? mesesFechados : []).includes(m);
+  const _mesPed = p => String(p.data instanceof Date ? p.data.toISOString() : p.data).slice(0, 7);
+  pedidos.forEach(p => {
+    if (SITUACOES_NAO_APLICAVEL.includes((p.situacao || '').toLowerCase())) return;
+    const op = (getClassificacao(p).operacao || '').toLowerCase(); if (op !== 'venda' && op !== 'troca') return;
+    if (typeof pedidoTemRecebimento === 'function' && !pedidoTemRecebimento(p)) return; // só quem recebeu algo
+    if (_pedidoAceito(p.id)) return; // diferença já aceita → fora das listas de pendência
+    const falta = _faltaPedido(p); const mes = _mesPed(p);
+    // "Sobras a resolver": cliente pagou a mais. Entram as de centavos (até R$ 0,50, qualquer mês — o que a
+    // tolerância 0,05 passou a mostrar) e as de mês ABERTO (atuais, a resolver). As sobras grandes de meses
+    // FECHADOS são históricas/já aceitas na aba Recebimentos (não poluem a lista).
+    if (falta < -TOL_RECEB) { const sob = +(-falta).toFixed(2); if (sob <= 0.50 || !_fech(mes)) sobras.push({ pedido: String(p.id), cliente: p.nome || '', empresa: p.empresa || '', valor: +(p.valor || 0).toFixed(2), sobra: sob, mes }); }
+    else if (falta > TOL_RECEB && falta <= 0.50 && _fech(mes)) ajustesFechados.push({ pedido: String(p.id), cliente: p.nome || '', empresa: p.empresa || '', falta: +falta.toFixed(2), mes });
+  });
+  sobras.sort((a, b) => b.sobra - a.sobra); ajustesFechados.sort((a, b) => a.mes.localeCompare(b.mes) || a.pedido.localeCompare(b.pedido));
+  return { sobras, ajustesFechados };
+}
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let blingCustosMap = {}; // SKU (variação) -> {custo, colecao} vindo da Bling (Edge bling-custos). Custo automático.
@@ -3319,6 +3365,26 @@ function _seloFechCR(l, concBanco) {
   if (concBanco) return chip('#e6f4ea', '#1b7a3d', '🔗 banco', 'Recebido e conciliado no banco (dinheiro confirmado no extrato).');
   return chip('#e6f4ea', '#1b7a3d', '💰 pago', 'Recebido (dinheiro) — ainda não casado com o extrato do banco.');
 }
+function _toggleAtrasadosCR() { const b = document.getElementById('cr-atrasados-box'); if (b) b.style.display = (b.style.display === 'none' ? 'block' : 'none'); }
+function _mostrarConferenciasCR() {
+  const box = document.getElementById('cr-conferencias-box'); if (!box) return;
+  if (box.style.display !== 'none' && box.innerHTML) { box.style.display = 'none'; return; }
+  box.style.display = 'block'; box.innerHTML = '<div style="color:var(--muted)">calculando…</div>';
+  setTimeout(() => {
+    let c; try { c = _scanConferenciasCR(); } catch (e) { box.innerHTML = '<div style="color:var(--red)">erro: ' + (e && e.message) + '</div>'; return; }
+    const linha = (nome, pid, dir, val) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${nome || '—'} <span style="color:var(--muted)">#${pid}</span></span><span style="font-weight:700;color:${dir}">${fmtVal(val)}</span></div>`;
+    const somaS = c.sobras.reduce((s, x) => s + x.sobra, 0);
+    box.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:800;margin-bottom:6px">💰 Sobras a resolver (cliente pagou a mais) — ${c.sobras.length} · ${fmtVal(somaS)}</div>
+        ${c.sobras.length ? c.sobras.map(s => linha(s.cliente + ' · ' + s.mes, s.pedido, 'var(--amber)', s.sobra)).join('') : '<div style="color:var(--muted)">nenhuma sobra 🎉</div>'}
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+        <div style="font-size:13px;font-weight:800;margin-bottom:6px">🔒 Ajustes de centavos — meses fechados (falta &lt; R$ 0,50, não muda a foto) — ${c.ajustesFechados.length}</div>
+        ${c.ajustesFechados.length ? c.ajustesFechados.map(a => linha(a.cliente + ' · ' + a.mes, a.pedido, 'var(--muted)', a.falta)).join('') : '<div style="color:var(--muted)">nada a ajustar 🎉</div>'}
+      </div>`;
+  }, 20);
+}
 function renderContas() {
   try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
   const el = document.getElementById('v-contas');
@@ -3335,6 +3401,7 @@ function renderContas() {
 
 function _renderContasImpl(el) {
   setDateFilterRender(renderContas);
+  _faltaCache = {}; // zera o cache de falta/quitado por render
   if (!pedidos.length) {
     el.innerHTML = '<div class="empty"><div class="e-icon">💰</div><strong>Carregue os pedidos</strong> na aba Vendas para ver as contas a receber</div>';
     return;
@@ -3416,7 +3483,7 @@ function _renderContasImpl(el) {
             // Se o pedido JÁ foi todo recebido (por qualquer forma: boleto pago + PIX + sobra de outro
             // pedido), a parcela mostra PAGA — mesmo que o carimbo de boleto pago não esteja na parcela.
             const recebidoTot = getRecebimentosDoPedido(ped).reduce((s, r) => s + (r.bruto || 0), 0);
-            const quitadoPorReceb = recebidoTot >= (ped.valor || 0) - 0.5;
+            const quitadoPorReceb = recebidoTot >= (ped.valor || 0) - TOL_RECEB;
             parcelas.forEach(parc => {
               const stP = quitadoPorReceb ? { recebido: true, detalhe: '✓ pago' } : _stParcelaBoleto(parc);
               linhas.push({ ped, f: { pedido: ped.id, descricao: parcelas.length > 1 ? `Boleto Itaú — ${parc.parcela}/${parc.totalParcelas}` : 'Boleto Itaú', valor: parc.valor, vencimento: parc.vencimento, key: parc.key }, cat, st: stP, venc: parc.vencimento, realIdx: -1, semForma: semFormaVal });
@@ -3673,19 +3740,30 @@ function _renderContasImpl(el) {
   // deixa resgate/avulsa de fora. Assim a tela = flatCR = Power BI. Antes o laço inline aqui super-contava
   // (ex.: out/26 inflava 6.527,40: duplicata de parcela + entrada de julho jogada em outubro).
   // "Recebido bruto" = o que o cliente pagou (antes da taxa do gateway); "Recebido dos clientes" = líquido no banco.
-  let recBruto = 0, vPagoLiq = 0;
-  try {
-    const _crRows = _crRowsAOA(false); // respeita o filtro de data/tipo ativo na tela
-    for (let i = 1; i < _crRows.length; i++) {
-      const row = _crRows[i];
-      if (row[4] !== 'Pago') continue;           // só linhas recebidas (Em Aberto não tem liquidação)
-      if (!String(row[2] || '').trim()) continue; // só dinheiro de PEDIDO de cliente (avulsa/rendimento fica fora)
-      recBruto += (+row[6] || 0);                 // Valor = bruto do pagamento
-      vPagoLiq += (+row[10] || 0);                // Recebido = líquido que caiu no banco
+  let _crR = []; try { _crR = _crRowsAOA(false); } catch (e) { console.warn('CR _crRowsAOA falhou:', e && e.message); } // respeita o filtro de data/tipo ativo
+  let recBruto = 0, vPagoLiq = 0, recRendimento = 0; const _pedsReceb = new Set();
+  for (let i = 1; i < _crR.length; i++) {
+    const row = _crR[i];
+    if (row[4] !== 'Pago') continue;           // só linhas recebidas (Em Aberto não tem liquidação)
+    const pid = String(row[2] || '').trim();
+    if (pid) {                                  // dinheiro de PEDIDO de cliente
+      recBruto += (+row[6] || 0);               // Valor = bruto do pagamento
+      vPagoLiq += (+row[10] || 0);              // Recebido = líquido que caiu no banco
+      _pedsReceb.add(pid);
+    } else {                                    // avulsa sem pedido = rendimento (resgate já ficou fora)
+      recRendimento += (+row[10] || 0);
     }
-  } catch (e) { console.warn('CR recebido (export) falhou, usando 0:', e && e.message); }
+  }
   recBruto = +recBruto.toFixed(2);
   vPagoLiq = +vPagoLiq.toFixed(2);
+  recRendimento = +recRendimento.toFixed(2);
+  const nPedReceb = _pedsReceb.size;                 // pedidos distintos que receberam no período
+  // Resgates de aplicação (transferência interna): informativo na visão Liquidação — NÃO são receita (ficam fora
+  // do DRE/Balancete), mas aparecem pra conferência (o dinheiro entrou no banco). Soma os resgates do período.
+  let resgatesLiq = 0;
+  receitasAvulsas.forEach(r => { if (!_ehResgateReceita(r)) return; if (fEmp && (r.empresa || '') !== fEmp) return; if (dfAtivo() && !passaData(r.data)) return; resgatesLiq += (+r.valor || 0); });
+  resgatesLiq = +resgatesLiq.toFixed(2);
+  const recTotal = +(vPagoLiq + recRendimento + resgatesLiq).toFixed(2); // clientes + rendimentos + resgates (tudo que entrou)
   const totalCR  = vAberto + vPago; // total de Contas a Receber (em aberto + pago) — SÓ pedidos (cross-check VT)
   const flt = !!(dfAtivo() || fCat || fEmp || fOp || fSt || fConc || fQraw); // há filtro ativo?
 
@@ -3725,6 +3803,44 @@ function _renderContasImpl(el) {
   pedidosNaoFecham.sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif));
   const bateVT = pedidosNaoFecham.length === 0; // bate quando só há (no máximo) arredondamento de centavos
 
+  // ── Visão VENCIMENTO: o que venceu no mês e como está (por PEDIDO, não por linha) ──
+  // Recebido = o que o cliente já pagou; A vencer = em aberto ainda no prazo; Atrasado = vencido E não quitado.
+  // Quitado/sobra (cliente pagou tudo, inclusive no gateway aguardando repasse) NUNCA é atrasado (regra única,
+  // igual Recebimentos e Painel RK, tolerância TOL_RECEB). Parcial mostra só o que falta.
+  const _porLiqCR = fDataPor === 'liquidacao';
+  const _dNow = new Date(); const _hojeISOcr = _dNow.getFullYear()+'-'+String(_dNow.getMonth()+1).padStart(2,'0')+'-'+String(_dNow.getDate()).padStart(2,'0');
+  const _vencISOcr = x => { if (!x) return null; const d = x instanceof Date ? x : new Date(x); return isNaN(d) ? String(x).slice(0,10) : (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
+  let vcValor = 0, vcRecebido = 0, vcAVencer = 0, vcAtrasado = 0; const _atrasadosCR = [];
+  if (!_porLiqCR) {
+    // Mesma fonte do Painel RK: as linhas do export (_crRowsAOA) com vencimento no mês (uma por PARCELA, cada
+    // uma com seu vencimento). Pago = o cliente já pagou. Em Aberto (pendente): se o pedido está quitado/sobra
+    // (cliente pagou tudo, inclusive no gateway aguardando repasse) → conta como recebido; senão, vencido =
+    // Atrasado, no prazo = A vencer. Parcela paga de pedido parcelado não puxa o resto pro atraso.
+    const _pedIdx = {}; pedidos.forEach(p => { _pedIdx[String(p.id)] = p; });
+    const faltaRest = {};
+    for (let i = 1; i < _crR.length; i++) {
+      const row = _crR[i]; const valor = +row[6] || 0; vcValor += valor;
+      if (row[4] === 'Pago') { vcRecebido += valor; continue; }
+      const pid = String(row[2] || '').trim(); const ped = _pedIdx[pid];
+      if (pid && _pedidoAceito(pid)) { vcRecebido += valor; continue; } // diferença aceita → fora do atraso
+      if (ped && _pedidoQuitadoReceb(ped)) { vcRecebido += valor; continue; } // cliente pagou tudo (gateway pendente)
+      // Parcial com crédito de devolução/gateway: o pendente do export pode estar cheio, mas o cliente já abateu
+      // parte. Limita o atraso pela FALTA REAL do pedido (parcial mostra só o que falta). Avulso (sem pedido) = cheio.
+      let aloc = valor;
+      if (ped) { if (!(pid in faltaRest)) faltaRest[pid] = Math.max(0, _faltaPedido(ped)); aloc = Math.min(valor, faltaRest[pid]); faltaRest[pid] = +(faltaRest[pid] - aloc).toFixed(2); }
+      aloc = +aloc.toFixed(2);
+      vcRecebido += +(valor - aloc).toFixed(2); // parte já coberta por crédito/gateway conta como recebida
+      if (aloc > TOL_RECEB) {
+        const vISO = _vencISOcr(row[1]); // coluna 1 = vencimento da parcela
+        const vencido = vISO && _vencEfetivo(vISO) < _hojeISOcr;
+        if (vencido) { vcAtrasado += aloc; _atrasadosCR.push({ pedido: pid, nome: row[3] || '', venc: vISO, valor: aloc }); }
+        else vcAVencer += aloc;
+      }
+    }
+  }
+  vcValor = +vcValor.toFixed(2); vcRecebido = +vcRecebido.toFixed(2); vcAVencer = +vcAVencer.toFixed(2); vcAtrasado = +vcAtrasado.toFixed(2);
+  _atrasadosCR.sort((a,b) => b.valor - a.valor);
+
   el.innerHTML = `
     ${(() => { const nF = [fCat,fEmp,fOp,fSt,fConc,fQraw].filter(Boolean).length + (dfAtivo()?1:0) + (fDataPor==='liquidacao'?1:0); return `
     <div class="topbar">
@@ -3749,11 +3865,23 @@ function _renderContasImpl(el) {
     </div>`; })()}
     ${dateMiniBar('renderContas')}
     <div class="cards-row">
-      <div class="card red" style="cursor:pointer" title="Seu double-check: clique pra ver TUDO que ainda não fechou (nem por dinheiro, nem troca, nem aceito). Quando zerar, está tudo certo." onclick="const e=document.getElementById('fc-st');if(e){e.value=e.value==='aberto'?'':'aberto';renderContas()}"><div class="c-label">Em Aberto${flt?' (filtro)':''} ${fSt==='aberto'?'●':'›'}</div><div class="c-val">${emAberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
-      <div class="card dark" title="Valor dos pedidos = soma dos pedidos pagos. Recebido bruto = o que o cliente pagou. Recebido dos clientes no mês = líquido que caiu no banco (mesma conta do Power BI/flatCR: sem duplicar parcela, entrada na data certa, resgate de aplicação fora)."><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">Valor dos pedidos ${fmtVal(vPago)} · Recebido bruto ${fmtVal(recBruto)}<br><strong style="color:var(--green)">Recebido dos clientes no mês ${fmtVal(vPagoLiq)}</strong></div></div>
-      <div class="card ${flt?'blue':(bateVT?'green':'amber')}"><div class="c-label">Total a Receber${flt?' (filtro)':''}</div><div class="c-val">${fmtVal(totalCR)}</div><div class="c-sub">${vis.length} linha(s)${flt?` · líquido <strong>${fmtVal(+(vAberto + vPagoLiq).toFixed(2))}</strong> (com multa, = o que concilia c/ o banco)`:''}</div></div>
-      ${avulsasVis.length ? `<div class="card green" style="cursor:pointer" title="Clique para ver as Outras receitas" onclick="document.getElementById('sec-outras-receitas')?.scrollIntoView({behavior:'smooth',block:'start'})"><div class="c-label">Outras receitas ›</div><div class="c-val">${avulsasVis.length}</div><div class="c-sub">${fmtVal(vAvulsas)}</div></div>` : ''}
+    ${_porLiqCR ? `
+      <div class="card dark" title="Dinheiro que entrou no mês, dos clientes. Mesma conta do Power BI/flatCR: sem duplicar parcela, entrada na data certa, repasse de gateway pendente e resgate de aplicação ficam fora."><div class="c-label">Recebido dos clientes</div><div class="c-val" style="color:var(--green)">${fmtVal(vPagoLiq)}</div><div class="c-sub">${nPedReceb} pedido(s) · ${fmtVal(recBruto)} bruto − ${fmtVal(+(recBruto - vPagoLiq).toFixed(2))} taxas</div></div>
+      <div class="card" title="Rendimentos da aplicação (RENTAB / REND PAGO / JUROS). É receita financeira."><div class="c-label">Rendimentos</div><div class="c-val">${fmtVal(recRendimento)}</div><div class="c-sub">receita financeira</div></div>
+      <div class="card" title="Resgate de aplicação (RESG AUTOMATICO / RESG VENCTO CDB) = transferência interna. Mostrado só para conferência; NÃO é receita (fica fora do DRE/Balancete/Power BI)."><div class="c-label">Resgates ⓘ</div><div class="c-val" style="color:var(--muted)">${fmtVal(resgatesLiq)}</div><div class="c-sub">transferência interna (fora da receita)</div></div>
+      <div class="card blue" title="Tudo que entrou no banco no mês = clientes + rendimentos + resgates."><div class="c-label">Total recebido</div><div class="c-val">${fmtVal(recTotal)}</div><div class="c-sub">clientes + rendimentos + resgates</div></div>
+    ` : `
+      <div class="card"><div class="c-label">Valor dos pedidos${flt?' (filtro)':''}</div><div class="c-val">${fmtVal(vcValor)}</div><div class="c-sub">venceram no período</div></div>
+      <div class="card dark"><div class="c-label">Recebido</div><div class="c-val" style="color:var(--green)">${fmtVal(vcRecebido)}</div><div class="c-sub">o cliente já pagou</div></div>
+      <div class="card amber"><div class="c-label">Em aberto (a vencer)</div><div class="c-val">${fmtVal(vcAVencer)}</div><div class="c-sub">ainda no prazo</div></div>
+      <div class="card red" style="cursor:pointer" title="Vencido e NÃO quitado. Quem pagou (inclusive no gateway aguardando repasse) ou pagou a mais não entra. Parcial mostra só o que falta." onclick="_toggleAtrasadosCR()"><div class="c-label">Atrasado ›</div><div class="c-val">${fmtVal(vcAtrasado)}</div><div class="c-sub">${_atrasadosCR.length} pedido(s) vencido(s)</div></div>
+    `}
     </div>
+    ${!_porLiqCR ? `<div id="cr-atrasados-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:2px 0 14px">
+      <div style="font-size:13px;font-weight:800;margin-bottom:6px">Atrasados (vencido e não quitado) — ${_atrasadosCR.length} · ${fmtVal(vcAtrasado)}</div>
+      ${_atrasadosCR.length ? _atrasadosCR.map(a => `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${a.venc ? a.venc.slice(8,10)+'/'+a.venc.slice(5,7) : '—'} · ${a.nome||'—'} <span style="color:var(--muted)">#${a.pedido}</span></span><span style="font-weight:700;color:var(--red)">${fmtVal(a.valor)}</span></div>`).join('') : '<div style="color:var(--muted)">nada atrasado 🎉</div>'}
+    </div>` : ''}
+    <div style="margin:2px 0 14px"><button class="btn ghost sm" onclick="_mostrarConferenciasCR()" title="Pedidos onde o cliente pagou A MAIS (sobra) e centavos a menos em meses fechados (tolerância R$ 0,05).">💰 Sobras a resolver / 🔒 ajustes de centavos</button><div id="cr-conferencias-box" style="display:none;margin-top:8px"></div></div>
     ${vis.length === 0 ? `<div class="empty"><div class="e-icon">${linhas.length === 0 ? '💰' : '🔍'}</div>
       ${linhas.length === 0
         ? 'Nenhum pedido Venda/Troca encontrado. Verifique se as operações estão configuradas em <a href="#" onclick="setView(\'cadastro\');return false" style="color:var(--accent)">Cadastro → Lojas</a>.'
@@ -5553,6 +5681,32 @@ async function _syncPowerBI() {
     recebido_liquido: +(+r[10] || 0).toFixed(2), taxa: +(+r[12] || 0).toFixed(2), descricao: r[13] || '',
     canal_pagamento: r[15] || '', empresa: r[20] || ''
   }));
+  // atraso_real por linha Em Aberto = o que o cliente REALMENTE ainda deve (limitado pela falta real do pedido:
+  // crédito de devolução e repasse de gateway já abatem). Pedido quitado/sobra → 0 (não é atraso). Avulso (sem
+  // pedido cadastrado) → valor cheio. Assim o Painel RK lê a MESMA regra de atraso da tela, sem recalcular nada.
+  (() => {
+    _faltaCache = {};
+    const _pidx = {}; pedidos.forEach(p => { _pidx[String(p.id)] = p; });
+    const grupos = {};
+    crFlat.forEach(r => {
+      r.atraso_real = 0;
+      if (r.situacao !== 'Em Aberto') return;
+      if (r.pedido && _pedidoAceito(r.pedido)) return; // diferença aceita → não é atraso
+      const ped = r.pedido ? _pidx[String(r.pedido)] : null;
+      if (!ped) { r.atraso_real = +(+r.valor_bruto || 0).toFixed(2); return; } // avulso/sem pedido: cheio
+      (grupos[String(r.pedido)] = grupos[String(r.pedido)] || []).push(r);
+    });
+    // Por pedido: o que o cliente JÁ pagou abate as parcelas MAIS ANTIGAS primeiro; o que falta (atraso_real) fica
+    // nas parcelas mais recentes com o valor cheio. Assim parcela parcelada não perde centavo de arredondamento
+    // e parcela quitada/coberta por crédito de devolução zera.
+    Object.keys(grupos).forEach(pid => {
+      const rows = grupos[pid].slice().sort((a, b) => String(a.vencimento || '').localeCompare(String(b.vencimento || '')));
+      const soma = rows.reduce((s, r) => s + (+r.valor_bruto || 0), 0);
+      const falta = Math.max(0, _faltaPedido(_pidx[pid]));
+      let pago = Math.max(0, +(soma - falta).toFixed(2)); // já pago (abate as mais antigas)
+      rows.forEach(r => { const vb = +r.valor_bruto || 0; const ab = Math.min(vb, pago); pago = +(pago - ab).toFixed(2); r.atraso_real = +(vb - ab).toFixed(2); });
+    });
+  })();
   // "A EMITIR": marca cada boleto EM ABERTO que ainda NÃO foi emitido (botão azul na tela Boletos a Emitir),
   // pra o painel poder mostrar o selinho. Casa por pedido|vencimento com o status boletoStatus[key].
   const _emitLookup = {};
@@ -5657,6 +5811,7 @@ async function _syncPowerBI() {
   } catch (e) { console.warn('vendasFechado swap falhou:', e.message); }
   await saveData('flatVendas', vendasFlat);
   try { await saveData('flatBalancete', _exportBalancete()); } catch (e) { console.warn('balancete export falhou:', e.message); }
+  try { await saveData('flatConferencias', _scanConferenciasCR()); } catch (e) { console.warn('conferencias export falhou:', e.message); }
   // RECEBIMENTOS por pedido para o Painel (aba Recebimentos): usa a MESMA fonte da Conciliação
   // (getRecebimentosDoPedido → alocRecebGateway). Assim o Painel mostra a MESMA divisão, canal e data
   // de liquidação, sem recalcular por conta própria. Devolução fica num campo à parte (igual à coluna do Painel);
@@ -5700,8 +5855,11 @@ function _exportBalancete() {
       let grupo, sub;
       if (receitaLinks[t.id]) {
         const ra = receitasAvulsas.find(r => r._extratoId === t.id);
-        if (_ehResgateReceita(ra)) return; // resgate de aplicação = transferência interna, fora do Balancete (não é receita)
-        sub = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros';
+        // Resgate de aplicação (RESG AUTOMATICO / RESG VENCTO CDB) = transferência interna: o dinheiro ENTROU no
+        // banco (precisa contar no SALDO), mas NÃO é receita. Fica num grupo próprio "TRANSFERÊNCIA INTERNA", fora
+        // da Receita/DRE, e segue somando no saldo (tipo R). Rendimento de centavos continua receita normal.
+        if (_ehResgateReceita(ra)) { grupo = 'TRANSFERÊNCIA INTERNA'; sub = 'Resgate de aplicação'; }
+        else { sub = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros'; }
       }
       else { const gw = categoriaLancamento(t); grupo = gw ? grupoReceitaGateway(gw) : 'Não conciliado'; sub = gw ? (SUB_REC[gw] || gw) : 'Crédito não conciliado'; }
       rows.push({ mes, emp: _normEmp(t.banco), tipo: 'R', grupo, sub, col: '(sem coleção)', valor: +v.toFixed(2) });
@@ -6908,10 +7066,13 @@ function buildConciliadoBanco(G) {
     } else {
       // Crédito do extrato SEM título (nem repasse, nem PIX de pedido): tem lastro no banco → entra como
       // RECEITA no CR, no grupo do próprio crédito (líquido = valor do crédito, taxa 0). Não vai mais p/ Pendências.
-      const rend = isRendimento(t.memo);
-      const tipo = rend ? 'rendimento' : 'receita avulsa';
-      const cat = rend ? 'RENDIMENTOS' : 'OUTRAS RECEITAS';
-      const pagador = rend ? 'Rendimento de aplicação' : pagadorDoMemo(t.memo);
+      // RESGATE de aplicação (RESG AUTOMATICO / RESG/VENCTO CDB): o dinheiro ENTROU no banco (precisa aparecer pro
+      // relatório fechar com o extrato), mas NÃO é receita — é transferência interna (volta do CDB pra conta).
+      const resg = /\bresg/i.test(t.memo || '');
+      const rend = !resg && isRendimento(t.memo);
+      const tipo = resg ? 'transferência interna' : (rend ? 'rendimento' : 'receita avulsa');
+      const cat = resg ? 'RESGATE / TRANSFERÊNCIA INTERNA' : (rend ? 'RENDIMENTOS' : 'OUTRAS RECEITAS');
+      const pagador = resg ? 'Resgate de aplicação (transferência interna)' : (rend ? 'Rendimento de aplicação' : pagadorDoMemo(t.memo));
       crRows.push([brDate(t.data), '', '', pagador, 'Pago', comp(t.data), r2(t.valor), 0, 0, 0, r2(t.valor), 0, 0, (t.memo || ''), ('Conciliado no banco — ' + (t.memo || '').slice(0, 60)), refCatCR(cat), ma(t.data), ma(t.data), r2(t.valor), brDate(t.data), '', t.id, brDate(t.data), (t.memo || ''), r2(t.valor), tipo, '']);
       ag.crLiq += r2(t.valor);
     }
@@ -8939,6 +9100,7 @@ let _boletosEmitAberto = false; // na aba Boletos a Emitir, os JÁ emitidos come
 function toggleBoletosEmit() { _boletosEmitAberto = !_boletosEmitAberto; renderBoletos(); }
 function renderBoletos() {
   setDateFilterRender(renderBoletos);
+  _faltaCache = {}; // falta/quitado fresco por render
   const el = document.getElementById('v-boletos');
   const peds = getBoletosPorPedido();
   if (!peds.length) {
@@ -8951,7 +9113,11 @@ function renderBoletos() {
   const empresas = [...new Set(pedidos.map(p=>p.empresa).filter(Boolean))].sort();
   const empresaDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.empresa || '';
   const dataDoPed = id => pedidos.find(p=>String(p.id)===String(id))?.data;
-  const vis = peds.filter(b => (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp) && (!dfAtivo() || passaData(dataDoPed(b.pedido))));
+  // Pedido JÁ PAGO (nada a emitir) sai da lista: se o cliente já quitou (ou pagou a mais), não há boleto a emitir.
+  // Ex.: #417 pago por outra forma → some daqui. Parcial (ainda deve) continua aparecendo.
+  const _pedPorId = id => pedidos.find(p=>String(p.id)===String(id));
+  const _aindaFaltaBol = id => { const p=_pedPorId(id); return !p || _faltaPedido(p) > TOL_RECEB; };
+  const vis = peds.filter(b => _aindaFaltaBol(b.pedido) && (!fQ || String(b.pedido).includes(fQ) || b.cliente.toLowerCase().includes(fQ)) && (!fEmp || empresaDoPed(b.pedido)===fEmp) && (!dfAtivo() || passaData(dataDoPed(b.pedido))));
   const emitidosArr = vis.filter(b=>{const p=getParcelas(b);return p.length&&p.every(x=>boletoStatus[x.key])});
   const totalEmitidos = emitidosArr.length;
   const somaTot = vis.reduce((s,b)=>s+(+b.valorTotal||0),0);
@@ -12191,7 +12357,7 @@ function renderPorPedido() {
     const somaBruto = +recs.reduce((s, r) => s + (r.bruto || 0), 0).toFixed(2);
     const somaTaxa = +recs.reduce((s, r) => s + (r.taxa || 0), 0).toFixed(2);
     const dif = +(valorPed - somaBruto).toFixed(2);
-    let status = Math.abs(dif) <= 0.5 ? 'quitado' : (dif > 0 ? 'falta' : 'sobra');
+    let status = Math.abs(dif) <= TOL_RECEB ? 'quitado' : (dif > 0 ? 'falta' : 'sobra');
     if (status !== 'quitado' && difAceita[ped.id]) status = difAceita[ped.id]; // 'aceito' ou 'cobrar'
     linhas.push({ ped, valorPed, recs, somaBruto, somaTaxa, dif, status });
   });
