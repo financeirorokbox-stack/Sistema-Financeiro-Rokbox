@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v779/10-832';
+const APP_VERSION = 'v780/10-833';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1680,6 +1680,10 @@ let _linhasCR = []; // últimas linhas montadas de Contas a Receber (para export
 let _linhasCRExport = []; // linhas SEM o filtro de data (o export filtra por PAGAMENTO, respeitando o tipo Venc/Liquidação)
 let _receitasCRExport = []; // receitas avulsas (rendimentos etc. lançados na conciliação) filtradas SEM data — p/ entrarem no export
 let _linhasCRDataPor = 'vencimento'; // tipo do filtro de data ('vencimento' | 'liquidacao') do último render de Contas a Receber
+// RESGATE de aplicação (RESG AUTOMATICO / RESG/VENCTO CDB) = transferência interna (dinheiro voltando do CDB
+// pra conta), NÃO é receita de cliente. Fica FORA de receita/CR/Painel RK/Power BI/Balancete. Os rendimentos
+// de centavos (RENTAB / REND PAGO / RENDIMENTOS / JUROS) continuam como receita financeira (não têm "RESG").
+function _ehResgateReceita(r) { return !!(r && /\bresg/i.test(r.descricao || '')); }
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let blingCustosMap = {}; // SKU (variação) -> {custo, colecao} vindo da Bling (Edge bling-custos). Custo automático.
@@ -3628,6 +3632,7 @@ function _renderContasImpl(el) {
   _linhasCRDataPor = fDataPor;
   // Receitas avulsas (rendimentos etc. lançados na conciliação): mesmos filtros da tela, MENOS a data — o export filtra pela data delas (r.data = data do banco).
   _receitasCRExport = receitasAvulsas.filter(r => {
+    if (_ehResgateReceita(r)) return false; // resgate de aplicação = transferência interna, fora do CR/export/Power BI
     if (fEmp && (r.empresa || '') !== fEmp) return false;
     if (fCat && r.categoria !== fCat) return false;
     if (fSt === 'aberto' || fSt === 'semforma') return false; // avulsa é sempre paga
@@ -3663,12 +3668,23 @@ function _renderContasImpl(el) {
   const pagos    = vis.filter(l =>  l.st.recebido);
   const vAberto  = emAberto.reduce((s,l) => s + l.f.valor, 0);
   const vPago    = pagos.reduce((s,l) => s + l.f.valor, 0);
-  // Líquido efetivamente recebido (o que caiu no banco) — igual à coluna "Recebido" do export: pagamentos positivos, líquido, no período por liquidação.
-  let vPagoLiq = 0;
-  vis.forEach(l => {
-    if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return;
-    pagamentosDaLinha(l).forEach(pg => { if (pg.valor < 0) return; if (dfAtivo() && fDataPor === 'liquidacao' && !passaData(pg.data)) return; vPagoLiq += (pg.liq != null ? pg.liq : pg.valor); });
-  });
+  // Recebido dos clientes no mês — LÊ A MESMA CONTA DO EXPORT (_crRowsAOA): deduplica pagamento (pedido com 2
+  // parcelas/formas não conta 2x), data a entrada no dia certo, pula repasse de gateway ainda não conciliado e
+  // deixa resgate/avulsa de fora. Assim a tela = flatCR = Power BI. Antes o laço inline aqui super-contava
+  // (ex.: out/26 inflava 6.527,40: duplicata de parcela + entrada de julho jogada em outubro).
+  // "Recebido bruto" = o que o cliente pagou (antes da taxa do gateway); "Recebido dos clientes" = líquido no banco.
+  let recBruto = 0, vPagoLiq = 0;
+  try {
+    const _crRows = _crRowsAOA(false); // respeita o filtro de data/tipo ativo na tela
+    for (let i = 1; i < _crRows.length; i++) {
+      const row = _crRows[i];
+      if (row[4] !== 'Pago') continue;           // só linhas recebidas (Em Aberto não tem liquidação)
+      if (!String(row[2] || '').trim()) continue; // só dinheiro de PEDIDO de cliente (avulsa/rendimento fica fora)
+      recBruto += (+row[6] || 0);                 // Valor = bruto do pagamento
+      vPagoLiq += (+row[10] || 0);                // Recebido = líquido que caiu no banco
+    }
+  } catch (e) { console.warn('CR recebido (export) falhou, usando 0:', e && e.message); }
+  recBruto = +recBruto.toFixed(2);
   vPagoLiq = +vPagoLiq.toFixed(2);
   const totalCR  = vAberto + vPago; // total de Contas a Receber (em aberto + pago) — SÓ pedidos (cross-check VT)
   const flt = !!(dfAtivo() || fCat || fEmp || fOp || fSt || fConc || fQraw); // há filtro ativo?
@@ -3676,6 +3692,7 @@ function _renderContasImpl(el) {
   // ── Receitas avulsas (rendimentos etc.): linhas próprias, fora do cross-check de pedidos ──
   // Respeita os mesmos filtros: empresa, busca, data. São sempre "recebidas" (não entram em "Em Aberto").
   const avulsasVis = receitasAvulsas.filter(r => {
+    if (_ehResgateReceita(r)) return false; // resgate = transferência interna, não é "Outras receitas"
     if (fEmp && (r.empresa||'') !== fEmp) return false;
     if (fCat && r.categoria !== fCat) return false;
     if (fSt === 'aberto' || fSt === 'semforma') return false; // avulsa é sempre paga
@@ -3733,7 +3750,7 @@ function _renderContasImpl(el) {
     ${dateMiniBar('renderContas')}
     <div class="cards-row">
       <div class="card red" style="cursor:pointer" title="Seu double-check: clique pra ver TUDO que ainda não fechou (nem por dinheiro, nem troca, nem aceito). Quando zerar, está tudo certo." onclick="const e=document.getElementById('fc-st');if(e){e.value=e.value==='aberto'?'':'aberto';renderContas()}"><div class="c-label">Em Aberto${flt?' (filtro)':''} ${fSt==='aberto'?'●':'›'}</div><div class="c-val">${emAberto.length}</div><div class="c-sub">${fmtVal(vAberto)}</div></div>
-      <div class="card dark"><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">${fmtVal(vPago)} bruto · <strong style="color:var(--green)">líquido ${fmtVal(vPagoLiq)}</strong></div></div>
+      <div class="card dark" title="Valor dos pedidos = soma dos pedidos pagos. Recebido bruto = o que o cliente pagou. Recebido dos clientes no mês = líquido que caiu no banco (mesma conta do Power BI/flatCR: sem duplicar parcela, entrada na data certa, resgate de aplicação fora)."><div class="c-label">Pago${flt?' (filtro)':''}</div><div class="c-val">${pagos.length}</div><div class="c-sub">Valor dos pedidos ${fmtVal(vPago)} · Recebido bruto ${fmtVal(recBruto)}<br><strong style="color:var(--green)">Recebido dos clientes no mês ${fmtVal(vPagoLiq)}</strong></div></div>
       <div class="card ${flt?'blue':(bateVT?'green':'amber')}"><div class="c-label">Total a Receber${flt?' (filtro)':''}</div><div class="c-val">${fmtVal(totalCR)}</div><div class="c-sub">${vis.length} linha(s)${flt?` · líquido <strong>${fmtVal(+(vAberto + vPagoLiq).toFixed(2))}</strong> (com multa, = o que concilia c/ o banco)`:''}</div></div>
       ${avulsasVis.length ? `<div class="card green" style="cursor:pointer" title="Clique para ver as Outras receitas" onclick="document.getElementById('sec-outras-receitas')?.scrollIntoView({behavior:'smooth',block:'start'})"><div class="c-label">Outras receitas ›</div><div class="c-val">${avulsasVis.length}</div><div class="c-sub">${fmtVal(vAvulsas)}</div></div>` : ''}
     </div>
@@ -5479,6 +5496,21 @@ function _crRowsAOA(semFiltro) {
   });
   return rows;
 }
+// Recebido no período pela MESMA conta do export (_crRowsAOA): deduplica pagamento (pedido com 2 parcelas/formas
+// não conta 2x), entrada na data certa, repasse de gateway não-conciliado fora, resgate fora. Inclui rendimentos
+// (caem no banco). Respeita o filtro de data/tipo ativo. É o que concilia com o banco. soPedidos=true → só cliente.
+function _recebidoExportFiltrado(soPedidos) {
+  let s = 0;
+  try {
+    const cr = _crRowsAOA(false);
+    for (let i = 1; i < cr.length; i++) {
+      if (cr[i][4] !== 'Pago') continue;
+      if (soPedidos && !String(cr[i][2] || '').trim()) continue;
+      s += (+cr[i][10] || 0);
+    }
+  } catch (e) { console.warn('_recebidoExportFiltrado falhou:', e && e.message); }
+  return +s.toFixed(2);
+}
 function exportarModeloCR() {
   if (!_linhasCRExport.length) { alert('Abra a aba Contas a Receber e aguarde carregar antes de exportar.'); return; }
   const rows = _crRowsAOA(false);
@@ -5666,7 +5698,11 @@ function _exportBalancete() {
     const v = +t.valor || 0;
     if (v > 0) {
       let grupo, sub;
-      if (receitaLinks[t.id]) { const ra = receitasAvulsas.find(r => r._extratoId === t.id); sub = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros'; }
+      if (receitaLinks[t.id]) {
+        const ra = receitasAvulsas.find(r => r._extratoId === t.id);
+        if (_ehResgateReceita(ra)) return; // resgate de aplicação = transferência interna, fora do Balancete (não é receita)
+        sub = (ra && ra.categoria) || 'Outras receitas'; grupo = 'Outros';
+      }
       else { const gw = categoriaLancamento(t); grupo = gw ? grupoReceitaGateway(gw) : 'Não conciliado'; sub = gw ? (SUB_REC[gw] || gw) : 'Crédito não conciliado'; }
       rows.push({ mes, emp: _normEmp(t.banco), tipo: 'R', grupo, sub, col: '(sem coleção)', valor: +v.toFixed(2) });
     } else if (v < 0) {
@@ -12954,9 +12990,8 @@ function relatorioConferencia() {
   let credBanco = 0, debBanco = 0;
   extratoBancario.forEach(t => { if (!passaData(t.data)) return; if ((t.valor || 0) > 0) credBanco += t.valor; else debBanco += Math.abs(t.valor || 0); });
   // Recebido (mesma conta do export)
-  let recebido = 0;
-  (_linhasCRExport || []).forEach(l => { if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return; pagamentosDaLinha(l).forEach(pg => { if (pg.valor < 0) return; if (!passaData(pg.data)) return; recebido += (pg.liq != null ? pg.liq : pg.valor); }); });
-  (_receitasCRExport || []).forEach(r => { if (r.data && passaData(r.data)) recebido += (r.valor || 0); });
+  // dedup + entrada na data certa + resgate fora (mesma conta do export). Inclui rendimentos (caem no banco).
+  let recebido = _recebidoExportFiltrado(false);
   let pago = 0; contasPagar.forEach(c => { if (c.pago && c.dataPag && passaData(c.dataPag)) pago += (c.valor || 0); });
   recebido = +recebido.toFixed(2); pago = +pago.toFixed(2); credBanco = +credBanco.toFixed(2); debBanco = +debBanco.toFixed(2);
   // Vínculos
@@ -13002,16 +13037,12 @@ function conferenciaPeriodoHTML() {
   // Banco (todos os bancos) no período
   let credBanco = 0, debBanco = 0;
   extratoBancario.forEach(t => { if (!passaData(t.data)) return; if ((t.valor || 0) > 0) credBanco += t.valor; else debBanco += Math.abs(t.valor || 0); });
-  // Recebido (Contas a Receber) — EXATAMENTE a conta do export: linhas do CR, pagamento a pagamento (LÍQUIDO),
-  // estornos (negativos) fora, pela data que caiu no banco; + receitas avulsas. Usa as MESMAS linhas do export (_linhasCRExport).
+  // Recebido (Contas a Receber) — EXATAMENTE a conta do export (_crRowsAOA): dedup por pagamento, entrada na data
+  // certa, estorno/repasse não-conciliado fora, resgate fora, pela data que caiu no banco; inclui rendimentos.
   const semCR = !(_linhasCRExport && _linhasCRExport.length);
   let recebido = 0;
   if (!semCR) {
-    _linhasCRExport.forEach(l => {
-      if (l.cat === 'Devolução' || l.cat === 'Crédito Cliente') return;
-      pagamentosDaLinha(l).forEach(pg => { if (pg.valor < 0) return; if (!passaData(pg.data)) return; recebido += (pg.liq != null ? pg.liq : pg.valor); });
-    });
-    (_receitasCRExport || []).forEach(r => { if (r.data && passaData(r.data)) recebido += (r.valor || 0); });
+    recebido = _recebidoExportFiltrado(false);
   }
   // Pago (Contas a Pagar) — contas pagas pela data de pagamento (inclui estornos/reembolsos lançados aqui).
   let pago = 0;

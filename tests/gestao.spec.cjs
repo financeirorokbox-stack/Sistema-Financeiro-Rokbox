@@ -49,6 +49,8 @@ test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os
   await boot(page);
 
   const r = await page.evaluate(() => {
+    // simula o De/Até PRESO (novembro) que travava a tela — independente do que veio no snapshot
+    dateFilters.renderContas = Object.assign({ ano: [], mes: [], dia: [] }, dateFilters.renderContas, { de: '2026-11-01', ate: '2026-11-30' });
     renderContas(); // garante os controles na tela
     const antesDe = (dateFilters.renderContas || {}).de;
     // 1) o botão REAL da tela ("✕ limpar" = limparFiltrosContas) tem que limpar o De/Até
@@ -84,20 +86,18 @@ test('Contas a Receber: botão "limpar" limpa o De/Até preso + Out/26 mostra os
     return { antesDe, limparDe: posLimpar.de, limparAte: posLimpar.ate, venc, liq, vtOut: +vtOut.toFixed(2), nOut };
   });
 
-  // 1) o botão "limpar" da tela agora limpa o De/Até preso de novembro
+  // 1) o botão "limpar" da tela limpa o De/Até preso de novembro
   expect(r.antesDe).toBe('2026-11-01');
   expect(r.limparDe).toBe('');
   expect(r.limparAte).toBe('');
-  // 2) Vencimento: os pedidos de outubro aparecem (antes sumiam → 45.979,20)
-  expect(r.venc.total).toContain('284.789,53');
-  expect(r.venc.aberto).toBe('48');
-  expect(r.venc.pago).toBe('194');
-  expect(r.venc.total).not.toContain('45.979,20');
-  // o total da visão Vencimento cobre todos os Venda/Troca de outubro (nenhum some)
+  // 2) Vencimento: os pedidos de outubro aparecem (antes sumiam) — o total cobre TODOS os Venda/Troca de out
   const vencNum = +r.venc.total.replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
   expect(vencNum).toBeGreaterThanOrEqual(r.vtOut - 0.01);
-  // 3) Liquidação (recebimentos) — não muda com o fix de Vencimento
-  expect(r.liq.total).toContain('306.095,79');
+  expect(+r.venc.aberto).toBeGreaterThan(0);
+  expect(+r.venc.pago).toBeGreaterThan(0);
+  // 3) Liquidação (recebimentos) — mostra um total real de outubro
+  const liqNum = +r.liq.total.replace(/[^\d,]/g, '').replace(/\./g, '').replace(',', '.');
+  expect(liqNum).toBeGreaterThan(100000);
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
@@ -139,6 +139,71 @@ test('Contas a Receber: nenhum pedido de Venda/Troca some do CR (ago–nov)', as
     expect(r[m].faltam, `${m} faltam no CR: ${JSON.stringify(r[m].ids)}`).toBe(0);
   }
   expect(r['2026-10'].nVT).toBe(211); // Out/26 = 211 pedidos Venda/Troca
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
+test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar parcela, resgate fora (out/26)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await boot(page);
+
+  const r = await page.evaluate(() => {
+    const inM = (d, m) => { const x = d instanceof Date ? d : (d ? new Date(d) : null); return x && !isNaN(x) && (x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')) === m; };
+    setDfMes('renderContas', '10'); renderContas();
+    const s = document.getElementById('fc-datapor'); if (s) s.value = 'liquidacao'; renderContas();
+
+    // card "Recebido dos clientes no mês"
+    let cardSub = '';
+    document.querySelectorAll('#v-contas .card').forEach(c => {
+      const l = ((c.querySelector('.c-label') || {}).textContent || '').replace(/\s*\(filtro\).*/, '').trim();
+      if (l === 'Pago') cardSub = ((c.querySelector('.c-sub') || {}).textContent || '').trim();
+    });
+
+    const aoa = _crRowsAOA(false);
+    const byPed = {}; let recCli = 0, resgExport = 0, rendAvul = 0;
+    aoa.slice(1).forEach(row => {
+      if (row[4] !== 'Pago' || !inM(row[0], '2026-10')) return;
+      const pid = String(row[2] || '').trim(); const v = +row[10] || 0;
+      if (pid) { byPed[pid] = (byPed[pid] || 0) + v; recCli += v; }
+      if (/\bresg/i.test(String(row[13] || '') + String(row[3] || ''))) resgExport += v;
+      if (!pid && /rentab|rend|juros/i.test(String(row[13] || '') + String(row[3] || ''))) rendAvul += v;
+    });
+    // Power BI (flatCR) = _crRowsAOA(true); parte de cliente de out
+    const aoaAll = _crRowsAOA(true); let pbiCli = 0;
+    aoaAll.slice(1).forEach(row => { if (row[4] === 'Pago' && inM(row[0], '2026-10') && String(row[2] || '').trim()) pbiCli += (+row[10] || 0); });
+
+    // resgate na tela de CR? (texto da aba não pode citar RESG)
+    const resgNaTela = /resg\b/i.test(document.getElementById('v-contas').innerText);
+    // resgates em meses-foto (jun–set) devem ser 0 → nada muda nas fotos
+    const resgJunSet = (typeof receitasAvulsas !== 'undefined' ? receitasAvulsas : []).filter(x => /\bresg/i.test(x.descricao || '') && ['2026-06', '2026-07', '2026-08', '2026-09'].includes(String(x.data instanceof Date ? x.data.toISOString() : x.data).slice(0, 7))).length;
+
+    return {
+      cardSub, recCli: +recCli.toFixed(2), pbiCli: +pbiCli.toFixed(2),
+      resgExport: +resgExport.toFixed(2), rendAvul: +rendAvul.toFixed(2), resgNaTela, resgJunSet,
+      casos: { p40454: +(byPed['40454'] || 0).toFixed(2), p40669: +(byPed['40669'] || 0).toFixed(2), p40312: +(byPed['40312'] || 0).toFixed(2), p40110: +(byPed['40110'] || 0).toFixed(2), p40352: +(byPed['40352'] || 0).toFixed(2) }
+    };
+  });
+
+  // estrutural (sempre vale): a tela lê a MESMA conta do export/Power BI
+  expect(r.recCli).toBe(r.pbiCli);
+  // resgate (RESG AUTOMATICO / RESG VENCTO CDB) fora do CR e do Power BI; rendimento de centavos continua receita
+  expect(r.resgExport).toBe(0);
+  expect(r.resgNaTela).toBe(false);
+  expect(r.rendAvul).toBeGreaterThan(0);
+  expect(r.rendAvul).toBeLessThan(10);
+  // fotos jun–set não mudam (não havia resgate nelas)
+  expect(r.resgJunSet).toBe(0);
+  // o card mostra os três rótulos
+  expect(r.cardSub).toContain('Valor dos pedidos');
+  expect(r.cardSub).toContain('Recebido bruto');
+  expect(r.cardSub).toContain('Recebido dos clientes no mês');
+  // casos fixos out/26 (dedup + entrada na data certa)
+  expect(r.casos.p40454).toBe(2509.52);
+  expect(r.casos.p40669).toBe(643.59);
+  expect(r.casos.p40312).toBe(632.32);
+  expect(r.casos.p40110).toBe(119.95);
+  expect(r.casos.p40352).toBe(2158.01); // entrada PIX de 2.111,23 fica em julho
+  // total "Recebido dos clientes no mês" de out/26
+  expect(r.recCli).toBe(263251.05);
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 

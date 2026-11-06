@@ -41,12 +41,27 @@ Margem #41020=527,47, Conciliação. **Atualizar o snapshot = puxar as chaves do
 `rokbox_financeiro` (sem backups) para `tests/.data/snapshot.json`.**
 
 ## Lista 0→6 (status)
-- **0) Power BI/recebido , PARCIAL.** CP Out = 278.248,84 ✅ (tela e flatCP). **Recebido:
-  tela do CR × flatCR divergem** (12:28: tela líquido 264.016,81 × flatCR 260.751,20 =
-  **3.265,61**; "bruto" da tela = valor dos pedidos 321.986,70 × flatCR 264.838,17). Raiz:
-  **dois caminhos de cálculo** , tela usa `vPagoLiq` (inline em `_renderContasImpl`);
-  flatCR usa `_crRowsAOA` (coluna "Recebido" = Valor − Taxa; multa em Acréscimo/Juros).
-  PENDENTE: decompor o 3.265,61 com **dados congelados** e unificar numa conta só.
+- **0) Power BI/recebido , DECOMPOSTO (dados congelados 06/11), aguardando ok p/ unificar.**
+  CP Out = 278.248,84 ✅. **Recebido Out, instante congelado:** tela `vPagoLiq`
+  (só pedidos) = **269.778,45**; export `_crRowsAOA`/flatCR = **287.102,83**
+  (251 linhas). Gap export−tela = **17.324,38**, fecha EXATO por 3 motivos:
+  - **+23.851,78 resgates/rendimentos de banco** (29 linhas avulsas, pedido vazio):
+    RESG AUTOMATICO 15.435,98 + RESG/VENCTO CDB 8.413,50 (= 23.849,48, item 6) + 2,30
+    de juros/rendimento de centavos. Estão no export (→ Power BI/Balancete), NÃO na tela.
+    São transferência interna / receita financeira, não recebimento de cliente → devem
+    SAIR da conta de recebíveis.
+  - **−4.416,16 duplicata multi-linha** (tela conta o MESMO pagamento 1x por linha; o
+    export deduplica por `_rowKeyEmit`): #40454 2.509,52, #40669 643,59, #40312 632,32,
+    #40323 510,78, #40110 119,95. **Export certo, tela infla.**
+  - **−2.111,24 #40352** (entrada PIX de 28/07 que a tela joga em outubro; o export, pelo
+    `_entradaFixa`, data a entrada em julho e em out conta só o boleto 08/10 = 2.158,01).
+    **Export certo, tela erra a data.**
+  Conclusão: no grão de pedido o **export é a conta certa**; a tela `vPagoLiq` super-conta
+  6.527,40 (4.416,16 duplicata + 2.111,24 entrada mal datada) e NÃO carrega os resgates.
+  "Recebido dos clientes no mês" correto (Out) = export pedidos **263.251,05** (dedup +
+  data certa, resgates fora). Unificar: tela passa a ler o cálculo do `_crRowsAOA` (menos
+  resgates). Raiz: `vPagoLiq` (3668-3670) não tem dedup nem o pulo de repasse/entrada que
+  o `_crRowsAOA` (5350+) tem.
 - **1) Vínculo extrato↔CP por _uid , PENDENTE.** Hoje casa por `fornecedor|data|valor`
   (não é único): a tarifa de 17/06 (`_uid ums7lrj7i_69h84b`) está pegando um débito de
   04/11. Usar o `_uid` do CP no vínculo (débitoLinks). Junho não muda.
@@ -84,13 +99,26 @@ Margem #41020=527,47, Conciliação. **Atualizar o snapshot = puxar as chaves do
   (fora de receita/CR/flatCR/Balancete); manter rendimento de centavos (RENTAB) como
   receita financeira separada. PENDENTE: implementar.
 
-## CR "uma conta só" (bloco que fecha o item 0) , PENDENTE, aguardando ok
-Fazer a **tela do CR ler o mesmo cálculo do `_crRowsAOA`** (a conta que vai pro Power BI),
-com: card "bruto" renomeado **"Valor dos pedidos"**, novo card **"Recebido bruto"**, e
-**"Recebido dos clientes no mês"** = clientes pagaram − taxa de gateway + multa/juros de
-boleto (= o que concilia com o banco). Incluir o **item 6** (resgates fora). Teste:
-**tela CR = flatCR = Power BI** em out/26 nas duas visões; jun–set inalterados.
-Pré-requisito: decompor o 3.265,61 com dados congelados e a Elaine escolher a conta certa.
+## CR "uma conta só" (bloco que fecha o item 0) , FEITO LOCAL (v780/10-833), aguardando "pode publicar"
+A **tela do CR agora lê o mesmo cálculo do `_crRowsAOA`** (a conta que vai pro Power BI):
+- `vPagoLiq` dos cards deixou de ser o laço inline (que super-contava) e passa a somar as
+  linhas "Pago" do `_crRowsAOA(false)` com pedido → **dedup, entrada na data certa, repasse
+  não-conciliado fora**. Card "Pago" mostra **"Valor dos pedidos"** (vPago), **"Recebido
+  bruto"** (Valor do pagamento) e **"Recebido dos clientes no mês"** (líquido no banco).
+- **Item 6:** `_ehResgateReceita(r)` = `/\bresg/i` na descrição (RESG AUTOMATICO /
+  RESG/VENCTO CDB). Resgate sai de `_receitasCRExport` (→ fora de flatCR/Power BI/Painel RK),
+  de `avulsasVis` (card Outras receitas) e do `_exportBalancete` (crédito do extrato ligado a
+  resgate não vira receita). Rendimento de centavos (RENTAB/REND/JUROS, sem "RESG") fica como
+  receita financeira.
+- As duas "Conferência Recebido/Pago × Banco" (`relatorioConferencia`,
+  `conferenciaPeriodoHTML`) passaram a usar `_recebidoExportFiltrado(false)` (mesma conta
+  dedup; inclui rendimento que cai no banco).
+**Provado no gate (snapshot congelado 06/11), out/26:** tela "Recebido dos clientes" =
+flatCR/Power BI = **263.251,05**; #40454=2.509,52, #40669=643,59, #40312=632,32,
+#40110=119,95, #40352=2.158,01 (entrada PIX 2.111,23 fica em julho); resgate=0 no export e
+na tela; rendimento 2,30 mantido; **resgates em jun–set = 0 → fotos inalteradas**. 13/13 verde.
+FALTA: "pode publicar" (push dispara o gate). Export conciliado (banco) linha 4750 ainda
+mostra resgate como "Outras receitas" (fora do escopo pedido; avisar se quiser alinhar).
 
 ## Decisões fixas (combinadas)
 - Tolerância de arredondamento: **R$ 0,05** por lançamento.
