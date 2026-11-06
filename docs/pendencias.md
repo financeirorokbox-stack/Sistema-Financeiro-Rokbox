@@ -7,6 +7,34 @@ sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Po
 de publicar**; **teste automático junto**.
 
 ## Publicado hoje (06/11/2026)
+- **Painel financeiro em MANUTENÇÃO só-admin (financeiro.html)** , `FIN_MANUTENCAO = true`:
+  não-admin vê só "Painel financeiro em manutenção"; admin vê tudo com faixa. **Para voltar:
+  `FIN_MANUTENCAO = false` + publicar.** Placar não afetado. (Commit 89a2076.)
+- **v781/10-834 (Gestão) + BUILD 2026-11-06.1 (Painel RK)** , bloco grande do CR/Caixa:
+  - CR Liquidação = Clientes/Rendimentos/Resgates/Total; Vencimento = Valor dos pedidos/
+    Recebido/A vencer/Atrasado. Status (quitado/parcial/atrasado) vem da **tela de
+    Recebimentos** (soma de TODOS os recebimentos: gateway inclusive pendente, PIX, boleto,
+    crédito de devolução), não da conciliação. Tolerância **0,05**. `difAceita='aceito'` some
+    de TODAS as listas (atrasado, parcial, sobra, ajustes).
+  - `atraso_real` gravado no flatCR (abate pago nas parcelas mais antigas); resgate vira
+    **TRANSFERÊNCIA INTERNA** no Balancete (entra no SALDO, fora da receita); `flatConferencias`
+    (sobras a resolver + ajustes de meses fechados).
+  - Painel RK Fechamento em base **CAIXA**: Entrou no banco (vendas+resgates), Resultado do
+    caixa (=variação do saldo), Resultado operacional (sem resgates), Recebido dos clientes
+    (apoio), Saldo fim pelo caixa. A receber/atrasado por `atraso_real`.
+  - Boletos a Emitir: pedido já pago não aparece. Exportar conciliado: resgate = transferência
+    interna.
+  - **Teste fixo out/26 no gate:** fat 251.152,02 · pedidos 211 · peças 2.854 · entrou no
+    banco 281.998,02 · resgates 23.849,48 · pago 278.248,84 · saldo início 42.668,58 · saldo
+    fim 46.417,76 (±0,02) · **atrasado 16.602,74** (#41041 é aceito, fora) · recebido clientes
+    263.253,35. Sobras = banda de centavos (#40414/#41165/#41107/#40039/#40900); ajustes
+    fechados = #39526/#40060/#40254/#40514/#40608. **20 testes verdes.**
+  - Snapshot do gate = dados AO VIVO + flatCR/flatBalancete/flatConferencias **regerados** pelo
+    próprio código (simula o Atualizar Power BI). Ao refazer: regerar o snapshot.
+- PENDENTE depois do v781: **CHECKUP COMPLETO** (a Elaine vai pedir). Ponte 263.253,35→
+  258.148,54 (5.104,81) está só no card; split PayPal-a-PayPal se ela pedir. Itens antigos:
+  vínculo extrato↔CP por _uid (tarifa 17/06), CR completo ago–nov, Conciliação A/B/C, junho
+  sem empresa. **Lembrar: desligar FIN_MANUTENCAO quando ela mandar.**
 - **Gestão v775/10-828** , filtro de mês voltou a filtrar (o `perf()` da v772 deixava as
   funções de render anônimas e `setDateFilterRender` caía no bucket vazio; fix = `perf`
   preserva o `.name`).
