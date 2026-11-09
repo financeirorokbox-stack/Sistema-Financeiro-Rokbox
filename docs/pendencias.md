@@ -45,8 +45,22 @@ de publicar**; **teste automático junto**.
   "A receber em aberto" out/26 = **5.365,03** (AV103 3.527,50 + #40419 1.134,52 + #40276 703,01;
   #41327 0,80 aceita). **Vendas Out/26 Total geral = 256.153,16** (venda+troca; amostra de Envio
   de Planos 46.110,68 NÃO conta). Snapshot do gate = dados ao vivo 09/11.
-- PENDENTE depois do v783: **CHECKUP COMPLETO** (a Elaine vai pedir). Split exato da ponte
-  5.104,81 (casar repasse×crédito do extrato) só se ela pedir. Ponte 263.253,35→
+- **09/11 Painel RK BUILD 2026-11-09.2/.3/.4** , correções do SALDO (fechado não pode mudar):
+  (.2) Balancete: resgate volta pro Saldo final (fora da receita) , out 46.417,75 (era 22.568,27);
+  (.3) **Fechamento Saldo fim = movimento do banco (= Balancete)** em todos os meses , a v781 tinha
+  trocado pra "entrou − CP liquidado", que divergia em jun–set (CP≠extrato). Valores de volta:
+  **jun 339.383,24 · jul 184.138,91 · ago 126.022,14 · set 42.668,58 · out 46.417,75**. `resultadoCaixa`
+  = netMes (variação do saldo). (.4) Rodapé "Resultado por empresa": operacional −20.100,31 + resgates
+  23.849,48 = variação do caixa +3.749,17. Teste fixo: Fechamento saldo = Balancete = esses 5 valores.
+- **DIAGNÓSTICO DO TRAVAMENTO (só medido, nada mudado)** , dados 11,32 MB (pedidos 2,5 MB o maior).
+  Tempos: **Atualizar Power BI `_syncPowerBI` ~25 s (congela a tela)**; **filtro no Contas a Receber ~6,5 s**
+  (renderContas 4,3 s = `_crRowsAOA` 1,4 s + `_exportBalancete` 1,5 s + falta por pedido, a cada render ,
+  parte veio das features v781–783, otimizável); Conciliação 3,5 s; Comissão 1,9 s; Banco 1,6 s; as outras
+  <40 ms. **Proposta (maior→menor):** B) cachear `_crRowsAOA`/só-Liquidação no CR (risco BAIXO, 6,5 s→~1 s);
+  C) não re-renderizar aba escondida (BAIXO); A) Power BI fora do navegador/Web Worker (ALTO); D) carregar só
+  meses abertos (ALTO); E) dividir pedidos por mês (ALTO). Recomendado começar por B+C. **Aguardando a Elaine
+  dizer "trava mais quando" e aprovar o que mexer. Nada pode mudar número de mês fechado nem teste fixo.**
+- PENDENTE: **CHECKUP COMPLETO** (a Elaine vai pedir). Split exato da ponte 5.104,81 só se ela pedir. Ponte 263.253,35→
   258.148,54 (5.104,81) está só no card; split PayPal-a-PayPal se ela pedir. Itens antigos:
   vínculo extrato↔CP por _uid (tarifa 17/06), CR completo ago–nov, Conciliação A/B/C, junho
   sem empresa. **Lembrar: desligar FIN_MANUTENCAO quando ela mandar.**
