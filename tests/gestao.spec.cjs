@@ -17,11 +17,14 @@ async function boot(page) {
   await page.waitForFunction(() => { try { return Array.isArray(pedidos) && pedidos.length > 100; } catch (e) { return false; } }, { timeout: 45000 });
 }
 
-test('Vendas: filtro de mês filtra (Out/26 = 256.153,16 venda+troca / Fat real 251.152,02; muda no Nov; limpa volta ao total)', async ({ page }) => {
+test('Vendas: filtro de mês filtra (Out/26 Total geral = 302.263,84 TODOS / Fat real 251.152,02; muda no Nov; limpa volta ao total)', async ({ page }) => {
   const errors = trackErrors(page);
   await boot(page);
 
   const r = await page.evaluate(() => {
+    // Total geral = TODOS os pedidos (inclusive amostra). Limpa os filtros de operação/empresa que possam estar
+    // salvos no snapshot (a tela de Vendas não aplica a regra de amostra do Contas a Receber).
+    vendasFilters.operacao = []; vendasFilters.empresa = [];
     const leia = () => ({
       total: document.querySelector('#v-vendas .card.blue .c-val')?.textContent || '',
       fat: document.querySelector('#v-vendas .card.amber .c-val')?.textContent || ''
@@ -32,12 +35,12 @@ test('Vendas: filtro de mês filtra (Out/26 = 256.153,16 venda+troca / Fat real 
     return { out, nov, todos };
   });
 
-  // Out/26 exato (Total geral = venda+troca; as amostras de "Envio de Planos" não contam como venda)
-  expect(r.out.total).toContain('256.153,16');
+  // Out/26 exato: Total geral = TODOS os pedidos, inclusive amostra (302.263,84); Fat real = venda+troca (251.152,02)
+  expect(r.out.total).toContain('302.263,84');
   expect(r.out.fat).toContain('251.152,02');
   // trocar p/ Novembro muda o total (o filtro realmente filtra)
   expect(brNum(r.nov.total)).toBeGreaterThan(0);
-  expect(r.nov.total).not.toContain('256.153,16');
+  expect(r.nov.total).not.toContain('302.263,84');
   // limpar o mês mostra o total geral (maior que o de um mês só)
   expect(brNum(r.todos.total)).toBeGreaterThan(brNum(r.out.total));
 
