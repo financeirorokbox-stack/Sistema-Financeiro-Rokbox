@@ -82,6 +82,7 @@ test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, sald
       recCli: num(/Recebido dos clientes[^R]*R\$\s*([\d.,]+)/),
       saldoIni: num(/Saldo início do mês\s*R\$\s*([\d.,]+)/),
       saldoFim: num(/Saldo fim do mês\s*R\$\s*([\d.,]+)/),
+      crAb: num(/A receber \(em aberto\)\s*R\$\s*([\d.,]+)/),
       crAtraso: _n((document.getElementById('cr-atraso') || {}).textContent || '')
     };
   });
@@ -98,7 +99,10 @@ test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, sald
   expect(r.recCli).toBe(263253.35);        // recebido dos clientes (apoio)
   expect(r.saldoIni).toBe(42668.58);       // saldo início
   expect(near(r.saldoFim, 46417.76)).toBe(true);      // saldo fim (±0,02)
-  expect(r.crAtraso).toBe(16602.74);  // atrasado (regra nova; #41041 aceito fora)
+  expect(r.crAb).toBe(5365.03);       // A receber em aberto = mesmo status da tela de Recebimentos (ao vivo 09/11):
+                                      // AV103 3.527,50 + #40419 1.134,52 + #40276 703,01.
+                                      // #40749 (0,04 tolerância), #41127 (AMOSTRA) e #41327 (0,80 aceita) NÃO entram.
+  expect(r.crAtraso).toBe(5365.03);   // dashboard: mesmo número
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 

@@ -4,18 +4,17 @@ const { installMock, trackErrors } = require('./support/mock.cjs');
 // Painel financeiro (financeiro.html) em manutenção: só o ADMIN vê. Diretor/qualquer não-admin vê só a mensagem.
 // Placar (placar.html) não é afetado.
 
-test('Manutenção: não-admin (Diretor) vê só a mensagem, sem números', async ({ page }) => {
+test('Manutenção: mecanismo bloqueia o não-admin quando a chave estiver ligada (sem números)', async ({ page }) => {
   await installMock(page);
   await page.goto('/financeiro.html');
   const r = await page.evaluate(() => {
     try { localStorage.setItem('rk_role', 'diretor'); } catch (e) {}
-    const flag = FIN_MANUTENCAO, admin = ehAdmin();
-    const bloqueado = flag && !admin;
-    if (bloqueado) _mostrarManutencao(); // é o que abrir() faz para não-admin (e retorna antes de carregar dados)
-    return { flag, admin, bloqueado, body: document.body.innerText, temApp: !!document.getElementById('app'), temAbas: document.querySelectorAll('.aba').length };
+    const admin = ehAdmin();
+    const bloqueado = true && !admin; // mecanismo que abrir() usa (FIN_MANUTENCAO && !ehAdmin); testa LIGADO
+    if (bloqueado) _mostrarManutencao();
+    return { admin, bloqueado, body: document.body.innerText, temApp: !!document.getElementById('app'), temAbas: document.querySelectorAll('.aba').length };
   });
-  expect(r.flag).toBe(true);        // chave ligada
-  expect(r.admin).toBe(false);      // diretor não é admin
+  expect(r.admin).toBe(false);       // diretor não é admin
   expect(r.bloqueado).toBe(true);
   expect(r.body).toContain('em manutenção');
   expect(r.body).not.toMatch(/R\$/); // nenhum número/valor na tela
@@ -28,8 +27,8 @@ test('Manutenção: admin NÃO é bloqueado (vê tudo)', async ({ page }) => {
   await page.goto('/financeiro.html');
   const r = await page.evaluate(() => {
     try { localStorage.setItem('rk_role', 'admin'); } catch (e) {}
-    const admin = ehAdmin(), bloqueado = FIN_MANUTENCAO && !admin;
-    if (FIN_MANUTENCAO && admin) _bannerManutencao();
+    const admin = ehAdmin(), bloqueado = true && !admin; // mesmo com a chave LIGADA, admin nunca é bloqueado
+    _bannerManutencao(); // a faixa que admin vê quando a manutenção está ligada
     const banner = document.getElementById('manut-banner');
     return { admin, bloqueado, temBanner: !!banner, bannerTxt: banner ? banner.textContent : '', temApp: !!document.getElementById('app') };
   });

@@ -299,7 +299,7 @@ function ehAdmin(){ try{ return localStorage.getItem('rk_role')==='admin'; }catc
 // MANUTENÇÃO: enquanto true, o Painel financeiro (financeiro.html) só abre para o ADMIN. Qualquer não-admin
 // (Diretor etc.) vê só a tela "em manutenção", sem nenhum número. Para voltar ao normal: trocar para false.
 // Não apaga nada; é só bloqueio de exibição. (O Painel de Vendas / placar.html não usa isto.)
-const FIN_MANUTENCAO = true;
+const FIN_MANUTENCAO = false;
 function _mostrarManutencao(){ document.body.innerHTML = '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-family:system-ui,Arial,sans-serif;background:#0b1220;color:#e5e7eb;padding:24px"><div style="font-size:44px;margin-bottom:12px">🔧</div><div style="font-size:22px;font-weight:800">Painel financeiro em manutenção</div><div style="font-size:15px;color:#9ca3af;margin-top:6px">volta em breve</div></div>'; document.title='Em manutenção'; }
 function _bannerManutencao(){ if(document.getElementById('manut-banner')) return; const d=document.createElement('div'); d.id='manut-banner'; d.style.cssText='position:sticky;top:0;z-index:99999;background:#f59e0b;color:#111827;text-align:center;font-weight:800;padding:8px 12px;font-family:system-ui,Arial,sans-serif'; d.textContent='🔧 Em manutenção — só admin está vendo'; document.body.insertBefore(d, document.body.firstChild); }
 const brl=n=>'R$ '+(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1867,7 +1867,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-06.1';
+const BUILD='2026-11-09.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

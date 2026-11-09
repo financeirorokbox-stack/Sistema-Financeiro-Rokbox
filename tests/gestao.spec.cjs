@@ -17,7 +17,7 @@ async function boot(page) {
   await page.waitForFunction(() => { try { return Array.isArray(pedidos) && pedidos.length > 100; } catch (e) { return false; } }, { timeout: 45000 });
 }
 
-test('Vendas: filtro de mês filtra (Out/26 = 302.263,84 / Fat real 251.152,02; muda no Nov; limpa volta ao total)', async ({ page }) => {
+test('Vendas: filtro de mês filtra (Out/26 = 256.153,16 venda+troca / Fat real 251.152,02; muda no Nov; limpa volta ao total)', async ({ page }) => {
   const errors = trackErrors(page);
   await boot(page);
 
@@ -32,12 +32,12 @@ test('Vendas: filtro de mês filtra (Out/26 = 302.263,84 / Fat real 251.152,02; 
     return { out, nov, todos };
   });
 
-  // Out/26 exato
-  expect(r.out.total).toContain('302.263,84');
+  // Out/26 exato (Total geral = venda+troca; as amostras de "Envio de Planos" não contam como venda)
+  expect(r.out.total).toContain('256.153,16');
   expect(r.out.fat).toContain('251.152,02');
   // trocar p/ Novembro muda o total (o filtro realmente filtra)
   expect(brNum(r.nov.total)).toBeGreaterThan(0);
-  expect(r.nov.total).not.toContain('302.263,84');
+  expect(r.nov.total).not.toContain('256.153,16');
   // limpar o mês mostra o total geral (maior que o de um mês só)
   expect(brNum(r.todos.total)).toBeGreaterThan(brNum(r.out.total));
 
@@ -210,12 +210,15 @@ test('Contas a Receber "uma conta só": tela = export = Power BI, sem duplicar p
   expect(r._n.entrou).toBe(281998.02);
   expect(r.cLiq.entrou.sub).toContain('23.849,48'); // vendas 258.148,54 + resgates 23.849,48
   expect(r.cLiq.clientes.sub).toContain('216 pedido'); // pedidos distintos
-  // ATRASADO (visão Vencimento) out/26 = 16.611,84; quitados/sobra nunca aparecem
-  expect(r._n.atras).toBe(16602.74); // #41041 (9,10) tem diferença aceita → fora do atraso
-  expect(r.atrasPeds).toContain('#41241');
+  // ATRASADO (visão Vencimento) out/26 = 5.365,03 (dados ao vivo 09/11). Regras: quitado (tolerância 0,05),
+  // sobra, diferença aceita e AMOSTRA nunca aparecem.
+  expect(r._n.atras).toBe(5365.03); // AV103 3.527,50 + #40419 1.134,52 + #40276 703,01
   expect(r.atrasPeds).toContain('#AV103');
+  expect(r.atrasPeds).toContain('#40419');
+  expect(r.atrasPeds).not.toContain('#41327'); // diferença 0,80 aceita → fora
+  expect(r.atrasPeds).not.toContain('#41127'); // AMOSTRA (Envio de Planos) → nunca é conta a receber
+  expect(r.atrasPeds).not.toContain('#40749'); // quitado (dif 0,04 dentro da tolerância)
   expect(r.atrasPeds).not.toContain('#40877'); // quitado no gateway (PayPal) → nunca atrasado
-  expect(r.atrasPeds).not.toContain('#41020'); // idem
   expect(r.atrasPeds).not.toContain('#429');   // pagou a mais (sobra) → não é atraso
   // casos fixos out/26 (dedup + entrada na data certa)
   expect(r.casos.p40454).toBe(2509.52);

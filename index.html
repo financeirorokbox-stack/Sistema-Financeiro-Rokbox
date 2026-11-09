@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v782/10-835';
+const APP_VERSION = 'v783/10-836';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1707,6 +1707,9 @@ function _pedidoQuitadoReceb(ped) { return _faltaPedido(ped) <= TOL_RECEB; }
 // Diferença ACEITA na aba Recebimentos (difAceita = 'aceito'): a Elaine já conferiu e aceitou a diferença do pedido.
 // Ele some de TODAS as listas de pendência (atrasado, parcial, sobra, ajustes). 'cobrar' NÃO: continua pendente.
 function _pedidoAceito(id) { return typeof difAceita !== 'undefined' && difAceita[String(id)] === 'aceito'; }
+// Pedido de operação AMOSTRA (ex.: loja "Envio de Planos") NÃO é conta a receber: o que a cliente pagou conta
+// como recebido; o resto é AMOSTRA (sem cobrança). Logo fica FORA de atrasado, parcial e sobras.
+function _pedidoAmostra(ped) { return !!(ped && (getClassificacao(ped).operacao || '').toLowerCase() === 'amostra'); }
 // Conferências de centavos (tolerância 0,05): SOBRAS A RESOLVER (cliente pagou a mais, falta < −0,05) e AJUSTES DE
 // MESES FECHADOS (falta a menos de 0,05 a 0,50 em mês fechado — não muda a foto, só avisa). Usado no CR, no Painel
 // RK (via flatConferencias) e no sync. Varre os pedidos uma vez (como a aba Recebimentos).
@@ -3854,9 +3857,11 @@ function _renderContasImpl(el) {
     const _pedIdx = {}; pedidos.forEach(p => { _pedIdx[String(p.id)] = p; });
     const faltaRest = {};
     for (let i = 1; i < _crR.length; i++) {
-      const row = _crR[i]; const valor = +row[6] || 0; vcValor += valor;
-      if (row[4] === 'Pago') { vcRecebido += valor; continue; }
-      const pid = String(row[2] || '').trim(); const ped = _pedIdx[pid];
+      const row = _crR[i]; const valor = +row[6] || 0;
+      const pid = String(row[2] || '').trim(); const ped = pid ? _pedIdx[pid] : null;
+      if (row[4] === 'Em Aberto' && ped && _pedidoAmostra(ped)) continue; // amostra: o resto é amostra, fora de Valor/atrasado/a vencer
+      vcValor += valor;
+      if (row[4] === 'Pago') { vcRecebido += valor; continue; } // (amostra PAGA conta como recebido, normal)
       if (pid && _pedidoAceito(pid)) { vcRecebido += valor; continue; } // diferença aceita → fora do atraso
       if (ped && _pedidoQuitadoReceb(ped)) { vcRecebido += valor; continue; } // cliente pagou tudo (gateway pendente)
       // Parcial com crédito de devolução/gateway: o pendente do export pode estar cheio, mas o cliente já abateu
@@ -5728,8 +5733,9 @@ async function _syncPowerBI() {
       r.atraso_real = 0;
       if (r.situacao !== 'Em Aberto') return;
       if (r.pedido && _pedidoAceito(r.pedido)) return; // diferença aceita → não é atraso
+      if (r.pedido && _pedidoAmostra(_pidx[String(r.pedido)])) return; // amostra → o resto é amostra, não atraso
       const ped = r.pedido ? _pidx[String(r.pedido)] : null;
-      if (!ped) { r.atraso_real = +(+r.valor_bruto || 0).toFixed(2); return; } // avulso/sem pedido: cheio
+      if (!ped) { const _v = +(+r.valor_bruto || 0).toFixed(2); r.atraso_real = _v > TOL_RECEB ? _v : 0; return; } // avulso/sem pedido: cheio (acima da tolerância)
       (grupos[String(r.pedido)] = grupos[String(r.pedido)] || []).push(r);
     });
     // Por pedido: o que o cliente JÁ pagou abate as parcelas MAIS ANTIGAS primeiro; o que falta (atraso_real) fica
@@ -5739,6 +5745,7 @@ async function _syncPowerBI() {
       const rows = grupos[pid].slice().sort((a, b) => String(a.vencimento || '').localeCompare(String(b.vencimento || '')));
       const soma = rows.reduce((s, r) => s + (+r.valor_bruto || 0), 0);
       const falta = Math.max(0, _faltaPedido(_pidx[pid]));
+      if (falta <= TOL_RECEB) return; // pedido QUITADO na tela de Recebimentos (dentro da tolerância) → nada em aberto
       let pago = Math.max(0, +(soma - falta).toFixed(2)); // já pago (abate as mais antigas)
       rows.forEach(r => { const vb = +r.valor_bruto || 0; const ab = Math.min(vb, pago); pago = +(pago - ab).toFixed(2); r.atraso_real = +(vb - ab).toFixed(2); });
     });
