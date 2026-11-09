@@ -128,18 +128,17 @@ test('Balancete: Saldo final = Saldo fim do Fechamento (jun–out); resgate fora
     }
     return out;
   });
-  // Todos os meses têm Saldo final no Balancete (resgate dentro do saldo).
-  for (const M of Object.keys(r)) {
+  // Saldo fim do Fechamento = Saldo final do Balancete = movimento do banco, em TODOS os meses (jun–out).
+  // Meses fechados (jun–set) NÃO mudam. Resgate entra no saldo, fora da receita.
+  const esperado = { '2026-06': 339383.24, '2026-07': 184138.91, '2026-08': 126022.14, '2026-09': 42668.58, '2026-10': 46417.75 };
+  for (const M of Object.keys(esperado)) {
     expect(r[M].saldoBal, `${M} Balancete saldo`).not.toBeNull();
     expect(r[M].saldoFech, `${M} Fechamento saldo`).not.toBeNull();
+    expect(Math.abs(r[M].saldoBal - r[M].saldoFech), `${M}: Balancete ${r[M].saldoBal} ≠ Fechamento ${r[M].saldoFech}`).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(r[M].saldoFech - esperado[M]), `${M}: Fechamento ${r[M].saldoFech} ≠ esperado ${esperado[M]}`).toBeLessThanOrEqual(0.05);
   }
-  // Out/26: Balancete = Fechamento = banco = 46.417,75 (com o resgate no saldo, fora da receita).
-  expect(Math.abs(r['2026-10'].saldoBal - 46417.75)).toBeLessThanOrEqual(0.05);
-  expect(Math.abs(r['2026-10'].saldoBal - r['2026-10'].saldoFech)).toBeLessThanOrEqual(0.05);
-  // NÃO era 22.568,27 (bug do resgate fora do saldo).
+  // NÃO é mais 22.568,27 (bug do resgate fora do saldo) em out.
   expect(Math.abs(r['2026-10'].saldoBal - 22568.27)).toBeGreaterThan(1000);
-  // (jun–set: Balancete usa débitos do extrato, Fechamento usa CP liquidado → divergem por reconciliação
-  //  CP×extrato pré-existente; não dá pra alinhar sem mexer em mês fechado. A Elaine decide se quer igualar.)
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 

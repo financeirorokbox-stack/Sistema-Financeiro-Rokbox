@@ -437,11 +437,14 @@ function renderFechamento(){
     // entra no caixa/saldo mas NÃO é receita (fica fora do Resultado operacional).
     const resgates=(bal&&bal.rows||[]).filter(r=>r.mes===M&&r.grupo==='TRANSFERÊNCIA INTERNA').reduce((s,r)=>s+(+r.valor||0),0);
     const entrou=(bal&&bal.rows||[]).filter(r=>r.mes===M&&r.tipo==='R').reduce((s,r)=>s+(+r.valor||0),0); // tudo que entrou no banco
+    const netMes=(bal&&bal.rows||[]).filter(r=>r.mes===M).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0); // MOVIMENTO DO BANCO (= Balancete): créditos − débitos do extrato
     let _fat=+fat.toFixed(2), _receb=+receb.toFixed(2), _pago=+pago.toFixed(2), _crAb=+crAb.toFixed(2), _cpAb=+cpAb.toFixed(2), _emp=emp, _seg=seg, _vend=vend, _qped=qped, _qpcs=qpcs, _resg=+resgates.toFixed(2);
     let _entrou=+entrou.toFixed(2), _vendasCaixa=+(entrou-resgates).toFixed(2); // vendas que caíram no banco = entrou − resgates
     let saldoIni=+(base0+netAnt).toFixed(2);
-    let saldoFim=+(saldoIni+_entrou-_pago).toFixed(2);            // CAIXA: início + entrou no banco − pago
-    let resultadoCaixa=+(_entrou-_pago).toFixed(2);               // variação do saldo (com resgates)
+    // Saldo fim = saldo início + MOVIMENTO DO BANCO (= Balancete). Mesma conta do extrato, igual à aba Balancete e ao
+    // banco; mês fechado NÃO muda. (Antes a v781 usava entrou − CP liquidado, que divergia quando CP ≠ débitos do extrato.)
+    let saldoFim=+(saldoIni+netMes).toFixed(2);
+    let resultadoCaixa=+netMes.toFixed(2);                        // variação do saldo = movimento do banco
     let resultadoOper=+(_vendasCaixa-_pago).toFixed(2);          // operacional (SEM resgates)
     let pontePagoBanco=+(_receb-_vendasCaixa).toFixed(2);         // recebido clientes (competência) − vendas no caixa
     // Antes de 06/26 (≤05/26) não havia essa informação ainda → zera o mês inteiro (todos os gráficos e cards do Fechamento ficam zerados).
@@ -1873,7 +1876,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-09.2';
+const BUILD='2026-11-09.3';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
