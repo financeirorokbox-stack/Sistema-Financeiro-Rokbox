@@ -473,7 +473,8 @@ function renderFechamento(){
   // Receitas/Despesas por grupo E por EMPRESA (rateio), igual ao Balancete. Zera ≤05/26 (sem informação ainda).
   const balRows=(D.mes<='2026-05')?[]:(bal&&bal.rows||[]).filter(r=>r.mes===D.mes), grpR={},grpD={};
   const empsBal=[...new Set((bal&&bal.rows||[]).map(r=>r.emp))].sort((a,b)=> a==='(sem empresa)'?1 : b==='(sem empresa)'?-1 : (a<b?-1:1));
-  balRows.forEach(r=>{ const g=r.tipo==='R'?grpR:grpD; const o=g[r.grupo]=g[r.grupo]||{tot:0,emp:{}}; o.tot+=r.valor; o.emp[r.emp]=(o.emp[r.emp]||0)+r.valor; });
+  // Resgate (TRANSFERÊNCIA INTERNA) fica fora das Receitas aqui também (igual ao Balancete e ao Resultado operacional).
+  balRows.forEach(r=>{ if(r.tipo==='R' && r.grupo==='TRANSFERÊNCIA INTERNA') return; const g=r.tipo==='R'?grpR:grpD; const o=g[r.grupo]=g[r.grupo]||{tot:0,emp:{}}; o.tot+=r.valor; o.emp[r.emp]=(o.emp[r.emp]||0)+r.valor; });
   const totR=+Object.values(grpR).reduce((s,o)=>s+o.tot,0).toFixed(2), totD=+Object.values(grpD).reduce((s,o)=>s+o.tot,0).toFixed(2);
   const kf=n=>{ const a=Math.abs(n); return (n<0?'-':'')+(a>=1000?(a/1000).toLocaleString('pt-BR',{maximumFractionDigits:0})+'k':a.toFixed(0)); };
   const chart=(campo,titulo,cor)=>{
@@ -884,6 +885,10 @@ function renderBalancete(){
     return h;
   };
   const resultado=+(totR-totD).toFixed(2);
+  // Resgate de aplicação = TRANSFERÊNCIA INTERNA: fica FORA das Receitas/DRE (e do Resultado), mas o dinheiro
+  // entrou no banco → entra no SALDO. (Meses anteriores já estão no saldoAnt via netAntes.)
+  const transfInterna=+(bal.rows.filter(r=>r.mes===mes&&r.grupo==='TRANSFERÊNCIA INTERNA'&&r.tipo==='R').reduce((s,r)=>s+(+r.valor||0),0)).toFixed(2);
+  const saldoFinalBal=+(saldoAnt+resultado+transfInterna).toFixed(2);
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
       <div style="font-weight:800;text-transform:capitalize">📊 Balancete · ${nomeMes}</div>
@@ -897,7 +902,8 @@ function renderBalancete(){
           ${secao('⬆ RECEITAS', gR, totR, 'var(--lime)', 'rgba(46,160,67,.12)')}
           ${secao('⬇ DESPESAS', gD, totD, 'var(--red)', 'rgba(224,60,60,.12)')}
           <tr class="tot"><td>= RESULTADO (receitas − despesas)</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:${resultado>=0?'var(--lime)':'var(--red)'}">${brl(resultado)}</td><td class="v"></td></tr>
-          <tr class="tot"><td>🏦 Saldo final</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:var(--accent,#7cc4ff)">${brl(+(saldoAnt+resultado).toFixed(2))}</td><td class="v"></td></tr>
+          ${Math.abs(transfInterna)>0.005?`<tr class="tot"><td title="Resgate de aplicação (CDB → conta). Não é receita, mas entra no saldo.">↔ Transferência interna (resgates)</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:var(--muted)">${brl(transfInterna)}</td><td class="v"></td></tr>`:''}
+          <tr class="tot"><td>🏦 Saldo final</td>${emps.map(()=>'<td class="v"></td>').join('')}<td class="v" style="color:var(--accent,#7cc4ff)">${brl(saldoFinalBal)}</td><td class="v"></td></tr>
         </tbody>
       </table>
     </div>
@@ -1867,7 +1873,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-09.1';
+const BUILD='2026-11-09.2';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

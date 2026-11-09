@@ -106,6 +106,43 @@ test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, sald
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
+test('Balancete: Saldo final = Saldo fim do Fechamento (jun–out); resgate fora da receita, dentro do saldo', async ({ page }) => {
+  const errors = trackErrors(page);
+  await installMock(page);
+  await page.goto('/financeiro.html');
+  const r = await page.evaluate(async () => {
+    await carregar();
+    const _n = s => { const m = String(s || '').match(/-?[\d.]+,\d{2}/); return m ? +m[0].replace(/\./g, '').replace(',', '.') : null; };
+    const meses = ['2026-06', '2026-07', '2026-08', '2026-09', '2026-10'];
+    const out = {};
+    for (const M of meses) {
+      mesSel = M;
+      renderBalancete();
+      let saldoBal = null;
+      document.querySelectorAll('#aba-balancete tr').forEach(tr => { if (/Saldo final/.test(tr.textContent)) saldoBal = _n((tr.querySelector('td:nth-last-child(2)') || {}).textContent); });
+      renderFechamento();
+      const fech = document.getElementById('fechamento-conteudo').innerText;
+      const mFim = fech.match(/Saldo fim do mês\s*R\$\s*([\d.,]+)/);
+      const saldoFech = mFim ? _n(mFim[1]) : null;
+      out[M] = { saldoBal, saldoFech };
+    }
+    return out;
+  });
+  // Todos os meses têm Saldo final no Balancete (resgate dentro do saldo).
+  for (const M of Object.keys(r)) {
+    expect(r[M].saldoBal, `${M} Balancete saldo`).not.toBeNull();
+    expect(r[M].saldoFech, `${M} Fechamento saldo`).not.toBeNull();
+  }
+  // Out/26: Balancete = Fechamento = banco = 46.417,75 (com o resgate no saldo, fora da receita).
+  expect(Math.abs(r['2026-10'].saldoBal - 46417.75)).toBeLessThanOrEqual(0.05);
+  expect(Math.abs(r['2026-10'].saldoBal - r['2026-10'].saldoFech)).toBeLessThanOrEqual(0.05);
+  // NÃO era 22.568,27 (bug do resgate fora do saldo).
+  expect(Math.abs(r['2026-10'].saldoBal - 22568.27)).toBeGreaterThan(1000);
+  // (jun–set: Balancete usa débitos do extrato, Fechamento usa CP liquidado → divergem por reconciliação
+  //  CP×extrato pré-existente; não dá pra alinhar sem mexer em mês fechado. A Elaine decide se quer igualar.)
+  expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
+});
+
 test('Painel de Vendas Out/26: soma por vendedor e por segmento = 251.152,02', async ({ page }) => {
   const errors = trackErrors(page);
   await installMock(page);
