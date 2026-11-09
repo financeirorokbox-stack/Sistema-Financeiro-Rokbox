@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v783/10-836';
+const APP_VERSION = 'v784/10-837';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3770,7 +3770,10 @@ function _renderContasImpl(el) {
   // deixa resgate/avulsa de fora. Assim a tela = flatCR = Power BI. Antes o laço inline aqui super-contava
   // (ex.: out/26 inflava 6.527,40: duplicata de parcela + entrada de julho jogada em outubro).
   // "Recebido bruto" = o que o cliente pagou (antes da taxa do gateway); "Recebido dos clientes" = líquido no banco.
-  let _crR = []; try { _crR = _crRowsAOA(false); } catch (e) { console.warn('CR _crRowsAOA falhou:', e && e.message); } // respeita o filtro de data/tipo ativo
+  // Assinatura dos filtros NÃO-data: enquanto ela não muda, o conjunto completo do CR é reaproveitado (só o
+  // filtro de data é reaplicado por cima). Mexer só no mês/ano (o caso comum) não reconstrói o CR inteiro.
+  _crAllSigCur = [fCat, fEmp, fSt, fConc, fQraw, fOp].join('\u0001');
+  let _crR = []; try { _crR = _crRowsFiltered(); } catch (e) { console.warn('CR _crRowsFiltered falhou:', e && e.message); try { _crR = _crRowsAOA(false); } catch(e2){} } // mesma conta do export, com cache
   let recBruto = 0, vPagoLiq = 0, recRendimento = 0; const _pedsReceb = new Set();
   for (let i = 1; i < _crR.length; i++) {
     const row = _crR[i];
@@ -5570,7 +5573,7 @@ function _crRowsAOA(semFiltro) {
       const _de = _asDate(l._entradaData);
       if (_ve > 0.005 && !(_dfOn && !passaData(_de))) {
         const rke = pedNum + '|' + (_de ? new Date(_de).toISOString().slice(0, 10) : '') + '|' + _ve.toFixed(2) + '|' + _ve.toFixed(2);
-        if (!_rowKeyEmit.has(rke)) { _rowKeyEmit.add(rke); rows.push(mkRow(_de, _ve, _ve, 'Pago', 0)); _pedComLinha.add(pedNum); }
+        if (!_rowKeyEmit.has(rke)) { _rowKeyEmit.add(rke); const _rr = mkRow(_de, _ve, _ve, 'Pago', 0); _rr._fv = _de; _rr._fl = _de; rows.push(_rr); _pedComLinha.add(pedNum); }
       }
       return;
     }
@@ -5595,12 +5598,12 @@ function _crRowsAOA(semFiltro) {
       if (_rowKeyEmit.has(rk)) return;
       _rowKeyEmit.add(rk);
       // Valor = BRUTO; Recebido = LÍQUIDO (o que caiu no banco); Taxa = a taxa do gateway.
-      rows.push(mkRow(pg.data, +pg.valor.toFixed(2), liqRow, 'Pago', pg.taxa || 0));
+      { const _rr = mkRow(pg.data, +pg.valor.toFixed(2), liqRow, 'Pago', pg.taxa || 0); _rr._fv = vencDt; _rr._fl = _asDate(pg.data); rows.push(_rr); }
       _pedComLinha.add(pedNum);
     });
     const pendente = +((l.f.valor || 0) - somaPag).toFixed(2);
     // O saldo em aberto não tem data de liquidação → não entra quando o filtro é por Liquidação.
-    if (pendente > 0.01 && !(_dfOn && _porLiq)) { rows.push(mkRow(null, pendente, 0, 'Em Aberto')); _pedComLinha.add(pedNum); }
+    if (pendente > 0.01 && !(_dfOn && _porLiq)) { const _rr = mkRow(null, pendente, 0, 'Em Aberto'); _rr._fv = vencDt; _rr._fl = null; rows.push(_rr); _pedComLinha.add(pedNum); }
   });
   // RESGATE: pedido que ESTÁ na tela de CR mas ficou SEM nenhuma linha (ex.: forma "Boleto Itaú" quitado por
   // PIX, sem baixa na cobrança: #357/#40352). O dinheiro caiu no banco (recebimento conciliado) mas o pedido
@@ -5630,7 +5633,7 @@ function _crRowsAOA(semFiltro) {
       const cat = _gwCatCR[r.gateway] || r.gateway || '';
       const descricao = descricaoReceita(cat) || cat;
       const comp = dLiq ? `01/${String(dLiq.getMonth() + 1).padStart(2, '0')}/${dLiq.getFullYear()}` : '';
-      rows.push([_noon(dLiq), _noon(dLiq), pid, nome, 'Pago', comp, +valor.toFixed(2), 0, 0, 0, liq, 0, taxa, descricao, `Ref. ao pedido de venda n° ${pid}`, cat, _ma(dLiq), _ma(dLiq), +valor.toFixed(2), _noon(dLiq), emp]);
+      { const _rr = [_noon(dLiq), _noon(dLiq), pid, nome, 'Pago', comp, +valor.toFixed(2), 0, 0, 0, liq, 0, taxa, descricao, `Ref. ao pedido de venda n° ${pid}`, cat, _ma(dLiq), _ma(dLiq), +valor.toFixed(2), _noon(dLiq), emp]; _rr._fv = dLiq; _rr._fl = dLiq; rows.push(_rr); }
     });
   });
   // RECEBIMENTOS SEM PEDIDO (PayPal/Braavo que caíram no banco mas não casaram em nenhum pedido): entram como
@@ -5652,7 +5655,7 @@ function _crRowsAOA(semFiltro) {
     if (_rowKeyEmit.has(rk)) return; _rowKeyEmit.add(rk);
     const cat = _gwCatCR[r.gateway] || r.gateway || '';
     const comp = dLiq ? `01/${String(dLiq.getMonth() + 1).padStart(2, '0')}/${dLiq.getFullYear()}` : '';
-    rows.push([_noon(dLiq), _noon(dLiq), '', (r.nome || 'Recebido sem pedido'), 'Pago', comp, +v.toFixed(2), 0, 0, 0, liq, 0, taxa, cat, 'Recebimento sem pedido (PayPal/conciliação)', cat, _ma(dLiq), _ma(dLiq), +v.toFixed(2), _noon(dLiq), r.empresa || '']);
+    { const _rr = [_noon(dLiq), _noon(dLiq), '', (r.nome || 'Recebido sem pedido'), 'Pago', comp, +v.toFixed(2), 0, 0, 0, liq, 0, taxa, cat, 'Recebimento sem pedido (PayPal/conciliação)', cat, _ma(dLiq), _ma(dLiq), +v.toFixed(2), _noon(dLiq), r.empresa || '']; _rr._fv = dLiq; _rr._fl = dLiq; rows.push(_rr); }
   });
   // Receitas avulsas (rendimentos etc. lançados na conciliação bancária): entram como recebidas na data do banco.
   _receitasCRExport.forEach(r => {
@@ -5661,9 +5664,33 @@ function _crRowsAOA(semFiltro) {
     const v = +(r.valor || 0).toFixed(2);
     const comp = d ? `01/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : '';
     const nome = r.categoria || r.descricao || 'Receita';
-    rows.push([_noon(d), _noon(d), '', nome, 'Pago', comp, v, 0, 0, 0, v, 0, 0, r.descricao || r.categoria || '', 'Receita avulsa (conciliação bancária)', r.categoria || '', _ma(d), _ma(d), v, _noon(d), r.empresa || '']);
+    { const _rr = [_noon(d), _noon(d), '', nome, 'Pago', comp, v, 0, 0, 0, v, 0, 0, r.descricao || r.categoria || '', 'Receita avulsa (conciliação bancária)', r.categoria || '', _ma(d), _ma(d), v, _noon(d), r.empresa || '']; _rr._fv = d; _rr._fl = d; rows.push(_rr); }
   });
   return rows;
+}
+// ── Cache do CR (B): o conjunto COMPLETO (sem filtro de data) só recalcula quando os DADOS mudam (_dataVersion)
+// ou quando um filtro NÃO-data muda (forma/empresa/status/conc/busca/operação). O filtro de DATA — que a Elaine
+// mais mexe — é aplicado por cima, de graça, usando a data que cada linha testa (_fv = vencimento, _fl = liquidação).
+// _crRowsFiltered() é IDÊNTICO a _crRowsAOA(false) (provado no teste), só que sem reconstruir tudo a cada filtro.
+let _crAllCache = null, _crAllVer = -1, _crAllSig = '\u0000';
+let _crAllSigCur = ''; // assinatura dos filtros não-data do render atual (setada em _renderContasImpl)
+function _crRowsAllCached() {
+  if (_crAllCache && _crAllVer === _dataVersion && _crAllSig === _crAllSigCur) return _crAllCache;
+  _crAllCache = _crRowsAOA(true); _crAllVer = _dataVersion; _crAllSig = _crAllSigCur;
+  return _crAllCache;
+}
+function _crRowsFiltered() {
+  const full = _crRowsAllCached();
+  if (!dfAtivo()) return full; // sem filtro de data → o conjunto completo já é a resposta
+  const porLiq = _linhasCRDataPor === 'liquidacao';
+  const out = [full[0]];
+  for (let i = 1; i < full.length; i++) {
+    const r = full[i];
+    if (porLiq) { if (r[4] === 'Em Aberto') continue; if (!passaData(r._fl)) continue; } // liquidação: saldo em aberto não tem data de banco
+    else { if (!passaData(r._fv)) continue; }                                             // vencimento
+    out.push(r);
+  }
+  return out;
 }
 // Recebido no período pela MESMA conta do export (_crRowsAOA): deduplica pagamento (pedido com 2 parcelas/formas
 // não conta 2x), entrada na data certa, repasse de gateway não-conciliado fora, resgate fora. Inclui rendimentos

@@ -371,3 +371,34 @@ test('Conciliação: abre, filtra por mês e limpa', async ({ page }) => {
   expect(r.limpo).toBeGreaterThan(100);
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
+
+// Guard do CACHE do Contas a Receber (otimização B): a tela lê _crRowsFiltered() (cache do conjunto completo
+// por _dataVersion + filtros não-data, com o filtro de DATA aplicado por cima). Este teste prova que o
+// resultado é IDÊNTICO ao _crRowsAOA(false) original — se alguém mexer no cache e divergir, o gate reprova.
+test('Cache CR: _crRowsFiltered() é idêntico ao _crRowsAOA(false) (out/26 venc e liquidação, e sem filtro)', async ({ page }) => {
+  await installMock(page);
+  await page.goto('/index.html');
+  await page.waitForFunction(() => typeof pedidos !== 'undefined' && pedidos.length > 100, { timeout: 60000 });
+  const r = await page.evaluate(() => {
+    try { if (typeof go === 'function') go('contas'); } catch (e) {}
+    const setDatapor = v => { const s = document.querySelector('#fc-datapor'); if (s) s.value = v; };
+    const casos = [
+      { ax: 'vencimento', ano: [2026], mes: [10] },
+      { ax: 'liquidacao', ano: [2026], mes: [10] },
+      { ax: 'vencimento', ano: [], mes: [] },
+    ];
+    const difs = [];
+    casos.forEach(c => {
+      setDatapor(c.ax);
+      setDateFilterRender(renderContas);
+      dateFilter.ano = c.ano.slice(); dateFilter.mes = c.mes.slice(); dateFilter.dia = [];
+      renderContas();
+      const A = JSON.stringify(_crRowsFiltered());
+      const B = JSON.stringify(_crRowsAOA(false));
+      if (A !== B) difs.push(c.ax + ' ' + c.mes.join(','));
+    });
+    try { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; } catch (e) {}
+    return { difs };
+  });
+  expect(r.difs).toEqual([]);
+});
