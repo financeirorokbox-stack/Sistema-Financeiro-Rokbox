@@ -83,6 +83,8 @@ test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, sald
       saldoIni: num(/Saldo início do mês\s*R\$\s*([\d.,]+)/),
       saldoFim: num(/Saldo fim do mês\s*R\$\s*([\d.,]+)/),
       crAb: num(/A receber \(em aberto\)\s*R\$\s*([\d.,]+)/),
+      footerResg: /Resgates de aplicação \(Rokbox\)/.test(fech),
+      varCaixa: num(/Variação do caixa\s*R\$\s*([\d.,]+)/),
       crAtraso: _n((document.getElementById('cr-atraso') || {}).textContent || '')
     };
   });
@@ -103,6 +105,9 @@ test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, sald
                                       // AV103 3.527,50 + #40419 1.134,52 + #40276 703,01.
                                       // #40749 (0,04 tolerância), #41127 (AMOSTRA) e #41327 (0,80 aceita) NÃO entram.
   expect(r.crAtraso).toBe(5365.03);   // dashboard: mesmo número
+  // Rodapé do "Resultado por empresa": operacional −20.100,31 + resgates 23.849,48 = variação do caixa +3.749,17
+  expect(r.footerResg).toBe(true);
+  expect(near(r.varCaixa, 3749.17, 0.02)).toBe(true);
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 

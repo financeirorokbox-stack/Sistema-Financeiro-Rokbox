@@ -542,7 +542,8 @@ function renderFechamento(){
         <tr style="font-weight:800;border-top:1px solid #e5e7eb"><td style="padding:4px 0">Total</td><td style="text-align:right;color:#059669">${brl(totR)}</td><td style="text-align:right;color:#dc2626">${brl(totD)}</td><td style="text-align:right;color:${(totR-totD)>=0?'#059669':'#dc2626'}">${brl(+(totR-totD).toFixed(2))}</td></tr>
       </table>
     </div>
-    <div style="margin-top:10px;font-size:12px;color:#374151">Resultado do balancete = Receitas ${brl(totR)} − Despesas ${brl(totD)} = <b style="color:${(totR-totD)>=0?'#059669':'#dc2626'}">${brl(+(totR-totD).toFixed(2))}</b></div>
+    <div style="margin-top:10px;font-size:12px;color:#374151">Resultado operacional (sem resgates) = Receitas ${brl(totR)} − Despesas ${brl(totD)} = <b style="color:${(totR-totD)>=0?'#059669':'#dc2626'}">${brl(+(totR-totD).toFixed(2))}</b></div>
+    ${Math.abs(D.resgates)>0.005?`<div style="margin-top:4px;font-size:12px;color:#374151">+ Resgates de aplicação (Rokbox) <b style="color:#6b7280">${brl(D.resgates)}</b> = <b>Variação do caixa</b> <b style="color:${D.resultadoCaixa>=0?'#059669':'#dc2626'}">${brl(D.resultadoCaixa)}</b> <span style="color:#9ca3af">(o que de fato aconteceu no banco)</span></div>`:''}
     <div style="margin-top:6px;font-size:10.5px;color:#9ca3af">Faturamento = pedidos Venda+Troca − devoluções (igual à página de Vendas). Recebido/Pago = liquidados no mês. Saldo pelo movimento do banco (Balancete).</div>
   </div>`;
 }
@@ -1876,7 +1877,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-09.3';
+const BUILD='2026-11-09.4';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
