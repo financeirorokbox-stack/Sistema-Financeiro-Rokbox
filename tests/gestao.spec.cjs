@@ -402,3 +402,53 @@ test('Cache CR: _crRowsFiltered() é idêntico ao _crRowsAOA(false) (out/26 venc
   });
   expect(r.difs).toEqual([]);
 });
+
+// Vincular recebimento: painel (no lugar do prompt) + auto-ligar cliente+valor exato (tol 0,05) com desfazer.
+// Caso Tatiana #41458 (Tatiana Francisquini R$ 354,80): recebimento sem pedido liga sozinho ao único livre.
+test('Recebimentos: auto-ligar cliente+valor (Tatiana #41458), painel de sugestão e desfazer', async ({ page }) => {
+  await installMock(page);
+  await page.goto('/index.html');
+  await page.waitForFunction(() => typeof pedidos !== 'undefined' && pedidos.length > 100, { timeout: 60000 });
+  const r = await page.evaluate(() => {
+    const p = pedidos.find(x => String(x.id) === '41458');
+    // injeta um recebimento SEM pedido, mesmo cliente e mesmo valor do #41458
+    recebimentosConsolidado.push({ gateway: 'Braavo', nome: 'Tatiana Francisquini', bruto: 354.80, liq: 354.80, taxa: 0, data: new Date('2026-11-05T12:00:00'), nped: null, status: 'aprovado' });
+    const idx = recebimentosConsolidado.length - 1;
+    // 1) PAINEL: com #41458 ainda livre, o painel sugere o botão "Ligar ao #41458"
+    editarNpedRec(idx);
+    const modal = document.getElementById('recVincModalWrap');
+    const temModal = !!modal;
+    const temBotaoLigar = !!modal && /Ligar ao #41458/.test(modal.innerHTML);
+    const temInput = !!modal && !!modal.querySelector('#recVincInput');
+    _recVincFechar();
+    // 2) AUTO-LIGAR: cliente+valor exato, exatamente 1 livre
+    ligadosAutoReceb = [];
+    const nAuto = autoLigarClienteValor();
+    const rec = recebimentosConsolidado[idx];
+    const ligouAntes = rec.nped === '41458';
+    const autoLista = ligadosAutoReceb.map(x => ({ pedido: x.pedido, nome: x.nome, valor: x.valor }));
+    // 3) DESFAZER a ligação automática da Tatiana
+    const tatIdx = ligadosAutoReceb.findIndex(x => x.pedido === '41458');
+    desfazerLigacaoAutoIdx(tatIdx);
+    const recDepois = recebimentosConsolidado[idx];
+    return {
+      pedidoExiste: !!p, pedidoValor: p ? p.valor : null,
+      nAuto, ligou: ligouAntes, autoLista,
+      temModal, temBotaoLigar, temInput,
+      desfez: recDepois.nped === null,
+      aindaTem41458: ligadosAutoReceb.some(x => x.pedido === '41458'),
+      marcouManual: recebDesvinculado.includes(['Braavo', '2026-11-05', (354.80).toFixed(2), 'tatiana francisquini'].join('|'))
+    };
+  });
+  console.log('AUTO_LIGADOS=' + JSON.stringify(r.autoLista));
+  expect(r.pedidoExiste).toBe(true);
+  expect(r.pedidoValor).toBe(354.8);
+  expect(r.nAuto).toBeGreaterThanOrEqual(1); // ligou ao menos a Tatiana (pode haver outros casos reais no mês)
+  expect(r.ligou).toBe(true);         // o recebimento foi ao #41458
+  expect(r.temModal).toBe(true);      // painel abriu (sem prompt)
+  expect(r.temBotaoLigar).toBe(true); // tem botão "Ligar ao #..."
+  expect(r.temInput).toBe(true);      // tem campo pra outro número
+  expect(r.desfez).toBe(true);        // desfazer voltou pra sem pedido
+  expect(r.aindaTem41458).toBe(false);// saiu da lista após desfazer
+  expect(r.marcouManual).toBe(true);  // marcado pra não religar sozinho
+});

@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v785/10-838';
+const APP_VERSION = 'v786/10-839';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -903,7 +903,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1616,6 +1616,7 @@ let recebOrfaoInfo = {};     // { nped: {nome, loja, empresa, valor} } — o que
 let receitaLinks = {};       // { extratoId: receitaId } — crédito do extrato vinculado a uma receita avulsa
 let recebPeriodoAnt = [];      // [recKey] — recebimentos sem pedido de período anterior: somem das pendências MAS contam no depósito do banco
 let recebDesvinculado = [];    // [recBaseKey] — recebimentos que o usuário zerou MANUALMENTE: o automático (por valor) não pode re-vincular
+let ligadosAutoReceb = [];     // [{rk, pedido, nome, valor, ts}] — recebimentos ligados SOZINHO (cliente+valor exato) na importação, com desfazer
 let recebEntrada = [];         // [recBaseKey] — recebimentos marcados como ENTRADA/sinal: contam no pedido mas NÃO baixam boleto (chave estável, sobrevive à regeneração do extrato)
 let diasFechados = [];         // ['YYYY-MM-DD'] — dias fechados na conciliação bancária: sem alteração/exclusão (admin reabre)
 let mesesFechados = [];        // ['YYYY-MM'] — MÊS fechado: trava TUDO daquele mês (nada muda nem apaga). Aproveita diaFechado/contaTravadaPorFechamento (admin reabre)
@@ -7998,29 +7999,121 @@ function parseRedeSheet(wb, target) {
 }
 
 // Corrige manualmente o nº do pedido de um recebimento (a extração automática às vezes erra)
+// Vincular recebimento a um pedido — PAINEL próprio (sem a janelinha prompt do navegador).
+// Cada pedido sugerido (mesmo cliente / valor) vira um BOTÃO de 1 clique; valor-exato (≤0,05) vem destacado.
+// Campo pra digitar outro nº (vários por vírgula) e botão "Remover vínculo".
 function editarNpedRec(idx) {
   const r = recebimentosConsolidado[idx];
   if (!r) return;
-  // Sugere pedidos LIVRES (Venda/Troca, ainda não usados) do mesmo cliente, para facilitar.
+  const _e = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   const npedUsados = new Set();
   recebimentosConsolidado.forEach(x => String(x.nped||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>npedUsados.add(p)));
+  const alvo = +(r.bruto!=null ? r.bruto : (r.liq||0));
+  // Pedidos LIVRES (Venda/Troca, não usados) do mesmo cliente OU mesmo valor; valor mais próximo primeiro.
   const sug = pedidos.filter(p => {
     if (npedUsados.has(String(p.id))) return false;
     const op = (getClassificacao(p).operacao||'').toLowerCase();
     if (op !== 'venda' && op !== 'troca') return false;
-    return nomesBatem(p.nome, r.nome) || Math.abs((p.valor||0) - (r.bruto||0)) <= 0.5;
-  }).slice(0, 8).map(p => `  ${p.id} — ${p.nome} (${fmtVal(p.valor||0)})`);
-  const hint = sug.length ? `\n\nPedidos livres do mesmo cliente / valor:\n${sug.join('\n')}` : '';
-  const novo = prompt('Nº do pedido para este recebimento.\nPara dividir entre vários pedidos, separe por vírgula (ex.: 39721,39894).\nDeixe vazio para remover.' + hint, r.nped || '');
-  if (novo === null) return; // cancelou
-  const valor = novo.trim();
+    return nomesBatem(p.nome, r.nome) || Math.abs((p.valor||0) - alvo) <= 0.5;
+  }).map(p => ({ p, dv: Math.abs((p.valor||0) - alvo), nomeBate: nomesBatem(p.nome, r.nome) }))
+    .sort((a,b) => a.dv - b.dv).slice(0, 8);
+  const info = `${_e(r.gateway||'')} · ${fmtDate(r.data)} · ${_e(r.nome||'(sem nome)')} · <strong>${fmtVal(alvo)}</strong>`;
+  const botoes = sug.length ? sug.map(({p,dv,nomeBate}) => {
+    const exato = dv <= 0.05;
+    return `<button class="btn" style="display:block;width:100%;text-align:left;margin:4px 0;${exato?'background:var(--green-bg);border-color:var(--green)':''}" onclick="_recVincConfirm(${idx},'${String(p.id)}')" title="Ligar este recebimento ao pedido #${p.id}">✓ Ligar ao #${p.id} — ${_e((p.nome||'').slice(0,34))} ${fmtVal(p.valor||0)}${exato?' ⚡':''}${nomeBate?' 👤':''}</button>`;
+  }).join('') : '<div style="color:var(--muted);font-size:12px;padding:6px 0">Nenhum pedido livre do mesmo cliente/valor. Digite o número abaixo.</div>';
+  const html = `
+  <div id="recVincBackdrop" onclick="if(event.target===this)_recVincFechar()" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:var(--card,#fff);border-radius:12px;max-width:470px;width:100%;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:85vh;overflow:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong style="font-size:15px">Vincular recebimento</strong>
+        <button class="btn ghost sm" onclick="_recVincFechar()">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${info}</div>
+      <div style="font-size:12px;font-weight:700;margin:6px 0 2px">Pedidos sugeridos</div>
+      ${botoes}
+      <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:10px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:4px">Outro número (vários: separe por vírgula)</div>
+        <div style="display:flex;gap:6px">
+          <input id="recVincInput" class="inline-input" style="flex:1" placeholder="ex.: 41458 ou 39721,39894" value="${_e(r.nped||'')}" onkeydown="if(event.key==='Enter')_recVincManual(${idx})">
+          <button class="btn" onclick="_recVincManual(${idx})">Ligar</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:14px">
+        ${r.nped ? `<button class="btn ghost sm" style="color:var(--red)" onclick="_recVincConfirm(${idx},'')" title="Tira o nº do pedido deste recebimento">Remover vínculo</button>` : '<span></span>'}
+        <button class="btn ghost sm" onclick="_recVincFechar()">Cancelar</button>
+      </div>
+    </div>
+  </div>`;
+  _recVincFechar();
+  const div = document.createElement('div'); div.id = 'recVincModalWrap'; div.innerHTML = html; document.body.appendChild(div);
+}
+function _recVincFechar() { const e = document.getElementById('recVincModalWrap'); if (e) e.remove(); }
+function _recVincManual(idx) { const el = document.getElementById('recVincInput'); _recVincConfirm(idx, el ? el.value : ''); }
+function _recVincConfirm(idx, pedStr) {
+  const r = recebimentosConsolidado[idx]; if (!r) return;
+  const valor = String(pedStr==null?'':pedStr).trim();
   r.nped = valor || null;
-  // Memória do que é MANUAL: zerou → o automático não pode re-vincular; vinculou → libera.
   const bk = recBaseKey(r);
-  if (!valor) { if (!recebDesvinculado.includes(bk)) recebDesvinculado.push(bk); }
+  if (!valor) { if (!recebDesvinculado.includes(bk)) recebDesvinculado.push(bk); }  // zerou → automático não re-vincula
   else { recebDesvinculado = recebDesvinculado.filter(k => k !== bk); }
+  ligadosAutoReceb = ligadosAutoReceb.filter(x => x.rk !== bk); // saiu da lista "ligados automaticamente" (foi conferido na mão)
   saveData('recebDesvinculado', recebDesvinculado);
+  saveData('ligadosAutoReceb', ligadosAutoReceb);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
+  _recVincFechar();
+  renderRecebimentos();
+}
+// Liga SOZINHO recebimentos SEM pedido quando existe EXATAMENTE 1 pedido livre com o MESMO cliente E o MESMO valor
+// (tolerância 0,05). Mais de um candidato, ou valor diferente → continua manual. Não mexe em vínculo já feito nem
+// em mês fechado. Registra em "Ligados automaticamente" (com desfazer), pra conferência.
+function autoLigarClienteValor() {
+  const usados = new Set();
+  recebimentosConsolidado.forEach(r => String(r.nped||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>usados.add(p)));
+  const jaLig = new Set(ligadosAutoReceb.map(x => x.rk));
+  const novos = [];
+  recebimentosConsolidado.forEach(r => {
+    if (r.nped) return;
+    const alvo = +(r.bruto!=null ? r.bruto : (r.liq||0));
+    if (alvo <= 0.05) return;                      // só valores positivos
+    if (recebFoiDesvinculadoManual(r)) return;     // respeita o que ela zerou na mão
+    if (recebPeriodoAnterior(r)) return;
+    if (r.data && mesEstaFechado(r.data)) return;  // não mexe em mês fechado
+    const cands = pedidos.filter(p => {
+      if (usados.has(String(p.id))) return false;
+      const sit = (p.situacao||'').toLowerCase();
+      if (SITUACOES_NAO_APLICAVEL.includes(sit)) return false;
+      const op = (getClassificacao(p).operacao||'').toLowerCase();
+      if (op !== 'venda' && op !== 'troca') return false;
+      if (p.data && mesEstaFechado(p.data)) return false;
+      return nomesBatem(p.nome, r.nome) && Math.abs((p.valor||0) - alvo) <= 0.05; // MESMO cliente E MESMO valor
+    });
+    if (cands.length === 1) { // exatamente 1 livre → liga sozinho
+      const p = cands[0];
+      r.nped = String(p.id); usados.add(String(p.id));
+      const rk = recBaseKey(r);
+      if (!jaLig.has(rk)) { novos.push({ rk, pedido: String(p.id), nome: r.nome||p.nome||'', valor: alvo, ts: new Date().toISOString() }); jaLig.add(rk); }
+    }
+  });
+  if (novos.length) {
+    ligadosAutoReceb = ligadosAutoReceb.concat(novos);
+    saveData('recebimentosConsolidado', recebimentosConsolidado);
+    saveData('ligadosAutoReceb', ligadosAutoReceb);
+  }
+  return novos.length;
+}
+function desfazerLigacaoAutoIdx(i) { const x = ligadosAutoReceb[i]; if (x) desfazerLigacaoAuto(x.rk); }
+// Desfaz uma ligação automática (volta o recebimento a "sem pedido" e marca como manual pra não re-ligar sozinho).
+function desfazerLigacaoAuto(rk) {
+  ligadosAutoReceb = ligadosAutoReceb.filter(x => x.rk !== rk);
+  const idx = recebimentosConsolidado.findIndex(r => recBaseKey(r) === rk);
+  if (idx >= 0) {
+    recebimentosConsolidado[idx].nped = null;
+    if (!recebDesvinculado.includes(rk)) recebDesvinculado.push(rk);
+    saveData('recebimentosConsolidado', recebimentosConsolidado);
+    saveData('recebDesvinculado', recebDesvinculado);
+  }
+  saveData('ligadosAutoReceb', ligadosAutoReceb);
   renderRecebimentos();
 }
 // Lança um recebimento NEGATIVO (estorno/reembolso ao cliente) como despesa PAGA em Contas a Pagar.
@@ -8358,6 +8451,17 @@ function renderRecebimentos() {
       </tbody></table></div>
     </div>
 
+    ${(() => {
+      if (!ligadosAutoReceb.length) return '';
+      const _e = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return `<div style="background:var(--green-bg,#e6f4ea);border:1px solid var(--green,#1b7a3d);border-radius:10px;padding:10px 12px;margin:10px 0">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px">🔗 Ligados automaticamente (${ligadosAutoReceb.length}) — cliente e valor bateram sozinhos; confira</div>
+        ${ligadosAutoReceb.map((x,i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;padding:3px 0;border-top:1px solid rgba(0,0,0,.06)">
+          <span>#${_e(x.pedido)} — ${_e((x.nome||'').slice(0,36))} · <strong>${fmtVal(x.valor||0)}</strong></span>
+          <button class="btn ghost sm" style="font-size:11px;padding:1px 7px;color:var(--red)" onclick="desfazerLigacaoAutoIdx(${i})" title="Desfaz esta ligação (o recebimento volta a 'sem pedido' e não religa sozinho)">↩ desfazer</button>
+        </div>`).reverse().join('')}
+      </div>`;
+    })()}
     ${vis.length===0 ? '<div class="empty"><div class="e-icon">💳</div>Nenhum recebimento carregado</div>' : `
     <div class="table-wrap"><table><thead><tr>
       ${delCheckboxHeader('recebimentos')}<th>Gateway</th><th>Data</th><th>Tipo</th><th>Cliente / Pedido</th>
@@ -8479,7 +8583,8 @@ function renderRecebimentos() {
       try { enriquecidos += resolverRecebPorSite(); } catch (e) {}
       saveData('recebimentosConsolidado', recebimentosConsolidado);
       const nv = autoVincularPorValor(); // grava nº do pedido (nome batendo) nos novos
-      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''}${taxasPM?`, ${taxasPM} c/ taxa Pagar.me`:''})`;
+      let nAuto = 0; try { nAuto = autoLigarClienteValor(); } catch (e) {} // liga sozinho cliente+valor exato (tol 0,05), com desfazer
+      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${nAuto?`, ${nAuto} ligados automaticamente`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''}${taxasPM?`, ${taxasPM} c/ taxa Pagar.me`:''})`;
       syncBoletosToRecebimentos();
       syncExtratoToRecebimentos();
       renderRecebimentos();
@@ -11979,6 +12084,7 @@ function reprocessarTudo() {
   // (créditos cujo vínculo foi removido deixam de contar → o pedido volta a ficar em aberto).
   try { syncExtratoToRecebimentos(); } catch(e) {}
   const nVinc = autoVincularPorValor(); // grava nº do pedido nos recebimentos por valor (nome batendo)
+  try { autoLigarClienteValor(); } catch (e) {} // liga sozinho cliente+valor exato (tol 0,05), com desfazer
   results = { ok: [], diff: [], missing: [], extra: [] };
   runConc(); // reconstrói do zero (results vazio) e salva
   // Atualiza as demais telas que dependem disso
@@ -19078,7 +19184,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -19180,6 +19286,7 @@ async function carregarTudo() {
     else if (k==='folhaRH') folhaRH = v || {};
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
     else if (k==='recebEntrada') recebEntrada = v || [];
+    else if (k==='ligadosAutoReceb') ligadosAutoReceb = Array.isArray(v) ? v : [];
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });
