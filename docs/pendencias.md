@@ -36,7 +36,16 @@ de publicar**; **teste automático junto**.
   + linha "Diferença competência × caixa 5.104,81 · ver detalhe" (motivo: venda paga no gateway
   com repasse pro banco depois; o detalhe mostra o motivo+nota, NÃO fecha pedido-a-pedido exato
   , a Elaine aprovou publicar assim). `_balanceteCR()` em cache.
-- PENDENTE depois do v782: **CHECKUP COMPLETO** (a Elaine vai pedir). Split exato da ponte
+- **v783/10-836 (Gestão) + BUILD 2026-11-09.1 (Painel RK) , 09/11**: relatório (flatCR/Painel
+  RK/Fechamento) usa EXATAMENTE o status da tela de Recebimentos: (1) **tolerância 0,05** no
+  flatCR , pedido quitado (falta ≤ 0,05) zera `atraso_real` (ex.: #40749 dif 0,04 some do em
+  aberto); (2) **AMOSTRA** (operação amostra, loja "Envio de Planos") nunca é conta a receber
+  (`_pedidoAmostra`): fica fora de atrasado/parcial/sobras; o recebido conta normal (ex.: #41127
+  PIX 30 recebido, 269,90 amostra). **FIN_MANUTENCAO = false** (Painel liberado pro Diretor).
+  "A receber em aberto" out/26 = **5.365,03** (AV103 3.527,50 + #40419 1.134,52 + #40276 703,01;
+  #41327 0,80 aceita). **Vendas Out/26 Total geral = 256.153,16** (venda+troca; amostra de Envio
+  de Planos 46.110,68 NÃO conta). Snapshot do gate = dados ao vivo 09/11.
+- PENDENTE depois do v783: **CHECKUP COMPLETO** (a Elaine vai pedir). Split exato da ponte
   5.104,81 (casar repasse×crédito do extrato) só se ela pedir. Ponte 263.253,35→
   258.148,54 (5.104,81) está só no card; split PayPal-a-PayPal se ela pedir. Itens antigos:
   vínculo extrato↔CP por _uid (tarifa 17/06), CR completo ago–nov, Conciliação A/B/C, junho
