@@ -1,0 +1,38 @@
+name: Power BI (robô)
+
+# Roda o _syncPowerBI do Gestão publicado, de hora em hora das 8h às 20h (Brasília), TODO dia.
+# Cron do GitHub é em UTC; Brasília = UTC-3, então 8h-20h BRT = 11h-23h UTC.
+on:
+  schedule:
+    - cron: '0 11-23 * * *'
+  workflow_dispatch:
+    inputs:
+      so_teste:
+        description: 'Só rodar o teste de bloqueio (NÃO grava o Power BI)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: powerbi-robo
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar Playwright (Chromium)
+        run: |
+          npm init -y
+          npm i -D playwright@1.56.0
+          npx playwright install --with-deps chromium
+      - name: Rodar robô (teste de bloqueio + Power BI)
+        run: node robo/sync.cjs
+        env:
+          ROBO_EMAIL: ${{ secrets.ROBO_EMAIL }}
+          ROBO_SENHA: ${{ secrets.ROBO_SENHA }}
+          SO_TESTE: ${{ inputs.so_teste && '1' || '' }}
