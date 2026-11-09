@@ -4,7 +4,7 @@
 //   - gravar uma chave NÃO-flat (ex.: contasPagar) tem que levar 401/403 (RLS);
 //   - gravar um flat* tem que passar.
 // Se o teste falhar, ABORTA sem rodar o Power BI.
-const { chromium } = require('playwright');
+const { chromium } = require('@playwright/test');
 
 const URL_GESTAO = process.env.URL_GESTAO || 'https://financeirorokbox-stack.github.io/Sistema-Financeiro-Rokbox/index.html';
 const EMAIL = process.env.ROBO_EMAIL;
@@ -15,14 +15,15 @@ function die(code, msg) { console.error('✘ ' + msg); process.exitCode = code; 
 
 (async () => {
   if (!EMAIL || !SENHA) { die(2, 'Faltam os Secrets ROBO_EMAIL / ROBO_SENHA.'); return; }
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  page.setDefaultTimeout(120000);
-  const erros = [];
-  page.on('pageerror', e => erros.push(String((e && e.message) || e)));
-  page.on('console', m => { if (m.type() === 'error') erros.push(m.text()); });
-
+  let browser;
   try {
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    page.setDefaultTimeout(120000);
+    const erros = [];
+    page.on('pageerror', e => erros.push(String((e && e.message) || e)));
+    page.on('console', m => { if (m.type() === 'error') erros.push(m.text()); });
+
     await page.goto(URL_GESTAO, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
     // Login + carga de dados (mesma sequência do app: _sbLogin -> _bootPosLogin)
@@ -31,9 +32,9 @@ function die(code, msg) { console.error('✘ ' + msg); process.exitCode = code; 
       try { await _bootPosLogin(); } catch (e) { return { ok: false, erro: 'carga: ' + (e && e.message) }; }
       return { ok: true, role: (typeof _sbSess !== 'undefined' && _sbSess && _sbSess.role) || null, pedidos: (typeof pedidos !== 'undefined' ? pedidos.length : 0) };
     }, { email: EMAIL, senha: SENHA });
-    if (!login.ok) { die(3, 'Login/carga falhou: ' + login.erro); await browser.close(); return; }
+    if (!login.ok) { die(3, 'Login/carga falhou: ' + login.erro); return; }
     console.log('Login OK · role=' + login.role + ' · pedidos=' + login.pedidos);
-    if (login.role !== 'robo') { die(4, 'A conta NÃO tem role=robo (role=' + login.role + '). Abortando por segurança.'); await browser.close(); return; }
+    if (login.role !== 'robo') { die(4, 'A conta NÃO tem role=robo (role=' + login.role + '). Abortando por segurança.'); return; }
 
     // TESTE DE BLOQUEIO (permissão mínima)
     const teste = await page.evaluate(async () => {
@@ -59,21 +60,21 @@ function die(code, msg) { console.error('✘ ' + msg); process.exitCode = code; 
     const flatOk = teste.rFlat.status >= 200 && teste.rFlat.status < 300;
     console.log('TESTE BLOQUEIO · gravar NÃO-flat (contasPagar) → HTTP ' + teste.rNao.status + ' ' + (bloqueado ? 'BLOQUEADO ✔' : 'PASSOU ✘ (RLS FALHOU!)'));
     console.log('TESTE BLOQUEIO · gravar flat* → HTTP ' + teste.rFlat.status + ' ' + (flatOk ? 'OK ✔' : 'FALHOU ✘'));
-    if (!bloqueado || !flatOk) { die(5, 'Teste de bloqueio falhou — não rodei o Power BI.'); await browser.close(); return; }
+    if (!bloqueado || !flatOk) { die(5, 'Teste de bloqueio falhou — não rodei o Power BI.'); return; }
 
-    if (SO_TESTE) { console.log('SO_TESTE=1 → não rodei o _syncPowerBI (só o teste de bloqueio).'); await browser.close(); return; }
+    if (SO_TESTE) { console.log('SO_TESTE=1 → não rodei o _syncPowerBI (só o teste de bloqueio).'); return; }
 
     // RODA O POWER BI (mesmo _syncPowerBI do navegador da Elaine)
     const t0 = Date.now();
     const r = await page.evaluate(async () => {
       try { const res = await _syncPowerBI(); return { ok: true, res: res || null }; } catch (e) { return { ok: false, erro: e && e.message }; }
     });
-    if (!r.ok) { die(6, '_syncPowerBI falhou: ' + r.erro); await browser.close(); return; }
+    if (!r.ok) { die(6, '_syncPowerBI falhou: ' + r.erro); return; }
     console.log('Power BI atualizado ✔ em ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
     if (erros.length) console.log('(avisos de console: ' + erros.slice(0, 5).join(' | ') + ')');
   } catch (e) {
     die(1, 'Erro inesperado: ' + (e && e.message));
   } finally {
-    await browser.close();
+    if (browser) { try { await browser.close(); } catch (e) {} }
   }
 })();

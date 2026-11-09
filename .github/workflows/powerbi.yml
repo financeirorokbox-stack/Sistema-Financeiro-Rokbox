@@ -26,12 +26,13 @@ jobs:
         with:
           node-version: '20'
       - name: Instalar Playwright (Chromium)
+        working-directory: robo
         run: |
-          npm init -y
-          npm i -D playwright@1.56.0
-          npx playwright install --with-deps chromium
+          npm install
+          npx playwright install --with-deps chromium chromium-headless-shell
       - name: Rodar robô (teste de bloqueio + Power BI)
-        run: node robo/sync.cjs
+        working-directory: robo
+        run: node sync.cjs
         env:
           ROBO_EMAIL: ${{ secrets.ROBO_EMAIL }}
           ROBO_SENHA: ${{ secrets.ROBO_SENHA }}

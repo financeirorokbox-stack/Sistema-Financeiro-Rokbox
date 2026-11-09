@@ -1,0 +1,9 @@
+{
+  "name": "robo-powerbi",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Robo agendado que roda o _syncPowerBI do Gestao publicado (GitHub Actions).",
+  "dependencies": {
+    "@playwright/test": "1.56.0"
+  }
+}
