@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v787/10-840';
+const APP_VERSION = 'v788/10-841';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3439,9 +3439,15 @@ function _renderContasImpl(el) {
   }
 
   // ── Monta linhas de Contas a Receber ──────────────────────────────
+  // CACHE (perf): o modelo (linhas + pedidosConcBanco) depende SÓ dos dados, não do filtro. Guardado por
+  // _dataVersion; ao trocar só o filtro (caso comum), reaproveita um CLONE e pula a reconstrução pesada.
+  let linhas, pedidosConcBanco;
+  const _crHit = !!(_crModelCache && _crModelVer === _dataVersion);
+  if (_crHit) { linhas = _crModelCache.linhas.map(_cloneCRLinha); pedidosConcBanco = _crModelCache.pedidosConcBanco; }
+  if (!_crHit) {
   // Fonte primária: PEDIDOS com Operação Venda/Troca
   // Forma de Pagamento enriquece com gateway e vencimento quando disponível
-  const linhas = [];
+  linhas = [];
   let ocultadosOp = 0; // pedidos fora por não serem Venda/Troca (ex.: loja não cadastrada → operação vazia)
   const boletoJaAdd = new Set(); // pedidos cujas parcelas de boleto já foram geradas (evita duplicar por linha de forma)
   // Crédito de troca por pedido: o boleto físico é emitido JÁ LÍQUIDO desse crédito (a cliente não paga a
@@ -3682,7 +3688,7 @@ function _renderContasImpl(el) {
   _linhasCR = linhas; // guarda para a exportação (modelo Contas a Receber)
 
   // Pedidos já CONCILIADOS no banco (crédito vinculado no Extrato OU recebimento amarrado a um repasse) → selo e filtro.
-  const pedidosConcBanco = new Set();
+  pedidosConcBanco = new Set();
   Object.values(extratoLinks).forEach(lk => String(lk.pedido||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p => pedidosConcBanco.add(String(p))));
   // Repasse conciliado: casa por gateway|data|valor|nome, IGNORANDO o nº do pedido — o nped do recebimento
   // pode ter sido preenchido/trocado DEPOIS da conciliação (Braavo casa pelo nº do site primeiro), o que
@@ -3694,6 +3700,13 @@ function _renderContasImpl(el) {
   // Sobra jogada de um crédito JÁ conciliado → o pedido que recebeu a sobra também está bancado
   // (o dinheiro é parte de um crédito do banco). Ex.: #39828 recebeu a sobra do #39826 (PIX conciliado).
   recebimentosConsolidado.forEach(r => { if (r._sobraDe && r.nped && pedidosConcBanco.has(String(r._sobraDe))) pedidosConcBanco.add(String(r.nped)); });
+
+  // Guarda o modelo recém-construído e passa a usar um CLONE neste render (pra o bloco "a compensar" mexer no
+  // clone, não no cache). Mês fechado/congelado não é afetado (o modelo é o mesmo que já era construído).
+  _crModelCache = { linhas, pedidosConcBanco };
+  _crModelVer = _dataVersion;
+  linhas = linhas.map(_cloneCRLinha);
+  } // fim if(!_crHit)
 
   // ── Filtros ────────────────────────────────────────────────────────
   const fCat = el.querySelector('#fc-cat')?.value || '';
@@ -5675,6 +5688,10 @@ function _crRowsAOA(semFiltro) {
 // _crRowsFiltered() é IDÊNTICO a _crRowsAOA(false) (provado no teste), só que sem reconstruir tudo a cada filtro.
 let _crAllCache = null, _crAllVer = -1, _crAllSig = '\u0000';
 let _crAllSigCur = ''; // assinatura dos filtros não-data do render atual (setada em _renderContasImpl)
+// ── Cache do MODELO da TELA do CR: linhas + pedidosConcBanco dependem SÓ dos dados (_dataVersion), não do filtro.
+// Ao trocar só o filtro (o caso comum), reaproveita e não reconstrói o modelo (1819 pedidos × boletos/receb/devol).
+let _crModelCache = null, _crModelVer = -1;
+const _cloneCRLinha = l => ({ ...l, st: l.st ? { ...l.st } : l.st }); // clona só st (único campo de l mutado após o build)
 function _crRowsAllCached() {
   if (_crAllCache && _crAllVer === _dataVersion && _crAllSig === _crAllSigCur) return _crAllCache;
   _crAllCache = _crRowsAOA(true); _crAllVer = _dataVersion; _crAllSig = _crAllSigCur;
