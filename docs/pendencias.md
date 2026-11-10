@@ -33,6 +33,31 @@ do GitHub , mesmo código = mesmo número.
   !POWERBI_AUTO_GESTAO) return;`). Não desativa o botão manual, nem o sync ao exportar o CR, nem
   o congelamento de flat ao fechar o mês. Aguardando "pode publicar".
 
+## Desempenho (10/11/2026)
+Medido com dados reais (Chrome + snapshot), os tempos abaixo são de CPU.
+- **Power BI automático DESLIGADO no Gestão** (`POWERBI_AUTO_GESTAO=false`, v787/10-840): o robô
+  faz nos horários; o botão ☁ Power BI continua. Acabou o travão de ~30 s ao salvar uma conta.
+- **Filtro do Contas a Receber: ~1,2 s → ~0,18 s** (v788/10-841): `renderContas` cacheia o modelo
+  da tela (linhas + pedidos conciliados) por `_dataVersion`; ao trocar só o filtro, reaproveita um
+  clone (clona só `l.st`) e não reconstrói os 1.819 pedidos. Números idênticos (gate trava).
+- **Abertura do Gestão: ~13 s → ~3,9 s (CPU)** (v789/10-842): o gargalo NÃO era baixar/parsear
+  (331 ms), eram duas rotinas O(n²) que rodam a cada boot. Indexei as duas (mesmas regras, prova
+  OLD×NEW item a item = diferença ZERO nos 2 cenários, inclusive reset):
+  - `aplicarBaixaConciliada` ~7,0 s → 0,01 s (índice extrato por id + contas por chave).
+  - `autoVincularPorValor` ~4,6 s → ~1,2 s (índices: formas por pedido, candidatos PayPal/Braavo por
+    gateway+faixa de valor, recebimentos por pedido; só paga a trava cara nos pedidos com forma gw).
+- **PENDENTE (perf, p/ depois):**
+  1. **Tolerância 0,50 do `autoVincularPorValor`** (casamento por valor PayPal/Braavo). A Elaine quer
+     avaliar **baixar para 0,05**. ANTES de mudar: rodar e mostrar **quais vínculos mudariam** (os que
+     casam hoje com diferença entre 0,05 e 0,50 deixariam de casar automático). Não mexer sem o ok.
+  2. **~1,2 s restantes no `autoVincularPorValor`**: a trava de "pedido quitado" chama, por pedido
+     PayPal/Braavo, o ajudante compartilhado `getRecebimentosDoPedido` (O(R) por pedido). Dá pra cortar
+     com um índice de recebimentos por pedido, mas mexe num ajudante usado em muitos lugares, então
+     fica pra uma próxima, com a mesma prova item a item.
+  3. **"CR sem filtro" (ver todos os meses) ~1 s**: é o desenho de ~1.780 linhas; paginar se incomodar.
+  4. **Abertura ~3,9 s**: se quiser baixar mais, o caminho é lazy-load (pintar a 1ª tela e puxar o resto
+     em 2º plano). Risco médio; só se ela pedir.
+
 ## Publicado hoje (06/11/2026)
 - **Painel financeiro em MANUTENÇÃO só-admin (financeiro.html)** , `FIN_MANUTENCAO = true`:
   não-admin vê só "Painel financeiro em manutenção"; admin vê tudo com faixa. **Para voltar:

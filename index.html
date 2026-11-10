@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v788/10-841';
+const APP_VERSION = 'v789/10-842';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -6345,13 +6345,19 @@ function aplicarBaixaConciliada() {
   // ATRIBUIÇÃO por chave: cada DÉBITO conciliado pega UMA conta (a de vencimento mais próximo do débito),
   // sem repetir conta. Assim, um número REPETIDO em várias parcelas (ex.: boleto EXCIM #122154 de ago/set/out/nov)
   // NÃO faz o load "avançar" e marcar as parcelas FUTURAS por engano — só marca tantas quantas há débitos.
+  // (perf) Índices montados UMA vez (extrato por id, contas por chave) no lugar de find/filter dentro dos laços
+  // (era O(n²) e segurava a abertura). A seleção por chave é a MESMA — resultado idêntico ao anterior.
+  const extById = new Map();
+  extratoBancario.forEach(x => { if (x && x.id != null && !extById.has(x.id)) extById.set(x.id, x); }); // 1º ganha (= .find)
+  const contasPorChave = new Map();
+  contasPagar.forEach(c => { const k = chaveContaPagar(c); let a = contasPorChave.get(k); if (!a) { a = []; contasPorChave.set(k, a); } a.push(c); });
   const datasPorChave = {}; // chave -> [data do débito]
   Object.entries(debitoLinks).forEach(([extId, l]) => {
-    const t = extratoBancario.find(x => x.id === extId);
+    const t = extById.get(extId);
     debLinkItens(l).forEach(it => { if (it.criada) return; (datasPorChave[it.chave] = datasPorChave[it.chave] || []).push(t ? t.data : null); });
   });
   Object.entries(datasPorChave).forEach(([chave, datas]) => {
-    const contasChave = contasPagar.filter(x => chaveContaPagar(x) === chave);
+    const contasChave = contasPorChave.get(chave) || [];
     const usados = new Set();
     datas.forEach(dData => {
       // REGRA (Elaine): conciliação AUTOMÁTICA só dentro do mês de vigência — nunca marca parcela FUTURA
@@ -12294,30 +12300,47 @@ function nomesBatem(a, b) {
 // que casam por VALOR de forma segura: candidato ÚNICO e NOME batendo com o cliente.
 // Os duvidosos (nome diferente ou vários candidatos) ficam para vínculo manual.
 function autoVincularPorValor() {
+  // (perf) Índices montados UMA vez, no lugar de filter/some/map dentro dos laços (era O(n²) e segurava a
+  // abertura). As REGRAS são idênticas: valor único liga direto, empate decide pelo nome, pedido quitado trava,
+  // tolerância 0,5, nunca mexe em desvinculado-manual nem período anterior. Resultado idêntico ao anterior.
   const usados = new Set();
-  recebimentosConsolidado.forEach((r, i) => { if (r.nped) usados.add(i); });
+  const recByNped = new Map();                         // String(nped completo) -> [recebimentos] (= o some do OLD)
+  recebimentosConsolidado.forEach((r, i) => { if (r.nped) { usados.add(i); const k = String(r.nped); let a = recByNped.get(k); if (!a) { a = []; recByNped.set(k, a); } a.push(r); } });
+  const formasPorPed = new Map();                      // String(pedido) -> [formas receita]
+  formaPagamento.forEach(f => { if (!classificaForma(f.descricao).isReceita) return; const k = String(f.pedido); let a = formasPorPed.get(k); if (!a) { a = []; formasPorPed.set(k, a); } a.push(f); });
+  const recCand = new Map();                           // `${gateway}|${floor(valor)}` -> [{r,idx}] só PayPal/Braavo (os únicos candidatos)
+  recebimentosConsolidado.forEach((r, idx) => { const gw = r.gateway; if (gw !== 'PayPal' && gw !== 'BraavoPay') return; const v = (r.bruto || r.liq); if (v == null || isNaN(v)) return; const key = gw + '|' + Math.floor(v); let a = recCand.get(key); if (!a) { a = []; recCand.set(key, a); } a.push({ r, idx }); });
   let n = 0;
   pedidos.forEach(ped => {
     const sit = (ped.situacao || '').toLowerCase();
     if (SITUACOES_NAO_APLICAVEL.includes(sit)) return;
+    const formas = formasPorPed.get(String(ped.id));
+    if (!formas || !formas.length) return;             // sem forma receita → nunca ligaria (idêntico ao OLD)
+    // só paga a trava (cara) se houver forma PayPal/Braavo — sem ela, o OLD também não ligaria nada.
+    let temGw = false;
+    for (const f of formas) { const c = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria; if (c === 'PayPal' || c === 'BraavoPay') { temGw = true; break; } }
+    if (!temGw) return;
     // TRAVA: nunca vincular automático num pedido JÁ QUITADO (recebido >= valor). Um crédito novo num
     // pedido fechado seria erro/sobra → ele fica em "sem pedido" pra ser vinculado na mão no pedido certo.
     try {
       const jaReceb = getRecebimentosDoPedido(ped).reduce((s, r) => s + (r.bruto || 0), 0);
       if (jaReceb >= getValorConciliacaoPedido(ped) - 0.5) return;
     } catch (e) {}
-    const formas = formaPagamento.filter(f => String(f.pedido) === String(ped.id) && classificaForma(f.descricao).isReceita);
     formas.forEach(f => {
       const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
       if (cat !== 'PayPal' && cat !== 'BraavoPay') return;
-      if (recebimentosConsolidado.some((r, idx) => String(r.nped) === String(ped.id) && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
-      const cands = recebimentosConsolidado
-        .map((r, idx) => ({ r, idx }))
-        .filter(({ r, idx }) => !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5 && !recebFoiDesvinculadoManual(r) && !recebPeriodoAnterior(r));
+      const jaNoPed = recByNped.get(String(ped.id));
+      if (jaNoPed && jaNoPed.some(r => r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
+      // candidatos: buckets que cobrem [valor−0,5 ; valor+0,5]; depois o MESMO filtro exato, em ordem de índice.
+      const fv = f.valor; const bks = new Set([Math.floor(fv - 0.5), Math.floor(fv), Math.floor(fv + 0.5)]);
+      let cands = []; bks.forEach(b => { const a = recCand.get(cat + '|' + b); if (a) cands = cands.concat(a); });
+      const seen = new Set();
+      cands = cands.filter(({ r, idx }) => { if (seen.has(idx)) return false; seen.add(idx); return !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - fv) <= 0.5 && !recebFoiDesvinculadoManual(r) && !recebPeriodoAnterior(r); })
+                   .sort((a, b) => a.idx - b.idx);
       let escolha = null;
       if (cands.length === 1) escolha = cands[0]; // valor ÚNICO → vincula direto (mesmo sem nome)
       else if (cands.length > 1) { const bn = cands.filter(c => nomesBatem(c.r.nome, ped.nome)); if (bn.length === 1) escolha = bn[0]; } // empata pelo nome
-      if (escolha) { escolha.r.nped = String(ped.id); usados.add(escolha.idx); n++; }
+      if (escolha) { escolha.r.nped = String(ped.id); usados.add(escolha.idx); n++; const k = String(ped.id); let a = recByNped.get(k); if (!a) { a = []; recByNped.set(k, a); } a.push(escolha.r); }
     });
   });
   if (n > 0) saveData('recebimentosConsolidado', recebimentosConsolidado);
