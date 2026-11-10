@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v786/10-839';
+const APP_VERSION = 'v787/10-840';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -18925,10 +18925,14 @@ async function _sincronizarBlingAuto() {
 // Gatilhos: abrir o Gestão, de hora em hora, e após ações que mexem no CR/CP/recebido (via saveData das chaves-gatilho).
 // Se falhar, marca aviso no Afazeres. O botão "☁ Power BI" continua forçando na hora.
 let _pbiTimer = null, _pbiBusy = false, _pbiFalhou = false, _pbiTimersOn = false, _lastInteract = Date.now();
+// POWER BI AUTOMÁTICO no navegador: DESLIGADO. Quem atualiza o Power BI nos horários é o ROBÔ (GitHub Actions, 8h-20h).
+// O botão "☁ Power BI" no topo continua funcionando (chama _syncPowerBI direto, não passa por aqui). Pra religar: true.
+const POWERBI_AUTO_GESTAO = false;
 const _PBI_IDLE_MS = 12000; // idle-gate: o Power BI AUTOMÁTICO só roda após ~12s SEM clique/tecla, pra não travar a tela (ex.: Contas a Pagar) no meio do uso.
 const _PBI_TRIGGER = new Set(['recebimentosConsolidado', 'extratoBancario', 'extratoLinks', 'debitoLinks', 'repasseLinks', 'receitaLinks', 'boletoCobrancaStatus', 'boletoStatus', 'devolucoes', 'devolucaoCredito', 'contasPagar', 'formaPagamento', 'creditosCliente']);
 function _agendarPowerBI(delayMs) { if (_pbiTimer) clearTimeout(_pbiTimer); _pbiTimer = setTimeout(() => { _pbiTimer = null; _rodarPowerBIBg(true); }, delayMs == null ? 5000 : delayMs); }
 async function _rodarPowerBIBg(auto) {
+  if (auto && !POWERBI_AUTO_GESTAO) return; // Power BI automático desligado (o robô faz nos horários); o botão manual não passa por aqui
   if (_pbiBusy) { _agendarPowerBI(8000); return; } // já rodando → re-agenda
   if (auto && (Date.now() - _lastInteract) < _PBI_IDLE_MS) { _agendarPowerBI(_PBI_IDLE_MS); return; } // você ainda está mexendo → ADIA (só roda quando parar); o botão manual não passa por aqui
   _pbiBusy = true;
@@ -19293,7 +19297,7 @@ async function carregarTudo() {
   try { const nB = await _autoImportBling(); if (nB) console.log('[Bling] ' + nB + ' venda(s) entraram no sistema automaticamente'); } catch (e) { console.warn('auto-import Bling:', e.message); } // vendas novas da Bling entram sozinhas (dedup por número)
   try { _blingRicoAtAplicado = await _blingRicoAt(); } catch (e) {} // marca a versão do rico já aplicada; os timers abaixo re-aplicam sozinhos quando mudar
   try { _ligarSyncBlingAuto(); } catch (e) {} // A: timer 30 min + poll do rico a cada 5 min (aplica sem F5)
-  try { _ligarPowerBIAuto(); _agendarPowerBI(4000); } catch (e) {} // Atualizar Power BI: ao abrir (em ~4s) + de hora em hora (2º plano)
+  try { if (POWERBI_AUTO_GESTAO) { _ligarPowerBIAuto(); _agendarPowerBI(4000); } } catch (e) {} // Power BI automático DESLIGADO (o robô faz nos horários); religar = POWERBI_AUTO_GESTAO=true
   initLojaCadastro();
   try { const n = _garantirUids(); if (n) console.log('[_uid] Fase 0: ' + n + ' lançamentos ganharam id único'); } catch(e) {} // FASE 0: dá _uid a quem ainda não tem (aditivo, não muda matching)
   try { const m = _migrarChavesCP(); if (m) console.log('[identidade CP] ' + m + ' vínculo(s) migrado(s) p/ número+vencimento+empresa'); } catch(e) {} // ANTES do aplicarBaixaConciliada: migra os vínculos p/ a identidade nova

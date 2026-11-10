@@ -1,10 +1,37 @@
-# Pendências e estado da sessão (Rokbox) , atualizado 06/11/2026
+# Pendências e estado da sessão (Rokbox) , atualizado 09/11/2026
 
 Documento de continuidade: se abrir uma conversa nova, começar daqui. Regra fixa: **mês
 fechado (jun–set) nunca muda** (só vai para "Ajustes de meses fechados"); **nada publica
 sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Power BI"**
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
+
+## Robô do Power BI (GitHub Actions) , estado 09/11/2026
+Objetivo: tirar o `_syncPowerBI` (~25 s, congela a tela) de dentro do navegador da Elaine.
+O robô roda o **mesmo** `_syncPowerBI` do Gestão publicado, num navegador sem tela, no servidor
+do GitHub , mesmo código = mesmo número.
+- **Workflow:** `.github/workflows/powerbi.yml`. Agendado `cron: '0 11-23 * * *'` (UTC) =
+  **8h–20h de Brasília, de hora em hora, todo dia**. Tem `workflow_dispatch` com o toggle
+  **`so_teste`** (roda só o teste de bloqueio, NÃO grava o Power BI).
+- **Como roda:** `robo/sync.cjs` (Playwright 1.56.0) abre o Gestão publicado, loga como a conta
+  do robô, confere `role=robo`, faz o **teste de bloqueio** e então chama `_syncPowerBI()`.
+  `robo/package.json` fixa a versão do Playwright; o CI roda `npm install` +
+  `npx playwright install --with-deps chromium` dentro de `robo/`.
+- **Conta dedicada:** `robo1@rokbox.com.br`, `app_metadata.role = 'robo'`. A senha vive **só nos
+  GitHub Secrets** `ROBO_EMAIL` / `ROBO_SENHA` , eu nunca manuseio a senha.
+- **Permissão mínima (RLS):** 3 policies RESTRICTIVE travam `role='robo'` a gravar **só chaves
+  `flat*`**. Provado no banco: robô gravando não-flat (contasPagar) → bloqueado `42501`; gravando
+  `flat*` → ok. O próprio robô repete esse teste a cada run e **aborta** se a trava falhar.
+- **`runs-on: ubuntu-24.04`** (commit `3d81f9a` da Elaine): o `ubuntu-latest` virou 26.04 e o
+  Playwright 1.56.0 não suporta. **Só o `powerbi.yml` usa Playwright**; o `deploy-pages.yml` é só
+  o deploy do Pages (sem navegador) e fica no `ubuntu-latest`.
+- **Status 09/11:** `so_teste` passou ✅ (sync verde, 3m56s). Aguardando ver o robô rodar sozinho
+  nos horários agendados (a partir das 17h).
+- **PRÓXIMO (preparado, NÃO publicado):** quando a Elaine confirmar que o robô roda sozinho sem
+  erro, **desligar o Power BI automático dentro do Gestão** (fica só o botão ☁ Power BI). Mudança
+  pronta: flag `POWERBI_AUTO_GESTAO = false` + guard no topo de `_rodarPowerBIBg` (`if (auto &&
+  !POWERBI_AUTO_GESTAO) return;`). Não desativa o botão manual, nem o sync ao exportar o CR, nem
+  o congelamento de flat ao fechar o mês. Aguardando "pode publicar".
 
 ## Publicado hoje (06/11/2026)
 - **Painel financeiro em MANUTENÇÃO só-admin (financeiro.html)** , `FIN_MANUTENCAO = true`:
