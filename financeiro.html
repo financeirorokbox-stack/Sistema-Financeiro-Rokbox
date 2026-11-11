@@ -326,7 +326,9 @@ async function tentar(){
   if(!email){ document.getElementById('gerr').textContent='Digite seu nome (vendas, diretor ou admin) ou e-mail.'; return; }
   try{
     const u=await _sbLogin(email,v);
-    const meta=(u&&u.app_metadata)||{}; const role=['admin','diretor','vendas'].includes(meta.role)?meta.role:'admin';
+    const meta=(u&&u.app_metadata)||{}; const role=['admin','diretor','vendas'].includes(meta.role)?meta.role:null;
+    // SEGURANÇA: papel desconhecido (ex.: robô) ou sem papel = SEM acesso (não cai mais em admin).
+    if(!role){ try{ localStorage.removeItem('rk_gate_fin'); localStorage.removeItem('rk_gate_vendas'); localStorage.removeItem('rk_role'); }catch(e){} try{ _sbClear(); }catch(e){} document.getElementById('gerr').textContent='Esta conta não tem permissão para o Painel.'; return; }
     try{localStorage.setItem('rk_gate_fin','1'); localStorage.setItem('rk_gate_vendas','1'); localStorage.setItem('rk_role',role);}catch(e){}
     abrir();
   }catch(e){ document.getElementById('gerr').textContent='Nome/e-mail ou senha incorretos.'; }
@@ -334,7 +336,11 @@ async function tentar(){
 function sair(){ try{localStorage.removeItem('rk_gate_fin'); localStorage.removeItem('rk_role');}catch(e){} location.reload(); }
 // Esconde as abas só-admin quando não é admin, e garante que a aba ativa seja permitida.
 function aplicarRole(){ const admin=ehAdmin(); document.querySelectorAll('.aba').forEach(b=>{ const t=b.dataset.t; if(!t) return; const ok=admin||ABAS_DIRETOR.includes(t); b.style.display=ok?'':'none'; }); const ativa=document.querySelector('.aba.on'); if(ativa && ativa.style.display==='none') setAba('fluxo'); const badge=document.getElementById('role-badge'); if(badge) badge.textContent=admin?'admin':''; }
-async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } document.getElementById('gate').style.display='none'; if(FIN_MANUTENCAO && !ehAdmin()){ _mostrarManutencao(); return; } if(FIN_MANUTENCAO && ehAdmin()){ _bannerManutencao(); } const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
+async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; }
+  // SEGURANÇA: sessão sem papel válido (admin/diretor/vendas) não entra (ex.: robô). Fecha a sessão e mostra o login.
+  let _rk=''; try{ _rk=localStorage.getItem('rk_role')||''; }catch(e){}
+  if(!['admin','diretor','vendas'].includes(_rk)){ try{ _sbClear(); }catch(e){} document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp){ gp.focus(); } const ge=document.getElementById('gerr'); if(ge) ge.textContent='Esta conta não tem permissão para o Painel.'; return; }
+  document.getElementById('gate').style.display='none'; if(FIN_MANUTENCAO && !ehAdmin()){ _mostrarManutencao(); return; } if(FIN_MANUTENCAO && ehAdmin()){ _bannerManutencao(); } const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
 // Abre a aba NF já filtrada quando vier de um aviso do Afazeres (financeiro.html#nf=<selo>).
 const _NF_FILTROS=['venda_sem_nota','amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
 function _aplicarHashNF(){ const m=(location.hash||'').match(/nf=([^&]+)/); if(!m) return; if(!ehAdmin()) return; const selo=decodeURIComponent(m[1]); _nfEmp='todas'; _nfFiltro=_NF_FILTROS.includes(selo)?selo:'todos'; setAba('nf'); }
@@ -497,8 +503,13 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
   const catOf=c=>(c.categoria&&String(c.categoria).trim())||(c.descricao&&String(c.descricao).trim())||'(sem)';
   const CP={}; meses.forEach(m=>{CP[m]={Rokbox:{},Rk:{},SemEmp:{}};});
   (cpRaw||[]).forEach(c=>{ if(c.cancelado||c.situacao==='Cancelado')return; const M=compDe(c); if(!mesSet.has(M))return; const v=+c.valor||0; const b=_dreBalde(catOf(c)); const empRaw=(c.empresa||'').trim(); const E=empRaw?empLabel(empRaw):'SemEmp'; const t=CP[M][E]||CP[M].SemEmp; t[b]=(t[b]||0)+v; });
-  const rend={}, resg={}; meses.forEach(m=>{rend[m]={Rokbox:0,Rk:0,SemEmp:0};resg[m]=0;});
-  (avul||[]).forEach(r=>{ const M=ym(r.data); if(!mesSet.has(M))return; if(/\bresg/i.test(r.descricao||r.categoria||'')){ resg[M]+=(+r.valor||0); } else { const E=r.empresa?empLabel(r.empresa):'SemEmp'; rend[M][E]=(rend[M][E]||0)+(+r.valor||0); } });
+  const rend={}, resg={}, serv={}; meses.forEach(m=>{rend[m]={Rokbox:0,Rk:0,SemEmp:0};serv[m]={Rokbox:0,Rk:0,SemEmp:0};resg[m]=0;});
+  (avul||[]).forEach(r=>{ const M=ym(r.data); if(!mesSet.has(M))return; const desc=r.descricao||'', cat=r.categoria||''; const E=r.empresa?empLabel(r.empresa):'SemEmp';
+    if(/\bresg/i.test(desc+' '+cat)){ resg[M]+=(+r.valor||0); return; }                                  // resgate = fora do DRE
+    if(/rendiment|juros/i.test(cat)){ rend[M][E]=(rend[M][E]||0)+(+r.valor||0); return; }                  // rendimento de aplicação REAL → DESPESAS FINANCEIRAS (líq)
+    if(/cons?ultoria|imers|felliphe/i.test(desc)){ serv[M][E]=(serv[M][E]||0)+(+r.valor||0); return; } // Consultoria/Imersão (pega o typo "Conultoria") → Outras receitas (serviços)
+    // resto (transferência entre contas, estorno/reembolso, teste pagarme, devolução piloto, etc.) → FORA do DRE
+  });
   // monta a linha final por mês/visão
   const out={};
   meses.forEach(M=>{
@@ -518,8 +529,10 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
       const margC=+(lucroBruto-varTotal).toFixed(2);
       const gAdmin=g('G_ADMIN'),gCom=g('G_COMERCIAL'),gFin=+(g('FINANCEIRO')-rd).toFixed(2),gImp=g('G_IMPOSTOS'),gMkt=g('G_MARKETING'),gPes=g('G_PESSOAL'),gSoc=g('G_SOCIOS');
       const despGA=+(gAdmin+gCom+gFin+gImp+gMkt+gPes+gSoc).toFixed(2);
+      const servOut=+((serv[M]&&serv[M][E])||0).toFixed(2); // Consultoria/Imersão: FORA das empresas (bloco da sócia), NÃO entra no EBITDA
+      const saidaSocia=0; const saldoSocia=+(servOut-saidaSocia).toFixed(2); // saídas da atividade da sócia (sem categoria hoje = 0)
       const ebitda=+(margC-despGA).toFixed(2); const emp=g('EMPRESTIMO'); const ll=+(ebitda-emp).toFixed(2);
-      return { vendaBruta,desc,frete,totalPedido,trocas,faturamento,devol:+v.devolucoes.toFixed(2),estorno,das,recLiq,
+      return { vendaBruta,desc,frete,totalPedido,trocas,faturamento,devol:+v.devolucoes.toFixed(2),estorno,das,recLiq,servOut,saidaSocia,saldoSocia,
         cmv:+v.cmv.toFixed(2),cmd:+v.cmd.toFixed(2),cmt:+v.cmt.toFixed(2),lucroBruto,
         vVend,vTaxa,vCamp,vFrete,vBraavo,vAtleta,varTotal,margC,gAdmin,gCom,gFin,gImp,gMkt,gPes,gSoc,despGA,ebitda,emp,ll,
         nPed:v.nPed,pecas:v.pecas,semCusto:v.semCusto,prod:g('FORA_PRODUCAO'),inv:g('FORA_INVEST') };
@@ -535,6 +548,8 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
     T.varTotal=+(T.vVend+T.vTaxa+T.vCamp+T.vFrete+T.vBraavo+T.vAtleta).toFixed(2);
     T.margC=+(T.lucroBruto-T.varTotal).toFixed(2);
     T.despGA=+(T.gAdmin+T.gCom+T.gFin+T.gImp+T.gMkt+T.gPes+T.gSoc).toFixed(2);
+    T.servOut=+(((R.servOut||0)+(K.servOut||0))+((serv[M]&&serv[M].SemEmp)||0)).toFixed(2);
+    T.saidaSocia=0; T.saldoSocia=+(T.servOut-T.saidaSocia).toFixed(2);
     T.ebitda=+(T.margC-T.despGA).toFixed(2); T.ll=+(T.ebitda-T.emp).toFixed(2);
     out[M]={Rokbox:R,Rk:K,Total:T,resg:+(resg[M]||0).toFixed(2)};
   });
@@ -583,6 +598,10 @@ function _dreHTML(meses,calc,descK){
     +row('(=) LUCRO OPERACIONAL (EBITDA)','ebitda',{bold:1,pct:1})
     +row('(−) Empréstimos','emp',{neg:1})
     +row('(=) LUCRO LÍQUIDO','ll',{bold:1,pct:1})
+    +'<tr><td colspan="'+(meses.length+1)+'" style="padding-top:14px;font-weight:800;color:var(--amber)">Fora das empresas (sócia) — NÃO entra no Lucro Líquido acima</td></tr>'
+    +row('(+) Entradas: consultoria/imersão','servOut')
+    +row('(−) Saídas (atividade da sócia)','saidaSocia',{neg:1})
+    +row('(=) Saldo (sócia)','saldoSocia',{bold:1})
     +'</tbody></table></div>';
   const nota='<div style="color:var(--muted);font-size:11px;margin-top:8px">Fora do DRE (por mês): produção que vira estoque, investimentos (reforma/equip.) e resgates/transferências internas. Receita pela data da NF (senão pedido), venda+troca sem amostra. Descontos: '+(V==='Total'?'edite nas visões Rokbox/Rk':'editável aqui')+' (vazio = sem fonte; ao preencher, a Venda Bruta sobe no mesmo valor e o Faturamento não muda).</div>';
   return H+tbl+nota;
@@ -2090,7 +2109,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-11.1';
+const BUILD='2026-11-11.2';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
