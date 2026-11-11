@@ -33,6 +33,19 @@ do GitHub , mesmo código = mesmo número.
   !POWERBI_AUTO_GESTAO) return;`). Não desativa o botão manual, nem o sync ao exportar o CR, nem
   o congelamento de flat ao fechar o mês. Aguardando "pode publicar".
 
+## Ajustes de meses fechados: empresa vazia (11/11/2026) — Elaine decide depois
+Lançamentos do CP SEM empresa em MESES FECHADOS (NÃO mexer sem ok dela). Gravei empresa só nos de
+out/nov/dez (12 _uid, ver abaixo); estes ficaram de fora por serem de mês fechado:
+- **Mavicom** (Sacolas/Embalagens) **725,50 venc 15/08** (`umsgi4oul_8ir5an`) — provável Rk.
+- **Itamarati Express** (Motoboy) **1.433,78 venc 24/08** (`umsorv25i_479y81`) — provável Rk.
+- **Estorno Camila Puntim 254,28 venc 30/07** (`umsjaclm4_49wy7h`) — provável Rokbox.
+- **Estorno camila ARAUJO 30,83 venc 26/06** (`ums7lrj7j_u3wo46`) — provável Rokbox.
+GRAVADO em 11/11 (backup `privado.bkp_contasPagar_20261111`, 1895 contas, soma 2.486.803,53 inalterada):
+13º + estornos Rafael/Clayton/Ana/Debora/Camila Couto/Rede → Rokbox; Mavicom out+nov+dez, Itamarati
+out, ICMS DIFAL → Rk. Prova: só o campo empresa mudou (0 itens diferentes fora disso).
+**#420 linha "Geis" (SKU vazio, item manual) entra na lista de itens sem custo p/ cadastrar.** A
+"vírgula" no SKU era artefato da minha lista, NÃO vem do Bling (as 5 linhas PL têm custo no Bling RK).
+
 ## Desempenho (10/11/2026)
 Medido com dados reais (Chrome + snapshot), os tempos abaixo são de CPU.
 - **Power BI automático DESLIGADO no Gestão** (`POWERBI_AUTO_GESTAO=false`, v787/10-840): o robô

@@ -109,6 +109,7 @@
     <button class="aba" data-t="recebimentos" onclick="setAba('recebimentos')">🧾 Recebimentos</button>
     <button class="aba" data-t="nf" onclick="setAba('nf')">📑 NF</button>
     <button class="aba" data-t="margempl" onclick="setAba('margempl')">🧵 Margem PL</button>
+    <button class="aba" data-t="dre" onclick="setAba('dre')">📈 DRE</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -209,6 +210,10 @@
 
   <div id="aba-margempl" style="display:none">
     <div id="margempl-conteudo"></div>
+  </div>
+
+  <div id="aba-dre" style="display:none">
+    <div id="dre-conteudo"></div>
   </div>
 
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI) · <span id="selo-build"></span></div>
@@ -400,8 +405,197 @@ function _mesesDisponiveis(){ // de jun até o último vencimento em aberto (pra
   const [fy,fm]=fim.split('-').map(Number); const arr=[]; let y=2026,m=6; while(y<fy||(y===fy&&m<=fm)){ arr.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} } return arr.reverse();
 }
 function _popMesSel(){ const s=document.getElementById('mes-sel'); if(!s) return; const cur=mesSel||mesAtual(); s.innerHTML=_mesesDisponiveis().map(mm=>{ const nome=new Date(mm+'-01T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<option value="${mm}" ${mm===cur?'selected':''}>${nome.charAt(0).toUpperCase()+nome.slice(1)}</option>`; }).join(''); }
-function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); const f=document.getElementById('aba-fechamento'); if(f && f.style.display!=='none') renderFechamento(); const g=document.getElementById('aba-margem'); if(g && g.style.display!=='none') renderMargem(); const rc=document.getElementById('aba-recebimentos'); if(rc && rc.style.display!=='none') renderRecebimentos(); const nf=document.getElementById('aba-nf'); if(nf && nf.style.display!=='none') renderNF(); } // atualiza balancete/fechamento/margem/recebimentos/NF se estiverem abertos
-function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); }
+function mudarMes(v){ mesSel=v; carregar(); const b=document.getElementById('aba-balancete'); if(b && b.style.display!=='none') renderBalancete(); const f=document.getElementById('aba-fechamento'); if(f && f.style.display!=='none') renderFechamento(); const g=document.getElementById('aba-margem'); if(g && g.style.display!=='none') renderMargem(); const rc=document.getElementById('aba-recebimentos'); if(rc && rc.style.display!=='none') renderRecebimentos(); const nf=document.getElementById('aba-nf'); if(nf && nf.style.display!=='none') renderNF(); const dr=document.getElementById('aba-dre'); if(dr && dr.style.display!=='none') renderDRE(); } // atualiza balancete/fechamento/margem/recebimentos/NF/DRE se estiverem abertos
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// DRE por COMPETÊNCIA (admin) — 3 visões (Rokbox/Rk/Total), meses em colunas, modelo gerencial.
+// Receita pela data da NF (senão pedido), venda+troca sem amostra. Valores REAIS: taxas dos
+// recebimentos, comissões/campanha/frete/grupos do CP (contasPagar por competência), CMV = custo
+// Bling (conta 1 + conta RK/blingCustos2). Descontos = editável por mês/empresa (0 = "sem fonte").
+// ══════════════════════════════════════════════════════════════════════════════════════════
+let _dreView = 'Total';
+function setDreView(v){ _dreView=v; try{ renderDRE(); }catch(e){} }
+const _DRE_CATS = {
+  'ADMINISTRATIVA FIXA':['AGUA','ALIMENTAÇÃO','ALUGUEL/ IPTU/ COND.','CONTADOR','ENERGIA','LIMPEZA/ FAXINA','SEGURO','SEGURANÇA DO TRABALHO','TELEFONE/ INTERNET'],
+  'ADMINISTRATIVA VAR.':['CONSULTA CHEQUE/ SERASA','SEGURO CARRO','DOAÇÃO','EQUIPAMENTOS','ESTACIONAMENTO','GASOLINA','MANUTENÇÃO','MATERIAL DE ESCRITÓRIO','MERCADO','OUTRAS DESPESAS'],
+  'CMV':['AVIAMENTOS','BOJO','CMV - PROVISAO','CONSUMO','CORTE','ENCAIXE','ESTAMPARIA','ETIQUETA E TAG','MÃO DE OBRA','MEIAS','MODELAGEM','MODELISTA','PEDIDOS','PILOTAGEM','PILOTO','TECIDO','MÁSCARAS'],
+  'PRODUTO ACABADO':['PRODUTO ACABADO','SACOLAS/ EMBALAGENS/ CABIDES','SACOLAS/EMBALAGENS/CABIDES'],
+  'CMV PL':['MÃO DE OBRA PL','TECIDO PL','ESTAMPARIA PL','AVIAMENTOS PL','PRODUTO ACABADO PL'],
+  'CMV WL':['MÃO DE OBRA WL','TECIDO WL','ESTAMPARIA WL','AVIAMENTOS WL','PRODUTO ACABADO WL'],
+  'COMERCIAL':['BAZAR','BUFFET','CLIENTE','CONFRATERNIZAÇÃO','CURSOS','REGISTRO RK'],
+  'COMISSÃO':['SITE','COMISSÃO'],'DESPESAS FINANCEIRAS':['TARIFAS','EMPRÉSTIMO'],'DEVOLUÇÃO':['ESTORNO'],
+  'FRETE S/ VENDAS':['CORREIOS','FRETE CLIENTE'],'IMPOSTO_FAT':['SIMPLES','SIMPLES PL','ICMS DIFAL'],
+  'IMPOSTOS':['DARF IRRF','ISS'],'IMPOSTOS/ TAXAS':['TFE','GARE ICMS'],
+  'INFORMATICA':['EQUIPAMENTOS DE INF.','MANUTENÇÃO INFORMATICA','MARKETPLACE','SISTEMAS'],
+  'INVESTIMENTO':['INVESTIMENTO - RKBX','INVESTIMENTO - ROKBOX','REFORMA','INVESTIMENTO - RK CONFECÇÃO'],
+  'LOGÍSTICA':['LOGGI/ UBER/ 99','MOTOBOY/ TRANSPORTADORA'],
+  'MARKETING':['ASS DE IMPRENSA','AUXILIO DE FOTOS','CRIAÇÃO/ DIVULGAÇÃO/ DIGITAL','DIVERSOS','EVENTO','GRÁFICA','MODELOS/ BLOGUEIRA','PESSOAS','SESSÃO FOTOS','COMISSÃO ATLETA','INVEST CAMPANHAS'],
+  'PESSOAL':['13º','CONSULTOR','EXAME MEDICO','EXTRAS','FÉRIAS','FGTS','INSS','IR SALÁRIO','REPRESENTANTE','RESCISÃO','SALÁRIOS','VALE ALIMENTAÇÃO','VALE TRANSPORTE','SEGURO ESTAGIARIOS','BENEFÍCIOS'],
+  'SÓCIOS':['CONVÊNIO MÉDICO','APORTE SÓCIO','BENEFÍCIOS SOCIOS','DISTRIBUIÇÃO DE LUCROS','PRÓ LABORE','DESPESAS','SALARIO SOCIO'],'RETIRADA SÓCIOS':['RETIRADA SÓCIOS']
+};
+let _DRE_GRP=null;
+function _dreNorm(s){ return String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim(); }
+function _dreGrupo(cat){ if(!_DRE_GRP){ _DRE_GRP={}; Object.entries(_DRE_CATS).forEach(([g,arr])=>arr.forEach(cc=>{_DRE_GRP[_dreNorm(cc)]=g;})); } return _DRE_GRP[_dreNorm(cat)]||''; }
+function _dreBalde(cat){ const U=String(cat||'').toUpperCase().trim();
+  if(U==='EMPRÉSTIMO'||U==='EMPRESTIMO')return'EMPRESTIMO'; if(U==='TARIFAS')return'FINANCEIRO';
+  if(U==='COMISSÃO ATLETA')return'VAR_ATLETA'; if(U==='INVEST CAMPANHAS')return'VAR_CAMPANHA';
+  if(U==='SITE')return'VAR_BRAAVO'; if(U==='COMISSÃO')return'VAR_VENDEDORES'; if(U==='ESTORNO')return'DED_ESTORNO';
+  const g=_dreGrupo(cat);
+  if(g==='IMPOSTO_FAT')return'DAS'; if(g==='FRETE S/ VENDAS')return'VAR_FRETE';
+  if(g==='ADMINISTRATIVA FIXA'||g==='ADMINISTRATIVA VAR.'||g==='INFORMATICA')return'G_ADMIN';
+  if(g==='COMERCIAL'||g==='LOGÍSTICA')return'G_COMERCIAL'; if(g==='DESPESAS FINANCEIRAS')return'FINANCEIRO';
+  if(g==='IMPOSTOS'||g==='IMPOSTOS/ TAXAS')return'G_IMPOSTOS'; if(g==='MARKETING')return'G_MARKETING';
+  if(g==='PESSOAL')return'G_PESSOAL'; if(g==='SÓCIOS'||g==='RETIRADA SÓCIOS')return'G_SOCIOS';
+  if(g==='CMV'||g==='CMV PL'||g==='CMV WL'||g==='PRODUTO ACABADO')return'FORA_PRODUCAO';
+  if(g==='INVESTIMENTO')return'FORA_INVEST'; return 'OUTRO'; }
+function _dreMeses(){ const out=[]; const [ay,am]=mesAtual().split('-').map(Number); let y=2026,mo=6; while(y<ay||(y===ay&&mo<=am)){ out.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} } return out; }
+async function renderDRE(){
+  const el=document.getElementById('dre-conteudo'); if(!el) return;
+  if(!ehAdmin()){ el.innerHTML='<div class="card">Apenas admin.</div>'; return; }
+  if(!_FIN){ el.innerHTML='<div class="card">Carregando…</div>'; return; }
+  el.innerHTML='<div class="card">Calculando DRE…</div>';
+  let bc2={}, descK={}, cpRaw=[], avul=[];
+  try{ const b=await gk('blingCustos2'); bc2=(b&&b.map)||{}; }catch(e){}
+  try{ descK=(await gk('dreDescontos'))||{}; }catch(e){}
+  try{ cpRaw=(await gk('contasPagar'))||[]; }catch(e){}
+  try{ avul=(await gk('receitasAvulsas'))||[]; }catch(e){}
+  const meses=_dreMeses();
+  let calc; try{ calc=_dreCalcTudo(bc2,descK,cpRaw,avul,meses); }catch(e){ el.innerHTML='<div class="card">Erro no DRE: '+(e&&e.message)+'</div>'; return; }
+  el.innerHTML=_dreHTML(meses,calc,descK);
+}
+function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
+  const F=_FIN, lc=F.lc||{}, pedidos=F.pedidos||[], pedNF=F.pedNF||{};
+  const NAOAP=['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'];
+  const opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
+  const segDe=l=>(lc[l]&&lc[l].segmento)?lc[l].segmento:'Outros';
+  const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+  const empLabel=e=>(typeof NFRegras!=='undefined'?NFRegras.empLabel(e):((/rk/i.test(e)&&!/rokbox/i.test(e))?'Rk':'Rokbox'));
+  const acctDe=e=>empLabel(e)==='Rk'?2:1;
+  const nfMonth=p=>{ const ent=pedNF[acctDe(p.empresa)+'|'+p.id]; const nf=(ent&&ent.nf&&ent.nf.id)?ent.nf:null; const pm=String(p.data||'').slice(0,7); return (nf&&nf.data)?String(nf.data).slice(0,7):pm; };
+  const ym=v=>String(v||'').slice(0,7);
+  const skuBase=s=>String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim();
+  const bc1=F.bCustos||{}; const c1={}, c2={};
+  Object.entries(bc1).forEach(([s,i])=>{const b=skuBase(s);const c=+(i&&i.custo)||0;if(c&&!c1[b])c1[b]=c;});
+  Object.entries(bc2).forEach(([s,i])=>{const b=skuBase(s);const c=+(i&&(i.custo!=null?i.custo:i))||0;if(c&&!c2[b])c2[b]=c;});
+  const custoSku=(sku,pc)=>{const b=skuBase(sku);return c1[b]||c2[b]||(+pc||0)||0;};
+  const temCusto=(sku,pc)=>{const b=skuBase(sku);return (c1[b]||c2[b]||(+pc||0))>0;};
+  const taxaPorPed={}; (F.receb||[]).forEach(r=>{const tx=+r.taxa||0;if(!tx)return;const nps=String(r.nped||'').split(',').map(s=>s.trim()).filter(Boolean);nps.forEach(np=>{taxaPorPed[np]=(taxaPorPed[np]||0)+tx/nps.length;});});
+  const mesSet=new Set(meses);
+  const mk=()=>({vendido:0,frete:0,trocas:0,devolucoes:0,cmv:0,cmd:0,cmt:0,nPed:0,pecas:0,taxaCartoes:0,semCusto:0,canal:{}});
+  const V={}; meses.forEach(m=>{V[m]={Rokbox:mk(),Rk:mk()};});
+  pedidos.forEach(p=>{ if(!ehVT(p))return; const M=nfMonth(p); if(!mesSet.has(M))return; const E=empLabel(p.empresa); const d=V[M][E]; if(!d)return; const o=opDe(p.loja); const seg=segDe(p.loja);
+    const linhas=Array.isArray(p.linhas)?p.linhas:[]; let custoTot=0,sc=false;
+    linhas.forEach(l=>{ const q=+l.qtd||0; const val=+l.valorLinha||0; const pu=q>0?(val-(+l.frete||0))/q:0; if(pu>0.011){ custoTot+=custoSku(l.sku,l.precoCusto)*q; if(!temCusto(l.sku,l.precoCusto))sc=true; d.pecas+=q; } });
+    const frete=(+p.frete||0)+(+p.outrasDespesas||0); const vendido=(+p.valor||0)-frete;
+    d.vendido+=vendido; d.frete+=frete; d.cmv+=custoTot;
+    if(o==='troca'){ d.trocas+=(+p.valor||0); d.cmt+=custoTot; }
+    d.nPed++; d.taxaCartoes+=(taxaPorPed[String(p.id)]||0); d.canal[seg]=(d.canal[seg]||0)+vendido; if(sc)d.semCusto++; });
+  (F.dev||[]).forEach(dv=>{ const M=ym(dv.dataTroca); if(!mesSet.has(M))return; const E=(/^(PL|WL)$/i.test(dv.segmento||''))?'Rk':'Rokbox'; const d=V[M][E]; if(!d)return; d.devolucoes+=(+dv.valorPago||0); d.cmd+=custoSku(dv.sku,dv.preco); });
+  // CP por competência
+  const mesAnt=v=>{const dd=new Date(v);if(isNaN(dd))return '';dd.setMonth(dd.getMonth()-1);return dd.getFullYear()+'-'+String(dd.getMonth()+1).padStart(2,'0');};
+  const folhaCat=/SAL[ÁA]RIO|COMISS|VALE|BENEF|F[ÉE]RIAS|INSS|FGTS|CONV[ÊE]NIO|SIMPLES|ICMS|DAS|PR[ÓO].?LABORE|S[ÓO]CIO|13|RESCIS/i;
+  const compDe=c=>{ if(c.competencia) return String(c.competencia).slice(0,7); const base=c.dataPag||c.vencimento; return folhaCat.test(c.categoria||'')?mesAnt(base):ym(c.vencimento||base); };
+  const catOf=c=>(c.categoria&&String(c.categoria).trim())||(c.descricao&&String(c.descricao).trim())||'(sem)';
+  const CP={}; meses.forEach(m=>{CP[m]={Rokbox:{},Rk:{},SemEmp:{}};});
+  (cpRaw||[]).forEach(c=>{ if(c.cancelado||c.situacao==='Cancelado')return; const M=compDe(c); if(!mesSet.has(M))return; const v=+c.valor||0; const b=_dreBalde(catOf(c)); const empRaw=(c.empresa||'').trim(); const E=empRaw?empLabel(empRaw):'SemEmp'; const t=CP[M][E]||CP[M].SemEmp; t[b]=(t[b]||0)+v; });
+  const rend={}, resg={}; meses.forEach(m=>{rend[m]={Rokbox:0,Rk:0,SemEmp:0};resg[m]=0;});
+  (avul||[]).forEach(r=>{ const M=ym(r.data); if(!mesSet.has(M))return; if(/\bresg/i.test(r.descricao||r.categoria||'')){ resg[M]+=(+r.valor||0); } else { const E=r.empresa?empLabel(r.empresa):'SemEmp'; rend[M][E]=(rend[M][E]||0)+(+r.valor||0); } });
+  // monta a linha final por mês/visão
+  const out={};
+  meses.forEach(M=>{
+    const build=(E)=>{
+      const v=V[M][E]||mk(); const cp=CP[M][E]||{}; const rd=rend[M][E]||0;
+      const g=k=>+(cp[k]||0);
+      const descKey=M+'|'+E; const desc=+(descK[descKey]||0);
+      const vendido=+v.vendido.toFixed(2), frete=+v.frete.toFixed(2), trocas=+v.trocas.toFixed(2);
+      const vendaBruta=+(vendido+desc).toFixed(2);
+      const totalPedido=+(vendido+frete).toFixed(2);           // = vendaBruta − desc + frete
+      const faturamento=+(totalPedido-trocas).toFixed(2);
+      const das=g('DAS'), estorno=g('DED_ESTORNO');
+      const recLiq=+(faturamento-v.devolucoes-estorno-das).toFixed(2);
+      const lucroBruto=+(recLiq-v.cmv+v.cmd+v.cmt).toFixed(2);
+      const vVend=g('VAR_VENDEDORES'),vTaxa=+v.taxaCartoes.toFixed(2),vCamp=g('VAR_CAMPANHA'),vFrete=g('VAR_FRETE'),vBraavo=g('VAR_BRAAVO'),vAtleta=g('VAR_ATLETA');
+      const varTotal=+(vVend+vTaxa+vCamp+vFrete+vBraavo+vAtleta).toFixed(2);
+      const margC=+(lucroBruto-varTotal).toFixed(2);
+      const gAdmin=g('G_ADMIN'),gCom=g('G_COMERCIAL'),gFin=+(g('FINANCEIRO')-rd).toFixed(2),gImp=g('G_IMPOSTOS'),gMkt=g('G_MARKETING'),gPes=g('G_PESSOAL'),gSoc=g('G_SOCIOS');
+      const despGA=+(gAdmin+gCom+gFin+gImp+gMkt+gPes+gSoc).toFixed(2);
+      const ebitda=+(margC-despGA).toFixed(2); const emp=g('EMPRESTIMO'); const ll=+(ebitda-emp).toFixed(2);
+      return { vendaBruta,desc,frete,totalPedido,trocas,faturamento,devol:+v.devolucoes.toFixed(2),estorno,das,recLiq,
+        cmv:+v.cmv.toFixed(2),cmd:+v.cmd.toFixed(2),cmt:+v.cmt.toFixed(2),lucroBruto,
+        vVend,vTaxa,vCamp,vFrete,vBraavo,vAtleta,varTotal,margC,gAdmin,gCom,gFin,gImp,gMkt,gPes,gSoc,despGA,ebitda,emp,ll,
+        nPed:v.nPed,pecas:v.pecas,semCusto:v.semCusto,prod:g('FORA_PRODUCAO'),inv:g('FORA_INVEST') };
+    };
+    const R=build('Rokbox'), K=build('Rk');
+    const semE=CP[M].SemEmp||{}; const gs=k=>+(semE[k]||0); const rdSemE=rend[M].SemEmp||0;
+    const T={}; Object.keys(R).forEach(k=>T[k]=+( (R[k]||0)+(K[k]||0) ).toFixed(2));
+    // soma a parte SEM empresa (só CP) ao Total, e recompõe os agregados
+    T.das+=gs('DAS'); T.estorno+=gs('DED_ESTORNO'); T.gAdmin+=gs('G_ADMIN'); T.gCom+=gs('G_COMERCIAL'); T.gImp+=gs('G_IMPOSTOS'); T.gMkt+=gs('G_MARKETING'); T.gPes+=gs('G_PESSOAL'); T.gSoc+=gs('G_SOCIOS'); T.emp+=gs('EMPRESTIMO'); T.prod+=gs('FORA_PRODUCAO'); T.inv+=gs('FORA_INVEST'); T.vVend+=gs('VAR_VENDEDORES'); T.vCamp+=gs('VAR_CAMPANHA'); T.vFrete+=gs('VAR_FRETE'); T.vBraavo+=gs('VAR_BRAAVO'); T.vAtleta+=gs('VAR_ATLETA');
+    T.gFin=+((R.gFin+K.gFin)+(gs('FINANCEIRO')-rdSemE)).toFixed(2);
+    T.recLiq=+(T.faturamento-T.devol-T.estorno-T.das).toFixed(2);
+    T.lucroBruto=+(T.recLiq-T.cmv+T.cmd+T.cmt).toFixed(2);
+    T.varTotal=+(T.vVend+T.vTaxa+T.vCamp+T.vFrete+T.vBraavo+T.vAtleta).toFixed(2);
+    T.margC=+(T.lucroBruto-T.varTotal).toFixed(2);
+    T.despGA=+(T.gAdmin+T.gCom+T.gFin+T.gImp+T.gMkt+T.gPes+T.gSoc).toFixed(2);
+    T.ebitda=+(T.margC-T.despGA).toFixed(2); T.ll=+(T.ebitda-T.emp).toFixed(2);
+    out[M]={Rokbox:R,Rk:K,Total:T,resg:+(resg[M]||0).toFixed(2)};
+  });
+  return out;
+}
+function _dreHTML(meses,calc,descK){
+  const V=_dreView; const pc=(x,base)=>{ const b=+base; return (b>0)? (' <span style="color:var(--muted);font-size:.8em">'+(x/b*100).toFixed(1)+'%</span>') : ''; };
+  const mlbl=m=>{ const d=new Date(m+'-01T12:00:00'); const s=d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}); return s.charAt(0).toUpperCase()+s.slice(1); };
+  const cel=(m,k,opt)=>{ const o=calc[m]&&calc[m][V]; if(!o) return '<td class="v">—</td>'; let val=o[k]; const base=(opt&&opt.pct)?o.recLiq:0; const neg=(opt&&opt.neg); const cor=neg?'color:#b00':''; return '<td class="v" style="'+cor+'">'+((Math.abs(val)<0.005)?'—':brl(val))+(base?pc(val,base):'')+'</td>'; };
+  const row=(lbl,k,opt)=>{ opt=opt||{}; const cls=opt.bold?'style="font-weight:800;background:var(--bg2,#0d1117)"':(opt.sub?'style="color:var(--muted)"':''); return '<tr '+cls+'><td style="white-space:nowrap">'+lbl+'</td>'+meses.map(m=>cel(m,k,opt)).join('')+'</tr>'; };
+  // linha de Descontos editável (só nas visões Rokbox/Rk)
+  const rowDesc=()=>{ const edit=(V==='Rokbox'||V==='Rk'); return '<tr><td style="white-space:nowrap">(−) Descontos e Cupons'+(edit?'':' <span style="color:var(--muted);font-size:.8em">(edite em Rokbox/Rk)</span>')+'</td>'+meses.map(m=>{ const o=calc[m]&&calc[m][V]; const val=o?o.desc:0; if(!edit) return '<td class="v">'+((Math.abs(val)<0.005)?'<span style="color:var(--amber);font-size:.8em">sem fonte</span>':brl(val))+'</td>'; return '<td class="v"><input type="text" value="'+(val? String(val).replace('.',',') :'')+'" placeholder="sem fonte" onchange="setDreDesc(\''+m+'\',this.value)" style="width:90px;text-align:right;background:transparent;border:1px solid var(--line,#233);border-radius:5px;padding:2px 5px;color:inherit"></td>'; }).join('')+'</tr>'; };
+  const tabs=['Rokbox','Rk','Total'].map(v=>'<button class="aba" style="padding:5px 14px;font-size:13px;'+(v===V?'background:linear-gradient(180deg,#1f6feb33,#1f6feb11);color:#fff;border-color:#1f6feb':'')+'" onclick="setDreView(\''+v+'\')">'+v+'</button>').join(' ');
+  const H='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><b>DRE por competência</b> '+tabs+' <span style="color:var(--muted);font-size:12px">visão: '+V+' · valores reais (CMV Bling 1+RK; taxas/comissões/grupos do CP) · % sobre a receita líquida</span></div>';
+  const tbl='<div style="overflow-x:auto"><table class="bal" style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr><th style="text-align:left">Linha</th>'+meses.map(m=>'<th class="v">'+mlbl(m)+'</th>').join('')+'</tr></thead><tbody>'
+    +row('(=) Venda Bruta Produto','vendaBruta',{bold:1})
+    +rowDesc()
+    +row('(+) Frete + Desp. Aces.','frete')
+    +row('(=) Total Pedido','totalPedido')
+    +row('(−) Trocas','trocas',{neg:1})
+    +row('(=) Faturamento','faturamento',{bold:1})
+    +row('(−) Devoluções','devol',{neg:1})
+    +row('(−) Estornos','estorno',{neg:1})
+    +row('(−) Impostos s/ Vendas (DAS)','das',{neg:1})
+    +row('(=) RECEITA LÍQUIDA','recLiq',{bold:1})
+    +row('(−) CMV','cmv',{neg:1})
+    +row('(+) CMD (devolvidas)','cmd',{sub:1})
+    +row('(+) CMT (trocadas)','cmt',{sub:1})
+    +row('(=) LUCRO BRUTO','lucroBruto',{bold:1,pct:1})
+    +row('&nbsp;&nbsp;Comissões Vendedores','vVend')
+    +row('&nbsp;&nbsp;Comissões Atleta/Influ.','vAtleta')
+    +row('&nbsp;&nbsp;Taxas de Cartões','vTaxa')
+    +row('&nbsp;&nbsp;Investimento Campanhas','vCamp')
+    +row('&nbsp;&nbsp;Frete s/ Vendas','vFrete')
+    +row('&nbsp;&nbsp;Comissão Braavo','vBraavo')
+    +row('&nbsp;&nbsp;Despesas Variáveis Total','varTotal')
+    +row('(=) MARGEM DE CONTRIBUIÇÃO','margC',{bold:1,pct:1})
+    +row('&nbsp;&nbsp;ADMINISTRATIVA','gAdmin')
+    +row('&nbsp;&nbsp;COMERCIAL','gCom')
+    +row('&nbsp;&nbsp;DESPESAS FINANCEIRAS (líq)','gFin')
+    +row('&nbsp;&nbsp;IMPOSTOS/TAXAS','gImp')
+    +row('&nbsp;&nbsp;MARKETING','gMkt')
+    +row('&nbsp;&nbsp;PESSOAL','gPes')
+    +row('&nbsp;&nbsp;SÓCIOS','gSoc')
+    +row('&nbsp;&nbsp;Despesas G&amp;A Total','despGA')
+    +row('(=) LUCRO OPERACIONAL (EBITDA)','ebitda',{bold:1,pct:1})
+    +row('(−) Empréstimos','emp',{neg:1})
+    +row('(=) LUCRO LÍQUIDO','ll',{bold:1,pct:1})
+    +'</tbody></table></div>';
+  const nota='<div style="color:var(--muted);font-size:11px;margin-top:8px">Fora do DRE (por mês): produção que vira estoque, investimentos (reforma/equip.) e resgates/transferências internas. Receita pela data da NF (senão pedido), venda+troca sem amostra. Descontos: '+(V==='Total'?'edite nas visões Rokbox/Rk':'editável aqui')+' (vazio = sem fonte; ao preencher, a Venda Bruta sobe no mesmo valor e o Faturamento não muda).</div>';
+  return H+tbl+nota;
+}
+async function setDreDesc(mes, val){
+  const emp=_dreView; if(emp!=='Rokbox'&&emp!=='Rk'){ return; }
+  let descK={}; try{ descK=(await gk('dreDescontos'))||{}; }catch(e){}
+  const t=String(val==null?'':val).trim(); const key=mes+'|'+emp;
+  if(t===''){ delete descK[key]; } else { const n=t.includes(',')?parseFloat(t.replace(/\./g,'').replace(',','.')):parseFloat(t); if(isNaN(n)||n<0){ alert('Valor inválido.'); renderDRE(); return; } descK[key]=+n.toFixed(2); }
+  try{ await _skPL('dreDescontos', descK); }catch(e){ try{ await saveData('dreDescontos', descK); }catch(_){} }
+  renderDRE();
+}
+function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); }
 
 // ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
 function renderFechamento(){
@@ -1896,7 +2090,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-09.4';
+const BUILD='2026-11-11.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
