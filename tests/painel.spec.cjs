@@ -58,7 +58,7 @@ test('Relatório de Fechamento: Peças vendidas Out/26 = 2.854 + amostras/brinde
   expect(errors, 'console sem erros: ' + errors.join(' | ')).toEqual([]);
 });
 
-test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, saldo fim 46.417,76, atrasado 16.611,84', async ({ page }) => {
+test('TESTE FIXO Out/26 (Painel RK / Fechamento, caixa): entrou 281.998,02, saldo fim 46.417,76, a receber em aberto 5.365,03 (atrasado = só boletos = mesmo valor)', async ({ page }) => {
   const errors = trackErrors(page);
   await installMock(page);
   await page.goto('/financeiro.html');

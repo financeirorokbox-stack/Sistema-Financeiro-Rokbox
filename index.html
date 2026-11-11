@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v791/10-844';
+const APP_VERSION = 'v792/10-845';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -19826,6 +19826,21 @@ const AF = (function () {
     } catch (e) {}
     // ── Ajustes de meses fechados: mudança que chegou do Bling DEPOIS de fechar as vendas (a foto não mudou). ──
     try { if (typeof _pbiFalhou !== 'undefined' && _pbiFalhou) add('pbi_falhou', 'Atualizar Power BI (automático) falhou — o Painel pode estar atrasado. Clique para tentar de novo.', '_rodarPowerBIBg()'); } catch (e) {}
+    // ── Robô do Power BI: alerta se os flat* não atualizam há +2h no horário comercial (8h-20h BRT) ──
+    try {
+      const _hBRT = ((new Date().getUTCHours() - 3) + 24) % 24; // Brasília = UTC-3
+      if (_hBRT >= 8 && _hBRT < 20) {
+        const _m = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.flatVendas&select=atualizado_em`);
+        const _at = _m && _m[0] && _m[0].atualizado_em;
+        if (_at) { const _h = (Date.now() - new Date(_at).getTime()) / 3600000; if (_h >= 2) add('robo_mudo', 'Power BI sem atualizar há ' + _h.toFixed(1).replace('.', ',') + 'h — o robô roda de hora em hora (8h-20h). Confira o robô ou clique para atualizar agora.', '_syncPowerBI()'); }
+      }
+    } catch (e) {}
+    // ── Robô do Power BI: aviso a partir de 15 dias antes de o token do GitHub vencer (renovar + atualizar o segredo no Vault) ──
+    try {
+      const _vence = '2027-11-11'; // validade do token fine-grained do robô; ao renovar, troque esta data
+      const _dias = Math.ceil((new Date(_vence + 'T12:00:00').getTime() - Date.now()) / 86400000);
+      if (_dias <= 15) add('robo_token', 'Token do robô do Power BI vence em ' + _dias + ' dia(s) (' + _vence.split('-').reverse().join('/') + '). Renove no GitHub (fine-grained, Actions RW) e atualize o segredo github_pat_powerbi no Vault.', '');
+    } catch (e) {}
     try {
       const aj = (ajustesMesFechado || []).filter(a => a && a.status !== 'ciente');
       if (aj.length) add('ajuste_vfech', aj.length + ' mudança(s) do Bling em mês de vendas FECHADAS (a foto não mudou)', 'abrirAjustesFechado()');
