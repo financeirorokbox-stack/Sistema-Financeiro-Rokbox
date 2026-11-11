@@ -46,16 +46,18 @@ Medido com dados reais (Chrome + snapshot), os tempos abaixo são de CPU.
   - `aplicarBaixaConciliada` ~7,0 s → 0,01 s (índice extrato por id + contas por chave).
   - `autoVincularPorValor` ~4,6 s → ~1,2 s (índices: formas por pedido, candidatos PayPal/Braavo por
     gateway+faixa de valor, recebimentos por pedido; só paga a trava cara nos pedidos com forma gw).
+- **Tolerância do `autoVincularPorValor` baixada 0,50 → 0,05** (v790/10-843, 11/11): `const TOL_VINC = 0.05`
+  (um ponto só, usado no some/filtro/buckets). Avaliação registrada: do universo completo (nped zerado), perde
+  **só 1** (#39526 Natália PayPal, forma 279,91 × receb 279,71, dif 0,20 → vai pra mão) e **ganha 26** recebimentos
+  de valor EXATO (dif 0,00/0,03) que a janela larga travava por ambiguidade (vários candidatos → desempate por
+  nome falhava). NÃO desfaz vínculo existente (só adiciona). A trava de "pedido quitado" segue em 0,5 (outro fim).
 - **PENDENTE (perf, p/ depois):**
-  1. **Tolerância 0,50 do `autoVincularPorValor`** (casamento por valor PayPal/Braavo). A Elaine quer
-     avaliar **baixar para 0,05**. ANTES de mudar: rodar e mostrar **quais vínculos mudariam** (os que
-     casam hoje com diferença entre 0,05 e 0,50 deixariam de casar automático). Não mexer sem o ok.
-  2. **~1,2 s restantes no `autoVincularPorValor`**: a trava de "pedido quitado" chama, por pedido
+  1. **~1,2 s restantes no `autoVincularPorValor`**: a trava de "pedido quitado" chama, por pedido
      PayPal/Braavo, o ajudante compartilhado `getRecebimentosDoPedido` (O(R) por pedido). Dá pra cortar
      com um índice de recebimentos por pedido, mas mexe num ajudante usado em muitos lugares, então
      fica pra uma próxima, com a mesma prova item a item.
-  3. **"CR sem filtro" (ver todos os meses) ~1 s**: é o desenho de ~1.780 linhas; paginar se incomodar.
-  4. **Abertura ~3,9 s**: se quiser baixar mais, o caminho é lazy-load (pintar a 1ª tela e puxar o resto
+  2. **"CR sem filtro" (ver todos os meses) ~1 s**: é o desenho de ~1.780 linhas; paginar se incomodar.
+  3. **Abertura ~3,9 s**: se quiser baixar mais, o caminho é lazy-load (pintar a 1ª tela e puxar o resto
      em 2º plano). Risco médio; só se ela pedir.
 
 ## Publicado hoje (06/11/2026)

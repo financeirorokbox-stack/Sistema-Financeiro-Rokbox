@@ -562,7 +562,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v789/10-842';
+const APP_VERSION = 'v790/10-843';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -12301,8 +12301,12 @@ function nomesBatem(a, b) {
 // Os duvidosos (nome diferente ou vários candidatos) ficam para vínculo manual.
 function autoVincularPorValor() {
   // (perf) Índices montados UMA vez, no lugar de filter/some/map dentro dos laços (era O(n²) e segurava a
-  // abertura). As REGRAS são idênticas: valor único liga direto, empate decide pelo nome, pedido quitado trava,
-  // tolerância 0,5, nunca mexe em desvinculado-manual nem período anterior. Resultado idêntico ao anterior.
+  // abertura). As REGRAS são as mesmas: valor único liga direto, empate decide pelo nome, pedido quitado trava,
+  // nunca mexe em desvinculado-manual nem período anterior.
+  // TOLERÂNCIA do casamento por valor = 0,05 (apertada em 11/11; era 0,50). Perde só o #39526 (PayPal, dif 0,20,
+  // vai pra mão) e passa a ligar 26 recebimentos de valor EXATO que a janela larga travava por ambiguidade. NÃO
+  // desfaz vínculo existente (só adiciona). A trava de "pedido quitado" abaixo usa outro 0,5 (propósito diferente).
+  const TOL_VINC = 0.05;
   const usados = new Set();
   const recByNped = new Map();                         // String(nped completo) -> [recebimentos] (= o some do OLD)
   recebimentosConsolidado.forEach((r, i) => { if (r.nped) { usados.add(i); const k = String(r.nped); let a = recByNped.get(k); if (!a) { a = []; recByNped.set(k, a); } a.push(r); } });
@@ -12330,12 +12334,12 @@ function autoVincularPorValor() {
       const cat = formaOverrideMap[ped.id] || classificaForma(f.descricao).categoria;
       if (cat !== 'PayPal' && cat !== 'BraavoPay') return;
       const jaNoPed = recByNped.get(String(ped.id));
-      if (jaNoPed && jaNoPed.some(r => r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= 0.5)) return;
-      // candidatos: buckets que cobrem [valor−0,5 ; valor+0,5]; depois o MESMO filtro exato, em ordem de índice.
-      const fv = f.valor; const bks = new Set([Math.floor(fv - 0.5), Math.floor(fv), Math.floor(fv + 0.5)]);
+      if (jaNoPed && jaNoPed.some(r => r.gateway === cat && Math.abs((r.bruto || r.liq) - f.valor) <= TOL_VINC)) return;
+      // candidatos: buckets que cobrem [valor−tol ; valor+tol]; depois o MESMO filtro exato, em ordem de índice.
+      const fv = f.valor; const bks = new Set([Math.floor(fv - TOL_VINC), Math.floor(fv), Math.floor(fv + TOL_VINC)]);
       let cands = []; bks.forEach(b => { const a = recCand.get(cat + '|' + b); if (a) cands = cands.concat(a); });
       const seen = new Set();
-      cands = cands.filter(({ r, idx }) => { if (seen.has(idx)) return false; seen.add(idx); return !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - fv) <= 0.5 && !recebFoiDesvinculadoManual(r) && !recebPeriodoAnterior(r); })
+      cands = cands.filter(({ r, idx }) => { if (seen.has(idx)) return false; seen.add(idx); return !usados.has(idx) && !r.nped && r.gateway === cat && Math.abs((r.bruto || r.liq) - fv) <= TOL_VINC && !recebFoiDesvinculadoManual(r) && !recebPeriodoAnterior(r); })
                    .sort((a, b) => a.idx - b.idx);
       let escolha = null;
       if (cands.length === 1) escolha = cands[0]; // valor ÚNICO → vincula direto (mesmo sem nome)
