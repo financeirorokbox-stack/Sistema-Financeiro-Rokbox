@@ -467,6 +467,7 @@ tr:hover td{background:#fafaf8}
 </div><!-- /app -->
 
 <script src="nf-regras.js"></script>
+<script src="competencia.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════
 // UTILIDADES
@@ -562,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v792/10-845';
+const APP_VERSION = 'v793/10-846';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -1737,6 +1738,7 @@ function _scanConferenciasCR() {
 let contasPagar = []; // contas a pagar (upload de planilha)
 let recorrencias = []; // contas fixas que se repetem: [{id,fornecedor,descricao,categoria,empresa,valor,diaVenc,mesIni:'AAAA-MM',mesFim:'AAAA-MM',ativa}]
 let blingCustosMap = {}; // SKU (variação) -> {custo, colecao} vindo da Bling (Edge bling-custos). Custo automático.
+let _blingPedNFmapa = {}; // mapa 'acct|pedido' -> {nf:{data,...}} (blingPedidoNF), p/ a competência de receita (mês da NF) no CR export
 let produtoColecao = {}; // SKU BASE -> nome da coleção, escolhido NA MÃO por ela (a tag da Bling não sai pela API)
 let colecaoSugerida = {}; // SKU BASE -> true quando a coleção foi SUGERIDA pelo nome (pra conferir; some quando ela confirma na mão)
 let colecoesLista = []; // lista editável de nomes de coleção (seed da planilha Coleções.xlsx)
@@ -5576,7 +5578,10 @@ function _crRowsAOA(semFiltro) {
     // Uma linha por PAGAMENTO (data + valor); o saldo que falta vira 1 linha "Em Aberto" sem data.
     const mkRow = (liqIn, valor, receb, sit, taxa) => {
       const liqD = _asDate(liqIn);
-      const comp = liqD ? `01/${String(liqD.getMonth() + 1).padStart(2, '0')}/${liqD.getFullYear()}` : (vencDt ? `01/${String(vencDt.getMonth() + 1).padStart(2, '0')}/${vencDt.getFullYear()}` : '');
+      // COMPETÊNCIA (função única, = DRE): mês da NF senão pedido. Avulsa/sem pedido cadastrado → mês da liquidação/vencimento.
+      const _compM = (l.ped && l.ped.data) ? competenciaReceita(l.ped) : '';
+      const comp = /^\d{4}-\d{2}$/.test(_compM) ? ('01/' + _compM.slice(5, 7) + '/' + _compM.slice(0, 4))
+                 : (liqD ? `01/${String(liqD.getMonth() + 1).padStart(2, '0')}/${liqD.getFullYear()}` : (vencDt ? `01/${String(vencDt.getMonth() + 1).padStart(2, '0')}/${vencDt.getFullYear()}` : ''));
       return [_noon(liqD), _noon(vencDt), pedNum, nome, sit, comp, valor, 0, 0, 0, receb, 0, +((taxa || 0)).toFixed(2), descricao, obs, cat, _ma(liqD || vencDt), _ma(liqD), valor, _noon(liqD || vencDt), emp];
     };
     // Linha da ENTRADA (recebida antes de emitir): emite UMA linha "Pago" com o valor/data da entrada.
@@ -6627,7 +6632,11 @@ function gerarRecorrencias() {
 // Colunas mostráveis/ocultáveis da tabela de Contas a Pagar.
 const CP_COLS = [['vencimento','Vencimento'],['competencia','Competência'],['status','Status'],['empresa','Empresa'],['banco','Banco'],['fornecedor','Fornecedor'],['categoria','Categoria'],['valor','Valor'],['rateio','Rateio'],['pagamento','Liquidação'],['historico','Histórico']];
 // Competência da conta (mês da despesa, p/ DRE): usa c.competencia (AAAA-MM) ou, se vazio, o mês do vencimento.
-function competenciaConta(c) { if (c && c.competencia) return c.competencia; const v = c && c.vencimento ? new Date(c.vencimento) : null; return v && !isNaN(v) ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}` : ''; }
+// ── Competência: wrappers finos sobre a FONTE ÚNICA competencia.js (a MESMA regra do DRE). ──
+function competenciaReceita(p) { return Competencia.receita(p, _blingPedNFmapa); }      // mês da NF senão pedido
+function competenciaDespesaSug(c) { return Competencia.despesaSug(c); }                   // sugestão (folha/DAS = mês anterior; demais = vencimento)
+function competenciaGravada(c) { return Competencia.gravada(c); }                         // o campo competencia ('' se vazio)
+function competenciaConta(c) { return Competencia.despesa(c); }                           // efetiva = gravada || sugestão
 // Filtro de categorias (múltipla seleção por checkbox) no Contas a Pagar
 let cpCatSel = new Set();
 let cpCatAberto = false; // painel de categorias (lista suspensa) aberto/fechado
@@ -6902,6 +6911,39 @@ function colecaoConta(c) {
   if (/\bpl\b/i.test(txt)) return 'PL';
   return '';
 }
+// Contas do CP conforme o filtro atual da tela (mesma regra do export) — referências, p/ edição.
+function _cpVisFiltradas() {
+  const el = document.getElementById('v-pagar');
+  const fSt = el?.querySelector('#cp-st')?.value || '', fEmp = el?.querySelector('#cp-emp')?.value || '', fConc = el?.querySelector('#cp-conc')?.value || '';
+  const fDataPor = el?.querySelector('#cp-datapor')?.value || 'vencimento';
+  const fQ = (el?.querySelector('#cp-q')?.value || buscaPersist.pagar || '').toLowerCase();
+  const chavesConcBanco = new Set(); Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => chavesConcBanco.add(it.chave)));
+  const estaConc = c => chavesConcBanco.has(chaveContaPagar(c)) || c._origemEstorno || c._origemExtrato;
+  let vis = contasPagar.filter(c => !c.cancelado);
+  if (fSt === 'pago') vis = vis.filter(c => c.pago); if (fSt === 'aberto') vis = vis.filter(c => !c.pago);
+  if (cpCatSel.size) vis = vis.filter(c => cpCatSel.has(catContaPagar(c)));
+  if (fEmp) vis = vis.filter(c => (c.empresa || '') === fEmp);
+  if (fConc === 'sim') vis = vis.filter(estaConc); if (fConc === 'nao') vis = vis.filter(c => !estaConc(c));
+  if (fQ) vis = vis.filter(c => (c.fornecedor || '').toLowerCase().includes(fQ) || (c.descricao || '').toLowerCase().includes(fQ) || (catContaPagar(c) || '').toLowerCase().includes(fQ) || (c.observacao || '').toLowerCase().includes(fQ) || String(c.numero).includes(fQ));
+  if (dfAtivo()) vis = vis.filter(c => passaData(fDataPor === 'liquidacao' ? dataLiquidacaoConta(c) : c.vencimento));
+  return vis;
+}
+// Competência em LOTE: grava a competência nas contas filtradas. Pula MESES FECHADOS (jun–set) — não toca nos dados deles.
+const _MESES_FECHADOS_CP = ['2026-06', '2026-07', '2026-08', '2026-09'];
+function aplicarCompetenciaLote() {
+  const vis = _cpVisFiltradas();
+  if (!vis.length) { alert('Nenhuma conta no filtro atual. Ajuste os filtros da tela primeiro.'); return; }
+  const eleg = vis.filter(c => !_MESES_FECHADOS_CP.includes(competenciaConta(c)));
+  const puladas = vis.length - eleg.length;
+  if (!eleg.length) { alert('As ' + vis.length + ' contas do filtro são de meses FECHADOS (jun–set) — não são tocadas.'); return; }
+  const m = (prompt('Competência (AAAA-MM) para as ' + eleg.length + ' conta(s) filtradas' + (puladas ? ' (' + puladas + ' de mês fechado serão puladas)' : '') + '.\nDeixe VAZIO para limpar a competência.', '') || '').trim();
+  if (m === '' ? false : !/^\d{4}-\d{2}$/.test(m)) { if (m !== '') { alert('Formato inválido. Use AAAA-MM, ex.: 2026-10.'); return; } }
+  const limpar = m === '';
+  if (!confirm((limpar ? 'LIMPAR a competência' : 'Gravar competência ' + m) + ' em ' + eleg.length + ' conta(s)?' + (puladas ? '\n(' + puladas + ' de meses fechados jun–set NÃO serão tocadas.)' : ''))) return;
+  let n = 0; eleg.forEach(c => { if (limpar) { if (c.competencia) { delete c.competencia; n++; } } else if (c.competencia !== m) { c.competencia = m; n++; } });
+  if (n) { saveData('contasPagar', contasPagar); renderPagar(); }
+  alert(n + ' conta(s) atualizada(s)' + (puladas ? ' · ' + puladas + ' de mês fechado puladas' : '') + '.');
+}
 function exportarContasPagar() {
   const el = document.getElementById('v-pagar');
   const fSt = el?.querySelector('#cp-st')?.value || '';
@@ -6927,7 +6969,8 @@ function exportarContasPagar() {
   const mesAno = x => { const dt = _d(x); return dt ? String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   const comp = x => { const dt = _d(x); return dt ? '01/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear() : ''; };
   // Ordem das colunas conforme o modelo FCX (Despesas Realizado).
-  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Categoria', 'Observações', 'Liquidação', 'Empresa']];
+  const _cmp1 = m => m ? '01/' + m.split('-')[1] + '/' + m.split('-')[0] : '';
+  const aoa = [['Data de vencimento', 'Número', 'Nome', 'Valor', 'Juro', 'Desconto', 'Pago', 'Situação', 'Competência', 'Competência sugerida', 'Categoria', 'Observações', 'Liquidação', 'Empresa']];
   vis.forEach(c => aoa.push([
     fmtD(c.vencimento),                                  // Data de vencimento
     c.numero || '',                                      // Número
@@ -6937,7 +6980,8 @@ function exportarContasPagar() {
     '',                                                  // Desconto (não há campo no sistema)
     c.pago ? (c.valor || 0) : 0,                         // Pago (valor pago)
     c.situacao || (c.pago ? 'Pago' : 'Em Aberto'),       // Situação
-    (competenciaConta(c) ? '01/' + competenciaConta(c).split('-')[1] + '/' + competenciaConta(c).split('-')[0] : ''), // Competência (1º dia do mês da COMPETÊNCIA)
+    _cmp1(competenciaGravada(c)),                        // Competência (a GRAVADA; vazio se não preenchida)
+    competenciaGravada(c) ? '' : _cmp1(competenciaDespesaSug(c)), // Competência sugerida (só quando a gravada está vazia; regra do DRE)
     catContaPagar(c) || '',                              // Categoria
     c.observacao || '',                                  // Observações (histórico)
     fmtD(dataLiquidacaoConta(c)),                        // Liquidação (data do débito no banco quando conciliada)
@@ -7426,6 +7470,7 @@ function renderPagar() {
       <span style="flex:1"></span>
       <button class="btn primary sm" onclick="novaContaPagar()" title="Adiciona uma conta em branco para preencher na mão">➕ Nova conta</button>
       <button class="btn ghost sm" onclick="exportarContasPagar()" title="Exporta o que está filtrado na tela para Excel (modelo FCX Despesas)">📤 Exportar</button>
+      <button class="btn ghost sm" onclick="aplicarCompetenciaLote()" title="Grava a competência (AAAA-MM) em TODAS as contas do filtro atual de uma vez. Pula meses fechados (jun–set).">📅 Competência em lote</button>
       <button class="btn ghost sm" onclick="exportarConciliadoBanco('cp')" title="NOVO: monta o relatório A PARTIR DO EXTRATO (cada débito do banco é um grupo com as contas que o compõem; lote = várias contas num débito). Abas: Contas a Receber, Contas a Pagar, Checagem (por dia) e Pendências. Filtre o mês na barra de Data. Não altera nada (só lê).">📤 Exportar conciliado (banco)</button>
       <button class="btn ghost sm" onclick="relatorioContasPorBanco()" title="Relatório agrupado por banco (subtotal por banco) para aprovação — imprimir/salvar PDF">📋 Relatório por banco</button>
       <button class="btn ghost sm" style="color:var(--amber)" onclick="corrigirParcelasMarcadasEngano()" title="Desfaz parcelas FUTURAS marcadas como pagas por engano (número repetido sem débito no banco) — volta pra Em Aberto">🔧 Corrigir pagas por engano</button>
@@ -19223,7 +19268,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg','blingPedidoNF'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -19326,6 +19371,7 @@ async function carregarTudo() {
     else if (k==='recebDesvinculado') recebDesvinculado = v || [];
     else if (k==='recebEntrada') recebEntrada = v || [];
     else if (k==='ligadosAutoReceb') ligadosAutoReceb = Array.isArray(v) ? v : [];
+    else if (k==='blingPedidoNF') _blingPedNFmapa = (v && v.mapa) || {};
   }
 
   pedidos.forEach(p => { if (lojaFixes[p.id]) p.loja = lojaFixes[p.id]; if (vendedorFixes[p.id]) p.vendedor = vendedorFixes[p.id]; });

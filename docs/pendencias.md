@@ -46,6 +46,17 @@ out, ICMS DIFAL → Rk. Prova: só o campo empresa mudou (0 itens diferentes for
 **#420 linha "Geis" (SKU vazio, item manual) entra na lista de itens sem custo p/ cadastrar.** A
 "vírgula" no SKU era artefato da minha lista, NÃO vem do Bling (as 5 linhas PL têm custo no Bling RK).
 
+## Parte 2: competência (função única competencia.js) (12/11/2026)
+Regra ÚNICA de competência em `competencia.js` (IIFE `window.Competencia`), carregado por index.html
+e financeiro.html (sem cópia local). Receita = mês da NF senão pedido; Despesa = competencia gravada
+senão sugestão (folha/DAS = mês anterior ao pagamento; demais = vencimento). O DRE usa estas funções
+(provado: out/26 idêntico — RL 224.447,22 · EBITDA −14.550 · LL −42.861,37). Mudanças (v793/10-846,
+BUILD 2026-11-12.1): CR export competência = NF/pedido (antes = liquidação; ~156 linhas mudam, jun+13/
+jul+31/ago+31/set+3/out+1); CP export ganhou coluna "Competência sugerida" (além da gravada); CP
+competência editável em LOTE (botão 📅 Competência em lote, pula meses fechados jun–set); boot do
+Gestão carrega blingPedidoNF (mapa de NF). Meses fechados: só a coluna do export recalcula, NÃO grava
+dado. Teste no gate: tests/competencia.spec.cjs (DRE out + #398/#425/#41327 → 2026-10).
+
 ## Desempenho (10/11/2026)
 Medido com dados reais (Chrome + snapshot), os tempos abaixo são de CPU.
 - **Power BI automático DESLIGADO no Gestão** (`POWERBI_AUTO_GESTAO=false`, v787/10-840): o robô

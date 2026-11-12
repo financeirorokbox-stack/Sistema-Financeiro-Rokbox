@@ -269,6 +269,7 @@
 
 <script src="nf-regras.js"></script>
 <script src="pecas-vendidas.js"></script>
+<script src="competencia.js"></script>
 <script>
 const SUPA_URL='https://xqpqweknlafgtvosqxia.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHF3ZWtubGFmZ3R2b3NxeGlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTc1ODMsImV4cCI6MjA5NzQ3MzU4M30.mkMXfCyLXRqeTZfg3telhOsh7B430RDgJsr4i6DBmbo';
@@ -454,6 +455,9 @@ function _dreBalde(cat){ const U=String(cat||'').toUpperCase().trim();
   if(g==='CMV'||g==='CMV PL'||g==='CMV WL'||g==='PRODUTO ACABADO')return'FORA_PRODUCAO';
   if(g==='INVESTIMENTO')return'FORA_INVEST'; return 'OUTRO'; }
 function _dreMeses(){ const out=[]; const [ay,am]=mesAtual().split('-').map(Number); let y=2026,mo=6; while(y<ay||(y===ay&&mo<=am)){ out.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} } return out; }
+// ── Competência: wrappers finos sobre a FONTE ÚNICA competencia.js (a MESMA regra do CR/CP export). ──
+function _compReceita(p){ return Competencia.receita(p, (_FIN&&_FIN.pedNF)||{}); } // mês da NF senão pedido
+function _compDespesa(c){ return Competencia.despesa(c); }                          // gravada || sugestão
 async function renderDRE(){
   const el=document.getElementById('dre-conteudo'); if(!el) return;
   if(!ehAdmin()){ el.innerHTML='<div class="card">Apenas admin.</div>'; return; }
@@ -476,7 +480,7 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
   const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
   const empLabel=e=>(typeof NFRegras!=='undefined'?NFRegras.empLabel(e):((/rk/i.test(e)&&!/rokbox/i.test(e))?'Rk':'Rokbox'));
   const acctDe=e=>empLabel(e)==='Rk'?2:1;
-  const nfMonth=p=>{ const ent=pedNF[acctDe(p.empresa)+'|'+p.id]; const nf=(ent&&ent.nf&&ent.nf.id)?ent.nf:null; const pm=String(p.data||'').slice(0,7); return (nf&&nf.data)?String(nf.data).slice(0,7):pm; };
+  const nfMonth=_compReceita; // FUNÇÃO ÚNICA (mesma do CR export)
   const ym=v=>String(v||'').slice(0,7);
   const skuBase=s=>String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim();
   const bc1=F.bCustos||{}; const c1={}, c2={};
@@ -497,9 +501,7 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
     d.nPed++; d.taxaCartoes+=(taxaPorPed[String(p.id)]||0); d.canal[seg]=(d.canal[seg]||0)+vendido; if(sc)d.semCusto++; });
   (F.dev||[]).forEach(dv=>{ const M=ym(dv.dataTroca); if(!mesSet.has(M))return; const E=(/^(PL|WL)$/i.test(dv.segmento||''))?'Rk':'Rokbox'; const d=V[M][E]; if(!d)return; d.devolucoes+=(+dv.valorPago||0); d.cmd+=custoSku(dv.sku,dv.preco); });
   // CP por competência
-  const mesAnt=v=>{const dd=new Date(v);if(isNaN(dd))return '';dd.setMonth(dd.getMonth()-1);return dd.getFullYear()+'-'+String(dd.getMonth()+1).padStart(2,'0');};
-  const folhaCat=/SAL[ÁA]RIO|COMISS|VALE|BENEF|F[ÉE]RIAS|INSS|FGTS|CONV[ÊE]NIO|SIMPLES|ICMS|DAS|PR[ÓO].?LABORE|S[ÓO]CIO|13|RESCIS/i;
-  const compDe=c=>{ if(c.competencia) return String(c.competencia).slice(0,7); const base=c.dataPag||c.vencimento; return folhaCat.test(c.categoria||'')?mesAnt(base):ym(c.vencimento||base); };
+  const compDe=_compDespesa; // FUNÇÃO ÚNICA (mesma do CP export)
   const catOf=c=>(c.categoria&&String(c.categoria).trim())||(c.descricao&&String(c.descricao).trim())||'(sem)';
   const CP={}; meses.forEach(m=>{CP[m]={Rokbox:{},Rk:{},SemEmp:{}};});
   (cpRaw||[]).forEach(c=>{ if(c.cancelado||c.situacao==='Cancelado')return; const M=compDe(c); if(!mesSet.has(M))return; const v=+c.valor||0; const b=_dreBalde(catOf(c)); const empRaw=(c.empresa||'').trim(); const E=empRaw?empLabel(empRaw):'SemEmp'; const t=CP[M][E]||CP[M].SemEmp; t[b]=(t[b]||0)+v; });
@@ -2109,7 +2111,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-11.2';
+const BUILD='2026-11-12.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
