@@ -11,6 +11,7 @@ test('Competência única: DRE out/26 inalterado (RL 224.447,22 · EBITDA −14.
   await page.goto('/financeiro.html');
   const o = await page.evaluate(async () => {
     await carregar();
+    _FIN.custoManualLinha = {}; // baseline da competência: isola este teste do custo manual (ver custo-manual.spec.cjs)
     let bc2 = {}, cpRaw = [], avul = [];
     try { const b = await gk('blingCustos2'); bc2 = (b && b.map) || {}; } catch (e) {}
     try { cpRaw = (await gk('contasPagar')) || []; } catch (e) {}

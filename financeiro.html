@@ -492,9 +492,15 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
   const mesSet=new Set(meses);
   const mk=()=>({vendido:0,frete:0,trocas:0,devolucoes:0,cmv:0,cmd:0,cmt:0,nPed:0,pecas:0,taxaCartoes:0,semCusto:0,canal:{}});
   const V={}; meses.forEach(m=>{V[m]={Rokbox:mk(),Rk:mk()};});
+  const semSkuAviso=[]; // linhas SEM SKU e SEM custo (Bling nem manual) — vira aviso editável no DRE
   pedidos.forEach(p=>{ if(!ehVT(p))return; const M=nfMonth(p); if(!mesSet.has(M))return; const E=empLabel(p.empresa); const d=V[M][E]; if(!d)return; const o=opDe(p.loja); const seg=segDe(p.loja);
     const linhas=Array.isArray(p.linhas)?p.linhas:[]; let custoTot=0,sc=false;
-    linhas.forEach(l=>{ const q=+l.qtd||0; const val=+l.valorLinha||0; const pu=q>0?(val-(+l.frete||0))/q:0; if(pu>0.011){ custoTot+=custoSku(l.sku,l.precoCusto)*q; if(!temCusto(l.sku,l.precoCusto))sc=true; d.pecas+=q; } });
+    linhas.forEach(l=>{ const q=+l.qtd||0; const val=+l.valorLinha||0; const pu=q>0?(val-(+l.frete||0))/q:0; if(pu>0.011){
+      let cu=custoSku(l.sku,l.precoCusto), tem=temCusto(l.sku,l.precoCusto);
+      if(!tem){ const mc=_custoManualU(p.id,l); if(mc!=null){ cu=mc; tem=true; } } // custo manual quando não há custo no Bling
+      custoTot+=cu*q; if(!tem)sc=true; d.pecas+=q;
+      if(!tem && _linhaSemSku(l)){ semSkuAviso.push({id:String(p.id),empresa:E,mes:M,desc:String(l.descricao||'').trim(),qtd:q,valorLinha:val,chave:_chaveCustoManual(p.id,l)}); }
+    } });
     const frete=(+p.frete||0)+(+p.outrasDespesas||0); const vendido=(+p.valor||0)-frete;
     d.vendido+=vendido; d.frete+=frete; d.cmv+=custoTot;
     if(o==='troca'){ d.trocas+=(+p.valor||0); d.cmt+=custoTot; }
@@ -555,6 +561,7 @@ function _dreCalcTudo(bc2,descK,cpRaw,avul,meses){
     T.ebitda=+(T.margC-T.despGA).toFixed(2); T.ll=+(T.ebitda-T.emp).toFixed(2);
     out[M]={Rokbox:R,Rk:K,Total:T,resg:+(resg[M]||0).toFixed(2)};
   });
+  out.__semSku=semSkuAviso;
   return out;
 }
 function _dreHTML(meses,calc,descK){
@@ -606,7 +613,29 @@ function _dreHTML(meses,calc,descK){
     +row('(=) Saldo (sócia)','saldoSocia',{bold:1})
     +'</tbody></table></div>';
   const nota='<div style="color:var(--muted);font-size:11px;margin-top:8px">Fora do DRE (por mês): produção que vira estoque, investimentos (reforma/equip.) e resgates/transferências internas. Receita pela data da NF (senão pedido), venda+troca sem amostra. Descontos: '+(V==='Total'?'edite nas visões Rokbox/Rk':'editável aqui')+' (vazio = sem fonte; ao preencher, a Venda Bruta sobe no mesmo valor e o Faturamento não muda).</div>';
-  return H+tbl+nota;
+  // ── Aviso: linhas SEM SKU e SEM custo (Bling nem manual), com campo editável de custo unitário ──
+  const semSku=(calc.__semSku||[]);
+  let aviso='';
+  if(semSku.length){
+    aviso='<div class="card" style="margin-top:12px;border:1px solid var(--amber)">'
+      +'<b style="color:var(--amber)">⚠ '+semSku.length+' linha(s) sem SKU e sem custo</b> <span style="color:var(--muted);font-size:12px">— informe o custo unitário; entra no CMV e NÃO altera o pedido/faturamento</span>'
+      +'<div style="overflow-x:auto"><table style="width:100%;font-size:12px;margin-top:8px;border-collapse:collapse"><thead><tr style="color:var(--muted)"><th style="text-align:left">Pedido</th><th style="text-align:left">Item</th><th class="v">Qtd</th><th class="v">Venda un.</th><th class="v">Custo un. (R$)</th></tr></thead><tbody>'
+      +semSku.map(s=>{ const vu=s.qtd>0?s.valorLinha/s.qtd:0; return '<tr><td style="white-space:nowrap">#'+s.id+' <span style="color:var(--muted)">('+s.empresa+'·'+mlbl(s.mes)+')</span></td><td>'+(s.desc||'(sem descrição)')+'</td><td class="v">'+s.qtd+'</td><td class="v">'+brl(vu)+'</td>'
+        +'<td class="v"><input type="text" placeholder="0,00" data-k="'+encodeURIComponent(s.chave)+'" onchange="setCustoManual(this.getAttribute(\'data-k\'),this.value)" style="width:80px;text-align:right;background:transparent;border:1px solid var(--line,#233);border-radius:5px;padding:2px 5px;color:inherit"></td></tr>'; }).join('')
+      +'</tbody></table></div></div>';
+  }
+  return H+tbl+aviso+nota;
+}
+async function setCustoManual(chaveEnc, val){
+  if(!ehAdmin()) return;
+  const chave=decodeURIComponent(String(chaveEnc||''));
+  let m={}; try{ m=(await gk('custoManualLinha'))||{}; }catch(e){}
+  const t=String(val==null?'':val).trim();
+  if(t===''){ delete m[chave]; }
+  else { const n=t.includes(',')?parseFloat(t.replace(/\./g,'').replace(',','.')):parseFloat(t); if(isNaN(n)||n<0){ alert('Custo inválido.'); renderDRE(); return; } m[chave]=+n.toFixed(2); }
+  try{ await _skPL('custoManualLinha', m); }catch(e){ try{ await saveData('custoManualLinha', m); }catch(_){} }
+  if(_FIN) _FIN.custoManualLinha=m; // reflete também na Margem sem F5
+  renderDRE();
 }
 async function setDreDesc(mes, val){
   const emp=_dreView; if(emp!=='Rokbox'&&emp!=='Rk'){ return; }
@@ -769,8 +798,8 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV,campanhasK,campPed,embSeg,embPed,mesesFech,bolCfg,tarItauK,taxaInf,campCustoPed,campCustoPadrao,corrEstSeg]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo'),gk('campanhas'),gk('campanhaPedido'),gk('embalagemSeg'),gk('embalagemPedido'),gk('mesesFechados'),gk('boletoConfig'),gk('tarifaBoletoItau'),gk('taxaInformada'),gk('campanhaCustoPedido'),gk('campanhaCustoPadraoPct'),gk('correiosEstimadoSeg')]);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},bCustosAt:(bCustos&&bCustos.atualizado)||null,pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{},brindeVinculo:brindeV||{},campanhas:Array.isArray(campanhasK)?campanhasK:[],campanhaPedido:campPed||{},embalagemSeg:embSeg||{},embalagemPedido:embPed||{},mesesFechados:Array.isArray(mesesFech)?mesesFech:[],boletoConfig:bolCfg||{},tarifaBoletoItau:(tarItauK&&tarItauK.valor!=null)?tarItauK.valor:(typeof tarItauK==='number'||typeof tarItauK==='string'?tarItauK:null),taxaInformada:taxaInf||{},campanhaCustoPedido:campCustoPed||{},campanhaCustoPadraoPct:(campCustoPadrao&&campCustoPadrao.valor!=null)?campCustoPadrao.valor:((typeof campCustoPadrao==='number'||typeof campCustoPadrao==='string')?campCustoPadrao:null),correiosEstimadoSeg:corrEstSeg||{}};
+    const [sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV,campanhasK,campPed,embSeg,embPed,mesesFech,bolCfg,tarItauK,taxaInf,campCustoPed,campCustoPadrao,corrEstSeg,cManual]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo'),gk('campanhas'),gk('campanhaPedido'),gk('embalagemSeg'),gk('embalagemPedido'),gk('mesesFechados'),gk('boletoConfig'),gk('tarifaBoletoItau'),gk('taxaInformada'),gk('campanhaCustoPedido'),gk('campanhaCustoPadraoPct'),gk('correiosEstimadoSeg'),gk('custoManualLinha')]);
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},bCustosAt:(bCustos&&bCustos.atualizado)||null,pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{},brindeVinculo:brindeV||{},campanhas:Array.isArray(campanhasK)?campanhasK:[],campanhaPedido:campPed||{},embalagemSeg:embSeg||{},embalagemPedido:embPed||{},mesesFechados:Array.isArray(mesesFech)?mesesFech:[],boletoConfig:bolCfg||{},tarifaBoletoItau:(tarItauK&&tarItauK.valor!=null)?tarItauK.valor:(typeof tarItauK==='number'||typeof tarItauK==='string'?tarItauK:null),taxaInformada:taxaInf||{},campanhaCustoPedido:campCustoPed||{},campanhaCustoPadraoPct:(campCustoPadrao&&campCustoPadrao.valor!=null)?campCustoPadrao.valor:((typeof campCustoPadrao==='number'||typeof campCustoPadrao==='string')?campCustoPadrao:null),correiosEstimadoSeg:corrEstSeg||{},custoManualLinha:cManual||{}};
     _popMesSel();
     gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(!el) return; const velho=iso&&((Date.now()-new Date(iso).getTime())>2*3600*1000); el.style.color=velho?'#e6b800':''; el.style.fontWeight=velho?'800':''; el.textContent=velho?('⚠ dados desatualizados ('+_fmtAt(iso)+') — abra o Gestão'):('💾 dados de '+_fmtAt(iso)); });
     const mes=mesSel||mesAtual();
@@ -1384,6 +1413,10 @@ async function atualizarCustosBling(){
 function setMargBusca(v){ _margBuscaPed = String(v||'').replace(/\D/g,''); renderMargem(); }
 function limparMargBusca(){ _margBuscaPed=''; const i=document.getElementById('marg-busca'); if(i)i.value=''; renderMargem(); }
 function _skuBaseM(s){ return String(s||'').replace(/-(PP|P|M|G|GG|XG|XGG|U|UN|ÚNICO|UNICO)$/i,'').trim(); }
+// ── Custo manual por pedido+linha (itens SEM SKU que não têm custo no Bling). Chave própria; NÃO altera o pedido/faturamento. ──
+function _chaveCustoManual(pedId, l){ const d=String((l&&(l.descricao!=null?l.descricao:(l&&l.desc)))||'').trim(); return String(pedId==null?'':pedId)+'|'+d; }
+function _custoManualU(pedId, l){ const m=(_FIN&&_FIN.custoManualLinha)||{}; const v=m[_chaveCustoManual(pedId,l)]; return (v!=null && +v>0) ? +v : null; }
+function _linhaSemSku(l){ return !String((l&&l.sku)||'').trim(); }
 function _margCustoBase(){ if(_FIN&&_FIN._cb) return _FIN._cb; const custoBase={}, precoBase={}; Object.entries((_FIN&&_FIN.bCustos)||{}).forEach(([sku,info])=>{ const b=_skuBaseM(sku); const c=+(info&&info.custo)||0, pr=+(info&&info.preco)||0; if(custoBase[b]==null||(!custoBase[b]&&c)) custoBase[b]=c; if(precoBase[b]==null||(!precoBase[b]&&pr)) precoBase[b]=pr; }); if(_FIN) _FIN._cb={custoBase,precoBase}; return {custoBase,precoBase}; }
 let _margForaF = { emp:'', seg:'', vend:'', camp:'' }; // filtros da lista "Pedidos fora da margem"
 function setMargForaF(k,v){ _margForaF[k]=v; renderMargem(); }
@@ -1463,7 +1496,10 @@ function analiseDoPedido(pid){
   }
   const correios = +(custoCorreios - freteCobrado).toFixed(2); // líquido (o que de fato entra na margem)
   // Linhas
-  const lines=vend.map(x=>{ const b=_skuBaseM(x.l.sku), nome=String(x.l.descricao||'').replace(/\s*Tamanho:.*/i,'').trim()||b; const pr=precoBase[b]; const tabela=(pr&&pr>0)?pr*x.q:x.val; let descLinha=tabela-x.val; if(descLinha<0)descLinha=0; const descPedL=totVenda>0?descPed*(x.val/totVenda):0; const liq=+(x.val-descPedL).toFixed(2); const custoU=custoBase[b]; const custoT=(custoU||0)*x.q; const mb=liq-custoT; return { sku:x.l.sku, nome, qtd:x.q, cortesia:x.cortesia, tabelaU:(pr&&pr>0)?pr:x.pu, tabela, descLinha, descPct:tabela>0?descLinha/tabela*100:0, liq, custoU:(custoU==null?null:custoU), custoT, mb, mbPct:liq>0?mb/liq*100:0, semCusto:(custoU==null||custoU===0) }; });
+  const lines=vend.map(x=>{ const b=_skuBaseM(x.l.sku), nome=String(x.l.descricao||'').replace(/\s*Tamanho:.*/i,'').trim()||b; const pr=precoBase[b]; const tabela=(pr&&pr>0)?pr*x.q:x.val; let descLinha=tabela-x.val; if(descLinha<0)descLinha=0; const descPedL=totVenda>0?descPed*(x.val/totVenda):0; const liq=+(x.val-descPedL).toFixed(2);
+    let custoU=custoBase[b]; let custoManual=false;
+    if((custoU==null||custoU===0)){ const mc=_custoManualU(p.id,x.l); if(mc!=null){ custoU=mc; custoManual=true; } } // custo manual (item sem SKU) quando não há custo no Bling
+    const custoT=(custoU||0)*x.q; const mb=liq-custoT; return { sku:x.l.sku, nome, qtd:x.q, cortesia:x.cortesia, tabelaU:(pr&&pr>0)?pr:x.pu, tabela, descLinha, descPct:tabela>0?descLinha/tabela*100:0, liq, custoU:(custoU==null?null:custoU), custoT, custoManual, mb, mbPct:liq>0?mb/liq*100:0, semCusto:(custoU==null||custoU===0) }; });
   const tabelaTot=lines.reduce((s,l)=>s+l.tabela,0), descLinhaTot=lines.reduce((s,l)=>s+l.descLinha,0), custoTot=lines.reduce((s,l)=>s+l.custoT,0);
   const descTotal=+(descLinhaTot+descPed).toFixed(2);
   const margemBruta=+(receita-custoTot).toFixed(2);
@@ -2111,7 +2147,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-12.1';
+const BUILD='2026-11-13.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

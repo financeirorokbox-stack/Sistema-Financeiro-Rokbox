@@ -6,6 +6,22 @@ sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Po
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
 
+## Custo manual por linha sem SKU (DRE + Margem) , 13/11/2026 (PRONTO, aguardando "pode publicar")
+Itens lançados à mão sem SKU não têm custo no Bling → CMV zerado. Criada chave própria
+`custoManualLinha` (mapa `"<pedido>|<descrição da linha>" → custo unitário`), usada pelo **DRE**
+e pela **Margem** quando não há custo no Bling. **NÃO altera o pedido nem o faturamento.**
+- **Helpers (financeiro.html):** `_chaveCustoManual(ped,l)`, `_custoManualU(ped,l)`, `_linhaSemSku(l)`.
+  Carregada no boot em `_FIN.custoManualLinha`.
+- **DRE:** aviso editável "⚠ N linha(s) sem SKU e sem custo" (campo de custo unitário por linha);
+  ao preencher, a linha entra no CMV e some do aviso.
+- **Gravado no banco:** `custoManualLinha = {"420|Geis":1.9}` (#420 Projeto Orsi, Rk, out/26: 230 un × 1,90 = 437,00).
+- **Prova (harness):** Rk CMV out **57.329,44 → 57.766,44** (+437,00); Total EBITDA −14.550 → −14.987;
+  LL −42.861,37 → −43.298,37; Receita Líquida e Rokbox **não mudam**. Gate novo `tests/custo-manual.spec.cjs`.
+- **Ainda sem custo (o aviso lista para a Elaine preencher):** #40125 (Plano Gold, jul), #382 (Bolsa Preta MV Club, Rk jul),
+  #40338 (Plano Gold, ago), #40545 (Plano Gold, ago), #40864 (Plano Gold, set). Os "Plano Gold" são serviço (pode ficar 0).
+- **Gate:** `competencia.spec.cjs` agora fixa `custoManualLinha={}` na trava da competência (isola do custo manual);
+  `playwright.config.cjs` passou a `retries: 1` (flake por lentidão tenta de novo; falha real reprova 2×).
+
 ## Robô do Power BI (GitHub Actions) , estado 09/11/2026
 Objetivo: tirar o `_syncPowerBI` (~25 s, congela a tela) de dentro do navegador da Elaine.
 O robô roda o **mesmo** `_syncPowerBI` do Gestão publicado, num navegador sem tela, no servidor
