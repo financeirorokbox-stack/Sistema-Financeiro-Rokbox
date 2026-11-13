@@ -26,6 +26,42 @@ gravou antes). Os `flat*` são relatórios gerados (recalculados dos dados), nã
 anti-truncado do flatCR (não gravar foto incompleta por cima) **permanece**. Teste: `tests/flat-overwrite.spec.cjs`.
 APP_VERSION v794/10-847. Provável causa também do flatCP velho do diagnóstico acima.
 
+## ESTADO 13/11 fim do dia + PLANO DE SEGUNDA
+**Hoje (no ar):** Painel em MANUTENÇÃO (`FIN_MANUTENCAO=true`, BUILD 2026-11-13.3): só admin vê; diretor/vendas
+veem o banner; Placar normal. Funções de diagnóstico `bkp-inspect` e `relink-prop` NEUTRALIZADAS (410) — APAGAR
+no dashboard. Robô (pg_cron jobid 14 + schedule do GitHub em powerbi.yml) DESLIGADO.
+
+**Achados que mudam o plano:**
+- **Backups não têm flatBalancete** (`_montarBackup` não inclui) → a foto do Balancete de outubro NÃO pode vir do
+  backup de 11/11. Reconstruir de outra fonte: do `cpFechado` (despesas por grupo via mapa categoria→grupo) +
+  receitas (vendas que caíram), ou corrigir o flatBalancete ao vivo. Gabarito (PDF 10/11): Receitas 258.148,54 ·
+  Despesas 278.248,85 · RK 8.458,12 · ROKBOX −28.558,43. Hoje o vivo põe as 10 contas em AJUSTE/Não conciliado e
+  tira 864,88 de ESTORNOS (joga na receita de Cartão).
+- **Folha de 05/11 NÃO está no extrato importado:** busquei por nome (Karen/Cristian/Lucelma/Diego/Marjorie/
+  Henrique/Elaine Pastor) e por soma por funcionário (±3d): nenhum débito. Condomínio 1.838,71 (05/11) ≠ débito
+  CONDOMINIO 2.049,10 (11/11). Viviane 600 não achada. Religação impossível sem o débito → falta importar o extrato
+  da conta que pagou a folha (ou confirmar a conta). É o gap de novembro (pago vivo 97.332,52 × esperado 117.581,96).
+
+**SEGUNDA (nesta ordem, mostrar cada passo antes de publicar):**
+3. OUTUBRO pág.3 Balancete = PDF: criar foto `balanceteFechado`, reconstruir outubro (NÃO do backup — ver achado),
+   Painel lê a foto no mês fechado. Prova: Receitas 258.148,54 · Despesas 278.248,85 · RK 8.458,12 · ROKBOX −28.558,43.
+4. GESTÃO 1c: mês fechado lê a FOTO em 3 lugares (Dashboard cards; CP/CR por LIQUIDAÇÃO = 239 contas da foto;
+   Fluxo por período). Teste fixo com números do PDF no Gestão E Painel (Pago 278.248,84 · Recebido 263.253,35 ·
+   Entrou 281.998,02 · Saldo fim 46.417,75 · A receber 5.365,03).
+5. NOVEMBRO: (a) religar folha 05/11 por soma/funcionário + Condomínio + Viviane (depende de importar o extrato);
+   (b) regerar flats e mostrar nov Gestão × Painel lado a lado (a pagar do mês ≈ 292.474,60), diferença zero.
+6. 2b: trava contra QUALQUER redução automática dos vínculos; `_healConciliacaoLinks` nunca apaga (órfão="revisar");
+   só desvínculo manual libera (opts.reduzOk). Confirmar a rotina que zerou o debitoLinks em 12/11 e tirou 11 às 14:43.
+7. Quadro "A receber" do Fluxo (Painel): 3 linhas (Recebido clientes; A vencer SÓ BOLETOS EMITIDOS; Atrasado 4+ dias);
+   remover A conciliar / Sem forma / Sobras. Não mudar projeção do saldo nem o Fechamento. Mostrar antes/depois A vencer nov.
+8. 2c: vínculo por `_uid` (fallback chave); migrar; Bling sync e gravação direta nunca mudam `_uid`. Prova: pago/mês jun–nov idêntico.
+9. Tabela semanal do Fluxo: causa e correção.
+10. SEGURANÇA: emitir o Relatório de Fechamento = fechar o mês (CP+CR+Balancete viram foto no mesmo ato).
+11. SEGURANÇA: nenhuma gravação direta no banco em mês já reportado/fechado; só via "Ajuste de mês fechado" com ok.
+12. SEGURANÇA: alerta diário no Afazeres se qualquer número de mês fechado divergir da foto.
+13. Só após 3–5 conferidos: tirar a manutenção (com ok) e religar o robô.
+14. PLANO (não implementar): Painel ler direto do Gestão, mesmas funções em arquivos compartilhados, sem flat*. Teste: cada número Painel=Gestão jun–nov.
+
 ## 1c — mês FECHADO lê a FOTO (cpFechado/crFechado) , 13/11/2026
 Motivo: o vivo de outubro DERIVOU do fechamento de 06/11 (Facebook 6.558 vs 3.720, GISLAINE 2.300 vs 2.000+1.900,
 ICMS 178,70 sumiu, Braspress 502,70 vs 232,43), então religar o vivo NÃO fecha 278.248,84. A foto é a verdade do
