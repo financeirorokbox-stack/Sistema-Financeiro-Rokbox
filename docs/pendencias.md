@@ -1,4 +1,4 @@
-# Pendências e estado da sessão (Rokbox) , atualizado 09/11/2026
+# Pendências e estado da sessão (Rokbox) , atualizado 13/11/2026
 
 Documento de continuidade: se abrir uma conversa nova, começar daqui. Regra fixa: **mês
 fechado (jun–set) nunca muda** (só vai para "Ajustes de meses fechados"); **nada publica
@@ -42,29 +42,56 @@ no dashboard. Robô (pg_cron jobid 14 + schedule do GitHub em powerbi.yml) DESLI
   CONDOMINIO 2.049,10 (11/11). Viviane 600 não achada. Religação impossível sem o débito → falta importar o extrato
   da conta que pagou a folha (ou confirmar a conta). É o gap de novembro (pago vivo 97.332,52 × esperado 117.581,96).
 
-**SEGUNDA (nesta ordem, mostrar cada passo antes de publicar):**
-3. OUTUBRO pág.3 Balancete = PDF: criar foto `balanceteFechado`, **reconstruir outubro a partir das fotos
-   `cpFechado`/`crFechado` + extrato de outubro (mesma regra do Balancete de 10/11)**, Painel lê a foto no mês
-   fechado. **Só aceitar se bater LINHA POR LINHA com o PDF** (receitas e despesas por grupo E empresa):
-   Receitas 258.148,54 · Despesas 278.248,85 · Resultado RK 8.458,12 · ROKBOX −28.558,43.
-3b. BACKUP diário: `_montarBackup` passar a INCLUIR os `flat*` (flatCR/flatCP/flatVendas/flatBalancete/flatReceb) e
-   as FOTOS (`cpFechado`, `crFechado`, novo `balanceteFechado`), para nunca mais depender de reconstrução.
-4. GESTÃO 1c: mês fechado lê a FOTO em 3 lugares (Dashboard cards; CP/CR por LIQUIDAÇÃO = 239 contas da foto;
-   Fluxo por período). Teste fixo com números do PDF no Gestão E Painel (Pago 278.248,84 · Recebido 263.253,35 ·
-   Entrou 281.998,02 · Saldo fim 46.417,75 · A receber 5.365,03).
-5. NOVEMBRO: (a) religar folha 05/11 por soma/funcionário + Condomínio + Viviane (depende de importar o extrato);
-   (b) regerar flats e mostrar nov Gestão × Painel lado a lado (a pagar do mês ≈ 292.474,60), diferença zero.
-6. 2b: trava contra QUALQUER redução automática dos vínculos; `_healConciliacaoLinks` nunca apaga (órfão="revisar");
-   só desvínculo manual libera (opts.reduzOk). Confirmar a rotina que zerou o debitoLinks em 12/11 e tirou 11 às 14:43.
-7. Quadro "A receber" do Fluxo (Painel): 3 linhas (Recebido clientes; A vencer SÓ BOLETOS EMITIDOS; Atrasado 4+ dias);
-   remover A conciliar / Sem forma / Sobras. Não mudar projeção do saldo nem o Fechamento. Mostrar antes/depois A vencer nov.
-8. 2c: vínculo por `_uid` (fallback chave); migrar; Bling sync e gravação direta nunca mudam `_uid`. Prova: pago/mês jun–nov idêntico.
-9. Tabela semanal do Fluxo: causa e correção.
-10. SEGURANÇA: emitir o Relatório de Fechamento = fechar o mês (CP+CR+Balancete viram foto no mesmo ato).
-11. SEGURANÇA: nenhuma gravação direta no banco em mês já reportado/fechado; só via "Ajuste de mês fechado" com ok.
-12. SEGURANÇA: alerta diário no Afazeres se qualquer número de mês fechado divergir da foto.
-13. Só após 3–5 conferidos: tirar a manutenção (com ok) e religar o robô.
-14. PLANO (não implementar): Painel ler direto do Gestão, mesmas funções em arquivos compartilhados, sem flat*. Teste: cada número Painel=Gestão jun–nov.
+**PLANO DE SEGUNDA (versão completa aprovada 13/11 — NÃO executar sem ok; mostrar cada passo antes de publicar;
+Painel em MANUTENÇÃO e robô DESLIGADO até a Elaine liberar; não mexer em jun–set; gate verde; backup antes).**
+PRINCÍPIO: o Painel é só um DASHBOARD do Gestão (mesmas fórmulas); nada se perde, tudo conversa.
+
+1. **REGRA NOVA (primeiro):** conta PAGA sem conciliação entra no "pago no mês" pela `dataPag` (marcada "não
+   conciliada"), em vez de sumir. Vale Gestão, Painel e Fechamento. Prova: com debitoLinks vazio num teste, outubro
+   continua 278.248,84 (com aviso) e novembro ≈ 292.474,60 (pago 117.581,96 + aberto venc nov 174.892,64).
+2. **BLINDAGEM (2b):** (a) nenhuma rotina automática apaga conciliação (debitoLinks/extratoLinks/repasseLinks/
+   receitaLinks); `_healConciliacaoLinks` nunca apaga, órfão="revisar"; só desvínculo manual da Elaine libera.
+   (b) Descobrir a rotina que zerou o debitoLinks entre 11/11 09:42 e 12/11 10:04 e tirou 11 às 14:43 de 13/11.
+3. **SEGURANÇA + DOUBLE-CHECK (no Supabase, sem custo):**
+   (a) HISTÓRICO: trigger guarda a versão anterior das chaves críticas (vínculos, contasPagar, extratoBancario,
+       recebimentosConsolidado, cpFechado, crFechado, balanceteFechado, mesesFechados) com data/hora + quem gravou,
+       30 dias, no plano free (máx 1 versão/hora por chave + sempre que a qtd de itens cair). Mostrar tamanho estimado +
+       rotina para restaurar uma chave para um horário.
+   (b) TRAVA NO BANCO: trigger recusa reduzir chaves de vínculo e alterar dados de mês fechado, venha de onde vier
+       (Gestão/robô/Edge/SQL), exceto ação manual da Elaine com flag explícita.
+   (c) AUDITOR (pg_cron 8h e 18h) → tabela "auditoria" + alerta Afazeres + aviso no Painel (admin): mês fechado=foto
+       (Pago/Recebido/Entrou/Saldo fim/A receber/despesas por grupo); vínculos não caem dia a dia; Gestão×Painel iguais
+       no mês aberto; saldo por conta (inicial+entradas−saídas=final do extrato); extrato duplicado ou "tarifa PIX sem
+       PIX enviado"; contas pagas há +5 dias sem conciliação; robô e backup do dia ok.
+   (d) Backup diário inclui `flat*` + fotos (cpFechado, crFechado, balanceteFechado).
+   (e) Imprimir o Relatório de Fechamento = fechar o mês (CP, CR e Balancete viram foto no mesmo ato).
+   (f) Nenhuma gravação direta no banco em mês reportado/fechado; correção só via "Ajuste de mês fechado" com ok.
+4. **OUTUBRO = PDF 10/11 (gabarito):** (a) Balancete pág.3: foto `balanceteFechado` reconstruída de cpFechado/crFechado
+   + extrato de outubro (mesma regra do Balancete de 10/11), aceita só se bater LINHA POR LINHA (Receitas 258.148,54 ·
+   Despesas 278.248,85 · RK 8.458,12 · ROKBOX −28.558,43 · grupos iguais). (b) Gestão lê a foto no mês fechado:
+   Dashboard (Pago 278.248,84 / Recebido 263.253,35), CP/CR por liquidação (as 239 contas da foto), Fluxo por período.
+   (c) Teste fixo com os números do PDF no Gestão E Painel (Pago 278.248,84 · Recebido 263.253,35 · Entrou 281.998,02 ·
+   Saldo fim 46.417,75 · A receber 5.365,03).
+5. **NOVEMBRO (só depois do item 2 no ar):** (a) extrato Bradesco-Rokbox importado está INCOMPLETO: 04/11 tem 5
+   "TARIFA BANCARIA TRANSF PGTO PIX" mas nenhum "PIX ENVIADO" (a folha 05/11); 09/11 tem 8 tarifas e menos PIX —
+   investigar por que o import perdeu linhas. (b) possíveis duplicatas 09/11: TED PayPal 3.718,20 e 5.606,93 (2x cada)
+   e OPERACAO CAPITAL GIRO 12.277,26 (2x) → mostrar antes, vão p/ lixeira. (c) Elaine reimporta o Bradesco Rokbox de
+   01/11 em diante, dedup por conteúdo. (d) folha 05/11 (Karen/Elaine/Cristian/Lucelma/Marjorie/Diego/Henrique): 1 PIX
+   por pessoa = várias contas → conciliar por SOMA por funcionário; Condomínio 1.838,71 e Viviane 600: achar o débito;
+   lista antes de gravar. (e) novembro Gestão × Painel lado a lado, diferença zero.
+6. **PAINEL = DASHBOARD DE VERDADE (plano + implementar):** Painel lê as MESMAS chaves do Gestão e calcula com as
+   MESMAS funções em arquivos compartilhados (pago/recebido/a vencer/atrasado/saldo/Balancete/Fechamento/DRE). flat*
+   deixam de ser fonte do Painel financeiro (ficam só para exportação/Power BI). Teste: cada número Painel=Gestão jun–nov.
+7. **Quadro "A receber" do Fluxo (Painel):** 3 linhas (Recebido dos clientes no mês; A vencer SÓ BOLETOS EMITIDOS;
+   Atrasado boletos 4+ dias); remover A conciliar / Sem forma / Sobras a resolver. Não mudar projeção do saldo nem o Fechamento.
+8. **2c — vínculo pelo `_uid`** (fallback na chave antiga); migrar; Bling sync e gravação direta nunca alteram `_uid`.
+   Prova: "pago no mês" jun–nov idêntico antes/depois.
+9. **Tabela semanal do Fluxo:** causa e correção.
+10. **FINAL:** com tudo conferido, tirar a manutenção (com ok) e religar o robô se ainda necessário. Atualizar este doc.
+
+**Observação de execução (do que já apurei em 13/11):** o Painel 1c (overlay) JÁ está no ar para o Fechamento/Fluxo
+(BUILD 2026-11-13.2); o item 4b/4c (Gestão) e o item 1 (regra nova) é que fecham outubro no Gestão. O item 1 (pago por
+dataPag quando sem conciliação) é a alternativa à religação para novembro caso o extrato da folha não venha.
 
 ## 1c — mês FECHADO lê a FOTO (cpFechado/crFechado) , 13/11/2026
 Motivo: o vivo de outubro DERIVOU do fechamento de 06/11 (Facebook 6.558 vs 3.720, GISLAINE 2.300 vs 2.000+1.900,
