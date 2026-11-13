@@ -43,8 +43,12 @@ no dashboard. Robô (pg_cron jobid 14 + schedule do GitHub em powerbi.yml) DESLI
   da conta que pagou a folha (ou confirmar a conta). É o gap de novembro (pago vivo 97.332,52 × esperado 117.581,96).
 
 **SEGUNDA (nesta ordem, mostrar cada passo antes de publicar):**
-3. OUTUBRO pág.3 Balancete = PDF: criar foto `balanceteFechado`, reconstruir outubro (NÃO do backup — ver achado),
-   Painel lê a foto no mês fechado. Prova: Receitas 258.148,54 · Despesas 278.248,85 · RK 8.458,12 · ROKBOX −28.558,43.
+3. OUTUBRO pág.3 Balancete = PDF: criar foto `balanceteFechado`, **reconstruir outubro a partir das fotos
+   `cpFechado`/`crFechado` + extrato de outubro (mesma regra do Balancete de 10/11)**, Painel lê a foto no mês
+   fechado. **Só aceitar se bater LINHA POR LINHA com o PDF** (receitas e despesas por grupo E empresa):
+   Receitas 258.148,54 · Despesas 278.248,85 · Resultado RK 8.458,12 · ROKBOX −28.558,43.
+3b. BACKUP diário: `_montarBackup` passar a INCLUIR os `flat*` (flatCR/flatCP/flatVendas/flatBalancete/flatReceb) e
+   as FOTOS (`cpFechado`, `crFechado`, novo `balanceteFechado`), para nunca mais depender de reconstrução.
 4. GESTÃO 1c: mês fechado lê a FOTO em 3 lugares (Dashboard cards; CP/CR por LIQUIDAÇÃO = 239 contas da foto;
    Fluxo por período). Teste fixo com números do PDF no Gestão E Painel (Pago 278.248,84 · Recebido 263.253,35 ·
    Entrou 281.998,02 · Saldo fim 46.417,75 · A receber 5.365,03).
