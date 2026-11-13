@@ -26,6 +26,20 @@ gravou antes). Os `flat*` são relatórios gerados (recalculados dos dados), nã
 anti-truncado do flatCR (não gravar foto incompleta por cima) **permanece**. Teste: `tests/flat-overwrite.spec.cjs`.
 APP_VERSION v794/10-847. Provável causa também do flatCP velho do diagnóstico acima.
 
+## 1c — mês FECHADO lê a FOTO (cpFechado/crFechado) , 13/11/2026
+Motivo: o vivo de outubro DERIVOU do fechamento de 06/11 (Facebook 6.558 vs 3.720, GISLAINE 2.300 vs 2.000+1.900,
+ICMS 178,70 sumiu, Braspress 502,70 vs 232,43), então religar o vivo NÃO fecha 278.248,84. A foto é a verdade do
+mês fechado. Gabarito (PDF 10/11 15:36): Pago 278.248,84 · Recebido clientes 263.253,35 · Entrou 281.998,02 ·
+Saldo fim 46.417,75 · A receber 5.365,03.
+- **Painel (financeiro.html) — NO AR BUILD 2026-11-13.2:** `_overlayFoto(flat, foto)` sobrepõe cpFechado/crFechado
+  no flatCP/flatCR por data_liquidacao nos meses congelados, no load. Fluxo/Fechamento/Balancete/por grupo/semanal/
+  DRE de caixa leem a foto no mês fechado, mesmo com flatCP derivado. Teste `tests/foto-mes-fechado.spec.cjs`.
+- **Gestão (index.html) — PENDENTE (próxima rodada):** 3 lugares lerem a foto no mês fechado: (1) Dashboard cards
+  "A PAGAR → Pago no mês" e "A Receber → Recebido"; (2) Contas a Pagar/Receber filtro por LIQUIDAÇÃO (listar as 239
+  contas da foto, não as 6 ao vivo); (3) Fluxo de Caixa por período (trecho em mês fechado usa a foto). Incluir os
+  números do PDF no teste fixo (Gestão + Painel).
+- Ordem de segunda: Gestão 1c → 2b → quadro "A receber" → 2c → folha/Condomínio/Viviane/semanal → religar o robô.
+
 ## INCIDENTE debitoLinks zerado (conciliação de outubro) , 13/11/2026
 Sintoma: Painel/Gestão mostrando outubro ~3.958 (conciliação "desfeita"). **Causa real (dos backups):**
 `debitoLinks` estava ~1019 no backup de **11/11**, **0 no de 12/11**, 17 em 13/11 09:11, 18 agora. A perda foi
