@@ -6,7 +6,27 @@ sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Po
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
 
-## Custo manual por linha sem SKU (DRE + Margem) , 13/11/2026 (PRONTO, aguardando "pode publicar")
+## Fluxo de Caixa novembro: Painel ~217k × Gestão ~291k (DIAGNÓSTICO, 13/11/2026)
+Elaine viu diferença ~74k. **NÃO é regressão da competência** (provado: `compDe`/`_compDespesa` só dentro de
+`_dreCalcTudo`; os 3 commits de competência não tocaram `flatCP`/`cpAberto`/"a pagar"). Causa estrutural:
+- **Gestão CP novembro** = por **VENCIMENTO** (todo título que vence no mês). **Painel Fluxo** (financeiro.html
+  linha 933) = **CAIXA**: pago pelo dia do pagamento (`data_liquidacao`) + em aberto pelo vencimento. Título que
+  vence em nov mas foi pago antes de nov entra no Gestão/nov mas no caixa do mês do pagamento → Painel menor.
+- **flatCP desatualizado:** Painel lê `flatCP` (foto do _syncPowerBI); Gestão lê `contasPagar` ao vivo.
+- **PENDENTE (banco caiu):** lista dos ~74k classificada (a) vence-nov/pago-antes; (b) pago-nov/venc-outro-mês;
+  (c) flatCP velho; (d) sem empresa; (e) cartão/transferência/investimento/empréstimo. Entregar quando o
+  conector do Supabase voltar (esteve em erro 500 toda a sessão de 13/11). **NÃO corrigir antes da Elaine ver.**
+- **Teste de regra no gate (PRONTO):** `tests/fluxo-caixa.spec.cjs` trava Fluxo = caixa e que competência ≠ caixa.
+
+## flat* sempre regravável pelo botão (sem trava de concorrência) , 13/11/2026 (PRONTO, aguardando "pode publicar")
+"Atualizar Power BI" dava "Concorrência: banco tem versão MAIS NOVA de flatVendas… NÃO gravei por cima" (o robô
+gravou antes). Os `flat*` são relatórios gerados (recalculados dos dados), não dados digitados. Fix em `saveData`
+(index.html ~717): `const _ehFlat=/^flat/.test(key)` e `if(_verKey[key] && !_ehFlat)`, o botão/robô sempre regrava
+`flat*` por cima; a trava de concorrência continua nas chaves de DADOS (pedidos, contasPagar, lojaCadastro…). A trava
+anti-truncado do flatCR (não gravar foto incompleta por cima) **permanece**. Teste: `tests/flat-overwrite.spec.cjs`.
+APP_VERSION v794/10-847. Provável causa também do flatCP velho do diagnóstico acima.
+
+## Custo manual por linha sem SKU (DRE + Margem) , 13/11/2026 (NO AR, BUILD 2026-11-13.1, commit 2dc26e8)
 Itens lançados à mão sem SKU não têm custo no Bling → CMV zerado. Criada chave própria
 `custoManualLinha` (mapa `"<pedido>|<descrição da linha>" → custo unitário`), usada pelo **DRE**
 e pela **Margem** quando não há custo no Bling. **NÃO altera o pedido nem o faturamento.**

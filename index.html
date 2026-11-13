@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v793/10-846';
+const APP_VERSION = 'v794/10-847';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -713,8 +713,13 @@ async function saveData(key, data) {
   const str = JSON.stringify(data);
   let writeStr = str, avisoMsg = '';
   // ── Concorrência: confere o atualizado_em do banco ANTES de gravar (só se ESTA sessão já tinha a chave). ──
+  // EXCEÇÃO flat*: são RELATÓRIOS gerados (flatCR/flatCP/flatVendas/flatBalancete/flatReceb), não dados digitados.
+  // O botão "Atualizar Power BI" (e o robô) recalculam tudo a partir dos dados; o último que rodar pode sempre
+  // regravar por cima, sem trava de concorrência (senão o robô grava e o botão manual fica bloqueado = flat* velho).
+  // A trava continua valendo para as chaves de DADOS (pedidos, contasPagar, recebimentos, etc.).
+  const _ehFlat = /^flat/.test(key);
   try {
-    if (_verKey[key]) {
+    if (_verKey[key] && !_ehFlat) {
       const meta = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=atualizado_em`);
       const dbAt = (meta && meta[0] && meta[0].atualizado_em) || null;
       if (dbAt && dbAt > _verKey[key]) {             // banco MAIS NOVO → não sobrescreve cego
