@@ -26,6 +26,24 @@ gravou antes). Os `flat*` são relatórios gerados (recalculados dos dados), nã
 anti-truncado do flatCR (não gravar foto incompleta por cima) **permanece**. Teste: `tests/flat-overwrite.spec.cjs`.
 APP_VERSION v794/10-847. Provável causa também do flatCP velho do diagnóstico acima.
 
+## INCIDENTE debitoLinks zerado (conciliação de outubro) , 13/11/2026
+Sintoma: Painel/Gestão mostrando outubro ~3.958 (conciliação "desfeita"). **Causa real (dos backups):**
+`debitoLinks` estava ~1019 no backup de **11/11**, **0 no de 12/11**, 17 em 13/11 09:11, 18 agora. A perda foi
+**entre 11/11 e 12/11**, NÃO hoje. Os **ids do extrato são estáveis** (os 1019 do dia 11 casam 100% com o extrato
+de agora) → não foi "FITID trocou"; a importação de hoje e o save das 11:58 (17→18, adicionou 1) são inocentes.
+`contasPagar` intacto (234 contas out pago/dataPag, 269.434). A `data_liquidacao` do flatCP vem do `debitoLinks`
+(dataLiquidacaoConta linha ~5420), por isso sumiu a liquidação sem o vínculo.
+- **Trava anti-truncamento (v795/10-848, NO AR):** `saveData` bloqueia gravar debitoLinks/extratoLinks/repasseLinks/
+  receitaLinks com queda >20% ou para 0 (confere a contagem no banco antes), salvo `_permitirTruncLinks=true`.
+  Teste: `tests/trunc-guard.spec.cjs`. Teria barrado o zeramento de 12/11.
+- **Recuperação:** restaurar `debitoLinks` como UNIÃO (1019 do backup 11/11 + 18 atuais, atuais prevalecem);
+  backup do estado atual em `privado.bkp_debitoLinks_20261113`. Depois ☁ Power BI → outubro volta a ~278.248,85.
+- **PENDENTE (investigar):** o que zerou o debitoLinks entre 11/11 e 12/11 10:04 (janela com v790 tolerância 0,05,
+  v791 cobrança, v792 Painel, e a gravação de empresas direto no contasPagar). Hipótese: sessão que carregou o
+  debitoLinks vazio e salvou {} por cima.
+- Função de diagnóstico só-leitura `bkp-inspect` (edge) usada p/ ler os backups; APAGAR após o restore.
+- Robô: pg_cron (jobid 14) SUSPENSO; religar (pg_cron + schedule do GitHub em powerbi.yml) só após conferir outubro.
+
 ## Custo manual por linha sem SKU (DRE + Margem) , 13/11/2026 (NO AR, BUILD 2026-11-13.1, commit 2dc26e8)
 Itens lançados à mão sem SKU não têm custo no Bling → CMV zerado. Criada chave própria
 `custoManualLinha` (mapa `"<pedido>|<descrição da linha>" → custo unitário`), usada pelo **DRE**

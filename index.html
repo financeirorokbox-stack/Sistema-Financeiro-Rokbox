@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v794/10-847';
+const APP_VERSION = 'v795/10-848';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -663,6 +663,11 @@ function _postSupabase(key, data) { return _postSupabaseStr(key, JSON.stringify(
 //    novo, JUNTA por item quando é seguro, senão recarrega e avisa (nunca perde alteração em silêncio). ──
 let _verKey = {};   // chave -> atualizado_em (ISO) que ESTA sessão viu por último (load ou último save)
 let _baseKey = {};  // chave -> base carregada (p/ merge 3-vias nas chaves de lista)
+// TRAVA ANTI-TRUNCAMENTO dos vínculos (debitoLinks/extratoLinks/repasseLinks/receitaLinks): nunca gravar uma
+// versão com MUITO menos itens que a do banco (queda >20% ou para 0) sem liberar antes — protege contra uma
+// carga que veio vazia zerar os vínculos (foi o que esvaziou o debitoLinks em 12/11). Igual à trava do flatCR.
+const _TRUNC_PROT = new Set(['debitoLinks', 'extratoLinks', 'repasseLinks', 'receitaLinks']);
+let _permitirTruncLinks = false; // uma operação que reduz em massa de propósito seta isto durante a gravação
 const _dc = v => v instanceof Date ? v.toISOString() : String(v == null ? '' : v);
 const _idFns = {
   pedidos: p => 'id:' + String(p.id),
@@ -739,6 +744,21 @@ async function saveData(key, data) {
       }
     }
   } catch (e) { /* conferência falhou (offline): segue o fluxo normal, não trava a gravação */ }
+  // ── TRAVA ANTI-TRUNCAMENTO (vínculos) ──
+  if (_TRUNC_PROT.has(key) && !_permitirTruncLinks) {
+    try {
+      const _nItens = v => (v && typeof v === 'object') ? (Array.isArray(v) ? v.length : Object.keys(v).length) : 0;
+      const nNovo = _nItens(data);
+      const rr = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
+      let dbVal = null; try { dbVal = (rr && rr[0]) ? JSON.parse(rr[0].valor) : null; } catch (e) {}
+      const nDb = _nItens(dbVal);
+      if (nDb >= 20 && (nNovo === 0 || nNovo < nDb * 0.8)) { // queda >20% ou para 0 → provável carga vazia/erro
+        _avisoConc(`"${key}" ia cair de ${nDb} para ${nNovo} vínculo(s) — queda grande (provável carga vazia). NÃO gravei por cima. Dê F5 e confira; se a redução for proposital, use a ferramenta própria.`);
+        try { _atualizarAvisoSync(); } catch (e) {}
+        return false;
+      }
+    } catch (e) { /* conferência falhou (offline): não bloqueia a gravação normal */ }
+  }
   if (!_CHAVES_GRANDES.has(key)) _setLocalSeguro(key, writeStr); // pequenas ficam no local; grandes só na nuvem (quota)
   // Supabase com 2-3 tentativas; se falhar, vira PENDÊNCIA (não some calado) e o valor fica guardado local.
   const at = new Date().toISOString();
