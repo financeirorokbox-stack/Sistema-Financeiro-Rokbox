@@ -46,12 +46,25 @@ no dashboard. Robô (pg_cron jobid 14 + schedule do GitHub em powerbi.yml) DESLI
 Painel em MANUTENÇÃO e robô DESLIGADO até a Elaine liberar; não mexer em jun–set; gate verde; backup antes).**
 PRINCÍPIO: o Painel é só um DASHBOARD do Gestão (mesmas fórmulas); nada se perde, tudo conversa.
 
-1. **REGRA NOVA (primeiro):** conta PAGA sem conciliação entra no "pago no mês" pela `dataPag` (marcada "não
-   conciliada"), em vez de sumir. Vale Gestão, Painel e Fechamento. Prova: com debitoLinks vazio num teste, outubro
-   continua 278.248,84 (com aviso) e novembro ≈ 292.474,60 (pago 117.581,96 + aberto venc nov 174.892,64).
+1. **REGRA NOVA (primeiro) [IMPLEMENTADO 16/11, provado, aguardando publicar v796/10-849]:** conta PAGA sem
+   conciliação entra no "pago no mês" pela `dataPag` (flag `nao_conciliada` no flatCP), em vez de sumir. Vale Gestão,
+   Painel e Fechamento. Mudança: `dataLiquidacaoConta` (as 2 cópias, index.html) retorna `dataPag` quando `c.pago` e
+   sem débito; `_contaConciliadaBanco(c)` marca; `nao_conciliada` no flatCP. Teste `tests/pago-datapag.spec.cjs`.
+   Prova na live (16/11): outubro 278.248,84 (foto); nov pago 97.332,52→**117.582,96** (≈117.581,96; +20.250,44 pela
+   dataPag = folha+Condomínio+Viviane). O *aberto por vencimento* deu 166.383,36 (× esperado 174.892,64), ligado às
+   linhas do extrato que sumiram (item 2c) — alinhar no item 5.
 2. **BLINDAGEM (2b):** (a) nenhuma rotina automática apaga conciliação (debitoLinks/extratoLinks/repasseLinks/
    receitaLinks); `_healConciliacaoLinks` nunca apaga, órfão="revisar"; só desvínculo manual da Elaine libera.
    (b) Descobrir a rotina que zerou o debitoLinks entre 11/11 09:42 e 12/11 10:04 e tirou 11 às 14:43 de 13/11.
+   (c) **LINHAS DO EXTRATO SUMIRAM (provável CAUSA RAIZ):** a Elaine já tinha conciliado a folha de nov (PIX 04–05/11
+   Bradesco-Rokbox: Karen/Elaine/Cristian/Lucelma/Marjorie/Diego/Henrique); hoje essas linhas NÃO existem no
+   extratoBancario (só sobraram 5 "TARIFA BANCARIA TRANSF PGTO PIX" de 04/11). Elas sumindo órfanam o debitoLinks →
+   `_healConciliacaoLinks` apaga. **Fazer:** comparar o extratoBancario dos backups 06/11→13/11 com o atual, listar as
+   linhas que sumiram e em que dia, e RESTAURAR sem duplicar. Provável causa do zeramento de 12/11.
+   (d) **IMPORTAÇÃO DE EXTRATO SEGURA:** só acrescenta (nunca apaga/substitui; id estável por conteúdo); prévia antes
+   de gravar (novas / existentes / "não vieram no arquivo" só como aviso / possíveis duplicatas p/ a Elaine decidir);
+   conferência saldo final do arquivo × saldo do sistema; alerta "tarifa PIX sem PIX enviado"; Drive automático de
+   extrato DESLIGADO até testar. Teste: importar o mesmo arquivo 2× não muda nada; arquivo com menos linhas não apaga nada.
 3. **SEGURANÇA + DOUBLE-CHECK (no Supabase, sem custo):**
    (a) HISTÓRICO: trigger guarda a versão anterior das chaves críticas (vínculos, contasPagar, extratoBancario,
        recebimentosConsolidado, cpFechado, crFechado, balanceteFechado, mesesFechados) com data/hora + quem gravou,

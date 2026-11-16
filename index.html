@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v795/10-848';
+const APP_VERSION = 'v796/10-849';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -5449,9 +5449,28 @@ function dataLiquidacaoConta(c) {
   // Estorno/reembolso: NÃO sai como débito próprio no banco (foi descontado do repasse), então nunca teria
   // uma conciliação. Mesmo assim tem que APARECER — usa a data do pagamento como liquidação.
   if ((String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno) return c.dataPag || null;
-  // Demais contas NÃO conciliadas a um débito do banco → SEM data de liquidação (não entram no filtro por liquidação).
-  // Assim o Contas a Pagar filtrado por Liquidação bate com os débitos da Conciliação Bancária.
+  // REGRA (item 1): conta PAGA sem conciliação NÃO some — entra no "pago no mês" pela DATA DO PAGAMENTO (dataPag),
+  // marcada "não conciliada" (ver _contaConciliadaBanco). Antes virava null (sumia do filtro por liquidação) e por
+  // isso um erro/falta de conciliação zerava o mês. Em aberto (não paga) continua sem liquidação.
+  if (c.pago && c.dataPag) return c.dataPag;
   return null;
+}
+// true = a liquidação veio de um DÉBITO do banco conciliado (ou estorno pelo repasse); false = paga sem conciliação
+// (entrou pela dataPag). Usado para marcar "não conciliada" na tela e no aviso.
+function _contaConciliadaBanco(c) {
+  if (!c) return false;
+  const chave = chaveContaPagar(c);
+  for (const [extId, link] of Object.entries(debitoLinks)) {
+    if (debLinkItens(link).some(it => it.chave === chave)) { const t = extratoBancario.find(x => x.id === extId); if (t && t.data) return true; }
+  }
+  if ((String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno) return true;
+  return false;
+}
+// Célula da coluna Liquidação do Contas a Pagar: mostra a data e, quando a conta está paga MAS sem débito
+// conciliado no banco (entrou pela dataPag, item 1), marca "⚠ não conciliada".
+function _celLiq(c, vazio) {
+  const L = dataLiquidacaoConta(c); if (!L) return vazio;
+  return fmtDate(L) + (_contaConciliadaBanco(c) ? '' : ' <span style="color:var(--amber);font-size:9px" title="paga sem conciliação no banco — entrou pela data de pagamento">⚠ não conciliada</span>');
 }
 // Recebido, taxa, juros e desconto de uma linha de Contas a Receber.
 function dadosRecebimentoLinha(l) {
@@ -5850,7 +5869,7 @@ async function _syncPowerBI() {
       // Categoria igual ao sistema: o campo categoria, ou a DESCRIÇÃO quando está vazio (catContaPagar), pra não vir null.
       categoria: catContaPagar(c) || '', empresa: c.empresa || '', valor: +(+c.valor || 0).toFixed(2),
       vencimento: dISO(c.vencimento), data_pagamento: dISO(c.dataPag), data_liquidacao: dISO(dataLiquidacaoConta(c)),
-      situacao: sit, pago: !!c.pago, cancelado: canc, status: sit,
+      situacao: sit, pago: !!c.pago, cancelado: canc, status: sit, nao_conciliada: !!(c.pago && !_contaConciliadaBanco(c)),
       // Rateio (aditivo, NÃO muda o total nem o que o Power BI já lê): cada linha com empresa/subgrupo/categoria/valor.
       // O painel Financeiro usa isso pra jogar cada pedaço no grupo/categoria certos. Sem rateio fica [].
       rateio: Array.isArray(c.rateio) ? c.rateio.filter(r => (+r.valor || 0) !== 0).map(r => ({ empresa: r.empresa || '', grupo: r.grupo || '', categoria: r.categoria || '', colecao: r.colecao || '', valor: +(+r.valor || 0).toFixed(2) })) : [],
@@ -7161,6 +7180,7 @@ function buildConciliadoBanco(G) {
     }
     if (_melhor) return _melhor;
     if ((String(c.categoria || '').toUpperCase() === 'ESTORNO') || c._origemEstorno) return c.dataPag || null;
+    if (c.pago && c.dataPag) return c.dataPag; // item 1: paga sem conciliação entra pela dataPag (não some)
     return null;
   }
   function catContaPagar(c) { return (c.categoria || '').trim() || (c.descricao || '').trim(); }
@@ -7644,7 +7664,7 @@ function renderPagar() {
             <td class="cpcol-categoria"><input class="inline-input" style="width:140px" value="${(catContaPagar(c)||'').replace(/"/g,'&quot;')}" list="cp-cat-list" placeholder="categoria" onchange="updateContaPagar(${realIdx},'categoria',this.value)"></td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear (empresa/categoria/coleção)">✂</button></td>
-            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)" title="Data do débito no banco (conciliação)">${dataLiquidacaoConta(c)?fmtDate(dataLiquidacaoConta(c)):'—'}</td>
+            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)" title="Data do débito no banco (conciliação)">${_celLiq(c,'—')}</td>
             <td class="cpcol-historico"><input class="inline-input" style="width:110px" value="${(c.observacao||'').replace(/"/g,'&quot;')}" placeholder="histórico" title="${(c.observacao||'').replace(/"/g,'&quot;')}" onchange="updateContaPagar(${realIdx},'observacao',this.value)"></td>
           </tr>`;
         }
@@ -7664,7 +7684,7 @@ function renderPagar() {
             <td class="cpcol-categoria">${catContaPagar(c) || mut}</td>
             <td class="cpcol-valor" style="text-align:right"><strong>${fmtVal(c.valor)}</strong></td>
             <td class="cpcol-rateio" style="font-size:11px">${rateioStr} <button class="btn ghost sm" style="font-size:10px;padding:1px 5px" onclick="openRateio(${realIdx})" title="Ratear (empresa/categoria/coleção)">✂</button></td>
-            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)" title="Data do débito no banco (conciliação)">${dataLiquidacaoConta(c) ? fmtDate(dataLiquidacaoConta(c)) : mut}</td>
+            <td class="cpcol-pagamento" style="font-size:11px;color:var(--green)" title="Data do débito no banco (conciliação)">${_celLiq(c, mut)}</td>
             <td class="cpcol-historico" title="${hist.replace(/"/g, '&quot;')}">${hist ? (hist.length > 28 ? hist.slice(0, 28) + '…' : hist) : mut}</td>
           </tr>`;
         }
