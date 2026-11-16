@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v805/10-858';
+const APP_VERSION = 'v806/10-859';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10528,7 +10528,18 @@ function resolverDevolucaoNaConciliacao(pedidoOriginal) {
   renderConcResult();
 }
 // Pedido de crédito EFETIVO da devolução: vínculo manual; '' quando vazio/em edição (troca ainda não feita).
+// (perf) credDevolucao é PURA no render (lê devolucaoCredito + devolucoes, estáveis no mesmo _dataVersion), mas
+// era chamada ~1,2 MILHÃO de vezes no Extrato (filter interno em cada chamada). Memoiza por devolução (WeakMap),
+// invalida quando os dados mudam. O cálculo (_credDevolucaoCalc) é IDÊNTICO — só para de repetir.
+let _credDevVer = -1, _credDevCache = null;
 function credDevolucao(d) {
+  if (!d || typeof d !== 'object') return _credDevolucaoCalc(d);
+  if (_credDevVer !== _dataVersion) { _credDevCache = new WeakMap(); _credDevVer = _dataVersion; }
+  const hit = _credDevCache.get(d);
+  if (hit !== undefined) return hit;
+  const v = _credDevolucaoCalc(d); _credDevCache.set(d, v); return v;
+}
+function _credDevolucaoCalc(d) {
   const raw = devolucaoCredito[d.pedido + '|' + d.cliente];
   if (raw === '__editando__' || raw === '__vazio__') return '';
   // Crédito PARCELADO: quando o cliente tem VÁRIAS devoluções do mesmo pedido apontando pra pedidos
