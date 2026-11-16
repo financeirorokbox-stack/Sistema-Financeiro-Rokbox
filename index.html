@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v799/10-852';
+const APP_VERSION = 'v800/10-853';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -13663,6 +13663,9 @@ function _reconciliarTarifasPorData() {
 // que é o que faz o CR/CP não bater com o banco. Crédito sem pedido/repasse = o CR não vai ter; débito sem conta
 // a pagar = o CP não vai ter. Se tudo estiver conciliado no período, mostra ✅. Reusa os mesmos vínculos do banco.
 function _travaConciliacao(visT) {
+  // MÊS FECHADO/CONGELADO = conciliado "conforme a FOTO" do fechamento: NÃO entra em "faltam conciliar"
+  // (senão um mês já reportado fica pedindo vincular/lançar e sugeriria duplicar despesa num mês fechado).
+  visT = (visT || []).filter(t => !(typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(t.data)));
   const conc = t => (t.valor || 0) >= 0 ? (!!extratoLinks[t.id] || !!repasseLinks[t.id] || !!receitaLinks[t.id]) : !!debitoLinks[t.id];
   // "Já existe no CP" = QUALQUER conta não cancelada com o mesmo valor (vinculada OU não). Se existe, NÃO lançar
   // de novo (senão duplica), mesmo que o vínculo tenha se perdido (ex.: re-importou o extrato e os ids mudaram).
@@ -13676,12 +13679,15 @@ function _travaConciliacao(visT) {
   return { credNC, debNC, debVincular, debLancar, sCred, sDeb, ok: !credNC.length && !debNC.length };
 }
 function _travaConciliacaoHTML(visT) {
+  // Lançamentos de mês fechado (conforme foto) à vista: não pedem conciliação, só informamos.
+  const nFechFoto = (visT || []).filter(t => (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(t.data))).length;
+  const _fotoNota = nFechFoto ? `<div style="background:#eef3fb;border:1px solid #c9d8f0;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:#2a4d82;font-weight:600">🔒 Mês fechado — a conciliação e os avisos seguem a <strong>foto</strong> do fechamento. ${nFechFoto} lançamento(s) deste período não entram em "faltam conciliar" e os botões de vincular/lançar ficam travados.</div>` : '';
   const tv = _travaConciliacao(visT);
-  if (tv.ok) return `<div style="background:#eafaf0;border:1px solid #bfe6cf;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1b7a3d;font-weight:700">✅ CR/CP bate com a Conciliação Bancária — sem divergências no período. Todos os lançamentos do banco estão conciliados.</div>`;
+  if (tv.ok) return _fotoNota || `<div style="background:#eafaf0;border:1px solid #bfe6cf;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#1b7a3d;font-weight:700">✅ CR/CP bate com a Conciliação Bancária — sem divergências no período. Todos os lançamentos do banco estão conciliados.</div>`;
   const _li = arr => arr.slice(0, 8).map(t => `<li>${fmtDate(t.data)} · <strong>${fmtVal(Math.abs(t.valor))}</strong> · ${(t.memo || '').replace(/</g, '&lt;').slice(0, 45)}</li>`).join('');
   const sVinc = tv.debVincular.reduce((s, t) => s + Math.abs(t.valor), 0);
   const sLanc = tv.debLancar.reduce((s, t) => s + Math.abs(t.valor), 0);
-  return `<div style="background:#fff4f4;border:1px solid #f0c9c9;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px">
+  return `${_fotoNota}<div style="background:#fff4f4;border:1px solid #f0c9c9;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px">
     <div style="font-weight:800;color:var(--red);margin-bottom:6px">⚠ Faltam conciliar — isso vai dar diferença no fechamento (CR/CP × banco): ${fmtVal(tv.sCred + tv.sDeb)}</div>
     ${tv.credNC.length ? `<div style="margin-bottom:6px"><strong>${tv.credNC.length} crédito(s) sem pedido/repasse = ${fmtVal(tv.sCred)}</strong> (o CR não vai ter esses):<ul style="margin:4px 0 0 18px;padding:0">${_li(tv.credNC)}${tv.credNC.length > 8 ? `<li>… e mais ${tv.credNC.length - 8}</li>` : ''}</ul></div>` : ''}
     ${tv.debVincular.length ? `<div style="margin-bottom:6px"><strong>🔗 ${tv.debVincular.length} débito(s) — a conta JÁ existe no Contas a Pagar (${fmtVal(sVinc)}), falta só VINCULAR</strong> (NÃO lance de novo, senão duplica — use "Vincular" ou "⚡ Débitos automáticos"):<ul style="margin:4px 0 0 18px;padding:0">${_li(tv.debVincular)}${tv.debVincular.length > 8 ? `<li>… e mais ${tv.debVincular.length - 8}</li>` : ''}</ul></div>` : ''}
@@ -13877,7 +13883,8 @@ function renderBanco() {
               const tipo = isCred ? '<span class="badge ok">Crédito</span>' : '<span class="badge err">Débito</span>';
               let conc;
               // Trava por lançamento (pelo banco dele) — cobre o caso "Todos" com dia parcialmente fechado.
-              const tFechado = diaFechado(t.data, t.banco);
+              // Mês congelado por FOTO (ex.: julho, que tem planilha oficial mas pode não estar em mesesFechados) também é só-leitura.
+              const tFechado = diaFechado(t.data, t.banco) || (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(t.data));
               if (tFechado) {
                 // Dia fechado para este banco → só leitura (sem botões).
                 if (isCred) {
@@ -14994,7 +15001,7 @@ function _autoRepassesCore(matchBanco) {
   const usados = repasseUsados();
   let n = 0;
   extratoBancario
-    .filter(t => t.valor > 0 && !extratoLinks[t.id] && !repasseLinks[t.id] && matchBanco(t) && gatewayDoCredito(t) && !diaFechado(t.data, t.banco))
+    .filter(t => t.valor > 0 && !extratoLinks[t.id] && !repasseLinks[t.id] && matchBanco(t) && gatewayDoCredito(t) && !diaFechado(t.data, t.banco) && !(typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(t.data)))
     .sort((a,b) => (a.data||0)-(b.data||0)) // depósitos mais antigos primeiro consomem recebimentos mais antigos
     .forEach(t => {
       const gw = gatewayDoCredito(t);
@@ -15356,7 +15363,7 @@ function _autoDebitosCore(matchBanco) {
   const usados = new Set();
   Object.values(debitoLinks).forEach(l => debLinkItens(l).forEach(it => usados.add(it.chave)));
   let n = 0;
-  extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t) && !diaFechado(t.data, t.banco)).forEach(t => {
+  extratoBancario.filter(t => t.valor < 0 && !debitoLinks[t.id] && matchBanco(t) && !diaFechado(t.data, t.banco) && !(typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(t.data))).forEach(t => {
     const alvo = Math.abs(t.valor);
     const fimMes = (t.data instanceof Date && !isNaN(t.data)) ? new Date(t.data.getFullYear(), t.data.getMonth() + 1, 0, 23, 59, 59) : null;
     const cand = contasPagar.filter(c => !c.cancelado && !usados.has(chaveContaPagar(c)) && Math.abs((c.valor||0) - alvo) <= 0.02 && _contaNaoFutura(c, fimMes));
