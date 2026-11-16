@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v800/10-853';
+const APP_VERSION = 'v801/10-854';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -668,6 +668,17 @@ let _baseKey = {};  // chave -> base carregada (p/ merge 3-vias nas chaves de li
 // carga que veio vazia zerar os vínculos (foi o que esvaziou o debitoLinks em 12/11). Igual à trava do flatCR.
 const _TRUNC_PROT = new Set(['debitoLinks', 'extratoLinks', 'repasseLinks', 'receitaLinks', 'extratoBancario']);
 let _permitirTruncLinks = false; // uma operação que reduz em massa de propósito seta isto durante a gravação
+// ── TRAVA DE MÊS FECHADO ──────────────────────────────────────────────────
+// Nenhuma rotina automática pode ALTERAR, MESCLAR ou APAGAR uma conta com vencimento OU pagamento em mês
+// FECHADO. Só ação MANUAL ("Ajuste de mês fechado"), que passa opts.ajusteMesFechado ou liga o flag abaixo.
+// Nasceu do incidente de 12/11 (15 contas pagas apagadas em jul/ago/set/out por uma gravação automática).
+const _MESFECHADO_PROT = new Set(['contasPagar']);
+let _permitirAjusteMesFechado = false;
+function _mfDateKey(v) { if (!v) return ''; if (v instanceof Date) return isNaN(v) ? '' : v.toISOString().slice(0, 10); const s = String(v); const m = s.match(/(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; const d = new Date(s); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
+function _contaEmMesFechado(c) { try { return (typeof _mesCongeladoCR === 'function') && (!!_mesCongeladoCR(c.vencimento) || (!!c.dataPag && !!_mesCongeladoCR(c.dataPag))); } catch (e) { return false; } }
+// Assinatura por CONTEÚDO (NÃO usa _uid, porque os _uid colidem: contas diferentes compartilham o mesmo).
+// Identifica uma conta pelo que ela é; se a contagem dessa assinatura cair, a conta foi apagada ou alterada.
+function _contaSigMF(c) { return [(c.fornecedor || '') + '', (c.descricao || '') + '', (c.empresa || '') + '', (Math.round((+c.valor || 0) * 100) / 100), _mfDateKey(c.vencimento), _mfDateKey(c.dataPag), c.pago ? 1 : 0, c.cancelado ? 1 : 0].join('¦'); }
 const _dc = v => v instanceof Date ? v.toISOString() : String(v == null ? '' : v);
 const _idFns = {
   pedidos: p => 'id:' + String(p.id),
@@ -761,6 +772,31 @@ async function saveData(key, data, opts) {
         return false;
       }
     } catch (e) { /* conferência falhou (offline): não bloqueia a gravação normal */ }
+  }
+  // ── TRAVA DE MÊS FECHADO: nenhuma rotina automática altera/mescla/apaga conta de mês fechado. ──
+  // Compara conta a conta (por _uid) contra o banco; se alguma conta de mês fechado sumiria ou mudaria
+  // (valor/vencimento/dataPag/pago/cancelado), BLOQUEIA. Só "Ajuste de mês fechado" (opts.ajusteMesFechado) passa.
+  const _ajusteMFok = !!(_permitirAjusteMesFechado || (opts && opts.ajusteMesFechado));
+  if (_MESFECHADO_PROT.has(key) && !_ajusteMFok && Array.isArray(data)) {
+    try {
+      const rr = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
+      let dbVal = null; try { dbVal = (rr && rr[0]) ? JSON.parse(rr[0].valor) : null; } catch (e) {}
+      if (Array.isArray(dbVal) && dbVal.length) {
+        // Multiset por CONTEÚDO das contas de mês fechado no BANCO e no que se quer gravar.
+        const dbCount = new Map();
+        dbVal.forEach(c => { if (c && _contaEmMesFechado(c)) { const k = _contaSigMF(c); dbCount.set(k, (dbCount.get(k) || 0) + 1); } });
+        const novoCount = new Map();
+        data.forEach(c => { if (c && _contaEmMesFechado(c)) { const k = _contaSigMF(c); novoCount.set(k, (novoCount.get(k) || 0) + 1); } });
+        let faltam = 0; const ex = [];
+        for (const [k, n] of dbCount) { const nn = novoCount.get(k) || 0; if (nn < n) { faltam += (n - nn); if (ex.length < 6) { const p = k.split('¦'); ex.push((p[0] || p[1] || 'conta') + ' ' + p[3] + (p[4] ? ' venc ' + p[4].split('-').reverse().join('/') : '')); } } }
+        if (faltam) { // uma conta de mês fechado sumiria ou mudaria de conteúdo → bloqueia
+          _avisoConc(`🔒 Gravação BLOQUEADA: ${faltam} conta(s) de MÊS FECHADO seriam apagadas/alteradas por uma rotina. Mês fechado só muda por "Ajuste de mês fechado". Ex.: ${ex.join('; ')}. Dê F5 e confira.`);
+          try { _atualizarAvisoSync(); } catch (e) {}
+          console.warn('[trava mês fechado] bloqueado em', key, { faltam, ex });
+          return false;
+        }
+      }
+    } catch (e) { /* offline: não bloqueia a gravação normal */ }
   }
   if (!_CHAVES_GRANDES.has(key)) _setLocalSeguro(key, writeStr); // pequenas ficam no local; grandes só na nuvem (quota)
   // Supabase com 2-3 tentativas; se falhar, vira PENDÊNCIA (não some calado) e o valor fica guardado local.
