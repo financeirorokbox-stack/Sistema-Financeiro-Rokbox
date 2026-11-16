@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v801/10-854';
+const APP_VERSION = 'v802/10-855';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -726,6 +726,8 @@ function _merge3(key, ours, theirs, base) {
 function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
 async function saveData(key, data, opts) {
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
+  // _uid À PROVA DE COLISÃO: nenhuma chave com _uid é GRAVADA com id repetido (dá novo às gêmeas; não toca em mais nada).
+  if (_UID_KEYS.has(key) && Array.isArray(data)) { try { _dedupUids(data); } catch (e) {} }
   const str = JSON.stringify(data);
   let writeStr = str, avisoMsg = '';
   // ── Concorrência: confere o atualizado_em do banco ANTES de gravar (só se ESTA sessão já tinha a chave). ──
@@ -1007,7 +1009,22 @@ async function importarBackup(file) {
 // ele ainda, então NADA muda de comportamento. Nas próximas fases (um módulo por vez) cada
 // módulo passa a usar o _uid como identidade estável, matando a raiz dos bugs recorrentes.
 let _uidSeq = 0;
-function _novoUid() { return 'u' + Date.now().toString(36) + '_' + (_uidSeq++).toString(36) + Math.random().toString(36).slice(2, 6); }
+function _novoUid() { return 'u' + Date.now().toString(36) + '_' + (_uidSeq++).toString(36) + Math.random().toString(36).slice(2, 8); }
+// Gera um _uid garantidamente FORA do conjunto `usados` (à prova de colisão).
+function _novoUidUnico(usados) { let u, t = 0; do { u = _novoUid(); } while (usados && usados.has(u) && ++t < 100); return u; }
+const _UID_KEYS = new Set(['contasPagar', 'recebimentosConsolidado', 'extratoBancario', 'devolucoes', 'formaPagamento', 'boletosAvulsos']);
+// Dá _uid NOVO e único a quem não tem E a toda DUPLICATA (gêmea que herdou o _uid por clonagem).
+// NÃO toca em nenhum outro campo da conta. Retorna quantos _uid foram criados/corrigidos.
+function _dedupUids(arr) {
+  if (!Array.isArray(arr)) return 0;
+  const vistos = new Set(); let n = 0;
+  for (const x of arr) {
+    if (!x || typeof x !== 'object') continue;
+    if (!x._uid || vistos.has(x._uid)) { x._uid = _novoUidUnico(vistos); n++; }
+    vistos.add(x._uid);
+  }
+  return n;
+}
 // Percorre os lançamentos e dá _uid a quem ainda não tem. Idempotente (nunca troca um _uid já
 // existente, nunca mexe em outro campo). Salva só os arrays que realmente ganharam id novo.
 function _garantirUids() {
@@ -1022,8 +1039,7 @@ function _garantirUids() {
   let total = 0;
   alvos.forEach(([nome, arr]) => {
     if (!Array.isArray(arr)) return;
-    let n = 0;
-    for (const x of arr) { if (x && !x._uid) { x._uid = _novoUid(); n++; } }
+    const n = _dedupUids(arr); // agora também corrige DUPLICATAS (gêmeas), não só os sem _uid
     if (n) { total += n; try { saveData(nome, arr); } catch (e) {} }
   });
   return total;
