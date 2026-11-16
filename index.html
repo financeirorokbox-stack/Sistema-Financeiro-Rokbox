@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v803/10-856';
+const APP_VERSION = 'v804/10-857';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -2251,15 +2251,18 @@ function _buildAlocComp() {
   const shared = recs.filter(r => _splitNped(r.nped).length > 1)
     .map((r, i) => ({ r, i }))
     .sort((a, b) => { const da = String(a.r.data || ''), db = String(b.r.data || ''); return da < db ? -1 : da > db ? 1 : a.i - b.i; });
+  // Rateio por FALTA QUE RESTA para TODOS os meses (aberto e fechado). O ramo antigo de mês fechado dava a cada
+  // pagamento o VALOR CHEIO do pedido, então num pagamento que cobre 2 pedidos (um grande + um pequeno) o grande
+  // engolia tudo e o pequeno ficava com 0 (bug CORAVI #398/#446 quando o mês fechou). É zero a zero no total do
+  // mês (só muda a divisão entre os pedidos do MESMO pagamento), então as fotos não mudam.
   const need = {};
-  shared.forEach(o => _splitNped(o.r.nped).forEach(pid => { if (need[pid] === undefined && !congeladoPed(pid)) need[pid] = Math.max(0, valorPed(pid) - (_alocSoloComp[pid] || 0)); }));
+  shared.forEach(o => _splitNped(o.r.nped).forEach(pid => { if (need[pid] === undefined) need[pid] = Math.max(0, valorPed(pid) - (_alocSoloComp[pid] || 0)); }));
   shared.forEach(o => {
     const peds = _splitNped(o.r.nped); let remaining = (o.r.bruto || o.r.liq || 0); const m = {};
     peds.forEach(pid => {
-      let aloc;
-      if (congeladoPed(pid)) { aloc = Math.min(valorPed(pid), Math.max(0, remaining)); }                  // ANTIGO: mês fechado
-      else { const nd = need[pid] || 0; aloc = Math.min(nd, Math.max(0, remaining)); need[pid] = nd - aloc; } // ABERTO: pela falta que resta
-      aloc = +aloc.toFixed(2); m[pid] = aloc; remaining -= aloc;
+      const nd = need[pid] || 0;
+      const aloc = +Math.min(nd, Math.max(0, remaining)).toFixed(2); // pela falta que resta
+      m[pid] = aloc; need[pid] = +(nd - aloc).toFixed(2); remaining = +(remaining - aloc).toFixed(2);
     });
     _alocMapComp.set(o.r, m);
   });
