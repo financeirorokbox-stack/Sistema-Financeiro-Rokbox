@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v798/10-851';
+const APP_VERSION = 'v799/10-852';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4075,7 +4075,7 @@ function limparFiltrosPagar() {
 function limparFiltrosGen(ids, buscaKey, render) {
   (ids||[]).forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   if (buscaKey) buscaPersist[buscaKey] = '';
-  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; saveData('dateFilters', dateFilters); }
+  if (dateFilter) { dateFilter.ano = []; dateFilter.mes = []; dateFilter.dia = []; dateFilter.de = ''; dateFilter.ate = ''; saveData('dateFilters', dateFilters); } // limpa TAMBÉM o intervalo De/Até (senão o contador de filtros fica em 1)
   if (typeof render === 'function') render();
 }
 function limparFiltrosExtrato() { limparFiltrosGen(['ext-banco','ext-emp','ext-q'], 'extrato', renderExtrato); }
@@ -11813,13 +11813,13 @@ function renderExtrato() {
   const nDupExt = visAll.filter(t => _dupCountExt[_dupKeyExt(t)] > 1).length;
 
   el.innerHTML = `
-    ${uploadWrap('extrato', `<label class="upload-card" id="card-ext" for="file-ext" style="border:2px solid var(--accent)">
+    <div style="margin-bottom:12px"><label class="upload-card" id="card-ext" for="file-ext" style="border:2px solid var(--accent);display:block;cursor:pointer">
       <div class="u-icon">⬆</div>
       <div class="u-label">Importar extrato (OFX)</div>
       <div class="u-hint">Clique aqui e escolha o arquivo <strong>.ofx</strong> do banco. Mostro a PRÉVIA (novas, já existentes, possíveis duplicatas, saldo) e só gravo quando você confirmar. Só acrescenta — nunca apaga.</div>
       <div class="u-status" id="status-ext">${extratoBancario.length?'✓ '+extratoBancario.length+' lançamentos':'Nenhum arquivo'}</div>
       <input type="file" id="file-ext" accept=".ofx,.qfx">
-    </label>`)}
+    </label></div>
     ${filtrosBar({
       nAtivos: [fBanco,fEmp,fQraw].filter(Boolean).length + (dfAtivo()?1:0),
       limpar: 'limparFiltrosExtrato()',
