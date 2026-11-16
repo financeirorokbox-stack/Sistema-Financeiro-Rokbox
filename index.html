@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v802/10-855';
+const APP_VERSION = 'v803/10-856';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9590,6 +9590,18 @@ function parseItauCobrancaSheet(wb) {
 // Chave única de um boleto avulso (relatório Itaú) — pedido|valor|vencimento|pagador — p/ dedup robusto.
 function _avulsoDia(d) { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? dt.toISOString().slice(0, 10) : ''; }
 function chaveBoletoAvulso(x) { return `${String(x.pedido || '').trim()}|${(+(x.valorTitulo || x.valorPago) || 0).toFixed(2)}|${_avulsoDia(x.vencimento)}|${String(x.pagador || x.cliente || '').trim().toLowerCase()}`; }
+// Dedup por CONTEÚDO (#5 import de boletos): mesmo PAGADOR + DIA + VALOR (tolerância 0,05), IGNORANDO o nº do
+// pedido — que às vezes vem vazio ou LIXO (ex.: o total "4.016,34" que caiu no campo do pedido). Procura tanto
+// nos boletos avulsos quanto nos recebimentos de Boleto Itaú. Usado na prévia para não duplicar ao re-subir.
+function _boletoDiaC(v) { if (!v) return ''; if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; } const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); }
+function _boletoConteudoJaExiste(nome, dataRef, valor, tol) {
+  tol = tol || 0.05; const dia = _boletoDiaC(dataRef); const val = +valor || 0; if (!dia) return false;
+  const _mNome = (typeof nomesBatem === 'function') ? nomesBatem : ((a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase());
+  const bate = (nm, dt, vl) => Math.abs((+vl || 0) - val) <= tol && _boletoDiaC(dt) === dia && _mNome(nm || '', nome || '');
+  const emReceb = (recebimentosConsolidado || []).some(r => r.gateway === 'Boleto Itaú' && bate(r.nome, r.data, (r.bruto != null ? r.bruto : r.liq)));
+  const emAvul = (boletosAvulsos || []).some(b => bate(b.cliente || b.pagador, b.dataPagamento || b.vencimento, (b.valorPago != null ? b.valorPago : b.valorTitulo)));
+  return emReceb || emAvul;
+}
 // Remove boletos avulsos duplicados (mantém um de cada; consolida pagamento/telefone).
 function deduparBoletosAvulsos() {
   const seen = new Map(); const out = [];
@@ -9681,14 +9693,28 @@ function processCobrancaWorkbook(wb) {
     vistos.add(k);
     novos.push({ pedido: String(c.pedido || ''), cliente: c.pagador || '', valorTitulo: c.valorTitulo, valorPago: pago ? c.valorPago : 0, dataPagamento: pago ? c.dataPagamento : null, vencimento: c.vencimento, fone: '', _pago: pago });
   });
-  const novosPagos = novos.filter(n => n._pago), novosAbertos = novos.filter(n => !n._pago);
-  let addP = false, addA = false;
-  if (novosPagos.length) addP = confirm(`${novosPagos.length} boleto(s) PAGO(s) de pedidos fora do sistema (total ${fmtVal(novosPagos.reduce((s, n) => s + (n.valorPago || 0), 0))}).\n\nAdicionar como recebidos (Boleto Itaú)?`);
-  if (novosAbertos.length) addA = confirm(`${novosAbertos.length} boleto(s) EM ABERTO (a receber) fora do sistema (total ${fmtVal(novosAbertos.reduce((s, n) => s + (n.valorTitulo || 0), 0))}).\n\nAdicionar para acompanhar e cobrar por WhatsApp?`);
+  // ── DEDUP POR CONTEÚDO (#5): tira os que já existem por pagador+dia+valor (tol 0,05), mesmo com nº de pedido
+  //    diferente, vazio ou LIXO (ex.: o "4.016,34" que caiu no campo do pedido). E mostra PRÉVIA antes de gravar.
+  const jaConteudo = [];
+  const novosLimpos = novos.filter(n => {
+    const dRef = n._pago ? (n.dataPagamento || n.vencimento) : n.vencimento;
+    const val = n._pago ? (n.valorPago != null ? n.valorPago : n.valorTitulo) : n.valorTitulo;
+    if (_boletoConteudoJaExiste(n.cliente, dRef, val)) { jaConteudo.push(n); return false; }
+    return true;
+  });
+  const novosPagos = novosLimpos.filter(n => n._pago), novosAbertos = novosLimpos.filter(n => !n._pago);
+  const _vb = n => (n._pago && n.valorPago != null) ? n.valorPago : n.valorTitulo;
+  const _lst = arr => arr.slice(0, 10).map(n => `• ${n.cliente || '?'} — ${fmtVal(_vb(n) || 0)} venc ${n.vencimento ? fmtDate(n.vencimento) : '-'}${n.pedido ? ` (ped ${n.pedido})` : ''}`).join('\n') + (arr.length > 10 ? `\n… e mais ${arr.length - 10}` : '');
+  let _msg = 'PRÉVIA — relatório de boletos (fora do sistema):\n\n';
+  _msg += `✓ NOVOS a adicionar: ${novosLimpos.length}  (pagos ${novosPagos.length} = ${fmtVal(novosPagos.reduce((s, n) => s + (n.valorPago || 0), 0))} · abertos ${novosAbertos.length} = ${fmtVal(novosAbertos.reduce((s, n) => s + (n.valorTitulo || 0), 0))})\n`;
+  _msg += `↺ JÁ EXISTIAM (mesmo pagador+dia+valor — NÃO entram): ${jaConteudo.length}${jaConteudo.length ? ':\n' + _lst(jaConteudo) : ''}\n`;
+  _msg += `✎ Atualizados (já tinham, agora vieram pagos): ${nAtualizados}\n`;
+  _msg += novosLimpos.length ? `\nAdicionar os ${novosLimpos.length} novos acima?` : `\nNenhum boleto NOVO para adicionar (nada entra).`;
+  const addAll = novosLimpos.length ? confirm(_msg) : (alert(_msg), false);
   let empAvulso = '';
-  if ((addP && novosPagos.length) || (addA && novosAbertos.length)) empAvulso = escolherEmpresa('Qual EMPRESA desses boletos do Itaú?');
+  if (addAll) empAvulso = escolherEmpresa('Qual EMPRESA desses boletos do Itaú?');
   let nAdd = 0;
-  novos.forEach(n => { const add = n._pago ? addP : addA; delete n._pago; if (add) { n.empresa = empAvulso; boletosAvulsos.push(n); nAdd++; } });
+  if (addAll) novosLimpos.forEach(n => { delete n._pago; n.empresa = empAvulso; boletosAvulsos.push(n); nAdd++; });
   if (nAtualizados || nAdd) saveData('boletosAvulsos', boletosAvulsos);
 
   // ── Boletos PAGOS de pedidos QUE ESTÃO no sistema, mas sem "forma"/emissão (modelo cash-first) ──
@@ -9717,7 +9743,7 @@ function processCobrancaWorkbook(wb) {
   const _diaBol = v => { if (!v) return ''; if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; } const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); };
   const _jaTemBoletoIgual = n => {
     const val = (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0; const dia = _diaBol(n.dataPagamento || n.vencimento);
-    const bate = (nm, dt, vl) => Math.abs((+vl || 0) - val) <= 0.01 && _diaBol(dt) === dia && nomesBatem(nm || '', n.nome || '');
+    const bate = (nm, dt, vl) => Math.abs((+vl || 0) - val) <= 0.05 && _diaBol(dt) === dia && nomesBatem(nm || '', n.nome || '');
     return recebimentosConsolidado.some(r => r.gateway === 'Boleto Itaú' && (r._avulso || r._boletoPagoDireto) && bate(r.nome, r.data, r.bruto))
         || (Array.isArray(boletosAvulsos) && boletosAvulsos.some(b => bate(b.nome || b.pagador, b.dataPagamento || b.vencimento, (b.valorPago != null ? b.valorPago : b.valorTitulo))));
   };
