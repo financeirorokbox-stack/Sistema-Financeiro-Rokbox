@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v796/10-849';
+const APP_VERSION = 'v797/10-850';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -666,7 +666,7 @@ let _baseKey = {};  // chave -> base carregada (p/ merge 3-vias nas chaves de li
 // TRAVA ANTI-TRUNCAMENTO dos vínculos (debitoLinks/extratoLinks/repasseLinks/receitaLinks): nunca gravar uma
 // versão com MUITO menos itens que a do banco (queda >20% ou para 0) sem liberar antes — protege contra uma
 // carga que veio vazia zerar os vínculos (foi o que esvaziou o debitoLinks em 12/11). Igual à trava do flatCR.
-const _TRUNC_PROT = new Set(['debitoLinks', 'extratoLinks', 'repasseLinks', 'receitaLinks']);
+const _TRUNC_PROT = new Set(['debitoLinks', 'extratoLinks', 'repasseLinks', 'receitaLinks', 'extratoBancario']);
 let _permitirTruncLinks = false; // uma operação que reduz em massa de propósito seta isto durante a gravação
 const _dc = v => v instanceof Date ? v.toISOString() : String(v == null ? '' : v);
 const _idFns = {
@@ -713,7 +713,7 @@ function _merge3(key, ours, theirs, base) {
   return { merged, conflitos };
 }
 function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
-async function saveData(key, data) {
+async function saveData(key, data, opts) {
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   const str = JSON.stringify(data);
   let writeStr = str, avisoMsg = '';
@@ -744,16 +744,19 @@ async function saveData(key, data) {
       }
     }
   } catch (e) { /* conferência falhou (offline): segue o fluxo normal, não trava a gravação */ }
-  // ── TRAVA ANTI-TRUNCAMENTO (vínculos) ──
-  if (_TRUNC_PROT.has(key) && !_permitirTruncLinks) {
+  // ── TRAVA ANTI-TRUNCAMENTO (2b): bloqueia QUALQUER redução AUTOMÁTICA de vínculos/extrato. ──
+  // Só uma ação MANUAL (que passa opts.reduzOk, ou liga _permitirTruncLinks) pode reduzir. Nenhuma rotina
+  // automática (boot, sync, heal, importação) apaga: isso impede que uma carga vazia/stale zere o extrato ou os vínculos.
+  const _reduzOk = !!(_permitirTruncLinks || (opts && opts.reduzOk));
+  if (_TRUNC_PROT.has(key) && !_reduzOk) {
     try {
       const _nItens = v => (v && typeof v === 'object') ? (Array.isArray(v) ? v.length : Object.keys(v).length) : 0;
       const nNovo = _nItens(data);
       const rr = await sbFetch('GET', null, `?device_id=eq.${getDeviceId()}&chave=eq.${encodeURIComponent(key)}&select=valor`);
       let dbVal = null; try { dbVal = (rr && rr[0]) ? JSON.parse(rr[0].valor) : null; } catch (e) {}
       const nDb = _nItens(dbVal);
-      if (nDb >= 20 && (nNovo === 0 || nNovo < nDb * 0.8)) { // queda >20% ou para 0 → provável carga vazia/erro
-        _avisoConc(`"${key}" ia cair de ${nDb} para ${nNovo} vínculo(s) — queda grande (provável carga vazia). NÃO gravei por cima. Dê F5 e confira; se a redução for proposital, use a ferramenta própria.`);
+      if (nDb > 0 && nNovo < nDb) { // QUALQUER redução automática → provável carga vazia/stale ou rotina que apaga
+        _avisoConc(`"${key}" ia cair de ${nDb} para ${nNovo} item(ns). Gravação automática BLOQUEADA (só ação manual reduz). Dê F5 e confira; se for proposital, use o botão da ferramenta.`);
         try { _atualizarAvisoSync(); } catch (e) {}
         return false;
       }
@@ -5223,7 +5226,7 @@ function removerReceitaAvulsa(id) {
   receitasAvulsas = receitasAvulsas.filter(x => x.id !== id);
   if (r._extratoId) delete receitaLinks[r._extratoId];
   saveData('receitasAvulsas', receitasAvulsas);
-  saveData('receitaLinks', receitaLinks);
+  saveData('receitaLinks', receitaLinks, {reduzOk:true});
   renderContas();
 }
 
@@ -5361,7 +5364,7 @@ function removerOrfaoReceb(np) {
   Object.keys(extratoLinks).forEach(id => { if (String(extratoLinks[id].pedido).trim() === np) { delete extratoLinks[id]; unlink++; } });
   recebimentosConsolidado = recebimentosConsolidado.filter(r => String(r.nped || '').trim() !== np);
   delete recebOrfaoInfo[np];
-  if (unlink) saveData('extratoLinks', extratoLinks);
+  if (unlink) saveData('extratoLinks', extratoLinks, {reduzOk:true});
   saveData('recebOrfaoInfo', recebOrfaoInfo);
   saveData('recebimentosConsolidado', recebimentosConsolidado);
   try { syncExtratoToRecebimentos(); } catch (e) {}
@@ -10650,8 +10653,9 @@ const DRIVE_GRUPOS = [
   { input: 'file-pedidos',  nav: ['vendas'],                     tipos: ['Vendas'], snapshot: true },
   { input: 'file-forma',    nav: ['vendas'],                     tipos: ['Forma de Pagto'], snapshot: true },
   { input: 'file-cr2',      nav: ['financeiro', 'contas', 'receb'],    tipos: ['Paypal', 'BraavoPay', 'Rede', 'Pagarme', 'Barte'] },
-  { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] },
-  { input: 'file-ext',      nav: ['financeiro', 'extrato'],            tipos: ['Extratos'] }
+  { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] }
+  // EXTRATO fora do Drive automático (pedido da Elaine): sobe pela tela (Financeiro → Extrato), com a PRÉVIA
+  //   antes de gravar. Evita importar extrato sem conferência. { input:'file-ext', ... tipos:['Extratos'] } — desligado.
   // Contas a Pagar e Contas a Receber são SAÍDA (exportadas do sistema) — não entram na sincronização.
 ];
 function _navGrupo(nav) { try { if (nav[0]) setView(nav[0]); if (nav[1]) setSub(nav[1]); if (nav[2]) setSubR(nav[2]); } catch (e) {} }
@@ -11377,23 +11381,34 @@ function parseOFX(text) {
 // entram só N−M. Preserva lançamentos iguais legítimos (ex.: várias tarifas de R$1 no mesmo dia),
 // nunca duplica no re-upload e NUNCA apaga/altera o que já está gravado (só acrescenta). O DIA vem do
 // diaKey() (normaliza Date e texto salvo igual — era aí que o dedup antigo falhava). Devolve {add, jaTinha}.
-function dedupInserirExtrato(novas, banco) {
+// Importa extrato: SÓ ACRESCENTA (nunca apaga/substitui linha existente). Dedup por CONTEÚDO (banco+dia+valor+desc).
+// dryRun=true calcula a prévia (novas/já existentes/possíveis duplicatas/"não vieram no arquivo") SEM gravar nada.
+function dedupInserirExtrato(novas, banco, dryRun) {
   const descNorm = m => String(m || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
   const chave = (bco, t) => (bco || '') + '|' + (diaKey(t.data) || '') + '|' + (+t.valor || 0).toFixed(2) + '|' + descNorm(t.memo);
-  const existe = {};
-  extratoBancario.forEach(t => { const k = chave(t.banco, t); existe[k] = (existe[k] || 0) + 1; });
+  const vkey = (bco, t) => (bco || '') + '|' + (diaKey(t.data) || '') + '|' + (+t.valor || 0).toFixed(2); // dia+valor (p/ "possível duplicata")
+  const existe = {}, doBanco = [];
+  extratoBancario.forEach(t => { const k = chave(t.banco, t); existe[k] = (existe[k] || 0) + 1; if ((t.banco || '') === banco) doBanco.push(t); });
   const idsUsados = new Set(extratoBancario.map(t => String(t.id)));
-  let add = 0, jaTinha = 0;
+  const existeW = Object.assign({}, existe);
+  let add = 0, jaTinha = 0; const dups = []; const diasArq = new Set(); const chaveArq = {};
   (novas || []).forEach(t => {
-    const k = chave(banco, t); // usa o banco escolhido (t.banco só é setado quando o lançamento entra)
-    if (existe[k] > 0) { existe[k]--; jaTinha++; return; } // já existe um igual nesse dia → re-upload, ignora
-    let id = String(t.id), n = 1;
-    while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); } // id interno único (os vínculos usam t.id; o _uid é a identidade imutável)
-    t.id = id; t.banco = banco; idsUsados.add(id);
-    extratoBancario.push(t);
+    const k = chave(banco, t); diasArq.add(diaKey(t.data)); chaveArq[k] = (chaveArq[k] || 0) + 1;
+    if (existeW[k] > 0) { existeW[k]--; jaTinha++; return; } // já existe um igual nesse dia → re-upload, ignora
+    const vk = vkey(banco, t); // mesmo dia+valor do banco com descrição diferente = possível duplicata (entra; ela confere depois)
+    if (doBanco.some(e => vkey(banco, e) === vk)) dups.push({ data: t.data, valor: t.valor, memo: t.memo });
+    if (!dryRun) {
+      let id = String(t.id), n = 1;
+      while (idsUsados.has(id)) { id = String(t.id) + '_' + (n++); } // id interno único; o _uid é a identidade imutável
+      t.id = id; t.banco = banco; idsUsados.add(id);
+      extratoBancario.push(t);
+    }
     add++;
   });
-  return { add, jaTinha };
+  // "não vieram no arquivo": lançamentos JÁ existentes desse banco, nos dias que o arquivo cobre, sem correspondente
+  // no arquivo. SÓ AVISO — nunca são apagados.
+  const naoVieram = doBanco.filter(e => diasArq.has(diaKey(e.data)) && !(chaveArq[chave(e.banco, e)] > 0)).length;
+  return { add, jaTinha, dups: dups.length, naoVieram };
 }
 // Lê o SALDO REAL do banco no OFX (tag <LEDGERBAL>): o saldo que o próprio banco reporta no fim do extrato.
 // Retorna { valor, data } ou null. A data (DTASOF) às vezes vem zerada (ex.: Bradesco 00000000) -> data:null.
@@ -11548,7 +11563,7 @@ function linkExtrato(id) {
 }
 function unlinkExtrato(id) {
   delete extratoLinks[id];
-  saveData('extratoLinks', extratoLinks);
+  saveData('extratoLinks', extratoLinks, {reduzOk:true});
   syncExtratoToRecebimentos();
   renderExtrato();
 }
@@ -11697,11 +11712,11 @@ function excluirExtratoDoBanco() {
     if (receitaLinks[t.id]) { receitasAvulsas = receitasAvulsas.filter(r => r._extratoId !== t.id); delete receitaLinks[t.id]; }
   });
   extratoBancario = extratoBancario.filter(t => !ids.has(t.id));
-  saveData('extratoBancario', extratoBancario);
-  saveData('extratoLinks', extratoLinks);
-  saveData('repasseLinks', repasseLinks);
-  saveData('debitoLinks', debitoLinks);
-  saveData('receitaLinks', receitaLinks);
+  saveData('extratoBancario', extratoBancario, {reduzOk:true});
+  saveData('extratoLinks', extratoLinks, {reduzOk:true});
+  saveData('repasseLinks', repasseLinks, {reduzOk:true});
+  saveData('debitoLinks', debitoLinks, {reduzOk:true});
+  saveData('receitaLinks', receitaLinks, {reduzOk:true});
   saveData('receitasAvulsas', receitasAvulsas);
   saveData('contasPagar', contasPagar);
   try { syncExtratoToRecebimentos(); } catch(e) {}
@@ -11798,7 +11813,7 @@ function renderExtrato() {
       limpar: 'limparFiltrosExtrato()',
       acoes: `<button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
         ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove os lançamentos do banco selecionado. Se houver filtro de data ativo, remove só o período filtrado (banco + data).">🗑 Excluir deste banco${dfAtivo()?' (no período)':''}</button>` : ''}
-        <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[]);saveData('extratoLinks',{});renderExtrato()}">🗑 Limpar tudo</button>`,
+        <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[],{reduzOk:true});saveData('extratoLinks',{},{reduzOk:true});renderExtrato()}">🗑 Limpar tudo</button>`,
       campos:
         fdRow('Banco', `<select id="ext-banco" onchange="renderExtrato()"><option value="">Todos</option>${bancos.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${b===fBanco?'selected':''}>${b}</option>`).join('')}${temSemBancoExt?`<option value="__sem" ${fBanco==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Empresa', `<select id="ext-emp" onchange="renderExtrato()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
@@ -11949,8 +11964,26 @@ function renderExtrato() {
         alert('⚠ Upload cancelado: é obrigatório informar o BANCO do extrato.\n\nCadastre o banco em Cadastro → Bancos (ou digite o nome quando o sistema perguntar) e suba o arquivo novamente.\n\nNenhum lançamento foi adicionado.');
         return;
       }
-      // Dedup por CONTEÚDO (banco + dia + valor + descrição), com quantidade por dia — ver dedupInserirExtrato.
-      // NÃO confia no FITID (o Bradesco troca a cada download), não apaga/altera nada já gravado.
+      // ── PRÉVIA antes de gravar (só ACRESCENTA; nada é apagado/substituído) ──
+      const _prev = dedupInserirExtrato(novas, banco, true); // dry-run: calcula sem gravar
+      const _saldoArq = (saldoFinalInfo && saldoFinalInfo.valor != null) ? saldoFinalInfo.valor : null;
+      if (_prev.add === 0) {
+        const stEl0 = document.getElementById('status-ext'); if (stEl0) stEl0.textContent = 'Nada novo — já estava tudo importado.';
+        alert(`Esse arquivo de "${banco}" já está todo importado (${_prev.jaTinha} linha(s) já existentes). Nada a adicionar, nada apagado.`);
+        return;
+      }
+      const _msg = `Prévia da importação — ${banco}:\n\n` +
+        `• ${_prev.add} linha(s) NOVA(s) para adicionar\n` +
+        `• ${_prev.jaTinha} já existente(s) (ignoradas — re-upload do mesmo)\n` +
+        (_prev.dups ? `• ⚠ ${_prev.dups} possível(is) DUPLICATA(s) (mesmo dia e valor, descrição diferente — vão entrar; confira depois e exclua se for o caso)\n` : '') +
+        (_prev.naoVieram ? `• ${_prev.naoVieram} lançamento(s) desse banco nesses dias que NÃO vieram no arquivo — NÃO serão apagados (só aviso)\n` : '') +
+        (_saldoArq != null ? `• Saldo final do arquivo: ${fmtVal(_saldoArq)} (confiro com o do sistema depois de gravar)\n` : '') +
+        `\nNenhuma linha existente é apagada ou substituída. Adicionar as ${_prev.add} nova(s)?`;
+      if (!confirm(_msg)) {
+        const stEl0 = document.getElementById('status-ext'); if (stEl0) stEl0.textContent = 'Importação cancelada — nada foi gravado.';
+        return;
+      }
+      // Dedup por CONTEÚDO (banco + dia + valor + descrição) — NÃO confia no FITID; não apaga/altera nada já gravado.
       const _res = dedupInserirExtrato(novas, banco);
       const add = _res.add, jaTinha = _res.jaTinha;
       saveData('extratoBancario', extratoBancario);
@@ -13553,23 +13586,25 @@ function conferenciaPeriodoHTML() {
 // mais → a conciliação "se perde sozinha". Isto re-amarra cada vínculo órfão a um lançamento ATUAL do MESMO VALOR
 // que está sem vínculo. GUARD: nunca roda com o extrato vazio (senão apagaria tudo). Só mexe em vínculo órfão.
 function _healConciliacaoLinks() {
-  if (!extratoBancario || !extratoBancario.length) return { migrados: 0, removidos: 0 };
+  // 2b: NUNCA apaga vínculo. Re-amarra (move) quando acha o lançamento novo do MESMO valor; o que não casar fica
+  // GUARDADO e marcado `_revisar` (a Elaine desvincula na mão se quiser). Assim re-importar extrato nunca perde conciliação.
+  if (!extratoBancario || !extratoBancario.length) return { migrados: 0, revisar: 0 };
   const idsAtuais = new Set(extratoBancario.map(t => String(t.id)));
-  let migrados = 0, removidos = 0;
+  let migrados = 0, revisar = 0;
   const reparar = (mapa, sinal, evitaExtLink) => {
     Object.keys(mapa).forEach(oldId => {
-      if (idsAtuais.has(oldId)) return; // vínculo aponta pra um id que EXISTE → ok, não mexe
+      if (idsAtuais.has(oldId)) { if (mapa[oldId] && mapa[oldId]._revisar) delete mapa[oldId]._revisar; return; } // voltou a casar → tira o selo
       const link = mapa[oldId];
       const val = Math.abs(+(link.total || (link.itens ? link.itens.reduce((s, i) => s + (+i.valor || 0), 0) : 0) || 0));
       const alvo = val > 0.005 ? extratoBancario.find(t => (sinal > 0 ? (t.valor || 0) > 0 : (t.valor || 0) < 0) && !mapa[t.id] && (!evitaExtLink || !extratoLinks[t.id]) && Math.abs(Math.abs(t.valor) - val) <= 0.02) : null;
-      delete mapa[oldId];                 // tira o vínculo morto (aponta pra id que não existe)
-      if (alvo) { mapa[alvo.id] = link; migrados++; } else removidos++;
+      if (alvo && !mapa[alvo.id]) { mapa[alvo.id] = link; delete mapa[oldId]; if (link._revisar) delete link._revisar; migrados++; } // RE-AMARRA (move; conta não muda)
+      else { link._revisar = true; revisar++; } // NÃO apaga: guarda e marca "revisar"
     });
   };
   reparar(debitoLinks, -1, false);        // débito ↔ conta a pagar
   reparar(repasseLinks, +1, true);        // repasse (operadora) ↔ crédito
-  if (migrados || removidos) { saveData('debitoLinks', debitoLinks); saveData('repasseLinks', repasseLinks); }
-  return { migrados, removidos };
+  if (migrados || revisar) { saveData('debitoLinks', debitoLinks); saveData('repasseLinks', repasseLinks); }
+  return { migrados, revisar };
 }
 // Re-concilia as TARIFAS por DATA. Toda tarifa é R$1 igualzinha, então o vínculo por VALOR gruda a conta no débito
 // de OUTRO dia; o débito do dia certo fica sem par e a trava acusa (mesmo com a conta existindo e paga). Aqui casa
@@ -13609,7 +13644,7 @@ function _reconciliarTarifasPorData() {
     for (let i = n; i < ds.length; i++) sobraDebitos.push(ds[i]);  // débito sem conta = falta lançar
     if (ds.length !== cs.length) mismatches.push({ dia, debitos: ds.length, contas: cs.length });
   });
-  saveData('debitoLinks', debitoLinks);
+  saveData('debitoLinks', debitoLinks, {reduzOk:true});
   return { vinculados, sobraContas, sobraDebitos, mismatches };
 }
 // TRAVA AUTOMÁTICA (Parte 4): toda vez que abrir a Conciliação (ou exportar), avisa o que NÃO está conciliado —
@@ -13755,7 +13790,7 @@ function renderBanco() {
         <button class="btn primary sm" onclick="cbAutoRepasses()" title="Concilia repasses PayPal/Braavo/Boleto que batem exato (acúmulo por data). Rode ao subir dados novos.">⚡ Repasses automáticos</button>
         <button class="btn ghost sm" onclick="exportarConciliacaoBancaria()" title="Exporta crédito e débito (2 abas) com as MESMAS colunas do Contas a Receber — respeita banco e período filtrados">📤 Exportar (créd/déb)</button>
         <button class="btn ghost sm" onclick="verificarDuplicidadeBancos()" title="Procura bancos com nome parecido e os MESMOS lançamentos sob bancos diferentes">🔍 Duplicidades</button>
-        <button class="btn ghost sm" onclick="const h=_healConciliacaoLinks();renderBanco();alert(h.migrados||h.removidos?('🔧 Reparei os vínculos: '+h.migrados+' re-amarrado(s) ao lançamento certo'+(h.removidos?', '+h.removidos+' vínculo(s) morto(s) removido(s)':'')+'.\\n\\nSe alguma conciliação tinha se perdido no re-upload do extrato, ela volta agora.'):'✓ Nenhum vínculo órfão — todos os vínculos apontam pra lançamentos que existem.')" title="Re-amarra vínculos que se perderam quando o extrato foi re-importado (o id do FITID do Itaú muda a cada download)">🔧 Reparar vínculos</button>
+        <button class="btn ghost sm" onclick="const h=_healConciliacaoLinks();renderBanco();alert(h.migrados||h.revisar?('🔧 Reparei os vínculos: '+h.migrados+' re-amarrado(s) ao lançamento certo'+(h.revisar?', '+h.revisar+' guardado(s) para revisar (NÃO apaguei nada)':'')+'.\\n\\nSe alguma conciliação tinha se perdido no re-upload do extrato, ela volta agora.'):'✓ Nenhum vínculo órfão — todos os vínculos apontam pra lançamentos que existem.')" title="Re-amarra vínculos órfãos (id do FITID muda no re-upload). Nunca apaga: o que não casar fica para revisar">🔧 Reparar vínculos</button>
         <button class="btn ghost sm" onclick="const r=_reconciliarTarifasPorData();renderBanco();var msg=r.vinculados+' tarifa(s) re-amarrada(s) ao débito do MESMO dia.';if(r.mismatches&&r.mismatches.length){msg+='\\n\\nDias que NÃO batem:\\n'+r.mismatches.map(function(m){return '• '+m.dia.split('-').reverse().join('/')+': '+m.debitos+' débito(s) x '+m.contas+' conta(s)';}).join('\\n');}if(r.sobraContas&&r.sobraContas.length){msg+='\\n\\n⚠ '+r.sobraContas.length+' conta(s) de tarifa SOBRANDO (duplicata) — cancele no Contas a Pagar.';}if(r.sobraDebitos&&r.sobraDebitos.length){msg+='\\n\\n⚠ '+r.sobraDebitos.length+' débito(s) de tarifa SEM conta — falta lançar.';}if(!r.vinculados&&!(r.mismatches||[]).length){msg='✓ Tarifas já estão casadas por data — nada a ajustar.';}alert(msg);" title="Casa cada conta de tarifa (R$1) com o débito do MESMO dia. Conserta o vínculo grudado no dia errado; mostra os dias que não batem">🎯 Re-conciliar tarifas por data</button>`,
       campos:
         fdRow('Banco', `<select id="cb-banco" onchange="bancoConcSel=this.value;renderBanco()"><option value="__todos" ${bancoSel==='__todos'?'selected':''}>Todos</option>${bancosNomeados.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${bancoSel===b?'selected':''}>${b}</option>`).join('')}${temSemBanco?`<option value="__sem" ${bancoSel==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
@@ -14549,11 +14584,11 @@ function removerDuplicatasDoBanco() {
   // Tira os vínculos só das cópias removidas (a que fica preserva o vínculo dela).
   removerIds.forEach(id => { delete extratoLinks[id]; delete repasseLinks[id]; delete debitoLinks[id]; delete receitaLinks[id]; });
   extratoBancario = extratoBancario.filter(t => !removerIds.has(String(t.id)));
-  saveData('extratoBancario', extratoBancario);
-  saveData('extratoLinks', extratoLinks);
-  saveData('repasseLinks', repasseLinks);
-  saveData('debitoLinks', debitoLinks);
-  saveData('receitaLinks', receitaLinks);
+  saveData('extratoBancario', extratoBancario, {reduzOk:true});
+  saveData('extratoLinks', extratoLinks, {reduzOk:true});
+  saveData('repasseLinks', repasseLinks, {reduzOk:true});
+  saveData('debitoLinks', debitoLinks, {reduzOk:true});
+  saveData('receitaLinks', receitaLinks, {reduzOk:true});
   syncExtratoToRecebimentos();
   renderBanco();
   alert(`✓ Removi ${removerIds.size} cópia(s) duplicada(s) de "${banco}". Restou 1 de cada lançamento.`);
@@ -14895,7 +14930,7 @@ function cbDesfazerRepasse(extId) {
   const t = extratoBancario.find(x => x.id === extId);
   if (t && bloqueadoPorFechamento(t.data, t.banco)) return;
   delete repasseLinks[extId];
-  saveData('repasseLinks', repasseLinks);
+  saveData('repasseLinks', repasseLinks, {reduzOk:true});
   renderBanco();
 }
 // Abre/fecha a lista de recebimentos para flegar manualmente neste depósito.
@@ -15105,7 +15140,7 @@ function cbDesfazerDebito(extId) {
   });
   delete debitoLinks[extId];
   saveData('contasPagar', contasPagar);
-  saveData('debitoLinks', debitoLinks);
+  saveData('debitoLinks', debitoLinks, {reduzOk:true});
   renderBanco();
 }
 // Move UMA conta a pagar do débito em que está vinculada para outro débito (desfaz lá e vincula aqui).
@@ -15141,7 +15176,7 @@ function cbMoverContaDebito(chaveEnc, toExtId) {
     delete debitoLinks[fromExtId];
   }
 
-  if (!conta) { saveData('debitoLinks', debitoLinks); renderBanco(); alert('Vínculo de origem removido, mas a conta não foi encontrada para revincular.'); return; }
+  if (!conta) { saveData('debitoLinks', debitoLinks, {reduzOk:true}); renderBanco(); alert('Vínculo de origem removido, mas a conta não foi encontrada para revincular.'); return; }
 
   // 2) Vincula ao débito destino (mesma regra do cbVincularDebito para 1 conta).
   const alvo = Math.abs(toT.valor);
@@ -15155,7 +15190,7 @@ function cbMoverContaDebito(chaveEnc, toExtId) {
   }
   debitoLinks[toExtId] = { itens: [it], total: it.valor };
   saveData('contasPagar', contasPagar);
-  saveData('debitoLinks', debitoLinks);
+  saveData('debitoLinks', debitoLinks, {reduzOk:true});
   renderBanco();
 }
 // Mostra/esconde o box de "Despesa nova".
@@ -15264,7 +15299,7 @@ function cbDesfazerReceita(extId) {
   receitasAvulsas = receitasAvulsas.filter(r => r._extratoId !== extId);
   delete receitaLinks[extId];
   saveData('receitasAvulsas', receitasAvulsas);
-  saveData('receitaLinks', receitaLinks);
+  saveData('receitaLinks', receitaLinks, {reduzOk:true});
   renderBanco();
 }
 // Aplica um banco do cadastro a todos os lançamentos do filtro atual (banco selecionado + filtro de data).
@@ -18772,11 +18807,11 @@ const DELETE_SOURCES = {
       const removidos = extratoBancario.filter((_,i) => indices.has(i)).map(t => t.id);
       removidos.forEach(id => { delete extratoLinks[id]; delete repasseLinks[id]; delete debitoLinks[id]; delete receitaLinks[id]; });
       extratoBancario = extratoBancario.filter((_,i) => !indices.has(i));
-      saveData('extratoBancario', extratoBancario);
-      saveData('extratoLinks', extratoLinks);
-      saveData('repasseLinks', repasseLinks);
-      saveData('debitoLinks', debitoLinks);
-      saveData('receitaLinks', receitaLinks);
+      saveData('extratoBancario', extratoBancario, {reduzOk:true});
+      saveData('extratoLinks', extratoLinks, {reduzOk:true});
+      saveData('repasseLinks', repasseLinks, {reduzOk:true});
+      saveData('debitoLinks', debitoLinks, {reduzOk:true});
+      saveData('receitaLinks', receitaLinks, {reduzOk:true});
       syncExtratoToRecebimentos();
       renderExtrato();
     }

@@ -6,6 +6,24 @@ sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Po
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
 
+## 16/11 (segunda) — o que entrou no ar + fila
+**NO AR:** item 1 (v796/10-849: conta paga sem conciliação conta pela dataPag, "não conciliada") e **importação de
+extrato SEGURA (v797/10-850)**: só acrescenta (dedup por conteúdo, ids estáveis); PRÉVIA antes de gravar
+(novas/já existentes/possíveis duplicatas/"não vieram"/saldo do arquivo); `_healConciliacaoLinks` NUNCA apaga
+(órfão="revisar"); trava contra QUALQUER redução automática de debitoLinks/extratoLinks/repasseLinks/receitaLinks/
+extratoBancario (só ação manual com `{reduzOk:true}`); Drive automático de extrato DESLIGADO. Testes
+`import-extrato-seguro.spec.cjs`, `pago-datapag.spec.cjs`. Painel em MANUTENÇÃO; robô DESLIGADO.
+**FILA:**
+- Prévia da importação: acrescentar o **saldo do SISTEMA** ao lado do saldo do arquivo (conferência na hora).
+- **RECEBIMENTOS DUPLICADOS (prioridade):** `recebimentosConsolidado` tem **158 linhas "Boleto Itaú" em dobro**
+  (idênticas, só `_uid` diferente): jun 28 (54.556,14), jul 28 (83.073,88), ago 19 (95.638,56), set 21 (22.725,65),
+  out 27 (32.255,51), nov 13 (14.194,14). Mais: 28/09 Laura 3.516,92 e Lucas 3.232,24 com cópia "sem pedido";
+  05/10 Ferreira Clothes 1.338,78 com nped "4.016,34" (lixo). (a) achar o dia/rotina (import de boletos pagos 2x?) e
+  dar ao import de boletos as MESMAS regras do extrato (dedup por conteúdo + prévia); (b) listar pedidos/parcelas que
+  aparecem PAGOS pela duplicata mas estão EM ABERTO (nov + parcelas futuras) — muda Atrasado/A vencer; (c) limpeza:
+  lista das duplicatas a remover (fica a mais antiga, vínculos mantidos), backup antes, vai p/ lixeira; mês fechado:
+  fotos não mudam; (d) auditor diário: "recebimentos duplicados" e "pedido pago a mais que o valor".
+
 ## Fluxo de Caixa novembro: Painel ~217k × Gestão ~291k (DIAGNÓSTICO, 13/11/2026)
 Elaine viu diferença ~74k. **NÃO é regressão da competência** (provado: `compDe`/`_compDespesa` só dentro de
 `_dreCalcTudo`; os 3 commits de competência não tocaram `flatCP`/`cpAberto`/"a pagar"). Causa estrutural:
