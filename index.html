@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v797/10-850';
+const APP_VERSION = 'v798/10-851';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -10653,9 +10653,10 @@ const DRIVE_GRUPOS = [
   { input: 'file-pedidos',  nav: ['vendas'],                     tipos: ['Vendas'], snapshot: true },
   { input: 'file-forma',    nav: ['vendas'],                     tipos: ['Forma de Pagto'], snapshot: true },
   { input: 'file-cr2',      nav: ['financeiro', 'contas', 'receb'],    tipos: ['Paypal', 'BraavoPay', 'Rede', 'Pagarme', 'Barte'] },
-  { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] }
-  // EXTRATO fora do Drive automático (pedido da Elaine): sobe pela tela (Financeiro → Extrato), com a PRÉVIA
-  //   antes de gravar. Evita importar extrato sem conferência. { input:'file-ext', ... tipos:['Extratos'] } — desligado.
+  { input: 'file-cobranca', nav: ['financeiro', 'contas', 'cobranca'], tipos: ['Boletos Pagos'] },
+  { input: 'file-ext',      nav: ['financeiro', 'extrato'],            tipos: ['Extratos'] }
+  // EXTRATO: entra pelo Drive e pelo botão "⬆ Importar extrato (OFX)" da tela, SEMPRE passando pela PRÉVIA
+  //   (o handler de file-ext mostra a prévia e só grava quando a Elaine confirma — nada automático sem confirmação).
   // Contas a Pagar e Contas a Receber são SAÍDA (exportadas do sistema) — não entram na sincronização.
 ];
 function _navGrupo(nav) { try { if (nav[0]) setView(nav[0]); if (nav[1]) setSub(nav[1]); if (nav[2]) setSubR(nav[2]); } catch (e) {} }
@@ -11725,6 +11726,17 @@ function excluirExtratoDoBanco() {
   renderExtrato();
   alert(`✓ ${remover.length} lançamento(s) removido(s) do banco "${nomeBanco}"${escopo}.` + (fechados.length ? ` ${fechados.length} preservado(s) por dia fechado.` : ''));
 }
+// "Limpar tudo" do extrato: exige digitar APAGAR e faz BACKUP antes (nunca apaga sem rede).
+async function _limparExtratoSeguro() {
+  const t = prompt('⚠ Isto APAGA TODO o extrato (todos os bancos) e desfaz as conciliações do extrato.\n\nPara confirmar, digite APAGAR (em maiúsculas):');
+  if (t !== 'APAGAR') { if (t != null) alert('Não apaguei — você não digitou APAGAR exatamente.'); return; }
+  try { await saveData('privado.bkp_extratoBancario_' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, ''), extratoBancario, { reduzOk: true }); } catch (e) {}
+  extratoBancario = []; extratoLinks = {};
+  await saveData('extratoBancario', [], { reduzOk: true });
+  await saveData('extratoLinks', {}, { reduzOk: true });
+  renderExtrato();
+  alert('Extrato apagado. Fiz um backup antes (privado.bkp_extratoBancario_…), dá pra restaurar se precisar.');
+}
 function renderExtrato() {
   try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
   if (acordos.length) { try { _garantirCodAcordos(); } catch(e) {} } // parcelas de acordo carregam a sigla p/ achar na lista
@@ -11801,10 +11813,10 @@ function renderExtrato() {
   const nDupExt = visAll.filter(t => _dupCountExt[_dupKeyExt(t)] > 1).length;
 
   el.innerHTML = `
-    ${uploadWrap('extrato', `<label class="upload-card" id="card-ext" for="file-ext">
-      <div class="u-icon">🏦</div>
-      <div class="u-label">Extrato Bancário (.ofx)</div>
-      <div class="u-hint">Exportado do internet banking — créditos de PIX entram automaticamente em Recebimentos quando vinculados</div>
+    ${uploadWrap('extrato', `<label class="upload-card" id="card-ext" for="file-ext" style="border:2px solid var(--accent)">
+      <div class="u-icon">⬆</div>
+      <div class="u-label">Importar extrato (OFX)</div>
+      <div class="u-hint">Clique aqui e escolha o arquivo <strong>.ofx</strong> do banco. Mostro a PRÉVIA (novas, já existentes, possíveis duplicatas, saldo) e só gravo quando você confirmar. Só acrescenta — nunca apaga.</div>
       <div class="u-status" id="status-ext">${extratoBancario.length?'✓ '+extratoBancario.length+' lançamentos':'Nenhum arquivo'}</div>
       <input type="file" id="file-ext" accept=".ofx,.qfx">
     </label>`)}
@@ -11813,7 +11825,7 @@ function renderExtrato() {
       limpar: 'limparFiltrosExtrato()',
       acoes: `<button class="btn primary sm" onclick="autoVincularExtrato()" title="Vincula os créditos com valor batendo com exatamente um pedido PIX em aberto">⚡ Vincular automáticos</button>
         ${fBanco ? `<button class="btn danger sm" onclick="excluirExtratoDoBanco()" title="Remove os lançamentos do banco selecionado. Se houver filtro de data ativo, remove só o período filtrado (banco + data).">🗑 Excluir deste banco${dfAtivo()?' (no período)':''}</button>` : ''}
-        <button class="btn danger sm" onclick="if(confirm('Limpar TODO o extrato (todos os bancos)?')){extratoBancario=[];extratoLinks={};saveData('extratoBancario',[],{reduzOk:true});saveData('extratoLinks',{},{reduzOk:true});renderExtrato()}">🗑 Limpar tudo</button>`,
+        <button class="btn ghost sm" style="color:var(--muted)" onclick="_limparExtratoSeguro()" title="Apaga TODO o extrato — exige digitar APAGAR e faz backup antes">🗑 Limpar tudo</button>`,
       campos:
         fdRow('Banco', `<select id="ext-banco" onchange="renderExtrato()"><option value="">Todos</option>${bancos.map(b=>`<option value="${b.replace(/"/g,'&quot;')}" ${b===fBanco?'selected':''}>${b}</option>`).join('')}${temSemBancoExt?`<option value="__sem" ${fBanco==='__sem'?'selected':''}>Sem banco</option>`:''}</select>`) +
         fdRow('Empresa', `<select id="ext-emp" onchange="renderExtrato()"><option value="">Todas</option>${empresas.map(e=>`<option value="${e}" ${e===fEmp?'selected':''}>${e}</option>`).join('')}</select>`) +
