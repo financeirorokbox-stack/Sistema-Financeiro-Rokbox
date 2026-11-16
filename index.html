@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v804/10-857';
+const APP_VERSION = 'v805/10-858';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8918,8 +8918,10 @@ function setVencParcela(pedido, parcela, valor) {
 // não é pago. (Corrige o boleto emitido aparecendo como PAGO no Contas a Receber.)
 function _stParcelaBoleto(parc) {
   if (sistemaAcordo[parc.key]) return { recebido: true, detalhe: '🤝 renegociado em acordo' }; // saiu daqui, virou parcela de acordo
-  const cob = boletoCobrancaStatus[parc.key];
-  if (cob && cob.pago) return { recebido: true, detalhe: cob.dataPagamento ? `✓ pago em ${fmtDate(cob.dataPagamento)}` : '✓ pago' };
+  // PAGO = carimbo do relatório OU pedido quitado por QUALQUER forma (PIX/outra), por ordem de parcela.
+  // Mesma regra do relatório de cobrança (_boletoCobPago), p/ a parcela paga por PIX não ficar "em aberto".
+  const cob = _boletoCobPago(parc);
+  if (cob && cob.pago) return { recebido: true, detalhe: cob._porOrdem ? ('✓ pago (PIX/outra forma)' + (cob.dataPagamento ? ' em ' + fmtDate(cob.dataPagamento) : '')) : (cob.dataPagamento ? `✓ pago em ${fmtDate(cob.dataPagamento)}` : '✓ pago') };
   if (boletoStatus[parc.key]) return { recebido: false, detalhe: 'emitido, aguardando pagamento' };
   return { recebido: false, detalhe: 'aguardando emissão' };
 }
@@ -10274,16 +10276,17 @@ function renderCobranca() {
   }
 
   let vis = emitidos;
-  if (fSt==='pago') vis = vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
-  if (fSt==='atrasado') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
-  if (fSt==='avencer') vis = vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
+  const _pg = b => !!_boletoCobPago(b); // PAGO = carimbo OU quitado por qualquer forma (PIX/outra), igual ao relatório 🖨
+  if (fSt==='pago') vis = vis.filter(b=>_pg(b));
+  if (fSt==='atrasado') vis = vis.filter(b=>!_pg(b)&&b.vencimento&&new Date(b.vencimento)<today);
+  if (fSt==='avencer') vis = vis.filter(b=>!_pg(b)&&(!b.vencimento||new Date(b.vencimento)>=today));
   if (fQ) vis = vis.filter(b=>`${b.pedido||''} ${b.cliente||''} ${b.parcela||''}/${b.totalParcelas||''} ${(b.valor||0).toFixed(2)} ${b.vencimento?fmtDate(b.vencimento):''} ${boletoCobrancaStatus[b.key]?.dataPagamento?fmtDate(boletoCobrancaStatus[b.key].dataPagamento):''} ${empresaDoPed(b.pedido)||''}`.toLowerCase().includes(fQ));
   if (fEmp) vis = vis.filter(b=>empresaDoPed(b.pedido)===fEmp);
   if (dfAtivo()) vis = vis.filter(b=>passaData(fDataPor==='liquidacao' ? boletoCobrancaStatus[b.key]?.dataPagamento : b.vencimento));
 
-  const pagos=vis.filter(b=>boletoCobrancaStatus[b.key]?.pago);
-  const atrasados=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&b.vencimento&&new Date(b.vencimento)<today);
-  const aVencer=vis.filter(b=>!boletoCobrancaStatus[b.key]?.pago&&(!b.vencimento||new Date(b.vencimento)>=today));
+  const pagos=vis.filter(b=>_pg(b));
+  const atrasados=vis.filter(b=>!_pg(b)&&b.vencimento&&new Date(b.vencimento)<today);
+  const aVencer=vis.filter(b=>!_pg(b)&&(!b.vencimento||new Date(b.vencimento)>=today));
 
   // Card "Atrasados": MESMA base do relatório 🖨 (boletosACobrar: sistema + avulsos, abate pagamento por qualquer forma). Bate sempre com o relatório (corte hoje, sem filtros).
   const _vencRel = resumoCobranca().vencidos;
