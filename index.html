@@ -564,7 +564,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v811/10-864';
+const APP_VERSION = 'v812/10-865';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -14104,6 +14104,8 @@ function renderBanco() {
   const usadasDeb = new Set();
   const usadasDebPor = {}; // chave da conta → extId do débito que a usa
   Object.entries(debitoLinks).forEach(([extId, l]) => debLinkItens(l).forEach(it => { usadasDeb.add(it.chave); if (usadasDebPor[it.chave] == null) usadasDebPor[it.chave] = extId; }));
+  // DESEMPENHO: a chave de cada conta é calculada UMA vez por render (era chamada N débitos × contas no contador do botão).
+  const _chavePorConta = new Map(); contasPagar.forEach(c => { if (!c.cancelado) _chavePorConta.set(c, chaveContaPagar(c)); });
   const usadosRepasse = repasseUsados();
   // Repasse é só destas operadoras: PayPal, Braavo (iFood) e Boleto Itaú (boletos recebidos).
   const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú', 'Rede'];
@@ -14338,10 +14340,10 @@ function renderBanco() {
                   let wkIni = null, wkFim = null;
                   if (t.data instanceof Date && !isNaN(t.data)) { [wkIni, wkFim] = semanaDe(t.data); }
                   const naSemana = c => wkIni && c.vencimento && c.vencimento >= wkIni && c.vencimento <= wkFim;
+                  // Só CONTADORES do botão aqui (sem ordenar — a ordenação fica no builder da lista, no clique). Usa a chave pré-calculada.
                   const todasFull = contasPagar
-                    .filter(c => !c.cancelado) // cancelada não aparece pra conciliar
-                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo), paga: !!c.pago, usada: usadasDeb.has(chaveContaPagar(c)), wk: naSemana(c) ? 0 : 1}))
-                    .sort((a,b) => (a.usada?1:0)-(b.usada?1:0) || (a.paga?1:0)-(b.paga?1:0) || a.wk - b.wk || (a.c.vencimento||0)-(b.c.vencimento||0));
+                    .filter(c => !c.cancelado)
+                    .map(c => ({c, d: Math.abs((c.valor||0)-alvo), paga: !!c.pago, usada: usadasDeb.has(_chavePorConta.get(c)), wk: naSemana(c) ? 0 : 1}));
                   // "Só do mês do débito": esconde contas cujo vencimento (ou pagamento) é de outro mês —
                   // é o que enche a lista de valores repetidos. Link "ver todas" mostra tudo.
                   const _mesKeyD = d => { const x = d instanceof Date ? d : new Date(d); return isNaN(x) ? '' : x.getFullYear() + '-' + (x.getMonth() + 1); };
@@ -14364,47 +14366,9 @@ function renderBanco() {
                   const somaIni = livres.filter(x=>x.d<=0.02 && !x.paga).reduce((s,x)=>s+(x.c.valor||0),0);
                   const difIni = Math.abs(somaIni-alvo);
                   const corIni = difIni<=0.02?'var(--green)':(difIni<=1?'var(--amber)':'var(--muted)');
-                  const listaContas = todas.length ? `
-                      <div id="cb-deb-box-${t.id}" style="display:none;margin-top:6px">
-                      <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
-                      <button class="btn ghost sm" style="font-size:11px;margin-bottom:6px" onclick="cbMarcarCartao('${t.id}',${alvo})" title="Marca todas as contas que têm 'cartão' na observação — pra conciliar a fatura do cartão de uma vez">🔖 Marcar cartão</button>
-                      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${_debSoMes && _debMes ? `📅 Atrasadas + mês do débito${nOcultosMes ? ` · <a href="#" onclick="_debSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todas (+${nOcultosMes})</a>` : ''}` : `📅 Todos os meses (inclui mês que vem) · <a href="#" onclick="_debSoMes=true;renderBanco();return false" style="color:var(--accent)">atrasadas + mês</a>`}</div>
-                      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${contasPagar.length} conta(s) a pagar no total · ${livres.length} livre(s)${nUsadas?` · ${nUsadas} já em outro débito`:''}</div>
-                      <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
-                        ${todas.map(({c,d,paga,usada})=>{
-                          const exato=d<=0.02;
-                          const preCheck=exato && !paga && !usada;
-                          const chaveC=chaveContaPagar(c);
-                          // Quando usada, descobre a qual débito pertence (para "Mover para cá").
-                          const outroId = usada ? usadasDebPor[chaveC] : null;
-                          const outroT = outroId ? extratoBancario.find(x=>x.id===outroId) : null;
-                          const outroInfo = outroT ? `${outroT.data?fmtDate(outroT.data):'sem data'} · ${fmtVal(outroT.valor)}` : 'outro débito';
-                          const busca=`${c.fornecedor||''} ${c.descricao||''} ${catContaPagar(c)||''} ${c.categoria||''} ${c.observacao||''} ${c.numero||''} ${c.empresa||''} ${(c.valor||0).toFixed(2)} ${c.vencimento?fmtDate(c.vencimento):''} ${paga?'paga pago':'aberto em aberto'} ${usada?'usada vinculada outro':''}`.toLowerCase().replace(/"/g,'&quot;');
-                          const selo = usada ? ` <span style="background:var(--muted);color:#fff;font-size:9px;padding:0 4px;border-radius:6px" title="Vinculada ao débito de ${outroInfo}">já em outro débito (${outroInfo})</span>`
-                                     : paga ? ` <span style="background:var(--amber);color:#222;font-size:9px;padding:0 4px;border-radius:6px">paga</span>` : '';
-                          const bg = usada ? 'opacity:.7' : (preCheck?'background:var(--green-bg)':(paga?'opacity:.85':''));
-                          return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;${bg}">
-                            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveC)}" data-v="${c.valor||0}" data-cartao="${/cart[aã]o/i.test((c.observacao||'')+' '+(c.descricao||'')+' '+(catContaPagar(c)||''))?'1':'0'}" ${preCheck?'checked':''} ${usada?'disabled':''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
-                            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato&&!usada?'⚡ ':''}${(c.fornecedor||c.descricao||'conta').slice(0,30)}${selo}${c.empresa?` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>`:''}</span>
-                            <span style="color:var(--muted);font-size:11px;white-space:nowrap;flex-shrink:0" title="Vencimento da conta">📅 ${c.vencimento?fmtDate(c.vencimento):'—'}</span>
-                            ${usada && outroId && outroId!==t.id ? `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;flex-shrink:0" onclick="event.preventDefault();cbMoverContaDebito('${encodeURIComponent(chaveC)}','${t.id}')" title="Desfaz o vínculo no outro débito e vincula a este">Mover para cá</button>` : ''}
-                            <span style="color:var(--muted);white-space:nowrap;flex-shrink:0">${fmtVal(c.valor||0)}</span>
-                          </label>`;
-                        }).join('')}
-                      </div>
-                      <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;flex-wrap:wrap">
-                        <span style="color:var(--muted)">− Crédito/abatimento (ex.: crédito no cartão):</span>
-                        <input type="number" step="0.01" id="cb-deb-cred-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
-                      </div>
-                      <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;flex-wrap:wrap">
-                        <span style="color:var(--muted)">+ Multa/juros (pagou a mais que a conta):</span>
-                        <input type="number" step="0.01" id="cb-deb-juros-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
-                      </div>
-                      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-                        <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
-                        <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularDebito('${t.id}',${alvo})">Vincular flegados</button>
-                      </div>
-                      </div>` : '';
+                  // DESEMPENHO: a lista (rows de TODAS as contas) só é montada no CLIQUE (cbToggleDebList → _cbDebListInnerHTML).
+                  // O render só emite a caixa VAZIA; os contadores do botão continuam vindo do cálculo acima. (Era o que gerava 94 MB.)
+                  const listaContas = todas.length ? `<div id="cb-deb-box-${t.id}" data-ext="${t.id}" data-alvo="${alvo}" style="display:none;margin-top:6px"></div>` : '';
                   // Box "Despesa nova" (tarifa etc.): cria uma Conta a Pagar já paga com a categoria escolhida.
                   const boxDespesa = `
                       <div id="cb-desp-box-${t.id}" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;padding:8px;display:none">
@@ -14483,9 +14447,76 @@ function debLinkItens(link) {
   return link.chave ? [{ chave: link.chave, fornecedor: link.fornecedor, valor: link.valor, setPago: link.setPago }] : [];
 }
 // Mostra/esconde a lista de contas de um débito (sem re-render → marcar flegs não fecha a lista).
+// DESEMPENHO: monta o CONTEÚDO da lista de contas de UM débito (recalcula só pra ele, no clique). Mesmo HTML de antes.
+function _cbDebListInnerHTML(extId) {
+  const t = extratoBancario.find(x => String(x.id) === String(extId));
+  if (!t || (t.valor || 0) >= 0) return '';
+  const alvo = Math.abs(t.valor);
+  const usadasDeb = new Set(); const usadasDebPor = {};
+  Object.entries(debitoLinks).forEach(([eid, l]) => debLinkItens(l).forEach(it => { usadasDeb.add(it.chave); if (usadasDebPor[it.chave] == null) usadasDebPor[it.chave] = eid; }));
+  let wkIni = null, wkFim = null;
+  if (t.data instanceof Date && !isNaN(t.data)) { [wkIni, wkFim] = semanaDe(t.data); }
+  const naSemana = c => wkIni && c.vencimento && c.vencimento >= wkIni && c.vencimento <= wkFim;
+  const todasFull = contasPagar.filter(c => !c.cancelado)
+    .map(c => ({ c, d: Math.abs((c.valor || 0) - alvo), paga: !!c.pago, usada: usadasDeb.has(chaveContaPagar(c)), wk: naSemana(c) ? 0 : 1 }))
+    .sort((a, b) => (a.usada ? 1 : 0) - (b.usada ? 1 : 0) || (a.paga ? 1 : 0) - (b.paga ? 1 : 0) || a.wk - b.wk || (a.c.vencimento || 0) - (b.c.vencimento || 0));
+  const _mesKeyD = d => { const x = d instanceof Date ? d : new Date(d); return isNaN(x) ? '' : x.getFullYear() + '-' + (x.getMonth() + 1); };
+  const _debMes = (t.data instanceof Date && !isNaN(t.data)) ? _mesKeyD(t.data) : '';
+  let todas = todasFull, nOcultosMes = 0;
+  if (_debSoMes && _debMes && t.data instanceof Date && !isNaN(t.data)) {
+    const fimMes = new Date(t.data.getFullYear(), t.data.getMonth() + 1, 0, 23, 59, 59);
+    const f = todasFull.filter(x => _contaNaoFutura(x.c, fimMes));
+    nOcultosMes = todasFull.length - f.length; todas = f;
+  }
+  const livres = todas.filter(x => !x.usada);
+  const nUsadas = todas.length - livres.length;
+  const somaIni = livres.filter(x => x.d <= 0.02 && !x.paga).reduce((s, x) => s + (x.c.valor || 0), 0);
+  const difIni = Math.abs(somaIni - alvo);
+  const corIni = difIni <= 0.02 ? 'var(--green)' : (difIni <= 1 ? 'var(--amber)' : 'var(--muted)');
+  if (!todas.length) return '';
+  return `
+      <input type="text" id="cb-deb-q-${t.id}" placeholder="🔍 Pesquisar conta (fornecedor, valor...)" oninput="cbFiltrarDebList('${t.id}')" onclick="event.stopPropagation()" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:6px">
+      <button class="btn ghost sm" style="font-size:11px;margin-bottom:6px" onclick="cbMarcarCartao('${t.id}',${alvo})" title="Marca todas as contas que têm 'cartão' na observação — pra conciliar a fatura do cartão de uma vez">🔖 Marcar cartão</button>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${_debSoMes && _debMes ? `📅 Atrasadas + mês do débito${nOcultosMes ? ` · <a href="#" onclick="_debSoMes=false;renderBanco();return false" style="color:var(--accent)">ver todas (+${nOcultosMes})</a>` : ''}` : `📅 Todos os meses (inclui mês que vem) · <a href="#" onclick="_debSoMes=true;renderBanco();return false" style="color:var(--accent)">atrasadas + mês</a>`}</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${contasPagar.length} conta(s) a pagar no total · ${livres.length} livre(s)${nUsadas ? ` · ${nUsadas} já em outro débito` : ''}</div>
+      <div style="border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto">
+        ${todas.map(({ c, d, paga, usada }) => {
+    const exato = d <= 0.02;
+    const preCheck = exato && !paga && !usada;
+    const chaveC = chaveContaPagar(c);
+    const outroId = usada ? usadasDebPor[chaveC] : null;
+    const outroT = outroId ? extratoBancario.find(x => x.id === outroId) : null;
+    const outroInfo = outroT ? `${outroT.data ? fmtDate(outroT.data) : 'sem data'} · ${fmtVal(outroT.valor)}` : 'outro débito';
+    const busca = `${c.fornecedor || ''} ${c.descricao || ''} ${catContaPagar(c) || ''} ${c.categoria || ''} ${c.observacao || ''} ${c.numero || ''} ${c.empresa || ''} ${(c.valor || 0).toFixed(2)} ${c.vencimento ? fmtDate(c.vencimento) : ''} ${paga ? 'paga pago' : 'aberto em aberto'} ${usada ? 'usada vinculada outro' : ''}`.toLowerCase().replace(/"/g, '&quot;');
+    const selo = usada ? ` <span style="background:var(--muted);color:#fff;font-size:9px;padding:0 4px;border-radius:6px" title="Vinculada ao débito de ${outroInfo}">já em outro débito (${outroInfo})</span>`
+      : paga ? ` <span style="background:var(--amber);color:#222;font-size:9px;padding:0 4px;border-radius:6px">paga</span>` : '';
+    const bg = usada ? 'opacity:.7' : (preCheck ? 'background:var(--green-bg)' : (paga ? 'opacity:.85' : ''));
+    return `<label class="cb-deb-row-${t.id}" data-busca="${busca}" style="display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--border);font-size:12px;${bg}">
+            <input type="checkbox" class="cb-deb-pick-${t.id}" value="${encodeURIComponent(chaveC)}" data-v="${c.valor || 0}" data-cartao="${/cart[aã]o/i.test((c.observacao || '') + ' ' + (c.descricao || '') + ' ' + (catContaPagar(c) || '')) ? '1' : '0'}" ${preCheck ? 'checked' : ''} ${usada ? 'disabled' : ''} onchange="cbSomaDebito('${t.id}',${alvo})" style="width:14px;height:14px;flex-shrink:0">
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exato && !usada ? '⚡ ' : ''}${(c.fornecedor || c.descricao || 'conta').slice(0, 30)}${selo}${c.empresa ? ` <span style="color:var(--accent);font-size:10px">[${c.empresa}]</span>` : ''}</span>
+            <span style="color:var(--muted);font-size:11px;white-space:nowrap;flex-shrink:0" title="Vencimento da conta">📅 ${c.vencimento ? fmtDate(c.vencimento) : '—'}</span>
+            ${usada && outroId && outroId !== t.id ? `<button class="btn ghost sm" style="font-size:10px;padding:1px 6px;flex-shrink:0" onclick="event.preventDefault();cbMoverContaDebito('${encodeURIComponent(chaveC)}','${t.id}')" title="Desfaz o vínculo no outro débito e vincula a este">Mover para cá</button>` : ''}
+            <span style="color:var(--muted);white-space:nowrap;flex-shrink:0">${fmtVal(c.valor || 0)}</span>
+          </label>`;
+  }).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;flex-wrap:wrap">
+        <span style="color:var(--muted)">− Crédito/abatimento (ex.: crédito no cartão):</span>
+        <input type="number" step="0.01" id="cb-deb-cred-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;flex-wrap:wrap">
+        <span style="color:var(--muted)">+ Multa/juros (pagou a mais que a conta):</span>
+        <input type="number" step="0.01" id="cb-deb-juros-${t.id}" placeholder="0,00" oninput="cbSomaDebito('${t.id}',${alvo})" onclick="event.stopPropagation()" style="width:100px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <span id="cb-deb-soma-${t.id}" style="font-size:11px">Flegado: <strong style="color:${corIni}">${fmtVal(somaIni)}</strong> / ${fmtVal(alvo)}</span>
+        <button class="btn primary sm" style="margin-left:auto" onclick="cbVincularDebito('${t.id}',${alvo})">Vincular flegados</button>
+      </div>`;
+}
 function cbToggleDebList(extId) {
   const box = document.getElementById('cb-deb-box-' + extId);
   if (!box) return;
+  if (!box.innerHTML.trim()) box.innerHTML = _cbDebListInnerHTML(extId); // monta no 1º clique
   box.style.display = box.style.display === 'none' ? 'block' : 'none';
 }
 // Filtra as linhas da lista de contas de um débito pelo texto digitado (sem re-render).
