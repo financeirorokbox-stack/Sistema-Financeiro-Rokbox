@@ -564,7 +564,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v812/10-865';
+const APP_VERSION = 'v813/10-866';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8116,6 +8116,51 @@ function parseRecebimentosSheet(rows, gatewayName, target) {
 
 // ── REDE (relatório de recebimentos do cartão) ──────────────────────────
 // Reconhece o relatório "EXTRATO PARA SIMPLES CONFERÊNCIA" da Rede (cabeçalho na 2ª linha).
+// ── BARTE (gateway alternativo quando a Braavo está fora) ──────────────────────────────────────────────────────
+// Lê o relatório da Barte. SÓ StatusCobranca = PAGA entra; ATRASADA/outras são ignoradas. Repasse = DataRecebimento,
+// vínculo pelo nº do site (ProdutoServicoPlano "27581-… - Rokbox" → 27581), igual à Braavo. Dedup por
+// IdentificadorCobranca (vai no _txnId → recKey 'tx:'). Mostra PRÉVIA antes de empurrar pras novas entradas.
+function _barteNum(v) { // "131,80" (vírgula) ou "130.11" (ponto) → número
+  let s = String(v == null ? '' : v).trim(); if (!s) return 0;
+  if (s.includes(',') && s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.'); // vírgula decimal (+ ponto de milhar)
+  else s = s.replace(/,/g, ''); // ponto decimal: tira vírgula de milhar
+  const n = parseFloat(s); return isNaN(n) ? 0 : n;
+}
+function _barteData(v) { // "09/11/2026" ou "08/11/2026 10:11:33" → Date (meia-noite BRT)
+  if (v instanceof Date && !isNaN(v)) return v;
+  const m = String(v || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (!m) return null;
+  return new Date(+m[3], +m[2] - 1, +m[1], 3, 0, 0);
+}
+function _barteNsite(plano) { const m = String(plano || '').match(/^\s*(\d{3,7})\s*-/); return m ? m[1] : null; }
+function parseBarteRows(rows, target) {
+  rows = Array.isArray(rows) ? rows : [];
+  const pagas = []; let nIgnoradas = 0; const motivos = {};
+  rows.forEach(r => {
+    const status = String(r['StatusCobranca'] || '').trim().toUpperCase();
+    if (status !== 'PAGA') { if (String(r['IdentificadorCobranca'] || '').trim() || r['ProdutoServicoPlano']) { nIgnoradas++; motivos[status || '(vazio)'] = (motivos[status || '(vazio)'] || 0) + 1; } return; }
+    const ident = String(r['IdentificadorCobranca'] || '').trim();
+    const nsite = _barteNsite(r['ProdutoServicoPlano']);
+    let nped = null; if (nsite) { const p = _pedidoPorNumeroSite(nsite); if (p) nped = p.id; }
+    const bruto = _barteNum(r['Valor']); const taxa = _barteNum(r['TaxaCobranca']); const liq = _barteNum(r['ValorLiquido']) || (bruto - taxa);
+    const data = _barteData(r['DataRecebimento']) || _barteData(r['DataPagamento']);
+    pagas.push({ gateway: 'Barte', bruto, taxa, liq, data, nped, nome: String(r['NomeCliente'] || '').trim(), tipo: String(r['MetodoPagamento'] || 'PIX'), status: 'pago', _txnId: ident, _nsite: nsite });
+  });
+  // PRÉVIA (antes de gravar)
+  const tBruto = pagas.reduce((s, p) => s + p.bruto, 0), tLiq = pagas.reduce((s, p) => s + p.liq, 0);
+  const lst = pagas.slice(0, 15).map(p => `• ${p.nome || '?'} — ${fmtVal(p.bruto)} (líq ${fmtVal(p.liq)}) · ped ${p._nsite || '?'}${p.nped ? ` (#${p.nped})` : ' (site não achado ainda)'} · receb ${p.data ? fmtDate(p.data) : '-'}`).join('\n');
+  let msg = `PRÉVIA — Barte (${rows.length} linha(s)):\n\n`;
+  msg += `✓ PAGAS a importar: ${pagas.length} · bruto ${fmtVal(tBruto)} · líquido ${fmtVal(tLiq)}\n${lst}${pagas.length > 15 ? `\n… +${pagas.length - 15}` : ''}\n\n`;
+  msg += `↷ Ignoradas (não PAGA): ${nIgnoradas}${nIgnoradas ? ` (${Object.entries(motivos).map(([k, v]) => k + ' ' + v).join(', ')})` : ''}\n`;
+  msg += `\nDedup por IdentificadorCobranca (não duplica ao re-subir). Vínculo pelo nº do site.`;
+  msg += pagas.length ? `\n\nImportar as ${pagas.length} pagas?` : `\n\nNenhuma PAGA para importar.`;
+  if (!pagas.length) { alert(msg); return; }
+  if (!confirm(msg)) return;
+  pagas.forEach(p => target.push(p));
+}
+function parseBarteSheet(wb, target) {
+  const rows = []; (wb.SheetNames || []).forEach(sn => { try { sheetToRows(wb, sn).forEach(r => rows.push(r)); } catch (e) {} });
+  parseBarteRows(rows, target);
+}
 function isRedeFile(file, wb) {
   if (!wb) return false;
   const fn = (file && file.name || '').toLowerCase();
@@ -8145,6 +8190,8 @@ function _gatewayPorColunas(wb, csvRows) {
   } catch (e) {}
   txt = txt.toLowerCase();
   if (!txt.trim()) return null;
+  // BARTE: gateway que entra quando a Braavo está fora. Colunas EXCLUSIVAS dela.
+  if (txt.includes('identificadorcobranca') && txt.includes('produtoservicoplano')) return 'Barte';
   // PayPal PRIMEIRO: tem a coluna EXCLUSIVA "Impacto no saldo" (+ "ID da transação" + "Tarifa"). Precisa vir ANTES da
   // Braavo porque o export do PayPal tem a coluna "ID de referência DA TRANSAÇÃO", que casava com a regra "id de
   // referência" da Braavo e fazia o PayPal ser reconhecido como BraavoPay. Vale pros dois fusos (BRT e GMT-03:00).
@@ -8779,6 +8826,7 @@ function renderRecebimentos() {
       readSpreadsheetFile(file, ({csvRows, wb}) => {
         if (csvRows) {
           let gw = _gatewayPorColunas(null, csvRows); // identifica pelo CONTEÚDO (colunas), não pelo nome
+          if (gw === 'Barte') { parseBarteRows(csvRows, newEntries); finishUpload(); return; }
           if (!gw) { gw = _perguntarGatewayReceb(file.name); if (gw === null) { finishUpload(); return; } }
           parseRecebimentosSheet(csvRows, gw, newEntries);
         } else if (file.name.toLowerCase().endsWith('.ofx') || file.name.toLowerCase().endsWith('.qfx')) {
@@ -8798,6 +8846,7 @@ function renderRecebimentos() {
         } else {
           // Identifica o gateway pelo CONTEÚDO (colunas), não pelo nome do arquivo. Se não reconhecer, PERGUNTA.
           let gw = _gatewayPorColunas(wb, null);
+          if (gw === 'Barte') { parseBarteSheet(wb, newEntries); finishUpload(); return; }
           if (!gw) {
             gw = _perguntarGatewayReceb(file.name);
             if (gw === null) { finishUpload(); return; }        // cancelado
