@@ -564,7 +564,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v810/10-863';
+const APP_VERSION = 'v811/10-864';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -9728,73 +9728,62 @@ function escolherEmpresa(titulo) {
   const byName = emps.find(e => e.toLowerCase() === t.toLowerCase());
   return byName || t;
 }
+// "Seu Número" do Itaú às vezes vem com o nº do pedido REPETIDO (ex.: "4063940639" = 40639+40639) ou com zeros à
+// esquerda. Devolve o nº do pedido de verdade (só quando tem CERTEZA — o pedido existe; senão devolve o original).
+function _pedidoSeuNumero(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return s;
+  const existe = id => pedidos.some(p => String(p.id) === String(id));
+  if (existe(s)) return s;
+  if (s.length % 2 === 0) { const h = s.slice(0, s.length / 2); if (h === s.slice(s.length / 2) && existe(h)) return h; } // nº repetido (4063940639 → 40639)
+  const sz = s.replace(/^0+/, ''); if (sz && sz !== s && existe(sz)) return sz;                                            // zeros à esquerda
+  return s;
+}
 function processCobrancaWorkbook(wb) {
   const cobrancaRows = parseItauCobrancaSheet(wb);
-  const boletos = getBoletosDaForma(); // boletos do sistema (vindos da Forma de Pagamento)
-  let nBaixados = 0;
-
-  // Reconstrói o status SÓ das parcelas que o arquivo realmente reporta (pedido + VENCIMENTO).
-  // Antes apagava TODAS as parcelas do pedido → subir o relatório de SETEMBRO apagava a parcela de
-  // AGOSTO (que já estava paga) e ela voltava a "Atrasado". Relatório é mensal, então cada arquivo
-  // só pode mexer nas parcelas DAQUELE mês; as de outros meses ficam intactas.
-  const _vencISOcob = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? dt.toISOString().slice(0, 10) : ''; };
-  const parcelasNoArq = new Set(cobrancaRows.map(c => `${String(c.pedido || '').trim()}|${_vencISOcob(c.vencimento)}`).filter(k => k.indexOf('|') > 0 && !k.endsWith('|')));
-  boletos.forEach(b => { if (parcelasNoArq.has(`${String(b.pedido)}|${_vencISOcob(b.vencimento)}`)) delete boletoCobrancaStatus[b.key]; });
-
-  // Casa cada PAGAMENTO do relatório com NO MÁXIMO UMA parcela (consome a linha). Antes, 1 pagamento
-  // de 2.247,52 marcava as 3 parcelas de mesmo valor como pagas → recebia 3x (bug do #40041).
-  // Para cada pagamento, escolhe a MELHOR parcela: mesmo pedido tem prioridade, depois vencimento mais próximo.
-  const boletosUsados = new Set(); // keys de parcela já casadas
-  cobrancaRows.forEach(c => {
-    let best = null, bestScore = Infinity;
-    boletos.forEach(b => {
-      if (!boletoStatus[b.key] || boletosUsados.has(b.key)) return;
-      if (Math.abs(c.valorTitulo - b.valor) > 0.05) return;      // valor tem que bater
-      const mesmoPedido = String(c.pedido) === String(b.pedido);
-      const dist = daysDiff(c.vencimento, b.vencimento);          // proximidade de vencimento (0..9999)
-      if (!mesmoPedido && dist > 3) return;                       // sem pedido, só casa se venc bem perto
-      const score = (mesmoPedido ? 0 : 100000) + dist;            // pedido igual ganha; empate → venc mais perto
-      if (score < bestScore) { bestScore = score; best = b; }
-    });
-    if (best) {
-      boletosUsados.add(best.key);
-      nBaixados++;
-      boletoCobrancaStatus[best.key] = {
-        dataPagamento: c.dataPagamento,
-        pago: !!c.dataPagamento || c.status.includes('pag'),
-        valorTitulo: c.valorTitulo,
-        valorPago: c.valorPago,
-        juros: c.juros
-      };
-    }
-  });
-
-  saveData('boletoCobrancaStatus', boletoCobrancaStatus);
   if (!cobrancaRows.length) {
     alert('⚠ Não consegui ler os boletos do arquivo (0 linhas).\n\nVerifique se é o relatório do Itaú com as colunas Pagador e Valor Título. Se for, me manda um print do cabeçalho da planilha.');
     return;
   }
+  // Normaliza o "Seu Número" (repetido/zeros) ANTES de tudo — assim a Lorena #40639 ("4063940639") é reconhecida
+  // como pedido do sistema já na prévia, em vez de cair em "fora do sistema".
+  cobrancaRows.forEach(c => { c.pedido = _pedidoSeuNumero(c.pedido); });
 
-  // ── Boletos de pedidos FORA do sistema (relatório Itaú): dedup ROBUSTO (pedido|valor|venc|pagador).
-  //    ATUALIZA em vez de duplicar (ex.: estava EM ABERTO e agora veio PAGO). Não duplica ao re-subir.
+  const boletos = getBoletosDaForma(); // boletos do sistema (vindos da Forma de Pagamento)
+  const _vencISOcob = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return dt && !isNaN(dt) ? dt.toISOString().slice(0, 10) : ''; };
+  const parcelasNoArq = new Set(cobrancaRows.map(c => `${String(c.pedido || '').trim()}|${_vencISOcob(c.vencimento)}`).filter(k => k.indexOf('|') > 0 && !k.endsWith('|')));
+
+  // ── (1) COMPUTA (sem gravar) os boletos DO SISTEMA que seriam BAIXADOS ──
+  // Casa cada PAGAMENTO do relatório com NO MÁXIMO UMA parcela (consome a linha); mesmo pedido tem prioridade,
+  // depois vencimento mais próximo. (Igual à lógica testada; só não aplica ainda — entra na prévia.)
+  const boletosUsados = new Set();
+  const baixas = []; // {c, b}
+  cobrancaRows.forEach(c => {
+    let best = null, bestScore = Infinity;
+    boletos.forEach(b => {
+      if (!boletoStatus[b.key] || boletosUsados.has(b.key)) return;
+      if (Math.abs(c.valorTitulo - b.valor) > 0.05) return;
+      const mesmoPedido = String(c.pedido) === String(b.pedido);
+      const dist = daysDiff(c.vencimento, b.vencimento);
+      if (!mesmoPedido && dist > 3) return;
+      const score = (mesmoPedido ? 0 : 100000) + dist;
+      if (score < bestScore) { bestScore = score; best = b; }
+    });
+    if (best) { boletosUsados.add(best.key); baixas.push({ c, b: best }); }
+  });
+
+  // ── (2) COMPUTA fora do sistema (novos / já existem / atualizáveis) ──
   const mapExist = new Map(); boletosAvulsos.forEach((a, i) => mapExist.set(chaveBoletoAvulso(a), i));
   const foraSistema = cobrancaRows.filter(c => !(c.pedido && pedidos.find(p => String(p.id) === String(c.pedido))));
-  let nAtualizados = 0; const novos = []; const vistos = new Set();
+  const atualizaveis = []; const novos = []; const vistos = new Set();
   foraSistema.forEach(c => {
     const k = chaveBoletoAvulso(c);
     const pago = !!c.dataPagamento || (c.status || '').includes('pag');
-    if (mapExist.has(k)) { // já existe → atualiza, não duplica
-      const a = boletosAvulsos[mapExist.get(k)];
-      if (pago && !a.dataPagamento) { a.dataPagamento = c.dataPagamento; a.valorPago = c.valorPago; nAtualizados++; }
-      if (!a.cliente && c.pagador) a.cliente = c.pagador;
-      return;
-    }
-    if (vistos.has(k)) return; // duplicado dentro do próprio arquivo
+    if (mapExist.has(k)) { const a = boletosAvulsos[mapExist.get(k)]; if ((pago && !a.dataPagamento) || (!a.cliente && c.pagador)) atualizaveis.push({ a, c, pago }); return; }
+    if (vistos.has(k)) return;
     vistos.add(k);
     novos.push({ pedido: String(c.pedido || ''), cliente: c.pagador || '', valorTitulo: c.valorTitulo, valorPago: pago ? c.valorPago : 0, dataPagamento: pago ? c.dataPagamento : null, vencimento: c.vencimento, fone: '', _pago: pago });
   });
-  // ── DEDUP POR CONTEÚDO (#5): tira os que já existem por pagador+dia+valor (tol 0,05), mesmo com nº de pedido
-  //    diferente, vazio ou LIXO (ex.: o "4.016,34" que caiu no campo do pedido). E mostra PRÉVIA antes de gravar.
   const jaConteudo = [];
   const novosLimpos = novos.filter(n => {
     const dRef = n._pago ? (n.dataPagamento || n.vencimento) : n.vencimento;
@@ -9803,43 +9792,10 @@ function processCobrancaWorkbook(wb) {
     return true;
   });
   const novosPagos = novosLimpos.filter(n => n._pago), novosAbertos = novosLimpos.filter(n => !n._pago);
-  const _vb = n => (n._pago && n.valorPago != null) ? n.valorPago : n.valorTitulo;
-  const _lst = arr => arr.slice(0, 10).map(n => `• ${n.cliente || '?'} — ${fmtVal(_vb(n) || 0)} venc ${n.vencimento ? fmtDate(n.vencimento) : '-'}${n.pedido ? ` (ped ${n.pedido})` : ''}`).join('\n') + (arr.length > 10 ? `\n… e mais ${arr.length - 10}` : '');
-  let _msg = 'PRÉVIA — relatório de boletos (fora do sistema):\n\n';
-  _msg += `✓ NOVOS a adicionar: ${novosLimpos.length}  (pagos ${novosPagos.length} = ${fmtVal(novosPagos.reduce((s, n) => s + (n.valorPago || 0), 0))} · abertos ${novosAbertos.length} = ${fmtVal(novosAbertos.reduce((s, n) => s + (n.valorTitulo || 0), 0))})\n`;
-  _msg += `↺ JÁ EXISTIAM (mesmo pagador+dia+valor — NÃO entram): ${jaConteudo.length}${jaConteudo.length ? ':\n' + _lst(jaConteudo) : ''}\n`;
-  _msg += `✎ Atualizados (já tinham, agora vieram pagos): ${nAtualizados}\n`;
-  _msg += novosLimpos.length ? `\nAdicionar os ${novosLimpos.length} novos acima?` : `\nNenhum boleto NOVO para adicionar (nada entra).`;
-  const addAll = novosLimpos.length ? confirm(_msg) : (alert(_msg), false);
-  let empAvulso = '';
-  if (addAll) empAvulso = escolherEmpresa('Qual EMPRESA desses boletos do Itaú?');
-  let nAdd = 0;
-  if (addAll) novosLimpos.forEach(n => { delete n._pago; n.empresa = empAvulso; boletosAvulsos.push(n); nAdd++; });
-  if (nAtualizados || nAdd) saveData('boletosAvulsos', boletosAvulsos);
 
-  // ── Boletos PAGOS de pedidos QUE ESTÃO no sistema, mas sem "forma"/emissão (modelo cash-first) ──
-  //    Fecham o pedido direto no Contas a Receber como recebido (Boleto Itaú). Sem isto sumiam:
-  //    não casavam com forma (aposentada) nem entravam como avulsos (o pedido existe).
-  const pedForma = new Set(boletos.map(b => String(b.pedido))); // pedidos já cobertos pela forma/emissão
+  // ── (3) COMPUTA pagos de pedido DO sistema sem forma/emissão (cash-first → fecham direto no CR) ──
+  const pedForma = new Set(boletos.map(b => String(b.pedido)));
   const jaDireto = new Set(recebimentosConsolidado.filter(r => r._boletoPagoDireto).map(r => String(r.nped)));
-  const inSistPagos = [];
-  const vistosSist = new Set();
-  cobrancaRows.forEach(c => {
-    const pago = !!c.dataPagamento || (c.status || '').includes('pag');
-    if (!pago) return;
-    const pid = String(c.pedido || '').trim();
-    if (!pid) return;
-    const ped = pedidos.find(p => String(p.id) === pid);
-    if (!ped) return;                 // fora do sistema já foi tratado como avulso acima
-    if (pedForma.has(pid)) return;    // já cai no fluxo de forma/emissão (baixado)
-    if (jaDireto.has(pid)) return;    // já fechado antes por este mesmo caminho (não duplica)
-    if (vistosSist.has(pid)) return;  // mesmo pedido repetido no arquivo
-    vistosSist.add(pid);
-    inSistPagos.push({ pedido: pid, nome: c.pagador || ped.nome || '', valorTitulo: c.valorTitulo, valorPago: c.valorPago, dataPagamento: c.dataPagamento, vencimento: c.vencimento });
-  });
-  let nDireto = 0, nDup = 0; const dupPulados = [];
-  // Anti-duplicata: não cria o "Boleto pago direto" se JÁ existe boleto avulso (ou outro pago direto) do MESMO
-  // cliente + data + valor — mesmo que esteja noutro nº de pedido (ex.: #417 era o mesmo boleto de 70.994,47 do #408).
   const _diaBol = v => { if (!v) return ''; if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; } const d = v instanceof Date ? v : new Date(v); return isNaN(d) ? '' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); };
   const _jaTemBoletoIgual = n => {
     const val = (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0; const dia = _diaBol(n.dataPagamento || n.vencimento);
@@ -9847,24 +9803,58 @@ function processCobrancaWorkbook(wb) {
     return recebimentosConsolidado.some(r => r.gateway === 'Boleto Itaú' && (r._avulso || r._boletoPagoDireto) && bate(r.nome, r.data, r.bruto))
         || (Array.isArray(boletosAvulsos) && boletosAvulsos.some(b => bate(b.nome || b.pagador, b.dataPagamento || b.vencimento, (b.valorPago != null ? b.valorPago : b.valorTitulo))));
   };
-  if (inSistPagos.length && confirm(`${inSistPagos.length} boleto(s) PAGO(s) de pedidos DO sistema (total ${fmtVal(inSistPagos.reduce((s, n) => s + (n.valorPago || n.valorTitulo || 0), 0))}).\n\nFechar esses pedidos no Contas a Receber como recebidos (Boleto Itaú)?`)) {
-    inSistPagos.forEach(n => {
-      if (_jaTemBoletoIgual(n)) { nDup++; dupPulados.push('#' + n.pedido + ' ' + (n.nome || '') + ' ' + fmtVal((n.valorPago != null ? n.valorPago : n.valorTitulo) || 0)); return; } // já existe avulso do mesmo cliente/data/valor → não duplica
-      recebimentosConsolidado.push({
-        gateway: 'Boleto Itaú', bruto: (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0, taxa: 0,
-        liq: n.valorTitulo || 0, juros: +(((n.valorPago || 0) - (n.valorTitulo || 0)) || 0).toFixed(2),
-        data: n.dataPagamento || n.vencimento, nped: n.pedido, nome: n.nome, tipo: 'Boleto', status: 'pago',
-        _boletoPagoDireto: true
-      });
-      formaOverrideMap[n.pedido] = 'Boleto Itaú'; // marca o pedido como Boleto (consistência com a tela)
-      nDireto++;
-    });
-    saveData('recebimentosConsolidado', recebimentosConsolidado);
-    saveData('formaOverrideMap', formaOverrideMap);
-  }
+  const inSistPagos = []; const vistosSist = new Set();
+  cobrancaRows.forEach(c => {
+    const pago = !!c.dataPagamento || (c.status || '').includes('pag');
+    if (!pago) return;
+    const pid = String(c.pedido || '').trim(); if (!pid) return;
+    const ped = pedidos.find(p => String(p.id) === pid); if (!ped) return;
+    if (pedForma.has(pid)) return; if (jaDireto.has(pid)) return; if (vistosSist.has(pid)) return;
+    vistosSist.add(pid);
+    const n = { pedido: pid, nome: c.pagador || ped.nome || '', valorTitulo: c.valorTitulo, valorPago: c.valorPago, dataPagamento: c.dataPagamento, vencimento: c.vencimento };
+    if (_jaTemBoletoIgual(n)) return; // já tem avulso igual (cliente/data/valor) → não entra
+    inSistPagos.push(n);
+  });
 
-  alert(`✓ Relatório lido: ${cobrancaRows.length} boleto(s).\n• Baixados no sistema: ${nBaixados}\n• Pedidos do sistema fechados (Boleto pago): ${nDireto}\n• Atualizados (já existiam, sem duplicar): ${nAtualizados}\n• Adicionados (novos, fora do sistema): ${nAdd}` + (nDup ? `\n• Pulados por já ter boleto avulso igual (cliente/data/valor): ${nDup}${dupPulados.length ? '\n   ' + dupPulados.slice(0, 8).join('\n   ') : ''}` : '') + ((nBaixados === 0 && nAdd === 0 && nAtualizados === 0 && nDireto === 0 && nDup === 0) ? `\n\nNenhum casou. Confirme que o "Seu Número" do relatório é o nº do pedido.` : ''));
+  // ── PRÉVIA ÚNICA (mostra TAMBÉM os do sistema, com cliente/pedido/parcela/valor) ──
+  const nomeDe = x => x.cliente || x.nome || (x.c && x.c.pagador) || '?';
+  const _lstBaixa = arr => arr.slice(0, 12).map(x => `• #${x.b.pedido} ${x.c.pagador || '?'} — parc. venc ${x.b.vencimento ? fmtDate(x.b.vencimento) : '-'} — ${fmtVal(x.c.valorTitulo || 0)}`).join('\n') + (arr.length > 12 ? `\n… e mais ${arr.length - 12}` : '');
+  const _lstIn = arr => arr.slice(0, 12).map(n => `• #${n.pedido} ${n.nome || '?'} — ${fmtVal((n.valorPago != null ? n.valorPago : n.valorTitulo) || 0)} em ${n.dataPagamento ? fmtDate(n.dataPagamento) : '-'}`).join('\n') + (arr.length > 12 ? `\n… e mais ${arr.length - 12}` : '');
+  const _lstFora = arr => arr.slice(0, 10).map(n => `• ${n.cliente || '?'} — ${fmtVal(((n._pago && n.valorPago != null) ? n.valorPago : n.valorTitulo) || 0)} venc ${n.vencimento ? fmtDate(n.vencimento) : '-'}${n.pedido ? ` (ped ${n.pedido})` : ''}`).join('\n') + (arr.length > 10 ? `\n… e mais ${arr.length - 10}` : '');
+  const totBaixa = baixas.reduce((s, x) => s + (x.c.valorTitulo || 0), 0);
+  const totIn = inSistPagos.reduce((s, n) => s + ((n.valorPago != null ? n.valorPago : n.valorTitulo) || 0), 0);
+  let _msg = `PRÉVIA — relatório de boletos (${cobrancaRows.length} linha(s)):\n\n`;
+  _msg += `━ DO SISTEMA ━\n`;
+  _msg += `✓ Boletos que serão BAIXADOS: ${baixas.length}${baixas.length ? ` = ${fmtVal(totBaixa)}\n${_lstBaixa(baixas)}` : ' (nenhum)'}\n\n`;
+  _msg += `✓ Pedidos do sistema fechados como pagos (Boleto Itaú): ${inSistPagos.length}${inSistPagos.length ? ` = ${fmtVal(totIn)}\n${_lstIn(inSistPagos)}` : ' (nenhum)'}\n\n`;
+  _msg += `━ FORA DO SISTEMA ━\n`;
+  _msg += `✓ Novos a adicionar: ${novosLimpos.length} (pagos ${novosPagos.length} · abertos ${novosAbertos.length})${novosLimpos.length ? `:\n${_lstFora(novosLimpos)}` : ''}\n`;
+  _msg += `↺ Já existiam (mesmo pagador+dia+valor, NÃO entram): ${jaConteudo.length}\n`;
+  _msg += `✎ Atualizados (já tinham, agora vieram pagos): ${atualizaveis.length}\n`;
+  const temAlgo = baixas.length || inSistPagos.length || novosLimpos.length || atualizaveis.length;
+  _msg += temAlgo ? `\nGravar tudo acima?` : `\nNada a gravar (nenhum boleto casou/novo).`;
+  if (!temAlgo) { alert(_msg); return; }
+  if (!confirm(_msg)) { syncBoletosToRecebimentos(); return; } // cancelou → NADA é gravado
 
+  // ── APLICA (só depois do confirmar) ──
+  let nBaixados = 0, nDireto = 0, nAtualizados = 0, nAdd = 0;
+  // (a) reset do status das parcelas deste arquivo + baixa das casadas
+  boletos.forEach(b => { if (parcelasNoArq.has(`${String(b.pedido)}|${_vencISOcob(b.vencimento)}`)) delete boletoCobrancaStatus[b.key]; });
+  baixas.forEach(({ c, b }) => { boletoCobrancaStatus[b.key] = { dataPagamento: c.dataPagamento, pago: !!c.dataPagamento || c.status.includes('pag'), valorTitulo: c.valorTitulo, valorPago: c.valorPago, juros: c.juros }; nBaixados++; });
+  saveData('boletoCobrancaStatus', boletoCobrancaStatus);
+  // (b) fora do sistema: atualiza + adiciona
+  atualizaveis.forEach(({ a, c, pago }) => { if (pago && !a.dataPagamento) { a.dataPagamento = c.dataPagamento; a.valorPago = c.valorPago; nAtualizados++; } if (!a.cliente && c.pagador) a.cliente = c.pagador; });
+  const empAvulso = novosLimpos.length ? escolherEmpresa('Qual EMPRESA desses boletos do Itaú (fora do sistema)?') : '';
+  novosLimpos.forEach(n => { delete n._pago; n.empresa = empAvulso; boletosAvulsos.push(n); nAdd++; });
+  if (nAtualizados || nAdd) saveData('boletosAvulsos', boletosAvulsos);
+  // (c) pagos de pedido do sistema → fecham direto no CR
+  inSistPagos.forEach(n => {
+    recebimentosConsolidado.push({ gateway: 'Boleto Itaú', bruto: (n.valorPago != null ? n.valorPago : n.valorTitulo) || 0, taxa: 0, liq: n.valorTitulo || 0, juros: +(((n.valorPago || 0) - (n.valorTitulo || 0)) || 0).toFixed(2), data: n.dataPagamento || n.vencimento, nped: n.pedido, nome: n.nome, tipo: 'Boleto', status: 'pago', _boletoPagoDireto: true });
+    formaOverrideMap[n.pedido] = 'Boleto Itaú'; nDireto++;
+  });
+  if (nDireto) { saveData('recebimentosConsolidado', recebimentosConsolidado); saveData('formaOverrideMap', formaOverrideMap); }
+
+  alert(`✓ Gravado:\n• Baixados no sistema: ${nBaixados}\n• Pedidos do sistema fechados (Boleto pago): ${nDireto}\n• Atualizados (sem duplicar): ${nAtualizados}\n• Adicionados (fora do sistema): ${nAdd}`);
   syncBoletosToRecebimentos();
   try { renderContas(); } catch (e) {}
 }
