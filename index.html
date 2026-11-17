@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v806/10-859';
+const APP_VERSION = 'v807/10-860';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -970,7 +970,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1707,7 +1707,8 @@ let _mesFechoSel = '';         // mês escolhido na barra "Fechamento do mês" (
 let _vendasLote = [];          // resumo do lote de planilhas de Vendas subidas juntas (double-check no fim)
 let saldosIniciais = {};       // { banco: { valor, data:'YYYY-MM-DD' } } — saldo bancário inicial p/ conferir o saldo calculado
 let saldosDiarios = {};        // { 'banco|YYYY-MM-DD': valorRealDoBanco } — saldo real informado p/ conferir contra o calculado (Fluxo → Saldo bancário diário)
-let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). Usado no Relatório por banco (aprovação).
+let saldoInicialDia = {};      // { 'YYYY-MM-DD': valor } — saldo inicial do dia (TODOS os bancos) que a usuária informa; carry-forward (repete o último se não informar). PREENCHIDO pelo OFX; usado por Fechamento/Balancete/Fluxo/Power BI.
+let saldoDiaCP = null;         // { 'YYYY-MM-DD': { banco: valor } } — saldo do dia SÓ do Contas a Pagar (bloco "Saldo inicial do dia — por banco" + relatório de aprovação). SÓ MANUAL, o OFX NÃO mexe. null = ainda não semeado (1ª vez copia do saldoInicialDia).
 // CONGELAMENTO de mês fechado: { 'YYYY-MM': [linhas no formato do flat] } — a VERDADE oficial da Elaine (planilha de fechamento).
 // Quando existe, o Power BI (flatCR/flatCP) e a exportação usam ESTAS linhas pros meses fechados, em vez de recalcular ao vivo
 // (o recálculo drifava: recebimentos mudavam de data/vínculo após o fechamento). Só mês ABERTO segue vivo. Ver _syncPowerBI.
@@ -6853,6 +6854,33 @@ function setSaldoInicialDiaBanco(banco, valor) {
   saveData('saldoInicialDia', saldoInicialDia);
   renderPagar();
 }
+// ── SALDO DO DIA no CONTAS A PAGAR — chave PRÓPRIA (saldoDiaCP), SÓ MANUAL, SÓ esta tela (bloco + relatório de
+//    aprovação). Separado do saldoInicialDia (que o OFX preenche e que Fechamento/Balancete/Fluxo/Power BI usam).
+//    Mesmo modelo { 'YYYY-MM-DD': { banco: valor } }. Semeado 1x do saldoInicialDia pra a 1ª abertura mostrar o mesmo número.
+function _ensureSaldoDiaCP() { if (saldoDiaCP == null) { saldoDiaCP = (saldoInicialDia && typeof saldoInicialDia === 'object') ? JSON.parse(JSON.stringify(saldoInicialDia)) : {}; try { saveData('saldoDiaCP', saldoDiaCP); } catch (e) {} } return saldoDiaCP; }
+function saldoDiaCPBancoValor(dateStr, banco) { const o = _ensureSaldoDiaCP()[dateStr]; return (o && typeof o === 'object' && o[banco] != null) ? +o[banco] || 0 : null; }
+function getSaldoDiaCPBanco(dateStr, banco) { // carry-forward (dica): saldo final do dia anterior = inicial − contas por vencimento
+  const store = _ensureSaldoDiaCP();
+  const datas = Object.keys(store).filter(d => d <= dateStr).sort();
+  let base = 0, ancora = null;
+  for (let i = datas.length - 1; i >= 0; i--) { const o = store[datas[i]]; if (o && typeof o === 'object' && o[banco] != null) { base = +o[banco] || 0; ancora = datas[i]; break; } }
+  if (ancora == null) return 0;
+  if (ancora === dateStr) return base;
+  let gasto = 0;
+  contasPagar.forEach(c => { if ((c.banco || '') !== banco) return; if (!(c.vencimento instanceof Date) || isNaN(c.vencimento)) return; const vk = _toDateInput(c.vencimento); if (vk >= ancora && vk < dateStr) gasto += (c.valor || 0); });
+  return +(base - gasto).toFixed(2);
+}
+function getSaldoDiaCP(dateStr) { return _bancosSaldo().reduce((s, b) => s + getSaldoDiaCPBanco(dateStr, b), 0); }
+function setSaldoDiaCPBanco(banco, valor) {
+  const dateStr = saldoDiaDataAtual();
+  _ensureSaldoDiaCP();
+  if (!saldoDiaCP[dateStr] || typeof saldoDiaCP[dateStr] !== 'object') saldoDiaCP[dateStr] = {};
+  const t = String(valor || '').trim();
+  if (!t) delete saldoDiaCP[dateStr][banco];
+  else { const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t.replace(/\s/g, '')); saldoDiaCP[dateStr][banco] = isNaN(n) ? 0 : +n.toFixed(2); }
+  saveData('saldoDiaCP', saldoDiaCP);
+  renderPagar();
+}
 function setSaldoDiaData(v) { _saldoDiaData = v; renderPagar(); }
 // Remove contas a pagar DUPLICADAS (mesma empresa + fornecedor + valor + vencimento).
 // Regras de segurança: mantém SEMPRE a versão conciliada no banco / travada por dia fechado
@@ -6914,7 +6942,7 @@ function relatorioContasPorBanco() {
   // Data de referência do saldo (tem que vir ANTES do loop: o subtotal por banco usa repData).
   const repData = saldoDiaDataAtual();
   const repDataBR = repData.split('-').reverse().join('/');
-  const saldoIni = getSaldoInicialDia(repData);
+  const saldoIni = getSaldoDiaCP(repData); // relatório de aprovação do CP usa o saldo MANUAL da tela (saldoDiaCP)
   const saldoFinal = +(saldoIni - totalGeral).toFixed(2);
   // ── ENTRADAS PREVISTAS DO DIA do relatório (boletos a receber vencendo hoje + créditos já no extrato hoje) ──
   // O saldo inicial é o começo do dia (não inclui os créditos de hoje), então somar as entradas do dia não dobra.
@@ -6963,8 +6991,8 @@ function relatorioContasPorBanco() {
   let body = '';
   bancos.forEach(b => {
     const arr = grupos[b]; const sub = arr.reduce((s, c) => s + (c.valor || 0), 0);
-    // Saldo REAL do banco no dia (o que a Elaine digita) − as contas desse banco = sobra. Vermelho se não cobre.
-    const saldoB = getSaldoInicialDiaBanco(repData, b);
+    // Saldo REAL do banco no dia (o que a Elaine digita no CP, saldoDiaCP) − as contas desse banco = sobra. Vermelho se não cobre.
+    const saldoB = getSaldoDiaCPBanco(repData, b);
     // Entradas do dia DESTE banco (créditos já no extrato de hoje). O saldo inicial é o começo do dia (não inclui
     // os créditos de hoje), então somar as entradas não duplica. Boletos a receber não têm banco → ficam só no total.
     const entradasB = +creditosDia.filter(c => { const cb = ((c.banco || '').trim() && c.banco !== '(sem banco)') ? (c.banco || '').trim() : '(sem banco definido)'; return cb === b; }).reduce((s, c) => s + c.valor, 0).toFixed(2);
@@ -7587,11 +7615,11 @@ function renderPagar() {
         ${_diaFilt
           ? `<span class="badge neu" style="background:var(--accent);color:#fff" title="A caixa segue o dia que você filtrou em Data">📅 ${_sd.split('-').reverse().join('/')} (do filtro)</span>`
           : `<input type="date" class="inline-input" value="${_sd}" onchange="setSaldoDiaData(this.value)" style="width:130px" title="Dia do saldo">`}
-        <span style="color:var(--muted)">${_diaFilt?'a caixa segue o dia filtrado. ':''}quando você importa o extrato (OFX), o sistema já preenche isto sozinho com o saldo real do banco. Se estiver em branco, digite; em cinza é só uma sugestão (saldo de ontem − contas).</span>
+        <span style="color:var(--muted)">${_diaFilt?'a caixa segue o dia filtrado. ':''}este saldo é SÓ seu (você digita, por banco); o extrato NÃO mexe aqui. Em cinza é só uma sugestão (saldo de ontem − contas). Não afeta Fechamento/Fluxo/Power BI.</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        ${_bs.map(b=>{ const exp=saldoInicialDiaBancoValor(_sd,b); const carry=getSaldoInicialDiaBanco(_sd,b); const eb=b.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); return `<label style="display:inline-flex;align-items:center;gap:4px">🏦 ${b} <input class="inline-input" style="width:95px;text-align:right" value="${exp!=null?exp.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="${carry?fmtVal(carry).replace('R$ ',''):'0,00'}" onchange="setSaldoInicialDiaBanco('${eb}',this.value)"></label>`; }).join('')}
-        <span style="font-weight:700;color:var(--accent);margin-left:auto">Total (todos): ${fmtVal(getSaldoInicialDia(_sd))}</span>
+        ${_bs.map(b=>{ const exp=saldoDiaCPBancoValor(_sd,b); const carry=getSaldoDiaCPBanco(_sd,b); const eb=b.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); return `<label style="display:inline-flex;align-items:center;gap:4px">🏦 ${b} <input class="inline-input" style="width:95px;text-align:right" value="${exp!=null?exp.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" placeholder="${carry?fmtVal(carry).replace('R$ ',''):'0,00'}" onchange="setSaldoDiaCPBanco('${eb}',this.value)"></label>`; }).join('')}
+        <span style="font-weight:700;color:var(--accent);margin-left:auto">Total (todos): ${fmtVal(getSaldoDiaCP(_sd))}</span>
       </div>
     </div>`; })()}
     <div class="filtros-backdrop ${filtrosAbertos?'open':''}" onclick="toggleFiltros(false)"></div>
@@ -11546,7 +11574,7 @@ function aplicarSaldoExtratoNoDia(banco, saldoInfo, novas) {
       res.realDk = dkReal; res.realVal = novoVal;
     }
   }
-  // (B) Saldo inicial do dia SEGUINTE (re-ancora Contas a Pagar, Fluxo, Balancete e Power BI).
+  // (B) Saldo inicial do dia SEGUINTE (re-ancora Fechamento, Balancete, Fluxo e Power BI via saldoInicialDia).
   const prox = new Date(dRef.getFullYear(), dRef.getMonth(), dRef.getDate() + 1);
   const dk = _toDateInput(prox);
   if (mesEstaFechado(dk)) { res.pulou = 'fechado'; res.dk = dk; return res; }
@@ -12106,7 +12134,7 @@ function renderExtrato() {
       let sldLinha = '';
       if (sldRes) {
         const brc = k => k.split('-').reverse().join('/');
-        if (sldRes.preencheu) { sldLinha = `\n\n💰 Saldo do banco: peguei do extrato e preenchi sozinho o saldo inicial de ${brc(sldRes.dk)} (${banco}) = ${fmtVal(sldRes.valor)}. Já vale no Contas a Pagar, Fluxo e Power BI, você não precisa digitar.`; renderPagar(); }
+        if (sldRes.preencheu) { sldLinha = `\n\n💰 Saldo do banco: peguei do extrato e preenchi sozinho o saldo inicial de ${brc(sldRes.dk)} (${banco}) = ${fmtVal(sldRes.valor)}. Já vale no Fluxo, Balancete e Power BI, você não precisa digitar.`; renderPagar(); }
         else if (sldRes.divergiu) sldLinha = `\n\n⚠ Saldo do banco (${banco}): o extrato fecha ${fmtVal(sldRes.extrato)} em ${brc(sldRes.dk)}, mas você já tinha digitado ${fmtVal(sldRes.digitado)}. Não mexi no seu valor. Vale conferir: pode ter lançamento duplicado ou faltando.`;
         else if (sldRes.igual) sldLinha = `\n\n💰 Saldo do banco (${banco}): o extrato confere com o que você já tinha em ${brc(sldRes.dk)}. ✓`;
         else if (sldRes.pulou === 'defasado') sldLinha = `\n\n💰 Saldo do banco: o extrato tem lançamento mais recente que o saldo reportado, então não preenchi sozinho pra não errar. Confira na mão se precisar.`;
@@ -19462,7 +19490,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg','blingPedidoNF'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg','blingPedidoNF'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -19527,6 +19555,7 @@ async function carregarTudo() {
     else if (k==='saldosIniciais') saldosIniciais = v || {};
     else if (k==='saldosDiarios') saldosDiarios = v || {};
     else if (k==='saldoInicialDia') saldoInicialDia = v || {};
+    else if (k==='saldoDiaCP') saldoDiaCP = v;
     else if (k==='crFechado') crFechado = v || {};
     else if (k==='vendasFechado') vendasFechado = v || {};
     else if (k==='vendasFechadas') vendasFechadas = v || [];
