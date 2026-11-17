@@ -300,7 +300,8 @@ tr:hover td{background:#fafaf8}
   <span id="delete-bar-count" style="font-size:13px;font-weight:600"></span>
   <span id="delete-bar-sum" style="font-size:13px;font-weight:700;color:#ffd479"></span>
   <button id="delete-bar-dup" class="btn sm" onclick="duplicarSelecao()" style="padding:6px 14px;display:none;background:#2f6f57;color:#fff" title="Cria uma cópia EM ABERTO de cada linha marcada (do Contas a Pagar)">📄 Duplicar</button>
-  <button class="btn danger sm" onclick="executarExclusao()" style="padding:6px 16px">🗑 Excluir selecionados</button>
+  <button id="delete-bar-lixeira" class="btn sm" onclick="mandarExtratoLixeiraSelecao()" style="padding:6px 14px;display:none;background:#8a5a2b;color:#fff" title="Manda os lançamentos marcados do extrato pra lixeira (recuperável). Se conciliados, o vínculo vai junto e volta no restaurar.">🗑 Mandar p/ lixeira</button>
+  <button id="delete-bar-excluir" class="btn danger sm" onclick="executarExclusao()" style="padding:6px 16px">🗑 Excluir selecionados</button>
   <button onclick="limparSelecao()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;line-height:1">✕</button>
 </div>
 
@@ -563,7 +564,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v809/10-862';
+const APP_VERSION = 'v810/10-863';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -969,7 +970,7 @@ async function loadDataBulk(keys) {
 // Exportar/Importar todos os dados (backup)
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-  'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+  'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','extratoLixeira','devolucoes','devolucaoCredito',
   'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','balanceteFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','ajustesMesFechadoManual','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
@@ -1688,6 +1689,7 @@ let sistemaAcordo = {};        // { parcelaKey(pedido-N): acordoId } — boletos
 let _acordoSel = [], _acordoCliente = ''; // seleção transitória enquanto a telinha de acordo está aberta
 let extratoBancario = [];
 let extDelTipo = 'todos';     // seção "apagar duplicados" do Extrato: todos | credito | debito (só filtro de tela)
+let extratoLixeira = [];      // LIXEIRA recuperável do extrato: [{ts,por,t:<lançamento>,snap:<vínculos>}] — "Mandar p/ lixeira" tira do extrato e guarda aqui; "↩ Restaurar" devolve tudo (linha + vínculo). Nada é apagado de verdade.
 let extratoLinks = {};
 let debitoLinks = {};        // { extratoId: { chave, fornecedor, valor, setPago } } — débito do extrato vinculado a uma Conta a Pagar
 let extratoContaBanco = {};  // { acctKey: bancoNome } — lembra a qual banco pertence cada conta de OFX
@@ -11925,6 +11927,142 @@ async function _limparExtratoSeguro() {
   renderExtrato();
   alert('Extrato apagado. Fiz um backup antes (privado.bkp_extratoBancario_…), dá pra restaurar se precisar.');
 }
+// ════════ LIXEIRA do Extrato (recuperável) — pedido Elaine 17/11 ════════
+// "Mandar p/ lixeira" tira o lançamento do extrato e guarda a LINHA + os VÍNCULOS em extratoLixeira. Se estava
+// conciliado, o vínculo vai junto e é DESFEITO (conta volta "em aberto"); "↩ Restaurar" devolve tudo igualzinho.
+// Bloqueado em mês/dia fechado. Nada é apagado de verdade (só sai do extrato pra lixeira).
+function _snapshotVinculoExtrato(id) {
+  const snap = {
+    extratoLink: extratoLinks[id] ? JSON.parse(JSON.stringify(extratoLinks[id])) : null,
+    repasseLink: repasseLinks[id] ? JSON.parse(JSON.stringify(repasseLinks[id])) : null,
+    receitaLink: receitaLinks[id] ? JSON.parse(JSON.stringify(receitaLinks[id])) : null,
+    debitoLink: debitoLinks[id] ? JSON.parse(JSON.stringify(debitoLinks[id])) : null,
+    receitasAvulsas: (receitasAvulsas || []).filter(r => r._extratoId === id).map(r => JSON.parse(JSON.stringify(r))),
+    contasRestore: []
+  };
+  if (debitoLinks[id]) debLinkItens(debitoLinks[id]).forEach(it => {
+    const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+    if (it.criada) snap.contasRestore.push({ criada: true, chave: it.chave, conta: conta ? JSON.parse(JSON.stringify(conta)) : null });
+    else if (conta) snap.contasRestore.push({ chave: it.chave, pago: conta.pago, dataPag: conta.dataPag, valor: conta.valor });
+  });
+  return snap;
+}
+// Desfaz o vínculo do lançamento (mesma reversão do excluirExtratoDoBanco): conta volta "em aberto"/valor original.
+function _reverterVinculoExtrato(id) {
+  if (debitoLinks[id]) {
+    debLinkItens(debitoLinks[id]).forEach(it => {
+      if (it.criada) { const idx = contasPagar.findIndex(c => chaveContaPagar(c) === it.chave); if (idx >= 0) contasPagar.splice(idx, 1); return; }
+      const conta = contasPagar.find(c => chaveContaPagar(c) === it.chave);
+      if (conta) { if (it.setPago) { conta.pago = false; conta.dataPag = null; } if (it.valorAnt !== undefined) conta.valor = it.valorAnt; }
+    });
+    delete debitoLinks[id];
+  }
+  delete extratoLinks[id];
+  delete repasseLinks[id];
+  if (receitaLinks[id]) { receitasAvulsas = receitasAvulsas.filter(r => r._extratoId !== id); delete receitaLinks[id]; }
+}
+function mandarExtratoLixeiraSelecao() {
+  const idxs = [...deleteSelection].filter(k => k.startsWith('extrato:')).map(k => +k.split(':')[1]);
+  if (!idxs.length) { alert('Marque um ou mais lançamentos do extrato (caixinha) para mandar pra lixeira.'); return; }
+  const linhas = idxs.map(i => extratoBancario[i]).filter(Boolean);
+  const fechadas = linhas.filter(t => (t.data && mesEstaFechado(t.data)) || diaFechado(t.data, t.banco));
+  if (fechadas.length) { alert(`🔒 ${fechadas.length} lançamento(s) estão em mês/dia FECHADO — não vão pra lixeira. Desmarque esses (ou reabra o dia/mês como admin na Conciliação) e tente de novo.`); return; }
+  const conc = linhas.filter(t => extratoLinks[t.id] || repasseLinks[t.id] || debitoLinks[t.id] || receitaLinks[t.id]);
+  const total = linhas.reduce((s, t) => s + Math.abs(+t.valor || 0), 0);
+  const amostra = linhas.slice(0, 12).map(t => `• ${fmtDate(t.data)}  ${fmtVal(t.valor)}  ${(t.memo || '').slice(0, 32)}`).join('\n');
+  let msg = `Mandar ${linhas.length} lançamento(s) para a lixeira?\n\n${amostra}${linhas.length > 12 ? `\n… +${linhas.length - 12}` : ''}\n\nΣ ${fmtVal(total)}\n\nVai pra lixeira (dá pra restaurar). Nada é apagado de verdade.`;
+  if (conc.length) msg += `\n\n⚠ ${conc.length} está(ão) CONCILIADO(S): o vínculo vai junto e a conta volta a "em aberto" (volta no restaurar).`;
+  if (!confirm(msg)) return;
+  if (conc.length && !confirm(`Confirmar de novo: ${conc.length} conciliado(s) terão o vínculo desfeito agora (reversível pelo restaurar). Prosseguir?`)) return;
+  const por = (typeof currentUser !== 'undefined' && currentUser && (currentUser.nome || currentUser.email)) || 'admin';
+  linhas.forEach(t => {
+    const snap = _snapshotVinculoExtrato(t.id);
+    _reverterVinculoExtrato(t.id);
+    extratoLixeira.push({ ts: new Date().toISOString(), por, t: JSON.parse(JSON.stringify(t)), snap });
+  });
+  const ids = new Set(linhas.map(t => t.id));
+  extratoBancario = extratoBancario.filter(t => !ids.has(t.id));
+  deleteSelection.clear(); updateDeleteBar();
+  document.querySelectorAll('.del-check').forEach(cb => cb.checked = false);
+  saveData('extratoBancario', extratoBancario, { reduzOk: true });
+  saveData('extratoLinks', extratoLinks, { reduzOk: true });
+  saveData('repasseLinks', repasseLinks, { reduzOk: true });
+  saveData('debitoLinks', debitoLinks, { reduzOk: true });
+  saveData('receitaLinks', receitaLinks, { reduzOk: true });
+  saveData('receitasAvulsas', receitasAvulsas);
+  saveData('contasPagar', contasPagar);
+  saveData('extratoLixeira', extratoLixeira);
+  try { syncExtratoToRecebimentos(); } catch (e) {}
+  _reRenderBancoExtrato();
+  alert(`✓ ${linhas.length} lançamento(s) na lixeira.\n\nPra restaurar, abra "🗑 Lixeira do extrato" no fim desta tela.`);
+}
+function restaurarDaLixeira(ix) {
+  const rec = extratoLixeira[ix]; if (!rec) return;
+  const t = rec.t, id = t.id, snap = rec.snap || {};
+  if (!extratoBancario.some(x => x.id === id)) { const t2 = JSON.parse(JSON.stringify(t)); if (t2.data) t2.data = new Date(t2.data); extratoBancario.push(t2); }
+  if (snap.extratoLink) extratoLinks[id] = snap.extratoLink;
+  if (snap.repasseLink) repasseLinks[id] = snap.repasseLink;
+  if (snap.receitaLink) receitaLinks[id] = snap.receitaLink;
+  if (Array.isArray(snap.receitasAvulsas) && snap.receitasAvulsas.length) snap.receitasAvulsas.forEach(r => { if (!receitasAvulsas.some(x => x._extratoId === r._extratoId && x._uid === r._uid)) receitasAvulsas.push(r); });
+  if (snap.debitoLink) {
+    debitoLinks[id] = snap.debitoLink;
+    (snap.contasRestore || []).forEach(cr => {
+      if (cr.criada) { if (cr.conta && !contasPagar.some(c => chaveContaPagar(c) === cr.chave)) contasPagar.push(cr.conta); return; }
+      const conta = contasPagar.find(c => chaveContaPagar(c) === cr.chave);
+      if (conta) { conta.pago = cr.pago; conta.dataPag = cr.dataPag; if (cr.valor !== undefined) conta.valor = cr.valor; }
+    });
+  }
+  extratoLixeira.splice(ix, 1);
+  saveData('extratoBancario', extratoBancario, { reduzOk: true });
+  saveData('extratoLinks', extratoLinks, { reduzOk: true });
+  saveData('repasseLinks', repasseLinks, { reduzOk: true });
+  saveData('debitoLinks', debitoLinks, { reduzOk: true });
+  saveData('receitaLinks', receitaLinks, { reduzOk: true });
+  saveData('receitasAvulsas', receitasAvulsas);
+  saveData('contasPagar', contasPagar);
+  saveData('extratoLixeira', extratoLixeira);
+  try { syncExtratoToRecebimentos(); } catch (e) {}
+  _reRenderBancoExtrato();
+  alert('↩ Restaurado' + (snap.debitoLink ? ' com o vínculo (a conta voltou a conciliada).' : '.'));
+}
+function esvaziarLixeiraExtrato() {
+  if (!extratoLixeira.length) return;
+  if (!confirm(`Apagar DE VEZ os ${extratoLixeira.length} lançamento(s) da lixeira?\n\nIsso NÃO dá pra restaurar depois.`)) return;
+  extratoLixeira = [];
+  saveData('extratoLixeira', extratoLixeira);
+  _reRenderBancoExtrato();
+}
+function apagarItemLixeira(ix) {
+  const rec = extratoLixeira[ix]; if (!rec) return;
+  if (!confirm(`Apagar DE VEZ este lançamento da lixeira?\n\n${fmtVal((rec.t || {}).valor)} · ${((rec.t || {}).memo || '').slice(0, 40)}\n\nNão dá pra restaurar depois.`)) return;
+  extratoLixeira.splice(ix, 1);
+  saveData('extratoLixeira', extratoLixeira);
+  _reRenderBancoExtrato();
+}
+function _reRenderBancoExtrato() { try { renderExtrato(); } catch (e) {} try { renderBanco(); } catch (e) {} }
+// Painel da LIXEIRA do extrato — usado na Conciliação Bancária E na aba Extrato. "Apagar de vez" (por item ou tudo) é
+// a ÚNICA exclusão definitiva (saiu da barra flutuante, que agora só manda pra lixeira).
+function _lixeiraExtratoPanelHTML() {
+  if (!extratoLixeira || !extratoLixeira.length) return '';
+  const rows = extratoLixeira.map((rec, ix) => {
+    const t = rec.t || {}; const s = rec.snap || {};
+    const tinha = s.debitoLink ? 'conta (a pagar)' : s.extratoLink ? 'pedido' : s.repasseLink ? 'repasse' : s.receitaLink ? 'receita' : '—';
+    return `<tr>
+      <td>${fmtDate(t.data ? new Date(t.data) : null)}</td><td>${t.memo || ''}</td>
+      <td style="color:${(+t.valor || 0) >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:600">${fmtVal(t.valor)}</td>
+      <td>${t.banco || '<span style="color:var(--amber)">sem banco</span>'}</td>
+      <td style="font-size:11px;color:var(--muted)">${tinha}${rec.ts ? ` · ${fmtDate(new Date(rec.ts))}` : ''}</td>
+      <td style="white-space:nowrap"><button class="btn ghost sm" onclick="restaurarDaLixeira(${ix})">↩ Restaurar</button>
+        <button class="btn ghost sm" style="color:var(--red)" onclick="apagarItemLixeira(${ix})" title="Remove este item de vez (não dá pra restaurar)">🗑 Apagar de vez</button></td></tr>`;
+  }).join('');
+  return `
+    <div class="section-title" style="margin-top:26px">🗑 Lixeira do extrato <span style="color:var(--muted);font-weight:400;font-size:13px">(${extratoLixeira.length})</span></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px"><b>↩ Restaurar</b> devolve o lançamento ao extrato (com o vínculo, se tinha). <b>🗑 Apagar de vez</b> remove sem volta. Nada aqui entra em relatório/saldo.</div>
+    <div class="table-wrap"><table><thead><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Banco</th><th>Tinha vínculo?</th><th></th></tr></thead><tbody>
+    ${rows}
+    </tbody></table></div>
+    <div style="margin-top:8px"><button class="btn ghost sm" style="color:var(--red)" onclick="esvaziarLixeiraExtrato()">Esvaziar a lixeira de vez (${extratoLixeira.length})</button></div>`;
+}
 function renderExtrato() {
   try { _garantirUids(); } catch(e) {} // FASE 0: itens importados depois também ganham _uid
   if (acordos.length) { try { _garantirCodAcordos(); } catch(e) {} } // parcelas de acordo carregam a sigla p/ achar na lista
@@ -12113,8 +12251,8 @@ function renderExtrato() {
     }).join('')}
     </tbody></table></div>`}
 
-    <div class="section-title" style="margin-top:26px">🧹 Extrato inteiro — marque e apague o que duplicou</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Mostra créditos E débitos. Marque a caixinha das linhas repetidas e clique em Excluir (barra embaixo). Os prováveis duplicados aparecem <span style="color:var(--red);font-weight:600">destacados</span>.</div>
+    <div class="section-title" style="margin-top:26px">🧹 Extrato inteiro — marque e mande pra lixeira (ou apague)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Mostra créditos E débitos. Marque a caixinha dos lançamentos e, na barra embaixo, use <b>🗑 Mandar p/ lixeira</b> (recuperável — se estiver conciliado, o vínculo vai junto e volta no restaurar) ou <b>Excluir</b> (definitivo). Mês/dia fechado não vai pra lixeira. Os prováveis duplicados aparecem <span style="color:var(--red);font-weight:600">destacados</span>.</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn ${extDelTipo==='todos'?'primary':'ghost'} sm" onclick="extDelTipo='todos';renderExtrato()">Todos</button>
       <button class="btn ${extDelTipo==='credito'?'primary':'ghost'} sm" onclick="extDelTipo='credito';renderExtrato()">Só créditos</button>
@@ -12139,7 +12277,8 @@ function renderExtrato() {
         <td>${dup?'<span class="badge err">duplicado?</span> ':''}${vinc?`<span style="font-size:11px;color:var(--muted)">${vinc}</span>`:''}</td>
       </tr>`;
     }).join('')}
-    </tbody></table></div>`}`;
+    </tbody></table></div>`}
+    ${_lixeiraExtratoPanelHTML()}`;
 
   setupUpload('file-ext','card-ext','status-ext',({file})=>{
     const reader = new FileReader();
@@ -14064,7 +14203,7 @@ function renderBanco() {
               <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${btnFecho}</span>
             </div>
             <div class="table-wrap" style="border-radius:0 0 8px 8px"><table><thead><tr>
-              <th>Descrição</th><th>Valor</th><th>Tipo</th><th style="min-width:260px">Conciliação</th>
+              ${delCheckboxHeader('extrato')}<th>Descrição</th><th>Valor</th><th>Tipo</th><th style="min-width:260px">Conciliação</th>
             </tr></thead><tbody>
             ${lancs.map(t => {
               const isCred = t.valor >= 0;
@@ -14303,6 +14442,7 @@ function renderBanco() {
                 }
               }
               return `<tr>
+                ${tFechado ? '<td style="width:32px;text-align:center;color:var(--muted)" title="Mês/dia fechado — não dá pra mandar pra lixeira">🔒</td>' : delCheckbox('extrato', extratoBancario.indexOf(t))}
                 <td>${t.memo||'—'}</td>
                 <td style="color:${isCred?'var(--green)':'var(--red)'};font-weight:600">${fmtVal(t.valor)}</td>
                 <td>${tipo}</td>
@@ -14312,6 +14452,7 @@ function renderBanco() {
             </tbody></table></div>
           </div>`;
         }).join('')}
+    ${_lixeiraExtratoPanelHTML()}
 
     <!-- Comparativo por operadora (mantido) -->
     <div class="section-title" style="margin-top:8px">Comparativo: Planilhas × Banco (operadoras)</div>
@@ -19057,6 +19198,14 @@ function updateDeleteBar() {
     // Botão Duplicar: só aparece quando há linhas do Contas a Pagar marcadas.
     const dupEl = document.getElementById('delete-bar-dup');
     if (dupEl) dupEl.style.display = [...deleteSelection].some(k => k.startsWith('contasPagar:')) ? 'inline-block' : 'none';
+    // Extrato: a barra oferece SÓ "Mandar p/ lixeira" (recuperável). O "Excluir" definitivo sai da barra — some
+    // quando a seleção é só de extrato (a exclusão de vez do extrato fica no painel da Lixeira, como "Apagar de vez").
+    const temExtrato = [...deleteSelection].some(k => k.startsWith('extrato:'));
+    const temOutro = [...deleteSelection].some(k => !k.startsWith('extrato:'));
+    const lixEl = document.getElementById('delete-bar-lixeira');
+    if (lixEl) lixEl.style.display = temExtrato ? 'inline-block' : 'none';
+    const exEl = document.getElementById('delete-bar-excluir');
+    if (exEl) exEl.style.display = (temExtrato && !temOutro) ? 'none' : 'inline-block';
   }
 }
 // Duplica as linhas marcadas do Contas a Pagar: cria uma cópia EM ABERTO de cada uma (pra você
@@ -19554,7 +19703,7 @@ async function _bootPosLogin() { if (_tudoCarregado) return; await carregarTudo(
 async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
-    'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
+    'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','extratoLixeira','devolucoes','devolucaoCredito',
     'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','balanceteFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','ajustesMesFechadoManual','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg','blingPedidoNF'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
@@ -19596,6 +19745,7 @@ async function carregarTudo() {
     else if (k==='vendedorFixes') vendedorFixes = v || {};
     else if (k==='opMapping') opMapping = v;
     else if (k==='extratoLinks') extratoLinks = v;
+    else if (k==='extratoLixeira') extratoLixeira = Array.isArray(v) ? v : [];
     else if (k==='devolucaoCredito') devolucaoCredito = v;
     else if (k==='devolucaoAcao') devolucaoAcao = v;
     else if (k==='manualLinks') manualLinks = v;
