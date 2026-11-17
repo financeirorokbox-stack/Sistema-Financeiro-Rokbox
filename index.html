@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v807/10-860';
+const APP_VERSION = 'v808/10-861';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -635,7 +635,7 @@ function pedidoPorId(id) {
 // ── Confiabilidade de gravação (Fases 1+2 + quota): retry + fila de pendências PERSISTIDA + aviso + load protegido ──
 // Chaves GRANDES não ficam no localStorage no caso normal (economiza a quota de ~5MB). Mas se uma gravação
 // falhar e virar PENDÊNCIA, o valor é guardado localmente (sobrevive ao F5) e tem prioridade no próximo load.
-const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete','flatReceb','vendasFechado']);
+const _CHAVES_GRANDES = new Set(['pedidos','contasPagar','extratoBancario','recebimentosConsolidado','debitoLinks','repasseLinks','compras','blingDetCache','blingDetCache2','blingVendas','blingVendas2','blingVendasRico','blingVendasRico2','blingCustos','blingProdNomes','flatCR','flatCP','flatVendas','flatBalancete','flatReceb','vendasFechado','balanceteFechado']);
 let _quotaCheia = false;
 let _pendentesSync = (() => { try { return JSON.parse(localStorage.getItem('_pendentesSync') || '{}') || {}; } catch (e) { return {}; } })();
 function _salvarPendentes() { try { localStorage.setItem('_pendentesSync', JSON.stringify(_pendentesSync)); } catch (e) {} }
@@ -970,7 +970,7 @@ async function loadDataBulk(keys) {
 // Lista única das chaves que entram no backup (manual e automático usam a mesma).
 const BACKUP_KEYS = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
   'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
+  'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','concResults','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','balanceteFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','ajustesMesFechadoManual','devolucoesImportadoEm','produtoColecao','colecaoSugerida','blingSyncLog','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg'];
 // Monta o objeto de backup a partir do localStorage (fonte já carregada e salva).
 function _montarBackup() {
   const dados = {};
@@ -1714,11 +1714,13 @@ let saldoDiaCP = null;         // { 'YYYY-MM-DD': { banco: valor } } — saldo d
 // (o recálculo drifava: recebimentos mudavam de data/vínculo após o fechamento). Só mês ABERTO segue vivo. Ver _syncPowerBI.
 let crFechado = {};            // recebimentos oficiais congelados por mês fechado
 let cpFechado = {};            // contas pagas oficiais congeladas por mês fechado
+let balanceteFechado = {};     // FOTO do Balancete por mês fechado: { "YYYY-MM": [ {mes,emp,tipo,grupo,sub,col,valor} ] }. _exportBalancete e o Painel sobrepõem ela no mês fechado (imune a recálculo). Mês sem foto segue o cálculo ao vivo.
 // ── FECHAR VENDAS DO MÊS (separado do fechamento financeiro da Conciliação) ──
 let vendasFechado = {};        // FOTO do faturamento por mês: { "YYYY-MM": [ {pedido,empresa,loja,vendedor,operacao,situacao,valor,devolucao,net} ] }. Painel/Power BI leem dela nos meses de vendas fechadas.
 let vendasFechadas = [];       // ['YYYY-MM'] com vendas fechadas (o sync para de mexer nos pedidos desse mês)
 let vendasFechadasLog = {};    // { "YYYY-MM": { fechou:{por,em}, reabriu:[{por,em,motivo}] } }
 let ajustesMesFechado = [];    // mudanças que chegaram DO BLING depois de fechar as vendas: {mes,pedido,campo,de,para,status:'novo'|'ciente',ts}
+let ajustesMesFechadoManual = [];// ajustes MANUAIS num mês fechado (log de auditoria): {ts,tipo,mes,motivo,detalhe,itens:[...]}
 let devolucoesImportadoEm = '';// data/hora ISO da última importação da planilha de devoluções (mostra na conferência de fechar vendas)
 let _saldoDiaData = '';        // data escolhida p/ o saldo inicial do dia (UI); vazio = hoje
 let fluxoBancoSel = '';        // banco selecionado na seção "Saldo bancário diário" do Fluxo (estado de UI, não persiste)
@@ -6034,7 +6036,9 @@ async function _syncPowerBI() {
 // BALANCETE pro painel: extrato categorizado (mesma lógica do renderFluxo/Balancete), 1 linha por lançamento
 // {mes, emp, tipo:R/D, grupo, sub, valor}. O painel PIVOTA (empresa nas colunas, grupo/sub nas linhas, filtro de mês).
 // Reusa a categorização do sistema (categoriaLancamento/grupoReceitaGateway/grupoDespesa/catContaPagar) → fica idêntico.
-function _exportBalancete() {
+function _exportBalancete(opts) {
+  opts = opts || {}; // { grossUpMeses:['YYYY-MM'] força o gross-up do estorno mesmo em mês fechado; semFoto:true ignora a foto balanceteFechado (usado pra GERAR a foto) }
+  const _grossUp = (opts.grossUpMeses || []);
   const SUB_REC = { 'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito' };
   const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
   const _normEmp = e => { const s = String(e || '').toLowerCase(); if (/rokbox/.test(s)) return 'ROKBOX'; if (/rk/.test(s)) return 'RK'; return (e && String(e).trim()) || '(sem empresa)'; };
@@ -6117,7 +6121,8 @@ function _exportBalancete() {
     (contasPagar || []).forEach(c => {
       if (!c.pago || !_ehEstornoNetado(c)) return; // critério ÚNICO (mesmo do export conciliado)
       const mesE = _mesDe(c.dataPag); if (!mesE) return;
-      if (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(c.dataPag)) return; // mês fechado não muda
+      // Mês fechado não muda sozinho — SALVO os meses marcados em opts.grossUpMeses (usados só pra GERAR a foto oficial do mês, ex.: outubro).
+      if (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(c.dataPag) && !_grossUp.includes(mesE)) return;
       const v = +(+c.valor || 0).toFixed(2); if (!(v > 0.005)) return;
       const gw = /rede/i.test(c.descricao || '') ? 'Rede' : 'PayPal';
       const empE = _normEmp(c.empresa || 'Rokbox');
@@ -6129,12 +6134,39 @@ function _exportBalancete() {
   } catch (e) { console.warn('gross-up estornos Balancete falhou:', e.message); }
   // saldo anterior por mês = base dos saldos iniciais + movimento do banco ANTES do mês
   const base = Object.values(saldosIniciais || {}).reduce((s, c) => s + (+c.valor || 0), 0);
-  return { rows, base };
+  // ── FOTO do Balancete de mês fechado (balanceteFechado): troca as linhas do mês pela foto oficial, pra o mês
+  //    fechado ficar IMUNE a recálculo (igual ao crFechado/cpFechado do CR/CP). Mês SEM foto segue o cálculo acima,
+  //    então jun-set (sem foto) não mudam nada. opts.semFoto pula isto (usado quando a própria foto está sendo gerada). ──
+  let _rows = rows;
+  try {
+    if (!opts.semFoto && balanceteFechado && typeof balanceteFechado === 'object') {
+      const fm = Object.keys(balanceteFechado).filter(m => Array.isArray(balanceteFechado[m]) && balanceteFechado[m].length);
+      if (fm.length) { _rows = rows.filter(r => !fm.includes(r.mes)); fm.forEach(m => balanceteFechado[m].forEach(fr => _rows.push(fr))); }
+    }
+  } catch (e) { console.warn('overlay foto Balancete falhou:', e.message); }
+  return { rows: _rows, base };
 }
 // Balancete em cache (só recalcula quando os dados mudam) — pra a tela do CR mostrar "Entrou no banco"
 // com a MESMA conta do Painel RK/Fechamento sem recalcular tudo a cada render.
 let _balCacheCR = null, _balVerCR = -1;
 function _balanceteCR() { if (_balVerCR === _dataVersion && _balCacheCR) return _balCacheCR; try { _balCacheCR = _exportBalancete(); } catch (e) { _balCacheCR = { rows: [], base: 0 }; } _balVerCR = _dataVersion; return _balCacheCR; }
+// Congela a FOTO oficial do Balancete de um mês fechado = cálculo ao vivo COM o gross-up de estorno DAQUELE mês
+// (os demais meses fechados não entram). Depois disso o mês fica imune a recálculo. Reversível: basta apagar a chave.
+async function _congelarBalanceteMes(mes) {
+  const r = _exportBalancete({ grossUpMeses: [mes], semFoto: true });
+  // AGREGA por emp|tipo|grupo|sub|col (o Painel já soma por esses níveis, então o balancete fica idêntico na tela,
+  // só menor). Mantém a foto compacta e estável.
+  const ag = new Map();
+  (r.rows || []).filter(x => x.mes === mes).forEach(x => {
+    const k = [x.emp, x.tipo, x.grupo, x.sub, x.col || '(sem coleção)'].join('§');
+    const cur = ag.get(k);
+    if (cur) cur.valor = +(cur.valor + (+x.valor || 0)).toFixed(2);
+    else ag.set(k, { mes, emp: x.emp, tipo: x.tipo, grupo: x.grupo, sub: x.sub, col: x.col || '(sem coleção)', valor: +(+x.valor || 0).toFixed(2) });
+  });
+  balanceteFechado[mes] = [...ag.values()];
+  try { await saveData('balanceteFechado', balanceteFechado); } catch (e) {}
+  return (balanceteFechado[mes] || []).length;
+}
 // Exporta os PEDIDOS (Vendas) do filtro atual — 1 linha por pedido, JÁ com as correções feitas na tela
 // (loja/vendedor). Não reproduz as linhas de produto da planilha original (o sistema consolida por pedido).
 function exportarVendas() {
@@ -19490,7 +19522,7 @@ async function carregarTudo() {
   // Carrega dados salvos
   const keys = ['pedidos','contasPagar','recorrencias','condicoesPagamento','fornecedoresCompras','colecoes','compras','formaPagamento','recebimentosConsolidado','boletoStatus','boletoConfig',
     'boletoCobrancaStatus','boletoProtesto','boletosAvulsos','msgCobrancaTpl','boletoAvisado','extratoBancario','extratoLinks','devolucoes','devolucaoCredito',
-    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg','blingPedidoNF'];
+    'lojaFixes','vendedorFixes','opMapping','lojaCadastro','empresasCadastro','bancosCadastro','vendasFilters','manualLinks','formaManualMap','formaOverrideMap','difAceita','dateFilters','devolucaoAcao','debitoLinks','extratoContaBanco','repasseLinks','receitasAvulsas','receitaLinks','recebOrfaoInfo','saldosIniciais','saldosDiarios','saldoInicialDia','saldoDiaCP','creditosCliente','comissaoVendedor','comissaoOutros','comissaoExcecoes','metasComissao','comissaoFaixas','comConferido','comissaoFechada','freteOverride','diferencaOverride','baseOverride','pctOverride','vendedorOverride','recebPeriodoAnt','diasFechados','mesesFechados','recebDesvinculado','recebEntrada','ligadosAutoReceb','funcionariosRH','folhaRH','comprasDriveLidos','driveSyncLidos','divergenciasVendas','obsPedido','acordos','sistemaAcordo','feriasRH','budgets','desenvColecoes','insumosBase','crFechado','cpFechado','balanceteFechado','vendasFechado','vendasFechadas','vendasFechadasLog','ajustesMesFechado','ajustesMesFechadoManual','devolucoesImportadoEm','produtoColecao','colecaoSugerida','colecoesLista','blingCustos','blingPendencias','deParaFornecedores','colecoesPL','afazeres','rotinasAfazeres','blingLojaMap','calcParcelamento','cupomConfig','indicacaoPedido','correiosInformado','margemMinSeg','brindeVinculo','campanhas','campanhaPedido','embalagemSeg','embalagemPedido','tarifaBoletoItau','taxaInformada','campanhaCustoPedido','campanhaCustoPadraoPct','correiosEstimadoSeg','blingPedidoNF'];
   try { if (Object.keys(_pendentesSync).length) await _flushPendentes(); } catch (e) {} // Fase 2: sobe pendências ANTES de carregar, pra não perder no F5
   const _bulk = await loadDataBulk(keys);   // busca tudo EM PARALELO (F5 rápido)
   for (const k of keys) {
@@ -19563,6 +19595,8 @@ async function carregarTudo() {
     else if (k==='ajustesMesFechado') ajustesMesFechado = v || [];
     else if (k==='devolucoesImportadoEm') devolucoesImportadoEm = v || '';
     else if (k==='cpFechado') cpFechado = v || {};
+    else if (k==='balanceteFechado') balanceteFechado = (v && typeof v==='object') ? v : {};
+    else if (k==='ajustesMesFechadoManual') ajustesMesFechadoManual = Array.isArray(v) ? v : [];
     else if (k==='produtoColecao') produtoColecao = v || {};
     else if (k==='colecaoSugerida') colecaoSugerida = v || {};
     else if (k==='colecoesPL') colecoesPL = Array.isArray(v) ? v : [];

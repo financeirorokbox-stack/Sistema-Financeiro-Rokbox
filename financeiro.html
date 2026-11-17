@@ -469,6 +469,17 @@ function _overlayFoto(flat, foto){
   meses.forEach(m => { const linhas = foto[m]; if(Array.isArray(linhas)) linhas.forEach(r => base.push(r)); });
   return base;
 }
+// FOTO do Balancete: troca as linhas de cada mês fechado pela foto oficial (balanceteFechado[mes] = linhas {mes,emp,tipo,...}).
+// Mês sem foto segue o flatBalancete ao vivo (jun-set não mudam). Robusto mesmo com o flatBalancete desatualizado (padrão 1c).
+function _overlayFotoBal(bal, foto){
+  if(!bal || !Array.isArray(bal.rows)) return bal;
+  const meses = foto && typeof foto==='object' ? Object.keys(foto).filter(m=>Array.isArray(foto[m])&&foto[m].length) : [];
+  if(!meses.length) return bal;
+  const mset = new Set(meses);
+  const rows = bal.rows.filter(r => !mset.has(r.mes));
+  meses.forEach(m => foto[m].forEach(r => rows.push(r)));
+  return { rows, base: bal.base };
+}
 async function renderDRE(){
   const el=document.getElementById('dre-conteudo'); if(!el) return;
   if(!ehAdmin()){ el.innerHTML='<div class="card">Apenas admin.</div>'; return; }
@@ -809,12 +820,13 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr0,cp0,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV,campanhasK,campPed,embSeg,embPed,mesesFech,bolCfg,tarItauK,taxaInf,campCustoPed,campCustoPadrao,corrEstSeg,cManual,crFechadoK,cpFechadoK]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo'),gk('campanhas'),gk('campanhaPedido'),gk('embalagemSeg'),gk('embalagemPedido'),gk('mesesFechados'),gk('boletoConfig'),gk('tarifaBoletoItau'),gk('taxaInformada'),gk('campanhaCustoPedido'),gk('campanhaCustoPadraoPct'),gk('correiosEstimadoSeg'),gk('custoManualLinha'),gk('crFechado'),gk('cpFechado')]);
+    const [sid,cr0,cp0,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV,campanhasK,campPed,embSeg,embPed,mesesFech,bolCfg,tarItauK,taxaInf,campCustoPed,campCustoPadrao,corrEstSeg,cManual,crFechadoK,cpFechadoK,balFechadoK]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo'),gk('campanhas'),gk('campanhaPedido'),gk('embalagemSeg'),gk('embalagemPedido'),gk('mesesFechados'),gk('boletoConfig'),gk('tarifaBoletoItau'),gk('taxaInformada'),gk('campanhaCustoPedido'),gk('campanhaCustoPadraoPct'),gk('correiosEstimadoSeg'),gk('custoManualLinha'),gk('crFechado'),gk('cpFechado'),gk('balanceteFechado')]);
     // ── 1c: mês FECHADO lê a FOTO. Sobrepõe cpFechado/crFechado no flatCP/flatCR p/ os meses congelados, pra o
     //    Painel inteiro (Fluxo, Fechamento, Balancete, por grupo, semanal, DRE de caixa) mostrar sempre a foto
     //    oficial do mês fechado, independente de o flatCP/flatCR estarem frescos. Mês vigente segue o ao-vivo. ──
     const cr=_overlayFoto(cr0,crFechadoK), cp=_overlayFoto(cp0,cpFechadoK);
-    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},bCustosAt:(bCustos&&bCustos.atualizado)||null,pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{},brindeVinculo:brindeV||{},campanhas:Array.isArray(campanhasK)?campanhasK:[],campanhaPedido:campPed||{},embalagemSeg:embSeg||{},embalagemPedido:embPed||{},mesesFechados:Array.isArray(mesesFech)?mesesFech:[],boletoConfig:bolCfg||{},tarifaBoletoItau:(tarItauK&&tarItauK.valor!=null)?tarItauK.valor:(typeof tarItauK==='number'||typeof tarItauK==='string'?tarItauK:null),taxaInformada:taxaInf||{},campanhaCustoPedido:campCustoPed||{},campanhaCustoPadraoPct:(campCustoPadrao&&campCustoPadrao.valor!=null)?campCustoPadrao.valor:((typeof campCustoPadrao==='number'||typeof campCustoPadrao==='string')?campCustoPadrao:null),correiosEstimadoSeg:corrEstSeg||{},custoManualLinha:cManual||{},crFechado:crFechadoK||{},cpFechado:cpFechadoK||{}};
+    const balFoto=_overlayFotoBal(bal,balFechadoK); // mês fechado lê a FOTO do Balancete (jun-set sem foto seguem o ao-vivo)
+    _FIN={sid,cr,cp,pedidos,lc,dev,extB,extL,bal:balFoto,devCred:devCred||{},bCustos:(bCustos&&bCustos.map)||{},bCustosAt:(bCustos&&bCustos.atualizado)||null,pCol:pCol||{},receb:receb||[],recFlat:recFlat||null,comExc:comExc||[],nfBling:nfBling||{},pedNF:(pedNF&&pedNF.mapa)||{},pgdas:pgdas||{},pgSemNF:pgSemNF||{},nfidx:{1:(nfidx1&&nfidx1.idx)||{},2:(nfidx2&&nfidx2.idx)||{}},nfidxNat:{1:(nfidx1&&nfidx1.nat)||{},2:(nfidx2&&nfidx2.nat)||{}},correiosInformado:corrInf||{},margemMinSeg:margMin||{},brindeVinculo:brindeV||{},campanhas:Array.isArray(campanhasK)?campanhasK:[],campanhaPedido:campPed||{},embalagemSeg:embSeg||{},embalagemPedido:embPed||{},mesesFechados:Array.isArray(mesesFech)?mesesFech:[],boletoConfig:bolCfg||{},tarifaBoletoItau:(tarItauK&&tarItauK.valor!=null)?tarItauK.valor:(typeof tarItauK==='number'||typeof tarItauK==='string'?tarItauK:null),taxaInformada:taxaInf||{},campanhaCustoPedido:campCustoPed||{},campanhaCustoPadraoPct:(campCustoPadrao&&campCustoPadrao.valor!=null)?campCustoPadrao.valor:((typeof campCustoPadrao==='number'||typeof campCustoPadrao==='string')?campCustoPadrao:null),correiosEstimadoSeg:corrEstSeg||{},custoManualLinha:cManual||{},crFechado:crFechadoK||{},cpFechado:cpFechadoK||{}};
     _popMesSel();
     gkMetaAt('flatVendas').then(iso=>{ const el=document.getElementById('dataAt'); if(!el) return; const velho=iso&&((Date.now()-new Date(iso).getTime())>2*3600*1000); el.style.color=velho?'#e6b800':''; el.style.fontWeight=velho?'800':''; el.textContent=velho?('⚠ dados desatualizados ('+_fmtAt(iso)+') — abra o Gestão'):('💾 dados de '+_fmtAt(iso)); });
     const mes=mesSel||mesAtual();
