@@ -563,7 +563,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v808/10-861';
+const APP_VERSION = 'v809/10-862';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -8535,6 +8535,38 @@ function estornoParaPagar(idx) {
   renderRecebimentos();
   alert('✓ Estorno lançado em Contas a Pagar.');
 }
+// Empresa do PEDIDO original de um estorno (best-effort, pelo nome do cliente; prefere o pedido de mesmo valor).
+// Devolve '' quando não dá pra saber com segurança (aí a empresa fica como está, e a Elaine ajusta a exceção).
+function _empresaPedidoEstorno(c) {
+  const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const nome = _norm(c.fornecedor); if (!nome) return '';
+  const v = +c.valor || 0;
+  const cands = (pedidos || []).filter(p => _norm(p.nome) === nome && p.empresa);
+  if (!cands.length) return '';
+  const exato = cands.find(p => Math.abs((+p.valor || 0) - v) < 0.03);
+  return (exato || cands[0]).empresa || '';
+}
+// REGRA (pedido Elaine 17/11): estorno lançado a partir de Recebimentos fica PAGO quando o REEMBOLSO do gateway está
+// CONCLUÍDO — dataPag = data do reembolso, empresa = a do pedido original (quando dá p/ achar). Retenção/disputa
+// PENDENTE fica EM ABERTO até concluir. NUNCA mexe em mês fechado. Idempotente. Roda no fim de cada import. Devolve a lista.
+function _reconciliarEstornosConcluidos() {
+  const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const _concl = s => /conclu/.test(_norm(s)); // "concluído" (ignora acento/caixa); "pendente"/"disputa" NÃO casa
+  const mudou = [];
+  (contasPagar || []).forEach(c => {
+    if (!c || !c._origemEstorno || c.pago || c.cancelado) return; // só estornos de recebimento, em aberto
+    // reembolso de origem: link direto (_estornoChave) ou por nome+valor
+    let r = recebimentosConsolidado.find(x => x._estornoChave && x._estornoChave === chaveContaPagar(c));
+    if (!r) r = recebimentosConsolidado.find(x => x._reembolso && (+x.bruto || 0) < 0 && _norm(x.nome) === _norm(c.fornecedor) && Math.abs(Math.abs(x.liq != null ? x.liq : (x.bruto || 0)) - (+c.valor || 0)) < 0.03);
+    if (!r || !_concl(r.status)) return;                               // só reembolso CONCLUÍDO
+    if (typeof _mesCongeladoCR === 'function' && _mesCongeladoCR(r.data)) return; // mês fechado não muda
+    c.pago = true; c.dataPag = r.data; c.situacao = 'Pago';
+    if (!String(c.empresa || '').trim()) { const emp = _empresaPedidoEstorno(c); if (emp) { c.empresa = emp; if (r._estornoChave) r._estornoChave = chaveContaPagar(c); } }
+    mudou.push({ fornecedor: c.fornecedor, valor: +c.valor || 0, dataPag: c.dataPag, empresa: c.empresa || '' });
+  });
+  if (mudou.length) { _bumpDataVersion(); saveData('contasPagar', contasPagar); saveData('recebimentosConsolidado', recebimentosConsolidado); }
+  return mudou;
+}
 // Ajusta os estornos JÁ lançados no Contas a Pagar do BRUTO para o LÍQUIDO (o que o banco abateu). Mostra o total antes.
 function corrigirEstornosLiquido() {
   const ajustes = [];
@@ -8813,9 +8845,10 @@ function renderRecebimentos() {
       }
       try { enriquecidos += resolverRecebPorSite(); } catch (e) {}
       saveData('recebimentosConsolidado', recebimentosConsolidado);
+      let nEst = 0; try { nEst = (_reconciliarEstornosConcluidos() || []).length; } catch (e) {} // reembolso concluído ⇒ estorno PAGO
       const nv = autoVincularPorValor(); // grava nº do pedido (nome batendo) nos novos
       let nAuto = 0; try { nAuto = autoLigarClienteValor(); } catch (e) {} // liga sozinho cliente+valor exato (tol 0,05), com desfazer
-      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${nAuto?`, ${nAuto} ligados automaticamente`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''}${taxasPM?`, ${taxasPM} c/ taxa Pagar.me`:''})`;
+      document.getElementById('status-cr2').textContent = `✓ ${recebimentosConsolidado.length} lançamentos (+${added} novos${nv?`, ${nv} vinculados`:''}${nAuto?`, ${nAuto} ligados automaticamente`:''}${enriquecidos?`, ${enriquecidos} casados c/ pedido`:''}${taxasPM?`, ${taxasPM} c/ taxa Pagar.me`:''}${nEst?`, ${nEst} estorno(s) concluído(s) → pago`:''})`;
       syncBoletosToRecebimentos();
       syncExtratoToRecebimentos();
       renderRecebimentos();
