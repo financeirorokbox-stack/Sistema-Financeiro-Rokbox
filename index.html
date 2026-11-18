@@ -225,6 +225,12 @@ tr:hover td{background:#fafaf8}
 .inline-input{padding:4px 8px;border:1px solid var(--border);border-radius:5px;
   font-size:12px;width:130px;outline:none}
 .inline-input:focus{border-color:var(--accent)}
+/* Contas a Receber: classes p/ aliviar o HTML por linha (mesmos estilos de antes, fora do inline) */
+.cr-liq{font-size:11px;color:var(--green);font-weight:600}
+.cr-det{font-size:11px;color:var(--muted)}
+.fs11{font-size:11px}
+.ctf{width:32px;font-size:10px;padding:2px;margin-left:4px}
+.ctf[data-ov]{border-color:var(--accent)}
 
 /* ── Conciliation tabs ── */
 .conc-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px}
@@ -564,7 +570,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v813/10-866';
+const APP_VERSION = 'v814/10-867';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -4055,8 +4061,8 @@ function _renderContasImpl(el) {
         <td>${l.venc ? fmtDate(l.venc) : '—'}</td>
         <td>${fmtVal(l.f.valor)}</td>
         <td>${l.st.recebido ? '<span class="badge ok">PAGO</span>' : '<span class="badge err">EM ABERTO</span>'}</td>
-        <td style="font-size:11px;color:var(--green);font-weight:600">${l.st.recebido && a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td>
-        <td style="font-size:11px;color:var(--muted)">avulso importado (Itaú)</td>
+        <td class="cr-liq">${l.st.recebido && a.dataPagamento ? fmtDate(a.dataPagamento) : '—'}</td>
+        <td class="cr-det">avulso importado (Itaú)</td>
       </tr>`; }
       const cls = getClassificacao(l.ped);
       const op = cls.naoAplicavel ? '—' : (cls.operacao || opMapping[opKey(l.ped.loja, l.ped.situacao)] || '');
@@ -4090,8 +4096,8 @@ function _renderContasImpl(el) {
         <td>${l.venc ? fmtDate(l.venc) : '—'}</td>
         <td>${l._orfaoReceb ? `<input class="inline-input" style="width:95px;text-align:right;font-size:12px" value="${l.f.valor?l.f.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}" title="Valor exato que entrou no banco — pode ajustar" onchange="salvarOrfao('${l.f.pedido}','valor',this.value)">` : fmtVal(l.f.valor)}</td>
         <td>${l.st.recebido ? '<span class="badge ok">PAGO</span>' + _seloFechCR(l, pedidosConcBanco.has(String(l.f.pedido))) : (l.st.parcial ? '<span class="badge warn">PARCIAL</span>' : '<span class="badge err">EM ABERTO</span>')}</td>
-        <td style="font-size:11px;color:var(--green);font-weight:600">${l.st.recebido ? getDataLiquidacao(l) : '—'}</td>
-        <td style="font-size:11px;color:var(--muted)">${l.st.detalhe||''}${l._orfaoReceb ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removerOrfaoReceb('${String(l.f.pedido).replace(/'/g,"\\'")}')" title="Remover esta linha 'sem pedido cadastrado'. Não apaga pedidos nem o dinheiro conciliado nos pedidos certos — só tira esta linha fantasma.">✕ remover</button>` : ''}</td>
+        <td class="cr-liq">${l.st.recebido ? getDataLiquidacao(l) : '—'}</td>
+        <td class="cr-det">${l.st.detalhe||''}${l._orfaoReceb ? ` <button class="btn ghost sm" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removerOrfaoReceb('${String(l.f.pedido).replace(/'/g,"\\'")}')" title="Remover esta linha 'sem pedido cadastrado'. Não apaga pedidos nem o dinheiro conciliado nos pedidos certos — só tira esta linha fantasma.">✕ remover</button>` : ''}</td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`}
@@ -5450,15 +5456,21 @@ function salvarOrfao(np, campo, valor) {
 const CATEGORIAS_FORMA = ['Pix (Extrato/OFX)', 'PayPal', 'BraavoPay', 'Boleto Itaú', 'Desconto em Folha', 'Dinheiro', 'Depósito', 'Devolução', 'Crédito Cliente'];
 
 // Seletor compacto (✏) para trocar a forma de pagamento de qualquer pedido
+// DESEMPENHO: as opções do seletor de "trocar forma" são montadas SÓ ao clicar (mousedown/focus). Antes, cada uma
+// das ~1700 linhas do Contas a Receber já trazia TODAS as opções + um formaPagamento.some() (O(pedidos × formas)),
+// inflando o DOM. Colapsado o select é idêntico (só a setinha + ✏); as opções aparecem ao abrir.
 function selectTrocaForma(pedId) {
   const temOverride = !!formaOverrideMap[pedId];
+  return `<select class="inline-input ctf" title="Trocar forma de pagamento"${temOverride ? ' data-ov="1"' : ''}` +
+    ` onmousedown="_fillTrocaForma(this,'${pedId}')" onfocus="_fillTrocaForma(this,'${pedId}')"` +
+    ` onchange="trocarForma('${pedId}', this.value)"><option value="">✏${temOverride ? '✓' : ''}</option></select>`;
+}
+function _fillTrocaForma(sel, pedId) {
+  if (!sel || sel.dataset.filled) return; sel.dataset.filled = '1';
   const opts = CATEGORIAS_FORMA.map(c => `<option value="${c}">${c}</option>`).join('');
-  const voltar = temOverride ? `<option value="__orig__">↻ Voltar ao original</option>` : '';
+  const voltar = formaOverrideMap[pedId] ? `<option value="__orig__">↻ Voltar ao original</option>` : '';
   const semForma = formaPagamento.some(f => String(f.pedido) === String(pedId)) ? `<option value="__semforma__">✕ Deixar sem forma (limpa as linhas)</option>` : '';
-  return `<select class="inline-input" title="Trocar forma de pagamento"
-    style="width:32px;font-size:10px;padding:2px;margin-left:4px;${temOverride ? 'border-color:var(--accent)' : ''}"
-    onchange="trocarForma('${pedId}', this.value)">
-    <option value="">✏${temOverride ? '✓' : ''}</option>${opts}${voltar}${semForma}</select>`;
+  sel.insertAdjacentHTML('beforeend', opts + voltar + semForma);
 }
 
 function trocarForma(pedId, val) {
