@@ -570,7 +570,67 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v815/10-868';
+const APP_VERSION = 'v816/10-869';
+
+// ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
+// Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
+// e BLOQUEIA o salvar (nenhuma aba antiga grava sem as travas novas). O robô (headless/Power BI) e o
+// gate NUNCA são afetados (navigator.webdriver) — e o robô é sempre a versão atual (acabou de carregar).
+let _versaoVelha = false;      // o publicado está mais novo que ESTA aba
+let _versaoNovaSelo = '';      // selo do publicado (p/ a faixa)
+let _ultChecagemVer = 0;
+function _ehRoboVer() { try { return navigator.webdriver === true || window.__ROBO === true; } catch (e) { return false; } }
+function _verNums(v) { return (String(v || '').match(/\d+/g) || []).map(Number); } // 'v815/10-868' → [815,10,868]
+function _publicadoMaisNovo(pub, atual) { const a = _verNums(pub), b = _verNums(atual); const n = Math.max(a.length, b.length); for (let i = 0; i < n; i++) { const x = a[i] || 0, y = b[i] || 0; if (x !== y) return x > y; } return false; } // só true se pub > atual (rollback/empate = false)
+async function _checarVersao(force) {
+  try {
+    if (_ehRoboVer()) return;                                   // robô/gate: não checa nem bloqueia
+    if (_versaoVelha) return;                                   // já sabe que está velha (a faixa já está lá)
+    if (!force && Date.now() - _ultChecagemVer < 60000) return; // no máximo 1x por minuto (debounce do foco)
+    _ultChecagemVer = Date.now();
+    const r = await fetch(location.pathname + '?cb=' + Date.now(), { cache: 'no-store', headers: { Range: 'bytes=0-200000' } }); // só o começo do arquivo (onde está o APP_VERSION) — leve
+    const t = await r.text();
+    const m = t.match(/APP_VERSION\s*=\s*'([^']+)'/);
+    if (m && m[1] && _publicadoMaisNovo(m[1], APP_VERSION)) { _versaoVelha = true; _versaoNovaSelo = m[1]; _mostrarFaixaVersao(); }
+  } catch (e) { /* falha de rede: não bloqueia nada (fail-safe) */ }
+}
+function _mostrarFaixaVersao() {
+  if (document.getElementById('faixa-versao')) return;
+  const d = document.createElement('div');
+  d.id = 'faixa-versao';
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#f59e0b;color:#111827;text-align:center;font-weight:800;padding:11px 14px;cursor:pointer;font-family:system-ui,Arial,sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.3);font-size:14px';
+  d.innerHTML = '⚠ Versão nova disponível' + (_versaoNovaSelo ? ' (' + _versaoNovaSelo + ')' : '') + ' — clique aqui para atualizar. Enquanto não atualizar, o salvar fica bloqueado (pra não rodar sem as travas novas).';
+  d.title = 'Clique para dar F5 e carregar a versão nova';
+  d.onclick = () => { try { location.reload(); } catch (e) {} };
+  document.body.appendChild(d);
+}
+// "O que" ficou sem salvar (nada some calado) — ação amigável por chave; cai no _telaDaChave se não mapeada.
+const _ACAO_DA_CHAVE = {
+  repasseLinks: 'o vínculo de repasse que você acabou de fazer na Conciliação',
+  extratoLinks: 'o vínculo do extrato (PIX → pedido) que você acabou de fazer',
+  debitoLinks: 'o vínculo da conta (débito) que você acabou de fazer na Conciliação',
+  receitaLinks: 'a receita que você acabou de lançar na Conciliação',
+  extratoBancario: 'o extrato que você acabou de importar',
+  recebimentosConsolidado: 'o recebimento que você acabou de importar/ajustar',
+  contasPagar: 'a conta a pagar que você acabou de mexer',
+  pedidos: 'a alteração em Vendas que você acabou de fazer',
+  boletoCobrancaStatus: 'a baixa de boleto que você acabou de dar',
+  devolucoes: 'a devolução/troca que você acabou de lançar',
+  creditosCliente: 'o crédito de cliente que você acabou de mexer'
+};
+function _bloquearSalvarVelha(key) {
+  const oque = _ACAO_DA_CHAVE[key] || ('a alteração em ' + _telaDaChave(key));
+  try { alert('⚠ VERSÃO ANTIGA — não salvei.\n\n' + oque.charAt(0).toUpperCase() + oque.slice(1) + ' NÃO foi gravado.\n\nEsta aba está rodando uma versão velha do sistema. Clique na faixa amarela no topo (ou dê F5) para carregar a versão nova, e refaça. Nada foi salvo em silêncio.'); } catch (e) {}
+}
+// Dispara a checagem: abertura (após assentar), de 15 em 15 min, e sempre que você VOLTA pra aba (foco).
+try {
+  if (!_ehRoboVer()) {
+    setTimeout(() => _checarVersao(true), 4000);
+    setInterval(() => _checarVersao(), 15 * 60 * 1000);
+    window.addEventListener('focus', () => _checarVersao());
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) _checarVersao(); });
+  }
+} catch (e) {}
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -732,6 +792,9 @@ function _merge3(key, ours, theirs, base) {
 }
 function _avisoConc(msg) { try { alert('⚠ Concorrência — ' + msg); } catch (e) { console.warn('[conc]', msg); } }
 async function saveData(key, data, opts) {
+  // TRAVA DE ABA VELHA: se o publicado está mais novo, NÃO grava (evita rodar sem as travas novas) e avisa O QUE
+  // ficou sem salvar. O robô (headless) e o gate passam (navigator.webdriver) — e o robô é sempre a versão atual.
+  if (_versaoVelha && !_ehRoboVer()) { _bloquearSalvarVelha(key); return false; }
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   // _uid À PROVA DE COLISÃO: nenhuma chave com _uid é GRAVADA com id repetido (dá novo às gêmeas; não toca em mais nada).
   if (_UID_KEYS.has(key) && Array.isArray(data)) { try { _dedupUids(data); } catch (e) {} }
