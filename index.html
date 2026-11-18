@@ -570,7 +570,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v814/10-867';
+const APP_VERSION = 'v815/10-868';
 
 function getDeviceId() {
   return EMPRESA_ID;
@@ -3476,7 +3476,7 @@ function _mostrarPonteCR() {
     const itens = [];
     (recebimentosConsolidado || []).forEach(r => {
       if (r._estornoChave) return;
-      const gw = r.gateway; if (gw !== 'PayPal' && gw !== 'BraavoPay' && gw !== 'Rede' && gw !== 'Pagar.me') return; // só gateway tem repasse separado
+      const gw = r.gateway; if (gw !== 'PayPal' && gw !== 'BraavoPay' && gw !== 'Rede' && gw !== 'Pagar.me' && gw !== 'Barte') return; // só gateway tem repasse separado
       const rep = (typeof dataRepasseBanco === 'function') ? dataRepasseBanco(r) : null;
       const dLiq = rep || r.data;                         // data que o flatCR usa (competência)
       if (dfAtivo() && !passaData(dLiq)) return;           // só o que o período conta
@@ -3850,7 +3850,7 @@ function _renderContasImpl(el) {
   // O cliente pagou (continua "pago" na aba Recebimentos e na Cobrança, que usam statusForma direto — não mexo).
   // Aqui no CR, por banco, fica "a compensar" até conciliar. Mês fechado/congelado: inalterado. Leve (O(1) por rec).
   (() => {
-    const _repGW = { 'PayPal': 1, 'BraavoPay': 1, 'Rede': 1, 'Pagar.me': 1 };
+    const _repGW = { 'PayPal': 1, 'BraavoPay': 1, 'Rede': 1, 'Pagar.me': 1, 'Barte': 1 };
     const _concK4 = new Set();
     Object.values(repasseLinks).forEach(rep => (rep.itens || []).forEach(it => { _concK4.add(String(it).split('|').slice(0, 4).join('|')); }));
     const _rk4 = r => [r.gateway, r.data ? new Date(r.data).toISOString().slice(0, 10) : '', (r.bruto || 0).toFixed(2), (r.nome || '').trim().toLowerCase()].join('|');
@@ -4889,6 +4889,7 @@ function grupoReceitaGateway(gw) {
     case 'PayPal': return 'Cartão de Crédito';
     case 'Rede': return 'Cartão de Crédito';
     case 'BraavoPay': return 'Depósito';
+    case 'Barte': return 'Depósito';
     case 'PIX (Extrato)': return 'Depósito';
     case 'Transferência Bancária': return 'Depósito';
     default: return gw || 'Outros';
@@ -5028,7 +5029,7 @@ function renderFluxo() {
   // ── BALANCETE REALIZADO = 100% DO BANCO (extrato). Receitas = CRÉDITOS, Despesas = DÉBITOS, ambos
   //    categorizados pela conciliação. Assim Receitas − Despesas = movimento do banco e o SALDO FINAL
   //    FECHA AO CENTAVO com a Conciliação Bancária (pedido da Elaine — igual os exports de CR/CP). ──
-  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito'};
+  const SUB_REC = {'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','Barte':'Depósito','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito'};
   const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
   // Normaliza o nome da empresa pra NÃO duplicar coluna (ex.: "Rk"/"RK" e "Rokbox"/"ROKBOX" viram 1 só).
   const _normEmp = e => { const s = String(e || '').toLowerCase(); if (/rokbox/.test(s)) return 'ROKBOX'; if (/rk/.test(s)) return 'RK'; return (e && String(e).trim()) || '(sem empresa)'; };
@@ -5650,7 +5651,7 @@ function pagamentosDaLinha(l) {
     const liqTot = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0));
     const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
     const _bd = dataRepasseBanco(r); // data do banco se CONCILIADO; null se ainda não caiu
-    const _rep = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me'); // repasse de gateway (cai no banco depois)
+    const _rep = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me' || r.gateway === 'Barte'); // repasse de gateway (cai no banco depois)
     // Repasse de gateway NÃO conciliado no banco, em mês ABERTO: ainda não caiu → NÃO é liquidado,
     // sai da lista por Liquidação (fica em aberto até conciliar). Mês fechado/congelado: comportamento antigo.
     if (_rep && !_bd && !_mesCongeladoCR(r.data)) return;
@@ -5755,7 +5756,7 @@ function _crRowsAOA(semFiltro) {
       const valor = alocRecebGateway(r, pid);
       if (valor <= 0.005) return;
       // repasse de gateway não conciliado em mês ABERTO não entra (fica em aberto) — igual ao loop de cima; fechado não mexe
-      if (!dataRepasseBanco(r) && (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me') && !_mesCongeladoCR(r.data)) return;
+      if (!dataRepasseBanco(r) && (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Rede' || r.gateway === 'Pagar.me' || r.gateway === 'Barte') && !_mesCongeladoCR(r.data)) return;
       const brutoTot = r.bruto || r.liq || 0;
       const liqTot = (r.liq != null ? r.liq : (r.bruto || 0) - (r.taxa || 0));
       const ratio = Math.abs(brutoTot) > 0.005 ? (valor / brutoTot) : 1;
@@ -5782,7 +5783,7 @@ function _crRowsAOA(semFiltro) {
   recebimentosConsolidado.forEach(r => {
     if (r._estornoChave) return;
     if (String(r.nped || '').trim()) return;                       // só os SEM pedido
-    if (r.gateway !== 'PayPal' && r.gateway !== 'BraavoPay') return; // operadora sem pedido casado
+    if (r.gateway !== 'PayPal' && r.gateway !== 'BraavoPay' && r.gateway !== 'Barte') return; // operadora sem pedido casado
     const v = +(r.bruto != null ? r.bruto : (r.liq || 0));
     if (v <= 0.005) return;                                          // só o que ENTROU (positivo)
     const dLiq = _asDate(dataRepasseBanco(r) || r.data);
@@ -6053,7 +6054,7 @@ async function _syncPowerBI() {
 function _exportBalancete(opts) {
   opts = opts || {}; // { grossUpMeses:['YYYY-MM'] força o gross-up do estorno mesmo em mês fechado; semFoto:true ignora a foto balanceteFechado (usado pra GERAR a foto) }
   const _grossUp = (opts.grossUpMeses || []);
-  const SUB_REC = { 'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito' };
+  const SUB_REC = { 'Boleto Itaú':'Boleto Itaú','PayPal':'CC PayPal','Rede':'CC Rede','BraavoPay':'Braavo Pay','Barte':'Depósito','PIX (Extrato)':'Depósito','Transferência Bancária':'Depósito' };
   const _grupoBal = (cat, g) => (/produto acabado|sacola/i.test(cat || '')) ? 'PRODUTO ACABADO' : g;
   const _normEmp = e => { const s = String(e || '').toLowerCase(); if (/rokbox/.test(s)) return 'ROKBOX'; if (/rk/.test(s)) return 'RK'; return (e && String(e).trim()) || '(sem empresa)'; };
   const _mesDe = d => { const dt = d instanceof Date ? d : (d ? new Date(d) : null); return (dt && !isNaN(dt)) ? (dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0')) : null; };
@@ -7328,7 +7329,7 @@ function buildConciliadoBanco(G) {
   const pagadorDoMemo = memo => { let s = String(memo || '').replace(/\s+/g, ' ').trim(); s = s.replace(/^(PIX RECEBIDO|PIX ENVIADO|TED RECEBIDO|TED|DOC|RECEBIMENTO|TRANSFER[EÊ]NCIA|CR[EÉ]DITO|REM:|DES:)\s*/i, ''); s = s.replace(/\b\d{2}\/\d{2}\b/g, ' '); s = s.replace(/\b\d[\d.\-\/]{6,}\b/g, ' '); return s.replace(/\s+/g, ' ').trim().slice(0, 60) || String(memo || '').slice(0, 60); };
   // DE-PARA de CATEGORIA — SÓ no CR, SÓ na coluna "Categoria" (grafia da aba "Categoria Fluxo de Caixa").
   // Não toca "Tipo de linha", nem Descrição, nem CP, nem banco. Gateway desconhecido mantém o nome atual.
-  const REF_CAT_CR = { 'PayPal': 'CC PAYPAL', 'BraavoPay': 'BRAAVO PAY', 'Rede': 'CC REDE', 'Boleto Itaú': 'BOLETO ITAU', 'PIX (Extrato)': 'DEPÓSITO', 'Pagar.me': 'CC PAGARME', 'RENDIMENTOS': 'JUROS' };
+  const REF_CAT_CR = { 'PayPal': 'CC PAYPAL', 'BraavoPay': 'BRAAVO PAY', 'Rede': 'CC REDE', 'Boleto Itaú': 'BOLETO ITAU', 'PIX (Extrato)': 'DEPÓSITO', 'Pagar.me': 'CC PAGARME', 'Barte': 'DEPÓSITO', 'RENDIMENTOS': 'JUROS' };
   const refCatCR = gw => (REF_CAT_CR[gw] != null ? REF_CAT_CR[gw] : gw);
 
   // cabeçalhos
@@ -8948,7 +8949,7 @@ function _getBoletosPorPedidoCalc() {
     if (r._estornoChave || r.gateway === 'Boleto Itaú') return; // estorno neutralizado; boleto não reduz a si mesmo
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.length) return;
-    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)';
+    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)' || r.gateway === 'Barte';
     const dPag = _parseDBol(r.data);
     peds.forEach(pid => {
       const bruto = (peds.length > 1 && ehGw) ? alocRecebGateway(r, pid) : (r.bruto || r.liq || 0);
@@ -12754,7 +12755,7 @@ function getRecebimentosDoPedido(ped) {
     if (r.gateway === 'Boleto Itaú' && !r._avulso && !r._boletoPagoDireto) return; // o boleto pago DIRETO (relatório Itaú, cash-first) É contado aqui — não passa pelo boletoCobrancaStatus
     const peds = String(r.nped || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!peds.includes(pedId)) return;
-    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)';
+    const ehGw = r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'PIX (Extrato)' || r.gateway === 'Barte';
     let bruto, taxa, origem;
     if (peds.length > 1 && ehGw) {
       bruto = alocRecebGateway(r, pedId);
@@ -12768,7 +12769,7 @@ function getRecebimentosDoPedido(ped) {
     }
     // dataLiq = data que vale para o MÊS: para gateway (PayPal/Braavo) é a data do repasse no banco
     // quando já conciliado; para PIX (Extrato) a própria data do crédito já é a liquidação.
-    const _dataLiq = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay') ? (dataRepasseBanco(r) || r.data) : r.data;
+    const _dataLiq = (r.gateway === 'PayPal' || r.gateway === 'BraavoPay' || r.gateway === 'Barte') ? (dataRepasseBanco(r) || r.data) : r.data;
     recs.push({ gateway: r.gateway, bruto, taxa, liq: +(bruto - taxa).toFixed(2), data: r.data, dataLiq: _dataLiq, origem });
     usados.add(i);
   });
@@ -14169,7 +14170,7 @@ function renderBanco() {
   const _chavePorConta = new Map(); contasPagar.forEach(c => { if (!c.cancelado) _chavePorConta.set(c, chaveContaPagar(c)); });
   const usadosRepasse = repasseUsados();
   // Repasse é só destas operadoras: PayPal, Braavo (iFood) e Boleto Itaú (boletos recebidos).
-  const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú', 'Rede'];
+  const GW_REPASSE = ['PayPal', 'BraavoPay', 'Boleto Itaú', 'Rede', 'Barte'];
   const gwsPend = GW_REPASSE.filter(g => recebimentosConsolidado.some(r => r.gateway === g && valorRepasse(r) > 0 && !usadosRepasse.has(recKeyGlobal(r))));
   // Categorias e empresas para "lançar despesa" (tarifa etc.) a partir de um débito.
   const optsCatDespesa = optionsCategoriasDespesaHTML(contasPagar.map(catContaPagar));
@@ -15301,6 +15302,7 @@ function gatewayDoCredito(t) {
   const m = (t.memo || '').toLowerCase();
   if (m.includes('paypal') || m.includes('pay pal')) return 'PayPal';
   if (m.includes('braavo') || m.includes('ifood') || m.includes('i food')) return 'BraavoPay';
+  if (m.includes('barte')) return 'Barte'; // repasse da Barte (gateway quando a Braavo está fora)
   if (m.includes('boleto') || m.includes('cobranca') || m.includes('cobrança') || m.includes('liquidacao') || m.includes('liquidação')) return 'Boleto Itaú';
   if (/\brede(card)?\b/.test(m) || m.includes('redecard')) return 'Rede'; // depósito da Rede (cartão) no banco
   return '';
