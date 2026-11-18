@@ -814,7 +814,7 @@ function renderFechamento(){
 
 async function carregar(){
   try{
-    const [sid,cr0,cp0,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV,campanhasK,campPed,embSeg,embPed,mesesFech,bolCfg,tarItauK,taxaInf,campCustoPed,campCustoPadrao,corrEstSeg,cManual,crFechadoK,cpFechadoK,balFechadoK]=await Promise.all([gk('saldoInicialDia'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo'),gk('campanhas'),gk('campanhaPedido'),gk('embalagemSeg'),gk('embalagemPedido'),gk('mesesFechados'),gk('boletoConfig'),gk('tarifaBoletoItau'),gk('taxaInformada'),gk('campanhaCustoPedido'),gk('campanhaCustoPadraoPct'),gk('correiosEstimadoSeg'),gk('custoManualLinha'),gk('crFechado'),gk('cpFechado'),gk('balanceteFechado')]);
+    const [sid,cr0,cp0,pedidos,lc,dev,extB,extL,bal,devCred,bCustos,pCol,receb,comExc,nfBling,pedNF,pgdas,pgSemNF,nfidx1,nfidx2,recFlat,corrInf,margMin,brindeV,campanhasK,campPed,embSeg,embPed,mesesFech,bolCfg,tarItauK,taxaInf,campCustoPed,campCustoPadrao,corrEstSeg,cManual,crFechadoK,cpFechadoK,balFechadoK]=await Promise.all([gk('saldoDiaCP'),gk('flatCR'),gk('flatCP'),gk('pedidos'),gk('lojaCadastro'),gk('devolucoes'),gk('extratoBancario'),gk('extratoLinks'),gk('flatBalancete'),gk('devolucaoCredito'),gk('blingCustos'),gk('produtoColecao'),gk('recebimentosConsolidado'),gk('comissaoExcecoes'),gk('nfNaturezaBling'),gk('blingPedidoNF'),gk('pgdasDeclarado'),gk('nfPgdasSemNota'),gk('_nfidx_1'),gk('_nfidx_2'),gk('flatReceb'),gk('correiosInformado'),gk('margemMinSeg'),gk('brindeVinculo'),gk('campanhas'),gk('campanhaPedido'),gk('embalagemSeg'),gk('embalagemPedido'),gk('mesesFechados'),gk('boletoConfig'),gk('tarifaBoletoItau'),gk('taxaInformada'),gk('campanhaCustoPedido'),gk('campanhaCustoPadraoPct'),gk('correiosEstimadoSeg'),gk('custoManualLinha'),gk('crFechado'),gk('cpFechado'),gk('balanceteFechado')]);
     // ── 1c: mês FECHADO lê a FOTO. Sobrepõe cpFechado/crFechado no flatCP/flatCR p/ os meses congelados, pra o
     //    Painel inteiro (Fluxo, Fechamento, Balancete, por grupo, semanal, DRE de caixa) mostrar sempre a foto
     //    oficial do mês fechado, independente de o flatCP/flatCR estarem frescos. Mês vigente segue o ao-vivo. ──
@@ -826,7 +826,9 @@ async function carregar(){
     const mes=mesSel||mesAtual();
     // ── saldo por banco (último valor conhecido de cada banco) ──
     const _hj=new Date(); const hojeStr=_hj.getFullYear()+'-'+String(_hj.getMonth()+1).padStart(2,'0')+'-'+String(_hj.getDate()).padStart(2,'0');
-    const dias=Object.keys(sid||{}).filter(d=>d<=hojeStr).sort(); // ignora datas FUTURAS (o extrato preenche o "dia seguinte"); usa o saldo ATUAL (último até hoje), independente do mês filtrado
+    // Saldo em banco = o que a Elaine DIGITA no Contas a Pagar (saldoDiaCP), NUNCA o extrato. Último valor por banco
+    // até hoje (ignora datas futuras), com a data. Alimenta o quadro, o totalBanco e a projeção do mês vigente/futuro.
+    const dias=Object.keys(sid||{}).filter(d=>d<=hojeStr).sort();
     const bancos={};
     dias.forEach(d=>{ const o=sid[d]||{}; Object.keys(o).forEach(b=>{ if(o[b]!=null) bancos[b]={v:o[b],d:d}; }); });
     const _fd=d=>d?String(d).slice(8,10)+'/'+String(d).slice(5,7)+'/'+String(d).slice(0,4):'';
