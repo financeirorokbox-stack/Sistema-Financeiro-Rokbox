@@ -39,6 +39,13 @@ async function installMock(page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) });
   });
 
+  // REGISTRO DE ACESSOS: GET devolve vazio; POST (gravação de acesso) é aceito (no-op) — nunca 401 no console
+  await page.route(/\/rest\/v1\/acessos/i, route => {
+    const req = route.request();
+    if (req.method() === 'POST') return route.fulfill({ status: 201, contentType: 'application/json', body: '' });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+
   // auth/refresh: sessão falsa
   await page.route(/\/auth\/v1\//i, route => route.fulfill({
     status: 200, contentType: 'application/json',

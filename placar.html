@@ -177,8 +177,30 @@ async function _sbRefresh(){
 }
 async function _sbToken(){ if(!_sbSess||!_sbSess.access_token) return null; if(Date.now()>_sbSess.expires_at-60000) return await _sbRefresh(); return _sbSess.access_token; }
 async function _syncBearer(){ _bearer = await _sbToken(); return _bearer; } // Etapa 1: sem sessão não usa a anon
+// ── REGISTRO DE ACESSOS (tabela 'acessos') ── grava 1 linha por abertura do Painel de Vendas.
+// E-mail, papel e user_id são preenchidos pelo BANCO (trigger, a partir do JWT) — não dá pra
+// disfarçar. A página só informa página + aparelho (tipo) + código do aparelho (gerado na 1ª
+// abertura, guardado no navegador). RLS: só a própria linha, só admin lê, ninguém edita/apaga.
+// O quadro fica no Painel Financeiro. NUNCA trava a página: try/catch + sem await no boot.
+function _aparelhoStr(){ try{
+  const ua=navigator.userAgent||''; let os='Outro';
+  if(/iPhone/i.test(ua)) os='iPhone'; else if(/iPad/i.test(ua)) os='iPad'; else if(/Android/i.test(ua)) os='Android';
+  else if(/Windows/i.test(ua)) os='Windows'; else if(/Mac OS X|Macintosh/i.test(ua)) os='Mac'; else if(/Linux/i.test(ua)) os='Linux';
+  let br='Navegador';
+  if(/Edg\//i.test(ua)) br='Edge'; else if(/OPR\/|Opera/i.test(ua)) br='Opera'; else if(/SamsungBrowser/i.test(ua)) br='Samsung';
+  else if(/Firefox\//i.test(ua)) br='Firefox'; else if(/CriOS/i.test(ua)) br='Chrome'; else if(/Chrome\//i.test(ua)) br='Chrome'; else if(/Safari\//i.test(ua)) br='Safari';
+  return os+' · '+br;
+}catch(e){ return ''; } }
+function _aparelhoId(){ try{ let id=localStorage.getItem('rk_aparelho_id'); if(!id){ id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('d'+Date.now().toString(36)+Math.random().toString(36).slice(2,10)); localStorage.setItem('rk_aparelho_id',id); } return id; }catch(e){ return ''; } }
+async function _registrarAcesso(pagina){
+  try{
+    const b=await _sbToken(); if(!b) return;
+    if(((_sbSess&&_sbSess.role)||'')==='robo') return; // nunca registra o robô
+    await fetch(`${SUPA_URL}/rest/v1/acessos`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({pagina:pagina,aparelho:_aparelhoStr(),dispositivo:_aparelhoId()})});
+  }catch(e){ /* falha de gravação não pode travar o Painel */ }
+}
 // ── Auto-atualização: se sair versão nova no servidor, a página recarrega sozinha (mata o cache do navegador) ──
-const BUILD = '2026-11-05.2';
+const BUILD = '2026-11-18.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
@@ -1083,7 +1105,7 @@ const _UV_CSS=`
 @media(max-width:820px){.uv-fgrid{grid-template-columns:1fr 1fr}#view-main .tops{grid-template-columns:1fr 1fr}}
 `;
 // ── cadeado do painel de Vendas (senha) ──
-async function abrirGate(){ const t=await _syncBearer(); if(!t){ const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } const g=document.getElementById('gate'); if(g) g.remove(); aplicarPapel(); carregar(); carregarProsp(); vbiCarregar().then(_uvRenderMain).catch(()=>{}); setInterval(async ()=>{ const tk=await _syncBearer(); if(tk){ carregar(); carregarProsp(); _vbiReady=false; vbiCarregar().then(_uvRenderMain).catch(()=>{}); } }, 3600000); } // Etapa 1: só abre com sessão Supabase // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
+async function abrirGate(){ const t=await _syncBearer(); if(!t){ const gp=document.getElementById('gpass'); if(gp) gp.focus(); return; } const g=document.getElementById('gate'); if(g) g.remove(); aplicarPapel(); _registrarAcesso('placar'); carregar(); carregarProsp(); vbiCarregar().then(_uvRenderMain).catch(()=>{}); setInterval(async ()=>{ const tk=await _syncBearer(); if(tk){ carregar(); carregarProsp(); _vbiReady=false; vbiCarregar().then(_uvRenderMain).catch(()=>{}); } }, 3600000); } // Etapa 1: só abre com sessão Supabase // carrega pedidos (Sistema) sempre: alimenta o seletor de meses e os meses fechados // placar sempre no MÊS; recarrega os dados a cada 1 HORA (Bling entra 2x/dia pelo cron, então de hora em hora é de sobra e mais leve). Olhinho oculta os valores na mão.
 function toggleNums(){ const oc=document.body.classList.toggle('nums-ocultos'); const e=document.getElementById('eye'); if(e)e.textContent=oc?'🙈 Mostrar':'👁️ Ocultar'; }
 function toggleFull(){ try{ const el=document.documentElement; if(!document.fullscreenElement && !document.webkitFullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el); } else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); } }catch(e){} }
 document.addEventListener('fullscreenchange',()=>{ const f=document.getElementById('full'); if(f)f.textContent=document.fullscreenElement?'⤢ Sair da tela cheia':'⛶ Tela cheia'; });

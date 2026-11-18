@@ -110,6 +110,7 @@
     <button class="aba" data-t="nf" onclick="setAba('nf')">📑 NF</button>
     <button class="aba" data-t="margempl" onclick="setAba('margempl')">🧵 Margem PL</button>
     <button class="aba" data-t="dre" onclick="setAba('dre')">📈 DRE</button>
+    <button class="aba" data-t="acessos" onclick="setAba('acessos')">🔑 Acessos</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -208,6 +209,10 @@
 
   <div id="aba-dre" style="display:none">
     <div id="dre-conteudo"></div>
+  </div>
+
+  <div id="aba-acessos" style="display:none">
+    <div id="acessos-conteudo"></div>
   </div>
 
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI) · <span id="selo-build"></span></div>
@@ -335,7 +340,7 @@ async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementByI
   // SEGURANÇA: sessão sem papel válido (admin/diretor/vendas) não entra (ex.: robô). Fecha a sessão e mostra o login.
   let _rk=''; try{ _rk=localStorage.getItem('rk_role')||''; }catch(e){}
   if(!['admin','diretor','vendas'].includes(_rk)){ try{ _sbClear(); }catch(e){} document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp){ gp.focus(); } const ge=document.getElementById('gerr'); if(ge) ge.textContent='Esta conta não tem permissão para o Painel.'; return; }
-  document.getElementById('gate').style.display='none'; if(FIN_MANUTENCAO && !ehAdmin()){ _mostrarManutencao(); return; } if(FIN_MANUTENCAO && ehAdmin()){ _bannerManutencao(); } const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
+  document.getElementById('gate').style.display='none'; if(FIN_MANUTENCAO && !ehAdmin()){ _mostrarManutencao(); return; } if(FIN_MANUTENCAO && ehAdmin()){ _bannerManutencao(); } const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); _registrarAcesso('financeiro'); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
 // Abre a aba NF já filtrada quando vier de um aviso do Afazeres (financeiro.html#nf=<selo>).
 const _NF_FILTROS=['venda_sem_nota','amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
 function _aplicarHashNF(){ const m=(location.hash||'').match(/nf=([^&]+)/); if(!m) return; if(!ehAdmin()) return; const selo=decodeURIComponent(m[1]); _nfEmp='todas'; _nfFiltro=_NF_FILTROS.includes(selo)?selo:'todos'; setAba('nf'); }
@@ -351,6 +356,118 @@ async function gk(chave){
   const j=await r.json(); if(!Array.isArray(j)||!j[0])return null; try{return JSON.parse(j[0].valor)}catch(e){return j[0].valor}
 }
 function mesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+// ── REGISTRO DE ACESSOS (tabela 'acessos') ──────────────────────────────────────────────
+// Cada abertura do Painel grava 1 linha. E-mail, papel e user_id são preenchidos pelo BANCO
+// (trigger, a partir do JWT) — a página não consegue disfarçar. A página só informa página +
+// aparelho (tipo) + código do aparelho (gerado na 1ª abertura, guardado no navegador). RLS: só
+// a própria linha ao inserir, só admin lê, ninguém edita/apaga. NUNCA trava o Painel (try/catch,
+// sem await no boot). Não registra o robô.
+function _aparelhoStr(){ try{
+  const ua=navigator.userAgent||''; let os='Outro';
+  if(/iPhone/i.test(ua)) os='iPhone'; else if(/iPad/i.test(ua)) os='iPad'; else if(/Android/i.test(ua)) os='Android';
+  else if(/Windows/i.test(ua)) os='Windows'; else if(/Mac OS X|Macintosh/i.test(ua)) os='Mac'; else if(/Linux/i.test(ua)) os='Linux';
+  let br='Navegador';
+  if(/Edg\//i.test(ua)) br='Edge'; else if(/OPR\/|Opera/i.test(ua)) br='Opera'; else if(/SamsungBrowser/i.test(ua)) br='Samsung';
+  else if(/Firefox\//i.test(ua)) br='Firefox'; else if(/CriOS/i.test(ua)) br='Chrome'; else if(/Chrome\//i.test(ua)) br='Chrome'; else if(/Safari\//i.test(ua)) br='Safari';
+  return os+' · '+br;
+}catch(e){ return ''; } }
+function _aparelhoId(){ try{ let id=localStorage.getItem('rk_aparelho_id'); if(!id){ id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('d'+Date.now().toString(36)+Math.random().toString(36).slice(2,10)); localStorage.setItem('rk_aparelho_id',id); } return id; }catch(e){ return ''; } }
+async function _registrarAcesso(pagina){
+  try{
+    const b=await _sbToken(); if(!b) return;
+    if(((_sbSess&&_sbSess.role)||'')==='robo') return; // nunca registra o robô
+    await fetch(`${SUPA_URL}/rest/v1/acessos`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({pagina:pagina,aparelho:_aparelhoStr(),dispositivo:_aparelhoId()})});
+  }catch(e){ /* falha de gravação não pode travar o Painel */ }
+}
+async function _lerAcessos(){
+  const b=await _sbToken(); if(!b) return [];
+  const desde=new Date(Date.now()-30*86400000).toISOString(); // últimos 30 dias
+  const r=await fetch(`${SUPA_URL}/rest/v1/acessos?criado_em=gte.${encodeURIComponent(desde)}&select=usuario,papel,pagina,aparelho,dispositivo,criado_em&order=criado_em.desc&limit=4000`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b},cache:'no-store'});
+  if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[];
+}
+function _fmtAcDate(iso){ try{ const d=new Date(iso); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return '—'; } }
+function _codCurto(c){ c=String(c||''); return c?('…'+c.slice(-6)):'(sem código)'; }
+function _escAc(s){ return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+// Nomes dos aparelhos (dados pelo admin). Chave própria do Painel 'acessosAparelhos' = { código: "nome" }.
+let _apNomes = {};
+async function _nomearAparelho(cod, nome){
+  nome=(nome||'').trim();
+  if(nome) _apNomes[cod]=nome; else delete _apNomes[cod];
+  try{ await _skPL('acessosAparelhos', _apNomes); }catch(e){}
+  renderAcessos();
+}
+async function renderAcessos(){
+  const el=document.getElementById('acessos-conteudo'); if(!el) return;
+  if(!ehAdmin()){ el.innerHTML='<div class="card">Disponível só para o admin.</div>'; return; }
+  el.innerHTML='<div class="card">Carregando acessos…</div>';
+  let rows=[]; try{ rows=await _lerAcessos(); }catch(e){ rows=null; }
+  if(rows===null){ el.innerHTML='<div class="card">Não foi possível ler os acessos agora. Tente de novo.</div>'; return; }
+  try{ _apNomes = (await gk('acessosAparelhos')) || {}; }catch(e){ _apNomes = _apNomes||{}; }
+  const agora=Date.now(), NOVO_MS=7*86400000; // aparelho "novo" = 1º acesso daquela conta nos últimos 7 dias
+  // agrega por CONTA (e-mail) → aparelhos
+  const contas={};
+  rows.forEach(a=>{
+    const em=a.usuario||'(sem e-mail)';
+    if(!contas[em]) contas[em]={papel:a.papel||'',n:0,ultimo:a.criado_em,devs:{}};
+    const c=contas[em]; c.n++; if(a.criado_em>c.ultimo)c.ultimo=a.criado_em; if((a.papel||'')&&!c.papel)c.papel=a.papel;
+    const code=a.dispositivo||'(sem código)';
+    if(!c.devs[code]) c.devs[code]={aparelho:a.aparelho||'',n:0,ultimo:a.criado_em,primeiro:a.criado_em};
+    const d=c.devs[code]; d.n++; if(a.criado_em>d.ultimo)d.ultimo=a.criado_em; if(a.criado_em<d.primeiro)d.primeiro=a.criado_em; if(a.aparelho&&!d.aparelho)d.aparelho=a.aparelho;
+  });
+  const emails=Object.keys(contas).sort((x,y)=> contas[y].ultimo>contas[x].ultimo?1:-1);
+  let algumNovo=false;
+  const blocosConta = emails.length ? emails.map(em=>{
+    const c=contas[em];
+    const devs=Object.keys(c.devs).sort((x,y)=> c.devs[y].ultimo>c.devs[x].ultimo?1:-1);
+    const linhasDev = devs.map(code=>{
+      const d=c.devs[code];
+      const novo = (agora - new Date(d.primeiro).getTime()) <= NOVO_MS; if(novo) algumNovo=true;
+      const nome = _apNomes[code] || '';
+      const nomeInput = `<input value="${_escAc(nome)}" onchange="_nomearAparelho('${_escAc(code)}',this.value)" placeholder="dar nome…" style="width:130px;font-size:12px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:2px 7px">`;
+      return `<tr style="${novo?'background:rgba(245,158,11,.10)':''}">
+        <td style="padding:4px 8px">${nomeInput}</td>
+        <td style="padding:4px 8px;font-weight:600">${_escAc(d.aparelho||'—')} ${novo?'<span style="font-size:10px;font-weight:800;color:#111;background:#f59e0b;border-radius:5px;padding:1px 6px;margin-left:4px">🆕 NOVO</span>':''}</td>
+        <td style="padding:4px 8px;color:var(--muted);font-family:monospace;font-size:11px">${_codCurto(code)}</td>
+        <td style="padding:4px 8px;text-align:right;font-weight:700">${d.n}</td>
+        <td style="padding:4px 8px;text-align:right;color:var(--muted)">${_fmtAcDate(d.ultimo)}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="border:1px solid var(--line,#233);border-radius:12px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-bottom:6px">
+        <span style="font-size:14px;font-weight:800">${_escAc(em)}</span>
+        <span style="font-size:11px;color:var(--muted);border:1px solid var(--line,#233);border-radius:6px;padding:1px 7px">${_escAc(c.papel||'—')}</span>
+        <span style="font-size:12px;color:var(--muted)">${c.n} aberturas · ${devs.length} aparelho(s) · último ${_fmtAcDate(c.ultimo)}</span>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse;min-width:460px">
+        <thead><tr style="color:var(--muted);font-size:11px;text-align:left"><th style="padding:3px 8px">Nome</th><th style="padding:3px 8px">Aparelho</th><th style="padding:3px 8px">Código</th><th style="padding:3px 8px;text-align:right">Aberturas</th><th style="padding:3px 8px;text-align:right">Último acesso</th></tr></thead>
+        <tbody>${linhasDev}</tbody>
+      </table></div>
+    </div>`;
+  }).join('') : '<div style="color:var(--muted);padding:6px">Nenhum acesso nos últimos 30 dias.</div>';
+  const lista = rows.slice(0,300).map(a=>{
+    const code=a.dispositivo||''; const nm=_apNomes[code]?(' · '+_escAc(_apNomes[code])):'';
+    return `<tr><td style="padding:4px 8px">${_fmtAcDate(a.criado_em)}</td><td style="padding:4px 8px;font-weight:600">${_escAc(a.usuario||'—')}</td><td style="padding:4px 8px;color:var(--muted)">${_escAc(a.papel||'—')}</td><td style="padding:4px 8px"><span style="font-size:11px;background:var(--bg2,#141a1f);border:1px solid var(--line,#233);border-radius:6px;padding:1px 7px">${a.pagina==='placar'?'🏆 Vendas':(a.pagina==='financeiro'?'💰 Financeiro':_escAc(a.pagina||'—'))}</span></td><td style="padding:4px 8px;color:var(--muted)">${_escAc(a.aparelho||'—')}<span style="font-family:monospace;font-size:10px">${code?(' '+_codCurto(code)):''}</span>${nm}</td></tr>`;
+  }).join('');
+  const extra = rows.length>300 ? `<div style="color:var(--muted);font-size:12px;margin-top:8px">Mostrando os 300 acessos mais recentes de ${rows.length} nos últimos 30 dias.</div>` : '';
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div style="font-size:17px;font-weight:800;margin-bottom:2px">🔑 Acessos ao Painel <span style="font-size:12px;color:var(--muted);font-weight:500">· últimos 30 dias · ${rows.length} aberturas</span></div>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:${algumNovo?'8':'12'}px">Cada abertura do Painel Financeiro ou do Painel de Vendas fica registrada aqui (e-mail e papel vêm do login, não dá pra disfarçar). Só o admin vê. Ninguém edita nem apaga. ${algumNovo?'<b style="color:#f59e0b">Há aparelho(s) novo(s) destacado(s) abaixo.</b>':''}</div>
+      ${blocosConta}
+    </div>
+    <div class="card">
+      <div style="font-size:15px;font-weight:700;margin-bottom:10px">Lista detalhada</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;min-width:520px">
+          <thead><tr style="color:var(--muted);font-size:11px;text-align:left;border-bottom:1px solid var(--line,#233)">
+            <th style="padding:4px 8px">Data / hora</th><th style="padding:4px 8px">E-mail</th><th style="padding:4px 8px">Papel</th><th style="padding:4px 8px">Página</th><th style="padding:4px 8px">Aparelho</th>
+          </tr></thead>
+          <tbody>${lista||'<tr><td colspan="5" style="padding:10px;color:var(--muted)">Sem registros.</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${extra}
+    </div>`;
+}
 // Data da última atualização (coluna atualizado_em) de uma chave — só leitura, pro cabeçalho "Dados atualizados em". O Painel não grava nada aqui.
 async function gkMetaAt(chave){ try{ const _b=await _sbToken(); if(!_b) return null; const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=atualizado_em`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_b},cache:'no-store'}); const j=await r.json(); return (Array.isArray(j)&&j[0])?j[0].atualizado_em:null; }catch(e){ return null; } }
 function _fmtAt(iso){ if(!iso) return '—'; try{ const d=new Date(iso); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' às '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return '—'; } }
@@ -661,7 +778,7 @@ async function setDreDesc(mes, val){
   try{ await _skPL('dreDescontos', descK); }catch(e){ try{ await saveData('dreDescontos', descK); }catch(_){} }
   renderDRE();
 }
-function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); }
+function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; document.getElementById('aba-acessos').style.display=(t==='acessos')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); if(t==='acessos') renderAcessos(); }
 
 // ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
 function renderFechamento(){
@@ -2162,7 +2279,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-18.1';
+const BUILD='2026-11-18.2';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
