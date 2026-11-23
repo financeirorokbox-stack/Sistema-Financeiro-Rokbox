@@ -78,3 +78,36 @@ test('FAIXA aparece quando o publicado é mais novo (e aí o salvar trava)', asy
   expect(r.retSave, 'depois da faixa, o salvar trava').toBe(false);
   expect(r.avisou, 'e avisa o que não salvou').toBe(true);
 });
+
+// FLUXO REAL (23/11): publicar versão nova com a aba aberta → o 1º SAVE confere a versão ANTES de gravar (quando
+// faz tempo que não checa) e BARRA, sem depender do timer de 5 min. Isso fecha a janela que deixou passar o
+// salvar 24 min após publicar.
+test('Aba velha é barrada JÁ NO SAVE (checagem antes de gravar), sem esperar o timer', async ({ page }) => {
+  await boot(page, () => { try { Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true }); window.__ROBO = false; } catch (e) {} });
+  await page.route(/index\.html\?cb=/i, route => route.fulfill({ status: 200, contentType: 'text/html', body: "<script>const APP_VERSION = 'v999/99-999';</script>" }));
+  const r = await page.evaluate(async () => {
+    _versaoVelha = false; _ultChecagemVer = 0;            // simula: acabou de publicar, a aba ainda NÃO detectou
+    const alerts = []; const _a = window.alert; window.alert = m => alerts.push(String(m));
+    const ret = await saveData('bancosCadastro', ['Itaú']); // o próprio save deve conferir e barrar
+    window.alert = _a;
+    return { ret, versaoVelha: _versaoVelha, faixa: !!document.getElementById('faixa-versao'), avisou: alerts.length > 0, msg: alerts.join(' | ') };
+  });
+  expect(r.versaoVelha, 'o save detectou a versão nova').toBe(true);
+  expect(r.ret, 'o save foi BARRADO (não gravou)').toBe(false);
+  expect(r.faixa, 'mostrou a faixa de versão nova').toBe(true);
+  expect(r.avisou, 'avisou o que não foi salvo').toBe(true);
+});
+
+test('Versão IGUAL: a checagem antes de gravar NÃO bloqueia (salva normal)', async ({ page }) => {
+  await boot(page, () => { try { Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true }); window.__ROBO = false; } catch (e) {} });
+  const atual = await page.evaluate(() => (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '');
+  // o "publicado" devolve EXATAMENTE a versão atual da aba → não é mais novo → não bloqueia
+  await page.route(/index\.html\?cb=/i, route => route.fulfill({ status: 200, contentType: 'text/html', body: `<script>const APP_VERSION = '${atual}';</script>` }));
+  const r = await page.evaluate(async () => {
+    _versaoVelha = false; _ultChecagemVer = 0;
+    const ret = await saveData('bancosCadastro', ['Itaú']);
+    return { ret, versaoVelha: _versaoVelha };
+  });
+  expect(r.versaoVelha, 'versão igual não marca como velha').toBe(false);
+  expect(r.ret, 'salva normal').toBe(true);
+});

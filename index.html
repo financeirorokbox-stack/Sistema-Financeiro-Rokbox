@@ -570,7 +570,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v817/10-870';
+const APP_VERSION = 'v818/10-871';
 
 // ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
 // Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
@@ -586,13 +586,16 @@ async function _checarVersao(force) {
   try {
     if (_ehRoboVer()) return;                                   // robô/gate: não checa nem bloqueia
     if (_versaoVelha) return;                                   // já sabe que está velha (a faixa já está lá)
-    if (!force && Date.now() - _ultChecagemVer < 60000) return; // no máximo 1x por minuto (debounce do foco)
+    if (!force && Date.now() - _ultChecagemVer < 45000) return; // debounce: no máximo ~1x a cada 45s (foco/intervalo)
     _ultChecagemVer = Date.now();
-    const r = await fetch(location.pathname + '?cb=' + Date.now(), { cache: 'no-store', headers: { Range: 'bytes=0-200000' } }); // só o começo do arquivo (onde está o APP_VERSION) — leve
-    const t = await r.text();
+    // fetch do arquivo inteiro (gzip, ~400KB) — igual ao placar, que funciona. NÃO uso Range: o CDN do GitHub Pages
+    // pode servir cópia VELHA pra requisição Range (era o motivo da aba antiga não detectar a versão nova).
+    const ctrl = new AbortController(); const _to = setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 4000); // timeout: rede lenta nunca trava o salvar
+    let t = '';
+    try { const r = await fetch(location.pathname + '?cb=' + Date.now(), { cache: 'no-store', signal: ctrl.signal }); t = await r.text(); } finally { clearTimeout(_to); }
     const m = t.match(/APP_VERSION\s*=\s*'([^']+)'/);
     if (m && m[1] && _publicadoMaisNovo(m[1], APP_VERSION)) { _versaoVelha = true; _versaoNovaSelo = m[1]; _mostrarFaixaVersao(); }
-  } catch (e) { /* falha de rede: não bloqueia nada (fail-safe) */ }
+  } catch (e) { /* falha/timeout de rede: não bloqueia nada (fail-safe) */ }
 }
 function _mostrarFaixaVersao() {
   if (document.getElementById('faixa-versao')) return;
@@ -626,7 +629,7 @@ function _bloquearSalvarVelha(key) {
 try {
   if (!_ehRoboVer()) {
     setTimeout(() => _checarVersao(true), 4000);
-    setInterval(() => _checarVersao(), 15 * 60 * 1000);
+    setInterval(() => _checarVersao(), 5 * 60 * 1000);
     window.addEventListener('focus', () => _checarVersao());
     document.addEventListener('visibilitychange', () => { if (!document.hidden) _checarVersao(); });
   }
@@ -812,6 +815,13 @@ async function saveData(key, data, opts) {
   // TRAVA DE ABA VELHA: se o publicado está mais novo, NÃO grava (evita rodar sem as travas novas) e avisa O QUE
   // ficou sem salvar. O robô (headless) e o gate passam (navigator.webdriver) — e o robô é sempre a versão atual.
   if (_versaoVelha && !_ehRoboVer()) { _bloquearSalvarVelha(key); return false; }
+  // FECHA A JANELA entre publicar e o timer: se faz tempo (>45s) que não confere a versão, confere AGORA, antes de
+  // gravar — assim uma aba velha é barrada já no 1º save após a publicação (não depende do intervalo de 5 min).
+  // Só quando atrasado; timeout curto + fail-open (rede lenta/offline NÃO trava o salvar). Robô nunca passa aqui.
+  if (!_ehRoboVer() && !_versaoVelha && (Date.now() - _ultChecagemVer > 45000)) {
+    try { await _checarVersao(true); } catch (e) {}
+    if (_versaoVelha) { _bloquearSalvarVelha(key); return false; }
+  }
   _bumpDataVersion(); // invalida os caches de performance (dados mudaram)
   // _uid À PROVA DE COLISÃO: nenhuma chave com _uid é GRAVADA com id repetido (dá novo às gêmeas; não toca em mais nada).
   if (_UID_KEYS.has(key) && Array.isArray(data)) { try { _dedupUids(data); } catch (e) {} }
