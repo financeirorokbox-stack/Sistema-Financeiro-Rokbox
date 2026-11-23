@@ -111,6 +111,7 @@
     <button class="aba" data-t="margempl" onclick="setAba('margempl')">🧵 Margem PL</button>
     <button class="aba" data-t="dre" onclick="setAba('dre')">📈 DRE</button>
     <button class="aba" data-t="acessos" onclick="setAba('acessos')">🔑 Acessos</button>
+    <button class="aba" data-t="historico" onclick="setAba('historico')">📝 Histórico</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -213,6 +214,10 @@
 
   <div id="aba-acessos" style="display:none">
     <div id="acessos-conteudo"></div>
+  </div>
+
+  <div id="aba-historico" style="display:none">
+    <div id="historico-conteudo"></div>
   </div>
 
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI) · <span id="selo-build"></span></div>
@@ -467,6 +472,71 @@ async function renderAcessos(){
       </div>
       ${extra}
     </div>`;
+}
+// ── HISTÓRICO DE ALTERAÇÕES (quadro só-admin) — lê a tabela 'historico' (últimos 30 dias). ──
+let _hFiltroDia = '', _hFiltroChave = '', _hFiltroUser = '', _histRows = [];
+async function _lerHistorico(){
+  const b=await _sbToken(); if(!b) return [];
+  const desde=new Date(Date.now()-30*86400000).toISOString();
+  const r=await fetch(`${SUPA_URL}/rest/v1/historico?criado_em=gte.${encodeURIComponent(desde)}&select=usuario,papel,chave,qtd_antes,qtd_depois,tela,criado_em&order=criado_em.desc&limit=5000`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b},cache:'no-store'});
+  if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[];
+}
+function _hDiaISO(iso){ try{ return new Date(iso).toISOString().slice(0,10); }catch(e){ return ''; } }
+function _hDiaBR(d){ const p=String(d||'').split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):(d||''); }
+function _hHora(iso){ try{ const d=new Date(iso); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return '—'; } }
+function _hSetFiltro(qual,val){ if(qual==='dia')_hFiltroDia=val; else if(qual==='chave')_hFiltroChave=val; else if(qual==='user')_hFiltroUser=val; _renderHistLista(); }
+async function renderHistorico(){
+  const el=document.getElementById('historico-conteudo'); if(!el) return;
+  if(!ehAdmin()){ el.innerHTML='<div class="card">Disponível só para o admin.</div>'; return; }
+  el.innerHTML='<div class="card">Carregando histórico…</div>';
+  try{ _histRows=await _lerHistorico(); }catch(e){ _histRows=null; }
+  if(_histRows===null){ el.innerHTML='<div class="card">Não foi possível ler o histórico agora. Tente de novo.</div>'; return; }
+  const dias=[...new Set(_histRows.map(x=>_hDiaISO(x.criado_em)))].filter(Boolean).sort().reverse();
+  const chaves=[...new Set(_histRows.map(x=>x.chave||''))].filter(Boolean).sort();
+  const users=[...new Set(_histRows.map(x=>x.usuario||''))].filter(Boolean).sort();
+  const opt=(arr,sel,fmt)=>['<option value="">todos</option>'].concat(arr.map(v=>`<option value="${_escAc(v)}" ${v===sel?'selected':''}>${fmt?fmt(v):_escAc(v)}</option>`)).join('');
+  // mantém o filtro válido (se o dia/chave/user escolhido sumiu, volta p/ todos)
+  if(_hFiltroDia && !dias.includes(_hFiltroDia)) _hFiltroDia='';
+  if(_hFiltroChave && !chaves.includes(_hFiltroChave)) _hFiltroChave='';
+  if(_hFiltroUser && !users.includes(_hFiltroUser)) _hFiltroUser='';
+  el.innerHTML=`
+    <div class="card">
+      <div style="font-size:17px;font-weight:800;margin-bottom:2px">📝 Histórico de alterações <span style="font-size:12px;color:var(--muted);font-weight:500">· últimos 30 dias · ${_histRows.length} gravações</span></div>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:12px">Toda gravação do Gestão: quem (e-mail, vindo do login), quando, de qual tela, qual dado e quantos itens <b>antes → depois</b>. Linhas em <b style="color:var(--red)">vermelho</b> = a quantidade DIMINUIU (exclusão/redução). Só inserir, ninguém edita nem apaga.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;font-size:12px">
+        <label>Dia <select onchange="_hSetFiltro('dia',this.value)" style="font-size:12px;padding:3px 6px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px">${opt(dias,_hFiltroDia,_hDiaBR)}</select></label>
+        <label>Dado (chave) <select onchange="_hSetFiltro('chave',this.value)" style="font-size:12px;padding:3px 6px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px">${opt(chaves,_hFiltroChave)}</select></label>
+        <label>Usuário <select onchange="_hSetFiltro('user',this.value)" style="font-size:12px;padding:3px 6px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px">${opt(users,_hFiltroUser)}</select></label>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse;min-width:620px">
+        <thead><tr style="color:var(--muted);font-size:11px;text-align:left;border-bottom:1px solid var(--line,#233)">
+          <th style="padding:4px 8px">Data / hora</th><th style="padding:4px 8px">Usuário</th><th style="padding:4px 8px">Tela</th><th style="padding:4px 8px">Dado (chave)</th><th style="padding:4px 8px;text-align:right">Antes</th><th style="padding:4px 8px;text-align:right">Depois</th></tr></thead>
+        <tbody id="hist-lista"></tbody>
+      </table></div>
+      <div id="hist-rodape" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
+    </div>`;
+  _renderHistLista();
+}
+function _renderHistLista(){
+  const tb=document.getElementById('hist-lista'); if(!tb) return;
+  let rows=_histRows.filter(x=>
+    (!_hFiltroDia || _hDiaISO(x.criado_em)===_hFiltroDia) &&
+    (!_hFiltroChave || (x.chave||'')===_hFiltroChave) &&
+    (!_hFiltroUser || (x.usuario||'')===_hFiltroUser));
+  const total=rows.length; const mostra=rows.slice(0,500);
+  tb.innerHTML = mostra.length ? mostra.map(x=>{
+    const diminuiu=(x.qtd_depois!=null && x.qtd_antes!=null && x.qtd_depois < x.qtd_antes);
+    const seta = (x.qtd_antes!=null && x.qtd_depois!=null) ? (x.qtd_depois>x.qtd_antes?' ↑':(diminuiu?' ↓':'')) : '';
+    return `<tr style="${diminuiu?'background:rgba(239,68,68,.14)':''}">
+      <td style="padding:4px 8px;white-space:nowrap">${_hHora(x.criado_em)}</td>
+      <td style="padding:4px 8px;font-weight:600">${_escAc(x.usuario||'—')}</td>
+      <td style="padding:4px 8px;color:var(--muted)">${_escAc(x.tela||'—')}</td>
+      <td style="padding:4px 8px;font-family:monospace;font-size:11px">${_escAc(x.chave||'—')}</td>
+      <td style="padding:4px 8px;text-align:right${diminuiu?';color:var(--red);font-weight:700':''}">${x.qtd_antes==null?'—':x.qtd_antes}</td>
+      <td style="padding:4px 8px;text-align:right${diminuiu?';color:var(--red);font-weight:800':''}">${x.qtd_depois==null?'—':x.qtd_depois}${seta}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" style="padding:10px;color:var(--muted)">Nenhuma gravação com esses filtros.</td></tr>';
+  const rod=document.getElementById('hist-rodape'); if(rod) rod.textContent = total>500 ? `Mostrando as 500 mais recentes de ${total} gravações (ajuste os filtros pra ver o resto).` : `${total} gravação(ões).`;
 }
 // Data da última atualização (coluna atualizado_em) de uma chave — só leitura, pro cabeçalho "Dados atualizados em". O Painel não grava nada aqui.
 async function gkMetaAt(chave){ try{ const _b=await _sbToken(); if(!_b) return null; const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=atualizado_em`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_b},cache:'no-store'}); const j=await r.json(); return (Array.isArray(j)&&j[0])?j[0].atualizado_em:null; }catch(e){ return null; } }
@@ -778,7 +848,7 @@ async function setDreDesc(mes, val){
   try{ await _skPL('dreDescontos', descK); }catch(e){ try{ await saveData('dreDescontos', descK); }catch(_){} }
   renderDRE();
 }
-function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; document.getElementById('aba-acessos').style.display=(t==='acessos')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); if(t==='acessos') renderAcessos(); }
+function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; document.getElementById('aba-acessos').style.display=(t==='acessos')?'':'none'; document.getElementById('aba-historico').style.display=(t==='historico')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); if(t==='acessos') renderAcessos(); if(t==='historico') renderHistorico(); }
 
 // ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
 function renderFechamento(){
@@ -2279,7 +2349,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-18.2';
+const BUILD='2026-11-23.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

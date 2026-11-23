@@ -46,6 +46,13 @@ async function installMock(page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
 
+  // HISTÓRICO DE ALTERAÇÕES: GET vazio; POST (fire-and-forget) aceito — nunca 401 no console
+  await page.route(/\/rest\/v1\/historico/i, route => {
+    const req = route.request();
+    if (req.method() === 'POST') return route.fulfill({ status: 201, contentType: 'application/json', body: '' });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+
   // auth/refresh: sessão falsa
   await page.route(/\/auth\/v1\//i, route => route.fulfill({
     status: 200, contentType: 'application/json',
