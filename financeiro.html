@@ -1062,9 +1062,9 @@ async function carregar(){
     const crAtrasoBoletoArr=crAtrasoArr.filter(_ehBoletoCR);                                   // display do "Atrasado"
     const crVencerBolArr=crVencerArr.filter(r=>_ehBoletoCR(r) && !r.a_emitir);                 // display "A vencer": SÓ boletos EMITIDOS (gateway/PIX, sem forma e "a emitir" NÃO entram)
     const crVencer=+crVencerArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2), crAtraso=+crAtrasoArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2);
-    const crAberto=+(crVencer+crAtraso).toFixed(2);                                            // PROJEÇÃO do saldo = INALTERADA (todas as formas)
+    const crAberto=+(crVencer+crAtraso).toFixed(2);                                            // total "A receber em aberto" (todas as formas) — card separado
     const crAtrasoBol=+crAtrasoBoletoArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2);
-    const crVencerBol=+crVencerBolArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2);                 // o que aparece na linha "A vencer"
+    const crVencerBol=+crVencerBolArr.reduce((s,r)=>s+_aReal(r),0).toFixed(2);                 // "A vencer" (boletos emitidos) — mostrado na linha E usado na PROJEÇÃO do saldo
     document.getElementById('cr-mes').textContent=brl(crMes);
     document.getElementById('cr-vencer').textContent=brl(crVencerBol);
     document.getElementById('cr-atraso').textContent=brl(crAtrasoBol);
@@ -1114,18 +1114,18 @@ async function carregar(){
     } else if (mes === _mesA) {
       // MÊS VIGENTE → começa no real, fecha projetado (saldo de hoje + a vencer − a pagar)
       saldoInicioMes = _balRows ? saldoRealInicio : totalBanco;
-      saldoFinal = +(totalBanco + crVencer - cpAberto).toFixed(2);
+      saldoFinal = +(totalBanco + crVencerBol - cpAberto).toFixed(2);               // "a vencer" da projeção = MESMO nº do quadro "A vencer (boletos emitidos)"
       _labFinal = '💰 Saldo no fim do mês (projetado)';
-      _detTxt = `Saldo em banco hoje ${brl(totalBanco)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
+      _detTxt = `Saldo em banco hoje ${brl(totalBanco)} + a receber (a vencer) ${brl(crVencerBol)} − a pagar ${brl(cpAberto)}`;
     } else {
       // MÊS FUTURO → rola o saldo de hoje até o começo do mês, depois projeta
       const _ini1 = mes + '-01';
       const crAntes = crA.filter(r=>!r.data_liquidacao && r.vencimento && String(r.vencimento)>=hojeStr && String(r.vencimento)<_ini1).reduce((s,r)=>s+(+r.valor_bruto||0),0);
       const cpAntes = cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && r.vencimento && String(r.vencimento)>=hojeStr && String(r.vencimento)<_ini1).reduce((s,r)=>s+(+r.valor||0),0);
       saldoInicioMes = +(totalBanco + crAntes - cpAntes).toFixed(2);
-      saldoFinal = +(saldoInicioMes + crVencer - cpAberto).toFixed(2);
+      saldoFinal = +(saldoInicioMes + crVencerBol - cpAberto).toFixed(2);           // "a vencer" da projeção = MESMO nº do quadro "A vencer (boletos emitidos)"
       _labFinal = '💰 Saldo no fim do mês (projetado)';
-      _detTxt = `Saldo início do mês ${brl(saldoInicioMes)} + a receber (a vencer) ${brl(crVencer)} − a pagar ${brl(cpAberto)}`;
+      _detTxt = `Saldo início do mês ${brl(saldoInicioMes)} + a receber (a vencer) ${brl(crVencerBol)} − a pagar ${brl(cpAberto)}`;
     }
     const sfEl=document.getElementById('saldo-final'); sfEl.textContent=(saldoFinal==null)?'—':brl(saldoFinal); sfEl.style.color=(saldoFinal==null)?'var(--muted)':(saldoFinal>=0?'var(--lime)':'var(--red)');
     const _lf=document.getElementById('saldo-final-lab'); if(_lf) _lf.textContent=_labFinal;
@@ -2349,7 +2349,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-23.1';
+const BUILD='2026-11-23.2';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
