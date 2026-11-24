@@ -571,7 +571,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v819/10-872';
+const APP_VERSION = 'v820/10-873';
 
 // ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
 // Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
@@ -11117,6 +11117,15 @@ function _apenasVersaoMaisNova(arquivos) {
   arquivos.forEach(a => { const b = _baseNomeDrive(a.nome), n = _numVersaoDrive(a.nome); if (!best[b] || n > best[b]._n) { a._n = n; best[b] = a; } });
   return Object.values(best);
 }
+// Hora do arquivo (só se o robô mandar a data de modificação; hoje ele manda só nome+base64 → fica em branco).
+function _fmtHoraDrive(h){ if(!h) return ''; try{ const d=new Date(h); if(isNaN(d)) return ''; return ' · '+String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return ''; } }
+// Lista "nome · hora" dos arquivos achados, agrupada por tipo (pra ela saber se o arquivo foi VISTO ou não).
+function _listaAchadosDrive(achados){
+  if(!achados || !achados.length) return '';
+  const porTipo={}; achados.forEach(a=>{ (porTipo[a.tipo||'—']=porTipo[a.tipo||'—']||[]).push(a); });
+  return Object.keys(porTipo).map(t=>`${t}:\n`+porTipo[t].map(a=>`   • ${a.nome}${_fmtHoraDrive(a.hora)}`).join('\n')).join('\n');
+}
+const _FRASE_DRIVE_ESPERE = 'Se você acabou de colocar um arquivo no Drive e ele não está na lista acima, espere 1 minuto e sincronize de novo.';
 async function puxarMesDrive(mesId, mesNome, grupoIdx) {
   const modal = document.getElementById('drive-modal');
   // Lê a caixinha ANTES de trocar o conteúdo do modal pela mensagem de progresso.
@@ -11126,6 +11135,7 @@ async function puxarMesDrive(mesId, mesNome, grupoIdx) {
   try {
     const resumo = [];
     let totalPulados = 0, novosMarcar = [];
+    const achados = []; // TODOS os arquivos que o robô ACHOU na pasta (pra mostrar quando "nada novo")
     const grupos = (grupoIdx == null) ? DRIVE_GRUPOS : [DRIVE_GRUPOS[grupoIdx]];
     for (const g of grupos) {
       // Busca os arquivos de todas as subpastas deste grupo.
@@ -11135,6 +11145,8 @@ async function puxarMesDrive(mesId, mesNome, grupoIdx) {
         if (r.arquivos && r.arquivos.length) arquivos = arquivos.concat(r.arquivos.map(a => ({ ...a, tipo: a.tipo || tipo })));
       }
       if (!arquivos.length) continue;
+      // guarda o que achou (nome + hora, se o robô mandar a data de modificação algum dia)
+      arquivos.forEach(a => achados.push({ tipo: a.tipo, nome: a.nome, hora: a.hora || a.modificado || a.modifiedTime || a.atualizado || a.data || null }));
       let usar = arquivos;
       if (g.snapshot) {
         // Vendas/Forma: re-exportação COMPLETA. Usa SÓ a versão mais nova de cada empresa (ignora as antigas
@@ -11163,11 +11175,12 @@ async function puxarMesDrive(mesId, mesNome, grupoIdx) {
     if (grupoIdx != null) _navGrupo(grupos[0].nav); else setView('vendas');
     if (modal) modal.remove();
     const rodape = `\n\nSó adiciona, não duplica.${totalPulados ? `\n(${totalPulados} arquivo(s) antigo(s)/já sincronizado(s) foram pulados — nas Vendas uso só a versão mais nova.)` : ''}`;
+    const _listaAch = _listaAchadosDrive(achados);
     alert(resumo.length
       ? `✓ Puxei do Drive (${mesNome}):\n\n• ${resumo.join('\n• ')}${rodape}`
-      : (soNovos && totalPulados
-          ? `Nada novo em ${mesNome} — os ${totalPulados} arquivo(s) desse mês já tinham sido sincronizados.\n\n(Pra puxar tudo de novo, desmarque "Só os novos".)`
-          : `Nenhum arquivo encontrado em ${mesNome}${grupoIdx != null ? ' nessa pasta' : ''}.`));
+      : (achados.length
+          ? `Nada novo em ${mesNome} — os ${totalPulados} arquivo(s) desse mês já tinham sido sincronizados.\n\nArquivos que achei na pasta:\n${_listaAch}\n\n${_FRASE_DRIVE_ESPERE}\n\n(Pra puxar tudo de novo, desmarque "Só os novos".)`
+          : `Nenhum arquivo encontrado em ${mesNome}${grupoIdx != null ? ' nessa pasta' : ''}.\n\n${_FRASE_DRIVE_ESPERE}`));
   } catch (e) {
     if (modal) modal.remove();
     alert('Erro ao puxar do Drive:\n' + e.message);
