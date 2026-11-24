@@ -328,6 +328,7 @@ tr:hover td{background:#fafaf8}
     <span onclick="uploadsManuaisToggle()" title="Avançado: mostrar/esconder os campos de upload manual (o normal é usar ☁ Sincronizar do Drive)" style="font-size:10px;color:var(--muted);cursor:pointer;margin-left:5px;opacity:.45">⚙</span>
     <span id="sync-status" style="font-size:11px;color:var(--muted)">⏳ Conectando...</span>
     <button class="btn ghost sm" id="btn-usuarios" style="display:none" onclick="openUsuarios()" title="Gerenciar usuários">👥 Usuários</button>
+    <button class="btn ghost sm" id="btn-conferencia" style="display:none" onclick="_confModalG()" title="Conferência de segurança: contagens e meses fechados (8h/18h)">🛡 Conferência</button>
     <label class="btn ghost sm" style="cursor:pointer" title="Importar backup">
       📂 <input type="file" accept=".json" style="display:none" onchange="importarBackup(this.files[0])">
     </label>
@@ -570,7 +571,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v818/10-871';
+const APP_VERSION = 'v819/10-872';
 
 // ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
 // Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
@@ -810,6 +811,51 @@ function _registrarHistorico(chave, qtdAntes, qtdDepois) {
     fetch(`${SUPABASE_URL}/rest/v1/historico`, { method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify({ chave: chave, qtd_antes: qtdAntes, qtd_depois: qtdDepois, tela: _telaAtual() }) })
       .catch(e => { try { console.warn('[historico] falhou (NÃO afeta o salvar):', (e && e.message) || e); } catch (_) {} });
   } catch (e) { try { console.warn('[historico]', e); } catch (_) {} }
+}
+// ── CONFERÊNCIA DE SEGURANÇA (tabela 'conferencia') — robô do banco roda 8h/18h; o botão roda na hora. Só admin. ──
+// Só LÊ (a função no banco não corrige nada). Faixa no topo quando a última tem alerta; modal com status + lista.
+const _CONF_LABEL = { extratoBancario:'Extrato bancário', contasPagar:'Contas a pagar', debitoLinks:'Vínculos de débito (conta)', extratoLinks:'Vínculos de extrato (PIX→pedido)', repasseLinks:'Vínculos de repasse', receitaLinks:'Vínculos de receita', cpFechado:'Foto do CP (mês fechado)', crFechado:'Foto do CR (mês fechado)', balanceteFechado:'Foto do Balancete (mês fechado)' };
+function _confEhAdmin(){ try{ return !!(_sbSess && _sbSess.role==='admin'); }catch(e){ return false; } }
+function _confData(iso){ try{ const d=new Date(iso); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return '—'; } }
+function _confNome(e){ const m=String(e||'').toLowerCase().match(/\+([a-z]+)@/); return m?m[1]:(e||'—'); }
+function _confCorG(s){ return s==='vermelho'?'#c0392b':(s==='amarelo'?'#b9770e':'#2ea043'); }
+function _confEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+async function _confLerG(limit){ try{ const b=await _sbToken(); if(!b) return []; const r=await fetch(`${SUPABASE_URL}/rest/v1/conferencia?select=id,criado_em,origem,status,alertas,resumo&order=id.desc&limit=${limit||30}`,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+b},cache:'no-store'}); if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[]; }catch(e){ return []; } }
+function _confAlertaG(a){ const nome=_CONF_LABEL[a.chave]||a.chave; if(a.mes_fechado) return `🔴 <b>Mês fechado alterado:</b> ${_confEsc(nome)}`; const t=`<b>${_confEsc(nome)}</b>: ${a.antes} → ${a.depois} (${a.delta})`; if(a.explicado) return `🟡 ${t} — <b>explicado:</b> ${_confEsc(_confNome(a.quem))}, ${_confData(a.quando)}, ${_confEsc(a.acao||'ação manual')}`; return `🔴 ${t} — <b style="color:#c0392b">sem ação manual que explique</b>`; }
+async function _confAgoraG(btn){ if(btn){ btn.disabled=true; btn.textContent='Conferindo…'; } try{ const b=await _sbToken(); if(b) await fetch(`${SUPABASE_URL}/rest/v1/rpc/rodar_conferencia`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+b,'Content-Type':'application/json'},body:JSON.stringify({p_origem:'manual'})}); }catch(e){} try{ await _confModalG(); }catch(e){} try{ await _confBootG(); }catch(e){} }
+async function _confModalG(){
+  const old=document.getElementById('conf-modal'); if(old) old.remove();
+  const lista=await _confLerG(30); const ult=lista[0];
+  const als=(ult&&Array.isArray(ult.alertas)&&ult.alertas.length)?ult.alertas.map(a=>`<div style="padding:4px 0;border-top:1px solid var(--border)">${_confAlertaG(a)}</div>`).join(''):'<div style="color:var(--muted);padding:4px 0">Nada diminuiu e nenhum mês fechado mudou.</div>';
+  const linhas=lista.map(c=>`<tr><td style="padding:3px 8px;white-space:nowrap">${_confData(c.criado_em)}</td><td style="padding:3px 8px;color:var(--muted)">${c.origem==='manual'?'🖐 manual':'⏰ auto'}</td><td style="padding:3px 8px;font-weight:700;color:${_confCorG(c.status)}">${_confEsc(c.status)}</td><td style="padding:3px 8px;color:var(--muted)">${_confEsc(c.resumo||'')}</td></tr>`).join('');
+  const ov=document.createElement('div'); ov.id='conf-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=`<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:20px;max-width:640px;width:95%;max-height:85vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.35)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap"><div style="font-size:17px;font-weight:800">🛡 Conferência de segurança</div><div style="font-size:16px;font-weight:800;color:${ult?_confCorG(ult.status):'#888'}">${ult?_confEsc(ult.status.toUpperCase()):'—'}</div><button class="btn primary sm" style="margin-left:auto" onclick="_confAgoraG(this)">🔄 Conferir agora</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Roda sozinha às 8h e 18h. Compara as contagens (extrato, vínculos, contas a pagar) com a anterior e confere os meses fechados contra as fotos. Só lê, nunca corrige nem apaga. ${ult?`Última: ${_confData(ult.criado_em)}.`:'Ainda sem conferência.'}</div>
+    ${als}
+    <div style="font-size:14px;font-weight:700;margin:14px 0 6px">Últimas conferências</div>
+    <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--muted);text-align:left"><th style="padding:3px 8px">Data</th><th style="padding:3px 8px">Origem</th><th style="padding:3px 8px">Resultado</th><th style="padding:3px 8px">Resumo</th></tr></thead><tbody>${linhas||'<tr><td colspan=4 style="padding:8px;color:var(--muted)">Sem conferências ainda.</td></tr>'}</tbody></table></div>
+    <button class="btn ghost sm" style="margin-top:14px" onclick="document.getElementById('conf-modal').remove()">Fechar</button>
+  </div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
+}
+async function _confBootG(){
+  try{
+    if(!_confEhAdmin()) return;
+    const btn=document.getElementById('btn-conferencia'); if(btn) btn.style.display='inline-flex';
+    const lista=await _confLerG(1); const ult=lista&&lista[0];
+    const v=document.getElementById('conf-faixa-g'); if(v) v.remove();
+    if(!ult || ult.status==='ok') return;
+    const verm=ult.status==='vermelho';
+    const d=document.createElement('div'); d.id='conf-faixa-g';
+    d.style.cssText=`position:fixed;top:0;left:0;right:0;z-index:2147483646;background:${verm?'#c0392b':'#b9770e'};color:#fff;text-align:center;font-weight:800;padding:10px 14px;cursor:pointer;font-size:13px;box-shadow:0 2px 10px rgba(0,0,0,.3)`;
+    const n=(Array.isArray(ult.alertas)?ult.alertas.length:0);
+    d.textContent=`${verm?'🔴':'🟡'} Conferência (${_confData(ult.criado_em)}): ${ult.resumo||''}${n?` — ${n} ponto(s)`:''}. Clique para ver.`;
+    d.onclick=()=>{ _confModalG(); };
+    document.body.appendChild(d);
+  }catch(e){}
 }
 async function saveData(key, data, opts) {
   // TRAVA DE ABA VELHA: se o publicado está mais novo, NÃO grava (evita rodar sem as travas novas) e avisa O QUE
@@ -1654,6 +1700,9 @@ function applyPermissions() {
   if (lbl) lbl.textContent = u.user ? '👤 ' + u.user : '';
   const adminBtn = document.getElementById('btn-usuarios');
   if (adminBtn) adminBtn.style.display = u.admin ? 'inline-flex' : 'none';
+  const confBtn = document.getElementById('btn-conferencia');
+  if (confBtn) confBtn.style.display = u.admin ? 'inline-flex' : 'none';
+  if (u.admin) { try { _confBootG(); } catch (e) {} } // faixa de alerta da conferência (se a última tiver problema)
 
   const navVis = {
     dashboard: viewAllowed('dashboard'),

@@ -53,6 +53,10 @@ async function installMock(page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
 
+  // CONFERÊNCIA (segurança b): GET vazio; RPC rodar_conferencia aceito (no-op) — nunca erro de rede no console
+  await page.route(/\/rest\/v1\/rpc\/rodar_conferencia/i, route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok","alertas":[],"resumo":"Tudo certo"}' }));
+  await page.route(/\/rest\/v1\/conferencia/i, route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
   // auth/refresh: sessão falsa
   await page.route(/\/auth\/v1\//i, route => route.fulfill({
     status: 200, contentType: 'application/json',

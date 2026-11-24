@@ -112,6 +112,7 @@
     <button class="aba" data-t="dre" onclick="setAba('dre')">📈 DRE</button>
     <button class="aba" data-t="acessos" onclick="setAba('acessos')">🔑 Acessos</button>
     <button class="aba" data-t="historico" onclick="setAba('historico')">📝 Histórico</button>
+    <button class="aba" data-t="conferencia" onclick="setAba('conferencia')">🛡 Conferência</button>
     <select id="mes-sel" class="mes-sel" onchange="mudarMes(this.value)" title="Mês"></select>
   </div>
 
@@ -218,6 +219,10 @@
 
   <div id="aba-historico" style="display:none">
     <div id="historico-conteudo"></div>
+  </div>
+
+  <div id="aba-conferencia" style="display:none">
+    <div id="conferencia-conteudo"></div>
   </div>
 
   <div class="foot" id="foot">Painel RK · Financeiro · números dos cálculos do Gestão RK (atualizam quando você clica ☁ Power BI) · <span id="selo-build"></span></div>
@@ -345,7 +350,7 @@ async function abrir(){ const t=await _sbToken(); if(!t){ document.getElementByI
   // SEGURANÇA: sessão sem papel válido (admin/diretor/vendas) não entra (ex.: robô). Fecha a sessão e mostra o login.
   let _rk=''; try{ _rk=localStorage.getItem('rk_role')||''; }catch(e){}
   if(!['admin','diretor','vendas'].includes(_rk)){ try{ _sbClear(); }catch(e){} document.getElementById('gate').style.display=''; const gp=document.getElementById('gpass'); if(gp){ gp.focus(); } const ge=document.getElementById('gerr'); if(ge) ge.textContent='Esta conta não tem permissão para o Painel.'; return; }
-  document.getElementById('gate').style.display='none'; if(FIN_MANUTENCAO && !ehAdmin()){ _mostrarManutencao(); return; } if(FIN_MANUTENCAO && ehAdmin()){ _bannerManutencao(); } const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); _registrarAcesso('financeiro'); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
+  document.getElementById('gate').style.display='none'; if(FIN_MANUTENCAO && !ehAdmin()){ _mostrarManutencao(); return; } if(FIN_MANUTENCAO && ehAdmin()){ _bannerManutencao(); } const app=document.getElementById('app'); app.classList.remove('hidden'); app.classList.add('nums-ocultos'); document.getElementById('eye').textContent='🙈 Mostrar'; aplicarRole(); _registrarAcesso('financeiro'); _confBoot(); carregar().then(()=>{ try{_aplicarHashNF();}catch(e){} }); setInterval(carregar,3600000); } // sempre abre borrado; recarrega os dados a cada 1 HORA (automático). Etapa 1: só abre com sessão Supabase.
 // Abre a aba NF já filtrada quando vier de um aviso do Afazeres (financeiro.html#nf=<selo>).
 const _NF_FILTROS=['venda_sem_nota','amostra_sem_remessa','troca_sem_remessa','nota_nao_concluido','natureza_dif','nota_nao_aut','nota_mes_dif','valor_dif','pgdas_sem_nf'];
 function _aplicarHashNF(){ const m=(location.hash||'').match(/nf=([^&]+)/); if(!m) return; if(!ehAdmin()) return; const selo=decodeURIComponent(m[1]); _nfEmp='todas'; _nfFiltro=_NF_FILTROS.includes(selo)?selo:'todos'; setAba('nf'); }
@@ -537,6 +542,76 @@ function _renderHistLista(){
     </tr>`;
   }).join('') : '<tr><td colspan="6" style="padding:10px;color:var(--muted)">Nenhuma gravação com esses filtros.</td></tr>';
   const rod=document.getElementById('hist-rodape'); if(rod) rod.textContent = total>500 ? `Mostrando as 500 mais recentes de ${total} gravações (ajuste os filtros pra ver o resto).` : `${total} gravação(ões).`;
+}
+// ── CONFERÊNCIA AUTOMÁTICA (quadro só-admin) — lê a tabela 'conferencia' (robô do banco roda 8h e 18h). ──
+const _CHAVE_LABEL = { extratoBancario:'Extrato bancário', contasPagar:'Contas a pagar', debitoLinks:'Vínculos de débito (conta)', extratoLinks:'Vínculos de extrato (PIX→pedido)', repasseLinks:'Vínculos de repasse', receitaLinks:'Vínculos de receita', cpFechado:'Foto do CP (mês fechado)', crFechado:'Foto do CR (mês fechado)', balanceteFechado:'Foto do Balancete (mês fechado)' };
+const _confCor = s => s==='vermelho'?'#e5534b':(s==='amarelo'?'#f59e0b':'#3fb950');
+const _confTxt = s => s==='vermelho'?'🔴 Atenção':(s==='amarelo'?'🟡 Explicado':'🟢 Tudo certo');
+async function _lerConferencia(limit){
+  const b=await _sbToken(); if(!b) return [];
+  const r=await fetch(`${SUPA_URL}/rest/v1/conferencia?select=id,criado_em,origem,status,alertas,resumo&order=id.desc&limit=${limit||30}`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b},cache:'no-store'});
+  if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[];
+}
+function _confAlertaLinha(a){
+  const nome=_CHAVE_LABEL[a.chave]||a.chave;
+  if(a.mes_fechado) return `🔴 <b>Mês fechado alterado:</b> ${nome} — confira a foto oficial.`;
+  const txt=`<b>${nome}</b>: ${a.antes} → ${a.depois} (${a.delta})`;
+  if(a.explicado) return `🟡 ${txt} — <b>explicado:</b> ${_escAc(a.quem||'—')}, ${_fmtAcDate(a.quando)}, ${_escAc(a.acao||'ação manual')}`;
+  return `🔴 ${txt} — <b style="color:var(--red)">sem ação manual que explique</b>`;
+}
+async function _confAgora(btn){
+  if(btn){ btn.disabled=true; btn.textContent='Conferindo…'; }
+  try{ const b=await _sbToken(); if(b){ await fetch(`${SUPA_URL}/rest/v1/rpc/rodar_conferencia`,{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b,'Content-Type':'application/json'},body:JSON.stringify({p_origem:'manual'})}); } }catch(e){}
+  await renderConferencia(); try{ await _confBoot(); }catch(e){}
+}
+async function renderConferencia(){
+  const el=document.getElementById('conferencia-conteudo'); if(!el) return;
+  if(!ehAdmin()){ el.innerHTML='<div class="card">Disponível só para o admin.</div>'; return; }
+  el.innerHTML='<div class="card">Carregando conferência…</div>';
+  let lista; try{ lista=await _lerConferencia(30); }catch(e){ lista=null; }
+  if(lista===null){ el.innerHTML='<div class="card">Não foi possível ler a conferência agora. Tente de novo.</div>'; return; }
+  const ult=lista[0];
+  const cor = ult?_confCor(ult.status):'#8b949e';
+  const alertasHTML = (ult&&Array.isArray(ult.alertas)&&ult.alertas.length)
+    ? ult.alertas.map(a=>`<div style="padding:4px 0;border-top:1px solid var(--line,#233)">${_confAlertaLinha(a)}</div>`).join('')
+    : '<div style="color:var(--muted);padding:4px 0">Nada diminuiu e nenhum mês fechado mudou.</div>';
+  const linhas = lista.map(c=>{
+    const n=(Array.isArray(c.alertas)?c.alertas.length:0);
+    return `<tr><td style="padding:4px 8px;white-space:nowrap">${_fmtAcDate(c.criado_em)}</td><td style="padding:4px 8px;color:var(--muted)">${c.origem==='manual'?'🖐 manual':'⏰ auto'}</td><td style="padding:4px 8px;font-weight:700;color:${_confCor(c.status)}">${_confTxt(c.status)}</td><td style="padding:4px 8px;color:var(--muted)">${_escAc(c.resumo||'')}${n?` · ${n} ponto(s)`:''}</td></tr>`;
+  }).join('');
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:14px;border:2px solid ${cor}55">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:6px">
+        <div style="font-size:17px;font-weight:800">🛡 Conferência de segurança</div>
+        <div style="font-size:20px;font-weight:800;color:${cor}">${ult?_confTxt(ult.status):'—'}</div>
+        <button class="aba" style="padding:6px 14px;font-size:13px;margin-left:auto" onclick="_confAgora(this)">🔄 Conferir agora</button>
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:10px">Roda sozinha às <b>8h</b> e <b>18h</b> (robô do banco). Compara as contagens de extrato, vínculos e contas a pagar com a conferência anterior e confere se os meses fechados seguem iguais às fotos. <b>Só lê</b>, nunca corrige nem apaga. ${ult?`Última: ${_fmtAcDate(ult.criado_em)} (${ult.origem==='manual'?'manual':'automática'}).`:'Ainda sem conferência.'}</div>
+      ${alertasHTML}
+    </div>
+    <div class="card">
+      <div style="font-size:15px;font-weight:700;margin-bottom:10px">Últimas conferências</div>
+      <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse;min-width:460px">
+        <thead><tr style="color:var(--muted);font-size:11px;text-align:left;border-bottom:1px solid var(--line,#233)"><th style="padding:4px 8px">Data / hora</th><th style="padding:4px 8px">Origem</th><th style="padding:4px 8px">Resultado</th><th style="padding:4px 8px">Resumo</th></tr></thead>
+        <tbody>${linhas||'<tr><td colspan="4" style="padding:10px;color:var(--muted)">Sem conferências ainda.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+}
+// Faixa fixa no topo (só admin) quando a última conferência tem alerta. Clique abre a aba Conferência.
+async function _confBoot(){
+  try{
+    if(!ehAdmin()) return;
+    const lista=await _lerConferencia(1); const ult=lista&&lista[0];
+    const velha=document.getElementById('conf-faixa'); if(velha) velha.remove();
+    if(!ult || ult.status==='ok') return;
+    const verm=ult.status==='vermelho';
+    const d=document.createElement('div'); d.id='conf-faixa';
+    d.style.cssText=`position:fixed;top:0;left:0;right:0;z-index:2147483646;background:${verm?'#c0392b':'#f59e0b'};color:${verm?'#fff':'#111827'};text-align:center;font-weight:800;padding:10px 14px;cursor:pointer;font-family:system-ui,Arial,sans-serif;font-size:13px;box-shadow:0 2px 10px rgba(0,0,0,.3)`;
+    const n=(Array.isArray(ult.alertas)?ult.alertas.length:0);
+    d.innerHTML=`${verm?'🔴':'🟡'} Conferência (${_fmtAcDate(ult.criado_em)}): ${_escAc(ult.resumo||'')}${n?` — ${n} ponto(s)`:''}. Clique para ver.`;
+    d.onclick=()=>{ try{ d.remove(); setAba('conferencia'); window.scrollTo(0,0); }catch(e){} };
+    document.body.appendChild(d);
+  }catch(e){}
 }
 // Data da última atualização (coluna atualizado_em) de uma chave — só leitura, pro cabeçalho "Dados atualizados em". O Painel não grava nada aqui.
 async function gkMetaAt(chave){ try{ const _b=await _sbToken(); if(!_b) return null; const r=await fetch(`${SUPA_URL}/rest/v1/sistema_dados?device_id=eq.${DEV}&chave=eq.${encodeURIComponent(chave)}&select=atualizado_em`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_b},cache:'no-store'}); const j=await r.json(); return (Array.isArray(j)&&j[0])?j[0].atualizado_em:null; }catch(e){ return null; } }
@@ -848,7 +923,7 @@ async function setDreDesc(mes, val){
   try{ await _skPL('dreDescontos', descK); }catch(e){ try{ await saveData('dreDescontos', descK); }catch(_){} }
   renderDRE();
 }
-function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; document.getElementById('aba-acessos').style.display=(t==='acessos')?'':'none'; document.getElementById('aba-historico').style.display=(t==='historico')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); if(t==='acessos') renderAcessos(); if(t==='historico') renderHistorico(); }
+function setAba(t){ if(!ehAdmin() && !ABAS_DIRETOR.includes(t)) t='fluxo'; mesSel=mesSel; document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.getElementById('aba-fluxo').style.display=(t==='fluxo')?'':'none'; document.getElementById('aba-balancete').style.display=(t==='balancete')?'':'none'; document.getElementById('aba-fechamento').style.display=(t==='fechamento')?'':'none'; document.getElementById('aba-margem').style.display=(t==='margem')?'':'none'; document.getElementById('aba-recebimentos').style.display=(t==='recebimentos')?'':'none'; document.getElementById('aba-nf').style.display=(t==='nf')?'':'none'; document.getElementById('aba-margempl').style.display=(t==='margempl')?'':'none'; document.getElementById('aba-dre').style.display=(t==='dre')?'':'none'; document.getElementById('aba-acessos').style.display=(t==='acessos')?'':'none'; document.getElementById('aba-historico').style.display=(t==='historico')?'':'none'; document.getElementById('aba-conferencia').style.display=(t==='conferencia')?'':'none'; if(t==='balancete') renderBalancete(); if(t==='fechamento') renderFechamento(); if(t==='margem') renderMargem(); if(t==='recebimentos') renderRecebimentos(); if(t==='nf') renderNF(); if(t==='margempl') renderMargemPL(); if(t==='dre') renderDRE(); if(t==='acessos') renderAcessos(); if(t==='historico') renderHistorico(); if(t==='conferencia') renderConferencia(); }
 
 // ══ FECHAMENTO DO MÊS — relatório limpo (claro) pro diretor, com evolução dos meses e botão de PDF ══
 function renderFechamento(){
@@ -2349,7 +2424,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-23.2';
+const BUILD='2026-11-23.3';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
