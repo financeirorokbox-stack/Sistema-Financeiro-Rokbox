@@ -571,7 +571,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v820/10-873';
+const APP_VERSION = 'v821/10-874';
 
 // ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
 // Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
@@ -820,20 +820,33 @@ function _confData(iso){ try{ const d=new Date(iso); return String(d.getDate()).
 function _confNome(e){ const m=String(e||'').toLowerCase().match(/\+([a-z]+)@/); return m?m[1]:(e||'—'); }
 function _confCorG(s){ return s==='vermelho'?'#c0392b':(s==='amarelo'?'#b9770e':'#2ea043'); }
 function _confEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
-async function _confLerG(limit){ try{ const b=await _sbToken(); if(!b) return []; const r=await fetch(`${SUPABASE_URL}/rest/v1/conferencia?select=id,criado_em,origem,status,alertas,resumo&order=id.desc&limit=${limit||30}`,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+b},cache:'no-store'}); if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[]; }catch(e){ return []; } }
-function _confAlertaG(a){ const nome=_CONF_LABEL[a.chave]||a.chave; if(a.mes_fechado) return `🔴 <b>Mês fechado alterado:</b> ${_confEsc(nome)}`; const t=`<b>${_confEsc(nome)}</b>: ${a.antes} → ${a.depois} (${a.delta})`; if(a.explicado) return `🟡 ${t} — <b>explicado:</b> ${_confEsc(_confNome(a.quem))}, ${_confData(a.quando)}, ${_confEsc(a.acao||'ação manual')}`; return `🔴 ${t} — <b style="color:#c0392b">sem ação manual que explique</b>`; }
+async function _confLerG(limit){ try{ const b=await _sbToken(); if(!b) return []; const r=await fetch(`${SUPABASE_URL}/rest/v1/conferencia?select=id,criado_em,origem,status,alertas,resumo,db_pct,db_bytes&order=id.desc&limit=${limit||30}`,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+b},cache:'no-store'}); if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[]; }catch(e){ return []; } }
+function _confAlertaG(a){ if(a.banco) return `🟡 <b>Banco:</b> ${_confEsc(a.acao||'acima de 60% do limite')}`; const nome=_CONF_LABEL[a.chave]||a.chave; if(a.mes_fechado) return `🔴 <b>Mês fechado alterado:</b> ${_confEsc(nome)}`; const t=`<b>${_confEsc(nome)}</b>: ${a.antes} → ${a.depois} (${a.delta})`; if(a.explicado) return `🟡 ${t} — <b>explicado:</b> ${_confEsc(_confNome(a.quem))}, ${_confData(a.quando)}, ${_confEsc(a.acao||'ação manual')}`; return `🔴 ${t} — <b style="color:#c0392b">sem ação manual que explique</b>`; }
 async function _confAgoraG(btn){ if(btn){ btn.disabled=true; btn.textContent='Conferindo…'; } try{ const b=await _sbToken(); if(b) await fetch(`${SUPABASE_URL}/rest/v1/rpc/rodar_conferencia`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+b,'Content-Type':'application/json'},body:JSON.stringify({p_origem:'manual'})}); }catch(e){} try{ await _confModalG(); }catch(e){} try{ await _confBootG(); }catch(e){} }
 async function _confModalG(){
   const old=document.getElementById('conf-modal'); if(old) old.remove();
   const lista=await _confLerG(30); const ult=lista[0];
   const als=(ult&&Array.isArray(ult.alertas)&&ult.alertas.length)?ult.alertas.map(a=>`<div style="padding:4px 0;border-top:1px solid var(--border)">${_confAlertaG(a)}</div>`).join(''):'<div style="color:var(--muted);padding:4px 0">Nada diminuiu e nenhum mês fechado mudou.</div>';
   const linhas=lista.map(c=>`<tr><td style="padding:3px 8px;white-space:nowrap">${_confData(c.criado_em)}</td><td style="padding:3px 8px;color:var(--muted)">${c.origem==='manual'?'🖐 manual':'⏰ auto'}</td><td style="padding:3px 8px;font-weight:700;color:${_confCorG(c.status)}">${_confEsc(c.status)}</td><td style="padding:3px 8px;color:var(--muted)">${_confEsc(c.resumo||'')}</td></tr>`).join('');
+  const _dias=await _bkpListarNuvem().catch(()=>[]); const _fora=_bkpForaDaGuarda(_dias); const _pct=(ult&&ult.db_pct!=null)?ult.db_pct:null;
+  const _bancoCor=(_pct!=null&&_pct>=60)?'#b9770e':'var(--muted)';
+  const _avFlat=await _bkpLerAvisoFlat().catch(()=>null);
+  const avFlatHTML = _avFlat ? `<div style="font-size:12px;color:#b9770e;font-weight:700;margin-bottom:6px">⚠ O backup de ${_confEsc(_fmtDiaBR(_avFlat.dia))} foi feito SEM os flat* (falha ao buscar: ${_confEsc((_avFlat.flat||[]).join(', '))}). O backup existe; refaça quando a rede/banco voltar (o próximo backup completo limpa este aviso).</div>` : '';
+  const bkpSec=`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px">☁ Backups na nuvem</div>
+    ${avFlatHTML}
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${_dias.length} backup(s) guardado(s). Guarda: <b>últimos 30 dias + segundas de 6 meses + todo dia 1º (pra sempre)</b>. Banco: <b style="color:${_bancoCor}">${_pct!=null?_pct+'% de 500 MB':'—'}</b>${(_pct!=null&&_pct>=60)?' ⚠ (acima de 60%)':''}.</div>
+    ${_fora.length
+      ? `<div style="font-size:12px;margin-bottom:6px">${_fora.length} backup(s) <b>fora da guarda</b> (candidatos a apagar): ${_fora.map(d=>_fmtDiaBR(d)).join(', ')}</div><button class="btn ghost sm" onclick="_bkpApagarForaGuarda()">🗑 Apagar os ${_fora.length} fora da guarda (pede confirmação)</button>`
+      : `<div style="font-size:12px;color:var(--muted)">Nenhum backup fora da guarda — nada a apagar.</div>`}
+  </div>`;
   const ov=document.createElement('div'); ov.id='conf-modal';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px';
   ov.innerHTML=`<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;padding:20px;max-width:640px;width:95%;max-height:85vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.35)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap"><div style="font-size:17px;font-weight:800">🛡 Conferência de segurança</div><div style="font-size:16px;font-weight:800;color:${ult?_confCorG(ult.status):'#888'}">${ult?_confEsc(ult.status.toUpperCase()):'—'}</div><button class="btn primary sm" style="margin-left:auto" onclick="_confAgoraG(this)">🔄 Conferir agora</button></div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Roda sozinha às 8h e 18h. Compara as contagens (extrato, vínculos, contas a pagar) com a anterior e confere os meses fechados contra as fotos. Só lê, nunca corrige nem apaga. ${ult?`Última: ${_confData(ult.criado_em)}.`:'Ainda sem conferência.'}</div>
     ${als}
+    ${bkpSec}
     <div style="font-size:14px;font-weight:700;margin:14px 0 6px">Últimas conferências</div>
     <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--muted);text-align:left"><th style="padding:3px 8px">Data</th><th style="padding:3px 8px">Origem</th><th style="padding:3px 8px">Resultado</th><th style="padding:3px 8px">Resumo</th></tr></thead><tbody>${linhas||'<tr><td colspan=4 style="padding:8px;color:var(--muted)">Sem conferências ainda.</td></tr>'}</tbody></table></div>
     <button class="btn ghost sm" style="margin-top:14px" onclick="document.getElementById('conf-modal').remove()">Fechar</button>
@@ -1127,8 +1140,27 @@ function _montarBackup() {
   }
   return dados;
 }
-async function exportarBackup() {
+// Backup COMPLETO: o base (memória/local) + os flat* (relatórios do Power BI, que NÃO ficam em memória) e as
+// fotos de mês fechado, puxados do BANCO (fonte de verdade). Assim o backup diário carrega tudo pra restaurar.
+const _BKP_EXTRA_DB = ['flatCR','flatCP','flatVendas','flatBalancete','flatReceb','crFechado','cpFechado','balanceteFechado','vendasFechado','vendasFechadas'];
+let _bkpFalhasFlat = []; // flat* que FALHARAM ao buscar no último _montarBackupCompleto (rede/banco) → "backup sem flat*"
+async function _montarBackupCompleto() {
   const dados = _montarBackup();
+  _bkpFalhasFlat = [];
+  for (const k of _BKP_EXTRA_DB) {
+    // GARANTIA: a busca dos flat*/fotos NUNCA derruba o backup. Se falhar (rede/banco), segue sem a chave e,
+    // pros flat*, anota a falha (vira aviso "backup sem flat*" no 🛡 Conferência). O backup é sempre gravado.
+    try { const v = await loadData(k); if (v != null && !(Array.isArray(v) && !v.length)) dados[k] = v; }
+    catch (e) { if (/^flat/.test(k)) _bkpFalhasFlat.push(k); }
+  }
+  return dados;
+}
+// Aviso "backup sem flat*" — guardado numa chave própria (via sbFetch direto, sem passar pelo saveData/travas).
+async function _bkpMarcarSemFlat(dia, flat) { try { await _bkpNuvemGravar('bkpAvisoFlat', { dia, flat, ts: new Date().toISOString() }); } catch (e) {} }
+async function _bkpLimparSemFlat() { try { await _bkpNuvemApagar('bkpAvisoFlat'); } catch (e) {} }
+async function _bkpLerAvisoFlat() { try { return await _bkpNuvemLer('bkpAvisoFlat'); } catch (e) { return null; } }
+async function exportarBackup() {
+  const dados = await _montarBackupCompleto();
   const blob = new Blob([JSON.stringify(dados, null, 2)], {type: 'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1222,7 +1254,7 @@ async function autoBackupDiario() {
     const hoje = new Date().toISOString().slice(0, 10);
     const dias = await _abpListaDias();
     if (dias.includes(hoje)) return; // já tem o de hoje
-    const dados = _montarBackup();
+    const dados = await _montarBackupCompleto();
     if (!dados || !Object.keys(dados).length) return; // nada carregado ainda
     const db = await _abpDB();
     await new Promise((res, rej) => { const t = db.transaction(AUTOBKP_STORE, 'readwrite'); t.objectStore(AUTOBKP_STORE).put({ dia: hoje, ts: new Date().toISOString(), dados }); t.oncomplete = res; t.onerror = () => rej(t.error); });
@@ -1321,28 +1353,50 @@ async function _bkpListarNuvem() {
     return (rows || []).map(r => r.chave.slice(BKP_CLOUD_PREFIX.length)).filter(Boolean).sort().reverse();
   } catch (e) { return []; }
 }
-function _bkpDiasManter(dias) { // 7 recentes + 8 segundas + 6 dia-01 (dias: 'AAAA-MM-DD' desc)
+// GUARDA (regra da Elaine): todos os últimos 30 dias + todas as segundas dos últimos 6 meses + TODO dia 1º, pra sempre.
+function _bkpDiasManter(dias) {
   const keep = new Set();
-  dias.slice(0, 7).forEach(d => keep.add(d));
-  dias.filter(d => new Date(d + 'T12:00:00').getDay() === 1).slice(0, 8).forEach(d => keep.add(d));
-  dias.filter(d => d.slice(8) === '01').slice(0, 6).forEach(d => keep.add(d));
+  const hoje = new Date(); hoje.setHours(12, 0, 0, 0);
+  const lim30 = new Date(hoje); lim30.setDate(lim30.getDate() - 30);
+  const lim6m = new Date(hoje); lim6m.setMonth(lim6m.getMonth() - 6);
+  (dias || []).forEach(d => {
+    const dt = new Date(d + 'T12:00:00'); if (isNaN(dt)) return;
+    if (dt >= lim30) keep.add(d);                              // últimos 30 dias (todos)
+    else if (dt.getDay() === 1 && dt >= lim6m) keep.add(d);    // segundas dos últimos 6 meses
+    else if (d.slice(8) === '01') keep.add(d);                 // todo dia 1º, pra sempre
+  });
   return keep;
+}
+// Backups que estão FORA da guarda (candidatos a apagar) — usado no 🛡 Conferência; NUNCA apaga sozinho.
+function _bkpForaDaGuarda(dias) { const keep = _bkpDiasManter(dias); return (dias || []).filter(d => !keep.has(d)); }
+// Apaga os backups fora da guarda — SÓ com o ok da Elaine (confirmação listando quais).
+async function _bkpApagarForaGuarda() {
+  try {
+    const todos = await _bkpListarNuvem();
+    const fora = _bkpForaDaGuarda(todos);
+    if (!fora.length) { alert('Nenhum backup fora da guarda — nada a apagar.'); return; }
+    if (!confirm(`Apagar ${fora.length} backup(s) FORA da guarda?\n\n${fora.map(d => '• ' + _fmtDiaBR(d)).join('\n')}\n\nA guarda (últimos 30 dias + segundas dos últimos 6 meses + todo dia 1º) é mantida.\nIsso NÃO pode ser desfeito.`)) return;
+    for (const d of fora) { await _bkpNuvemApagar(BKP_CLOUD_PREFIX + d); }
+    alert(`${fora.length} backup(s) apagado(s). A guarda foi mantida.`);
+    try { await _confModalG(); } catch (e) {}
+  } catch (e) { alert('Não consegui apagar: ' + (e && e.message || e)); }
 }
 async function backupNuvemDiario() {
   try {
     const hoje = new Date().toISOString().slice(0, 10);
     const dias = await _bkpListarNuvem();
     if (!dias.includes(hoje)) {
-      const dados = _montarBackup();
+      const dados = await _montarBackupCompleto();
       if (dados && Object.keys(dados).length) {
         const pack = await _bkpComprimir(dados);
-        await _bkpNuvemGravar(BKP_CLOUD_PREFIX + hoje, pack);
+        await _bkpNuvemGravar(BKP_CLOUD_PREFIX + hoje, pack);           // o backup É GRAVADO mesmo que os flat* tenham falhado
         console.log('☁ Backup nuvem:', hoje, (pack.d.length / 1024).toFixed(0) + 'KB' + (pack.z ? ' gzip' : ''));
+        // marca/limpa o aviso "backup sem flat*" (falha ao buscar os flat* → o backup foi feito, só sem eles)
+        if (_bkpFalhasFlat.length) await _bkpMarcarSemFlat(hoje, _bkpFalhasFlat.slice());
+        else await _bkpLimparSemFlat();
       }
     }
-    const todos = await _bkpListarNuvem();
-    const keep = _bkpDiasManter(todos);
-    for (const d of todos.filter(x => !keep.has(x))) { await _bkpNuvemApagar(BKP_CLOUD_PREFIX + d); }
+    // NÃO apaga mais sozinho. Os backups fora da guarda viram sugestão no 🛡 Conferência (só apaga com o seu ok).
   } catch (e) { console.warn('backup nuvem falhou (não crítico):', e && e.message); }
 }
 async function baixarBackupNuvem(dia) { const dados = await _bkpDescomprimir(await _bkpNuvemLer(BKP_CLOUD_PREFIX + dia)); if (!dados) { alert('Não achei esse backup.'); return; } _bkpBaixarDados(dados, `backup_rokbox_${String(dia).split('-').reverse().join('-')}.json`); }
@@ -1358,7 +1412,7 @@ async function backupSemanal() {
     const sem = _semIso(new Date());
     const tem = await _semLista();
     if (!tem.includes(sem)) {
-      const dados = _montarBackup();
+      const dados = await _montarBackupCompleto();
       if (dados && Object.keys(dados).length) {
         const db = await _semDB();
         await new Promise((res, rej) => { const t = db.transaction(BKP_SEM_STORE, 'readwrite'); t.objectStore(BKP_SEM_STORE).put({ sem, ts: new Date().toISOString(), dados }); t.oncomplete = res; t.onerror = () => rej(t.error); });
@@ -1396,7 +1450,7 @@ async function testarRestauroBackup() {
     const pack = await _bkpNuvemLer(BKP_CLOUD_PREFIX + dia);
     const restaurado = await _bkpDescomprimir(pack);
     if (!restaurado) { alert('❌ Não consegui descompactar o backup de ' + _fmtDiaBR(dia) + '.'); return; }
-    const atual = _montarBackup();
+    const atual = await _montarBackupCompleto();
     const linhas = ['Backup testado: ' + _fmtDiaBR(dia), 'Chaves no backup: ' + Object.keys(restaurado).length + ' | hoje: ' + Object.keys(atual).length];
     const chaveTeste = '_bkpTesteRestauro';
     await _bkpNuvemGravar(chaveTeste, pack);

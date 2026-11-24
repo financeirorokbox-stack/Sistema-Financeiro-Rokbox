@@ -549,10 +549,11 @@ const _confCor = s => s==='vermelho'?'#e5534b':(s==='amarelo'?'#f59e0b':'#3fb950
 const _confTxt = s => s==='vermelho'?'🔴 Atenção':(s==='amarelo'?'🟡 Explicado':'🟢 Tudo certo');
 async function _lerConferencia(limit){
   const b=await _sbToken(); if(!b) return [];
-  const r=await fetch(`${SUPA_URL}/rest/v1/conferencia?select=id,criado_em,origem,status,alertas,resumo&order=id.desc&limit=${limit||30}`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b},cache:'no-store'});
+  const r=await fetch(`${SUPA_URL}/rest/v1/conferencia?select=id,criado_em,origem,status,alertas,resumo,db_pct,db_bytes&order=id.desc&limit=${limit||30}`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+b},cache:'no-store'});
   if(!r.ok) return []; const j=await r.json(); return Array.isArray(j)?j:[];
 }
 function _confAlertaLinha(a){
+  if(a.banco) return `🟡 <b>Banco:</b> ${_escAc(a.acao||'acima de 60% do limite (500 MB)')}`;
   const nome=_CHAVE_LABEL[a.chave]||a.chave;
   if(a.mes_fechado) return `🔴 <b>Mês fechado alterado:</b> ${nome} — confira a foto oficial.`;
   const txt=`<b>${nome}</b>: ${a.antes} → ${a.depois} (${a.delta})`;
@@ -572,6 +573,10 @@ async function renderConferencia(){
   if(lista===null){ el.innerHTML='<div class="card">Não foi possível ler a conferência agora. Tente de novo.</div>'; return; }
   const ult=lista[0];
   const cor = ult?_confCor(ult.status):'#8b949e';
+  let _avFlat=null; try{ _avFlat=await gk('bkpAvisoFlat'); }catch(e){}
+  const _pct=(ult&&ult.db_pct!=null)?ult.db_pct:null;
+  const avFlatHTML = _avFlat ? `<div style="color:#f59e0b;font-weight:700;font-size:12px;padding:6px 0;border-top:1px solid var(--line,#233)">⚠ O backup de ${_escAc(String(_avFlat.dia||'').split('-').reverse().join('/'))} foi feito SEM os flat* (falha ao buscar: ${_escAc((_avFlat.flat||[]).join(', '))}). O backup existe; o próximo backup completo limpa este aviso.</div>` : '';
+  const bancoHTML = (_pct!=null) ? `<div style="color:var(--muted);font-size:12px;padding:4px 0">💾 Banco: <b style="color:${_pct>=60?'#f59e0b':'var(--muted)'}">${_pct}% de 500 MB</b> (backup, flat* e fotos incluídos)${_pct>=60?' ⚠ acima de 60%':''}.</div>` : '';
   const alertasHTML = (ult&&Array.isArray(ult.alertas)&&ult.alertas.length)
     ? ult.alertas.map(a=>`<div style="padding:4px 0;border-top:1px solid var(--line,#233)">${_confAlertaLinha(a)}</div>`).join('')
     : '<div style="color:var(--muted);padding:4px 0">Nada diminuiu e nenhum mês fechado mudou.</div>';
@@ -588,6 +593,8 @@ async function renderConferencia(){
       </div>
       <div style="color:var(--muted);font-size:12px;margin-bottom:10px">Roda sozinha às <b>8h</b> e <b>18h</b> (robô do banco). Compara as contagens de extrato, vínculos e contas a pagar com a conferência anterior e confere se os meses fechados seguem iguais às fotos. <b>Só lê</b>, nunca corrige nem apaga. ${ult?`Última: ${_fmtAcDate(ult.criado_em)} (${ult.origem==='manual'?'manual':'automática'}).`:'Ainda sem conferência.'}</div>
       ${alertasHTML}
+      ${bancoHTML}
+      ${avFlatHTML}
     </div>
     <div class="card">
       <div style="font-size:15px;font-weight:700;margin-bottom:10px">Últimas conferências</div>
@@ -2424,7 +2431,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-23.3';
+const BUILD='2026-11-23.4';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
