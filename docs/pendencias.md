@@ -1,10 +1,34 @@
-# Pendências e estado da sessão (Rokbox) , atualizado 13/11/2026
+# Pendências e estado da sessão (Rokbox) , atualizado 24/11/2026
 
 Documento de continuidade: se abrir uma conversa nova, começar daqui. Regra fixa: **mês
 fechado (jun–set) nunca muda** (só vai para "Ajustes de meses fechados"); **nada publica
 sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Power BI"**
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
+
+## 24/11 (segunda) — ESTADO ATUAL
+
+**Selos no ar:** Gestão **v822/10-875** (F5 pra atualizar — o Gestão só troca de versão no F5; mostra faixa laranja "versão nova" quando há); Painel **BUILD 2026-11-23.4** (atualiza sozinho).
+
+**No ar desde 17/11 (lote pós-Painel + segurança):**
+- v810 lixeira recuperável do extrato; v811 prévia de boletos (mostra os do sistema + nº duplicado); v812 desempenho Conciliação; v813 Barte no import; v814 desempenho Contas a Receber.
+- **Barte na Conciliação Bancária (v815):** gateway com repasse igual Braavo (crédito "BARTE" abre com Barte, concilia o PIX com os recebíveis).
+- **Registro de ACESSOS (Painel 18.2 / placar 18.1):** tabela `acessos`, quem/papel do JWT (não dá pra disfarçar), só admin lê, grava aparelho+código; quadro só-admin por conta→aparelhos.
+- **Aviso de VERSÃO NOVA + trava de aba velha (v816/v818):** faixa laranja + bloqueia o salvar em aba velha (avisa o quê não salvou); checa na abertura/5min/foco/antes de gravar; robô nunca afetado.
+- **Projeção do Painel (23.2):** "Saldo no fim do mês (projetado)" usa o mesmo "a vencer (boletos emitidos)" (crVencerBol).
+- **SEGURANÇA (a) HISTÓRICO (v817/18.2):** toda gravação registra quem/quando/chave/qtd antes→depois/tela (tabela `historico`); quadro só-admin, vermelho quando DIMINUI; fire-and-forget (nunca trava o salvar); robô não entra.
+- **SEGURANÇA (b) CONFERÊNCIA 8h/18h (v819/23.3):** `conferencia` + `rodar_conferencia()` (pg_cron) compara contagens (extrato/vínculos/contas a pagar) + md5 das fotos de mês fechado; AMARELO = redução explicada pelo histórico, VERMELHO = sem explicação ou foto mudou; faixa no topo + botão "Conferir agora" + lista; SÓ LÊ. Brecha de EXECUTE (anon) fechada e provada.
+- **SEGURANÇA (c) BACKUP (v821/23.4):** flat* + fotos no backup (falha não derruba o backup; marca "sem flat*"); guarda nova = últimos 30 dias + segundas de 6 meses + todo dia 1º (sempre); **auto-delete DESLIGADO** (fora-da-guarda = sugestão no 🛡 Conferência, apaga só com ok); % do banco na conferência, amarelo acima de 60% (hoje 11% de 500MB).
+- **SEGURANÇA (d) OFX data futura (v822):** lançamento com dia > hoje (Brasília) não entra; prévia mostra "futuros — ignorados (N)".
+- **Sincronizar do Drive "Nada novo" (v820):** lista os arquivos achados + "espere 1 minuto e sincronize de novo".
+- **saldoDiaCP:** Painel "Saldo em banco" voltou a ler o saldoDiaCP (digitado), não o extrato.
+
+**PENDÊNCIAS ABERTAS (não mexer sem "pode"):**
+1. **RECEBIMENTOS DUPLICADOS** (ver seção 16/11 abaixo): `recebimentosConsolidado` com ~158 "Boleto Itaú" em dobro (jun–nov). NÃO resolvido ainda. Dar ao import de boletos as regras do extrato (dedup por conteúdo + prévia) + listar pedidos pagos pela duplicata que estão em aberto + limpeza (backup antes, lixeira). **Prioridade quando ela pedir.**
+2. **Fluxo de Caixa novembro ~74k Painel×Gestão** (ver seção abaixo): diagnóstico pronto (é caixa×vencimento + flatCP velho); lista dos ~74k a entregar; NÃO corrigir antes da Elaine ver.
+3. **Extrato parte 2:** pausado pela Elaine ("volto se sentir lentidão"). Escopo a definir.
+4. **Drive "Nada novo" — HORA:** o robozinho (Apps Script) hoje devolve só nome (sem hora); o código já mostra a hora assim que vier. Opcional: ajustar o Apps Script (`getLastUpdated`) pra ligar a hora.
+5. **Deploy do GitHub Pages:** andou falhando (infra, transitório) — re-disparar com commit vazio quando o passo "Deploy to GitHub Pages" der failure; o conteúdo entra.
 
 ## 16/11 (segunda) — o que entrou no ar + fila
 **NO AR:** item 1 (v796/10-849: conta paga sem conciliação conta pela dataPag, "não conciliada") e **importação de
