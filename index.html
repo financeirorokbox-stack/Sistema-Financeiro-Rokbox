@@ -571,7 +571,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v821/10-874';
+const APP_VERSION = 'v822/10-875';
 
 // ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
 // Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
@@ -12544,14 +12544,24 @@ function renderExtrato() {
     const reader = new FileReader();
     reader.onload = ev => {
       const raw = String(ev.target.result || '');
-      const novas = parseOFX(raw);
+      const _todas = parseOFX(raw);
       const saldoFinalInfo = parseOFXSaldoFinal(raw); // saldo REAL do banco (LEDGERBAL) p/ preencher o saldo do dia sozinho
       // Diagnóstico: se não leu nada, mostra o porquê e o início do arquivo (pra eu ajustar o parser).
-      if (!novas.length) {
+      if (!_todas.length) {
         const temTrn = /<STMTTRN/i.test(raw);
         alert(`⚠ Não encontrei lançamentos no arquivo "${file.name}".\n\n` +
           (temTrn ? 'O arquivo TEM transações, mas o formato está diferente do esperado.' : 'Não parece um extrato OFX (não achei <STMTTRN>). Confirme que exportou em formato OFX no Itaú.') +
           `\n\nTamanho: ${(file.size/1024).toFixed(1)} KB\nInício do arquivo:\n` + raw.replace(/[\r\n]+/g, ' ').slice(0, 280));
+        return;
+      }
+      // (d) DATA FUTURA: lançamento com data DEPOIS de hoje NÃO entra (aparece na prévia como "futuros — ignorados").
+      const _hojeDia = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })();
+      const _diaDe = dt => (dt instanceof Date && !isNaN(dt)) ? (dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0')) : String(dt || '').slice(0,10);
+      const _futuras = _todas.filter(t => _diaDe(t.data) > _hojeDia);
+      const novas = _todas.filter(t => _diaDe(t.data) <= _hojeDia);
+      if (!novas.length && _futuras.length) {
+        const stEl0 = document.getElementById('status-ext'); if (stEl0) stEl0.textContent = 'Só lançamentos futuros — nada importado.';
+        alert(`Todos os ${_futuras.length} lançamento(s) deste arquivo têm data FUTURA (depois de hoje, ${_hojeDia.split('-').reverse().join('/')}).\n\nNenhum foi importado — lançamentos futuros são ignorados. Suba de novo quando a data chegar.`);
         return;
       }
       // Pergunta o banco (o usuário gosta de confirmar), já sugerindo o que casa com o nome do arquivo.
@@ -12568,12 +12578,13 @@ function renderExtrato() {
       const _saldoArq = (saldoFinalInfo && saldoFinalInfo.valor != null) ? saldoFinalInfo.valor : null;
       if (_prev.add === 0) {
         const stEl0 = document.getElementById('status-ext'); if (stEl0) stEl0.textContent = 'Nada novo — já estava tudo importado.';
-        alert(`Esse arquivo de "${banco}" já está todo importado (${_prev.jaTinha} linha(s) já existentes). Nada a adicionar, nada apagado.`);
+        alert(`Esse arquivo de "${banco}" já está todo importado (${_prev.jaTinha} linha(s) já existentes).${_futuras.length ? ` ${_futuras.length} lançamento(s) com data futura foram ignorados.` : ''} Nada a adicionar, nada apagado.`);
         return;
       }
       const _msg = `Prévia da importação — ${banco}:\n\n` +
         `• ${_prev.add} linha(s) NOVA(s) para adicionar\n` +
         `• ${_prev.jaTinha} já existente(s) (ignoradas — re-upload do mesmo)\n` +
+        (_futuras.length ? `• ${_futuras.length} lançamento(s) com data FUTURA — ignorados (não entram)\n` : '') +
         (_prev.dups ? `• ⚠ ${_prev.dups} possível(is) DUPLICATA(s) (mesmo dia e valor, descrição diferente — vão entrar; confira depois e exclua se for o caso)\n` : '') +
         (_prev.naoVieram ? `• ${_prev.naoVieram} lançamento(s) desse banco nesses dias que NÃO vieram no arquivo — NÃO serão apagados (só aviso)\n` : '') +
         (_saldoArq != null ? `• Saldo final do arquivo: ${fmtVal(_saldoArq)} (confiro com o do sistema depois de gravar)\n` : '') +
