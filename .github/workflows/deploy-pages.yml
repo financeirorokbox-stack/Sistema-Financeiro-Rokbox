@@ -1,8 +1,10 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
+  # Deploy passou a ser DIRETO DO BRANCH main (Pages "legacy"/build from branch), porque o
+  # pipeline de artefatos do Actions (actions/deploy-pages) estava falhando repetidamente
+  # ("No artifacts named github-pages were found"). Mantido só o disparo manual caso um dia
+  # se volte a usar o deploy via Actions.
   workflow_dispatch:
 
 permissions:
