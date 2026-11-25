@@ -1489,6 +1489,30 @@ let _margCfgAberta = false;  // "Configurações da margem" recolhido no fim (s�
 function toggleMargDetalhes(){ _margDetalhes = !_margDetalhes; renderMargem(); }
 function setMargAlerta(a){ _margAlerta = (_margAlerta===a?'':a); renderMargem(); }
 function toggleMargCfg(){ _margCfgAberta = !_margCfgAberta; renderMargem(); }
+// ── Destaques (parte 2): '' = Todas (mês do filtro); senão = coleção (todos os meses dela) ──
+let _margDestaque = '';
+function setMargDestaque(v){ _margDestaque = v||''; renderMargem(); }
+// Lucro (margem de contribuição) e peças por PRODUTO de uma coleção, ao longo de TODOS os meses.
+// Só roda quando uma coleção é escolhida (pré-filtra os pedidos que têm a coleção antes de analisar).
+function _destaquesColMeses(col){
+  if(!_FIN) return {};
+  const pedidos=_FIN.pedidos||[], lc=_FIN.lc||{}, pCol=_FIN.pCol||{};
+  const NAOAP=['cancelado','em aberto','em andamento','atualização de estoque','atualizacao de estoque','correios','sit#15'];
+  const opDe=l=>(lc[l]&&lc[l].operacao)?String(lc[l].operacao).toLowerCase():'';
+  const ehVT=p=>{ if(NAOAP.includes(String(p.situacao||'').toLowerCase()))return false; const o=opDe(p.loja); return o==='venda'||o==='troca'; };
+  const colDe=sku=>(pCol[_skuBaseM(sku)]||'(sem coleção)');
+  const prod={};
+  pedidos.forEach(p=>{ if(!ehVT(p)) return;
+    const linhas=Array.isArray(p.linhas)?p.linhas:[]; if(!linhas.some(l=>colDe(l.sku)===col)) return;
+    const a=analiseDoPedido(p.id); if(!a||a.erro||a.linhasIncompletas) return;
+    const c=a.cascade||{}, R=+c.receita||0, over=(+c.imposto||0)+(+c.taxa||0)+(+c.comissao||0);
+    (a.lines||[]).forEach(l=>{ if(l.cortesia) return; if(colDe(l.sku)!==col) return;
+      const share=R>0?(l.liq/R):0; const margem=+(l.liq - l.custoT - over*share).toFixed(2);
+      const o=prod[l.nome]||(prod[l.nome]={pcs:0,lucro:0,temCusto:false});
+      o.pcs+=l.qtd; if(!l.semCusto){ o.lucro+=margem; o.temCusto=true; } });
+  });
+  return prod;
+}
 // 🔍 Conferência: monta a lista de peças da linha SÓ quando clica (leve, recalcula na hora do que já está na memória)
 function _margConf(btn){
   const tr = btn.closest('tr'); if(!tr) return;
@@ -2172,6 +2196,26 @@ function renderMargem(){
   const _tabHead = _margDetalhes ? head.replace('__',dimLbl) : headEnxuta.replace('__',dimLbl);
   const _tabBody = _margDetalhes ? bodyRows : bodyRowsEnxuta;
   const _rodapeTxt = `* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto linha = tabela − preço vendido na linha. Desconto pedido = o desconto que aparece no total do pedido, rateado por linha. Imposto = alíquota efetiva do Simples (PGDAS) do mês da NOTA × valor da NF de venda autorizada; pedido de venda sem NF fica com imposto 0 e marca "sem NF" (a margem dele parece melhor do que é); mês sem PGDAS usa a alíquota do mês anterior, "estimada"; o % fallback só vale sem PGDAS nenhum. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = o % de cada vendedor/loja do Cadastro, sobre a base (total − frete − despesas − devolução), rateada por linha (vendedores isentos entram zerados); é estimativa, a oficial (faixas/metas) entra quando o mês fecha. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem, o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo.<br><strong>As % em cinza mostram a alíquota que está sendo usada em cada coluna:</strong> desconto linha é % sobre a tabela, desconto pedido % sobre o subtotal, imposto e taxa % sobre a receita, comissão é a alíquota do vendedor sobre a base. Receita, custo e margem aparecem como % da tabela (fatia do preço cheio).`;
+  // ── Destaques (parte 2): produto que mais lucrou / mais vendeu ──
+  const _colsLista = [...new Set(Object.values(pCol))].filter(c=>c&&String(c).trim()&&String(c).trim()!=='-').sort((a,b)=>String(a).localeCompare(String(b),'pt'));
+  let _dLucrou=null, _dVendeu=null, _dEscopo='';
+  if(_margDestaque){
+    _dEscopo = 'todos os meses';
+    const pr = _destaquesColMeses(_margDestaque); const ents = Object.entries(pr);
+    const comCusto = ents.filter(([,o])=>o.temCusto);
+    const tl = comCusto.slice().sort((a,b)=>b[1].lucro-a[1].lucro)[0];
+    const tv = ents.slice().sort((a,b)=>b[1].pcs-a[1].pcs)[0];
+    _dLucrou = tl ? [tl[0], {lucro:tl[1].lucro, pcs:tl[1].pcs}] : null;
+    _dVendeu = tv ? [tv[0], {pcs:tv[1].pcs, lucro:tv[1].lucro}] : null;
+  } else {
+    _dEscopo = mesNome;
+    const ents = Object.entries(dims.produto||{});
+    const comCusto = ents.filter(([,o])=>o.custo>0); // produto sem custo não entra no "mais lucrou"
+    const tl = comCusto.slice().sort((a,b)=>b[1].margem-a[1].margem)[0];
+    const tv = ents.slice().sort((a,b)=>b[1].pcs-a[1].pcs)[0];
+    _dLucrou = tl ? [tl[0], {lucro:tl[1].margem, pcs:tl[1].pcs}] : null;
+    _dVendeu = tv ? [tv[0], {pcs:tv[1].pcs, lucro:tv[1].margem}] : null;
+  }
   el.innerHTML = `
     <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
     <div class="card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px"><span>💲 Custos do Bling atualizados em <b>${_fmtDataHora(_FIN.bCustosAt)}</b></span>${ehAdmin()?`<button onclick="atualizarCustosBling()" ${_custosAtualizando?'disabled':''} style="background:${_custosAtualizando?'var(--bg2,#141a1f)':'var(--lime,#7ee787)'};color:${_custosAtualizando?'var(--muted)':'#08130b'};border:${_custosAtualizando?'1px solid var(--line,#233)':'none'};border-radius:8px;padding:5px 12px;font-weight:700;cursor:${_custosAtualizando?'default':'pointer'}">${_custosAtualizando?'⏳ atualizando…':'🔄 Atualizar custos'}</button>`:''}${_custosMsg?`<span style="color:${/não|demora/i.test(_custosMsg)?'var(--amber)':'var(--muted)'}">${_escM(_custosMsg)}</span>`:''}</div>
@@ -2179,6 +2223,13 @@ function renderMargem(){
       <div class="card" style="flex:1 1 210px"><div class="lab">Receita líquida</div><div class="big" style="color:var(--lime)">${brl(T.receita)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px;font-size:11px">tabela ${brl(T.tabela)} − descontos ${brl(T.descLinha+T.descPed)} · ${nPed} pedido(s) · ${nf(T.pcs)} peças</div></div>
       <div class="card" style="flex:1 1 210px"><div class="lab">💰 Margem de contribuição</div><div class="big" style="color:${T.margem>=0?'var(--lime)':'var(--red)'}">${brl(T.margem)} <span style="font-size:.55em;color:var(--muted);font-weight:700">${pct(T.margem,T.tabela)}</span></div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px;font-size:11px">o que sobra pra pagar os fixos · imposto ${brl(T.imposto)}${_margEstim?' <span style="color:var(--amber)">(est.)</span>':''} · taxa ${brl(T.taxa)} · comissão ${brl(T.comissao)} · custo ${brl(T.custo)}${T.semNFrec>0?` · <span style="color:var(--red)">${brl(T.semNFrec)} sem NF</span>`:''}</div></div>
       <div class="card" style="flex:1 1 210px;background:linear-gradient(180deg,#16241c,var(--bg2));border-color:#2c5e42"><div class="lab">🎯 Lucro do mês</div><div class="big" style="color:${lucro>=0?'var(--lime)':'var(--red)'}">${brl(lucro)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px;font-size:11px">${_custosFixos>0?('sobra '+brl(T.margem)+' − fixos '+brl(_custosFixos)):'<span style="color:var(--amber)">defina os custos fixos nas configurações ↓</span>'}</div></div>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b>✨ Destaques</b> <select onchange="setMargDestaque(this.value)" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:8px;padding:5px 9px;font-size:12.5px;max-width:280px"><option value="" ${!_margDestaque?'selected':''}>Todas as coleções · ${mesNome}</option>${_colsLista.map(c=>`<option value="${_escM(c)}" ${_margDestaque===c?'selected':''}>${_escM(c)} · todos os meses</option>`).join('')}</select> <span style="color:var(--muted);font-size:11px">${_dEscopo}</span></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="card" style="flex:1 1 230px;background:linear-gradient(180deg,#16241c,var(--bg2));border-color:#2c5e42"><div class="lab">🏆 Produto que mais lucrou ${!_margDestaque?'<span style="font-weight:400;text-transform:none;color:var(--muted)">(sem custo não entra)</span>':''}</div>${_dLucrou?`<div class="big" style="color:var(--lime);font-size:clamp(20px,2.4vw,32px)">${brl(_dLucrou[1].lucro)}</div><div style="margin-top:3px;font-weight:600">${_escM(_dLucrou[0])}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);font-size:11px;margin-top:2px">${nf(_dLucrou[1].pcs)} peças vendidas</div>`:'<div style="color:var(--muted);margin-top:6px">Sem produto com custo no período.</div>'}</div>
+        <div class="card" style="flex:1 1 230px"><div class="lab">📦 Produto que mais vendeu</div>${_dVendeu?`<div class="big" style="font-size:clamp(20px,2.4vw,32px)">${nf(_dVendeu[1].pcs)} <span style="font-size:.5em;color:var(--muted);font-weight:700">peças</span></div><div style="margin-top:3px;font-weight:600">${_escM(_dVendeu[0])}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);font-size:11px;margin-top:2px">lucro ${brl(_dVendeu[1].lucro)}</div>`:'<div style="color:var(--muted);margin-top:6px">Sem vendas no período.</div>'}</div>
+      </div>
     </div>
     ${(_foraTotal>0||T.pcsSemCusto>0)?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px">${_foraTotal>0?`<button onclick="setMargAlerta('fora')" style="background:${_margAlerta==='fora'?'var(--red)':'rgba(248,81,73,.12)'};color:${_margAlerta==='fora'?'#fff':'var(--red)'};border:1px solid var(--red);border-radius:8px;padding:6px 13px;font-weight:700;cursor:pointer">🚨 ${_foraTotal} pedido(s) fora da margem ${_margAlerta==='fora'?'▾':'▸'}</button>`:''}${T.pcsSemCusto>0?`<button onclick="setMargAlerta('semcusto')" style="background:${_margAlerta==='semcusto'?'var(--amber)':'rgba(224,130,58,.12)'};color:${_margAlerta==='semcusto'?'#08130b':'var(--amber)'};border:1px solid var(--amber);border-radius:8px;padding:6px 13px;font-weight:700;cursor:pointer">⚠ ${nf(T.pcsSemCusto)} peça(s) sem custo ${_margAlerta==='semcusto'?'▾':'▸'}</button>`:''}</div>`:''}
     ${_margAlerta==='fora'?foraHtml:''}
@@ -2463,7 +2514,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-25.2';
+const BUILD='2026-11-25.3';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

@@ -28,15 +28,31 @@ function headerCols(page) {
   });
 }
 
-test('Margem: 3 cards + tabela enxuta (6 col) sem erro de console', async ({ page }) => {
+test('Margem: 3 cartões de topo + Destaques + tabela enxuta (6 col) sem erro', async ({ page }) => {
   const erros = await abrirMargem(page);
-  // 3 cards com R$
-  const bigs = await page.$$eval('#margem-conteudo .big', els => els.map(e => e.textContent));
-  expect(bigs.length, '3 cartões no topo').toBe(3);
-  bigs.forEach(b => expect(b).toMatch(/R\$/));
+  // os 3 cartões de topo (por rótulo), independentes dos cartões de Destaques
+  const txt = await page.evaluate(() => document.getElementById('margem-conteudo').innerText);
+  expect(txt).toMatch(/Receita líquida/i);
+  expect(txt).toMatch(/Margem de contribuição/i);
+  expect(txt).toMatch(/Lucro do mês/i);
+  // Destaques (parte 2)
+  expect(txt, 'cartão mais lucrou').toMatch(/mais lucrou/i);
+  expect(txt, 'cartão mais vendeu').toMatch(/mais vendeu/i);
   // tabela enxuta = 6 colunas
   expect(await headerCols(page), 'tabela enxuta tem 6 colunas').toBe(6);
   expect(erros, 'sem erro de console/página: ' + JSON.stringify(erros)).toEqual([]);
+});
+
+test('Margem: Destaques por coleção (todos os meses) renderiza sem erro', async ({ page }) => {
+  const erros = await abrirMargem(page);
+  // escolhe a primeira coleção do seletor e confere que os cartões continuam
+  const col = await page.evaluate(() => { const s = document.querySelector('#margem-conteudo select'); const op = [...s.options].find(o => o.value); if (op) { setMargDestaque(op.value); return op.value; } return null; });
+  await page.waitForTimeout(400);
+  const txt = await page.evaluate(() => document.getElementById('margem-conteudo').innerText);
+  expect(col, 'há coleções no seletor').toBeTruthy();
+  expect(txt).toMatch(/mais lucrou/i);
+  expect(txt).toMatch(/todos os meses/i);
+  expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
 });
 
 test('Margem: "Mostrar detalhes" expande pra 12 colunas e volta', async ({ page }) => {
