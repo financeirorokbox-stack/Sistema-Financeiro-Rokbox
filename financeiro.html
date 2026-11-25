@@ -1492,6 +1492,9 @@ function toggleMargCfg(){ _margCfgAberta = !_margCfgAberta; renderMargem(); }
 // ── Destaques (parte 2): '' = Todas (mês do filtro); senão = coleção (todos os meses dela) ──
 let _margDestaque = '';
 function setMargDestaque(v){ _margDestaque = v||''; renderMargem(); }
+// ── Filtro de empresa da aba Margem: '' = Todas | 'Rokbox' | 'Rk' (empresa do pedido no Bling, empLabel). Só FILTRA, não muda cálculo. ──
+let _margEmp = '';
+function setMargEmp(v){ _margEmp = v||''; renderMargem(); }
 // Lucro (margem de contribuição) e peças por PRODUTO de uma coleção, ao longo de TODOS os meses.
 // Só roda quando uma coleção é escolhida (pré-filtra os pedidos que têm a coleção antes de analisar).
 function _destaquesColMeses(col){
@@ -1503,6 +1506,7 @@ function _destaquesColMeses(col){
   const colDe=sku=>(pCol[_skuBaseM(sku)]||'(sem coleção)');
   const prod={};
   pedidos.forEach(p=>{ if(!ehVT(p)) return;
+    if(_margEmp && _empLabelM(p.empresa)!==_margEmp) return; // mesmo filtro de empresa da aba
     const linhas=Array.isArray(p.linhas)?p.linhas:[]; if(!linhas.some(l=>colDe(l.sku)===col)) return;
     const a=analiseDoPedido(p.id); if(!a||a.erro||a.linhasIncompletas) return;
     const c=a.cascade||{}, R=+c.receita||0, over=(+c.imposto||0)+(+c.taxa||0)+(+c.comissao||0);
@@ -2089,6 +2093,7 @@ function renderMargem(){
   (pedidos).forEach(p => {
     if(String(p.data||'').slice(0,7) !== mes) return;
     if(!ehVT(p)) return;
+    if(_margEmp && empLabel(p.empresa) !== _margEmp) return; // filtro de empresa (só filtra, não muda cálculo)
     const linhas = Array.isArray(p.linhas) ? p.linhas : []; if(!linhas.length) return;
     const vend = linhas.map(l => { const q = +l.qtd||0; const val = +l.valorLinha || ((+l.precoUnit||0)*q); const pu = q>0 ? val/q : (+l.precoUnit||0); return { l, q, val, pu, brinde: pu <= 0.011 }; });
     const totVenda = vend.filter(x => !x.brinde).reduce((s,x) => s + x.val, 0); // soma dos valores de LINHA (vendido)
@@ -2169,7 +2174,7 @@ function renderMargem(){
   const cfgCamp = ehAdmin()? `<div class="card" style="margin-bottom:12px;font-size:12.5px"><b>📣 Campanhas</b> <span style="color:var(--muted)" title="Custo padrão de campanha em TODOS os pedidos (mesmo sem campanha marcada). Pedido com campanha usa o % da campanha; pedido com valor informado usa o informado.">· custo padrão (todos os pedidos): <input value="${_FIN.campanhaCustoPadraoPct!=null?String(_FIN.campanhaCustoPadraoPct).replace('.',','):''}" placeholder="5" onkeydown="if(event.key==='Enter')setCampanhaCustoPadrao(this.value)" onblur="setCampanhaCustoPadrao(this.value)" style="width:46px;text-align:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px">% da receita</span><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px"><input id="camp-nome" placeholder="nome da campanha" style="width:200px;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:4px 8px"> <label style="color:var(--muted)">início <input id="camp-ini" type="date" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px"></label> <label style="color:var(--muted)">fim <input id="camp-fim" type="date" style="background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px"></label> <label style="color:var(--muted)" title="Custo padrão da campanha, em % da receita líquida. Pedido marcado com a campanha usa esse % automaticamente.">custo padrão <input id="camp-custopct" placeholder="%" style="width:46px;text-align:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:3px 6px">% da receita</label> <button onclick="addCampanhaForm()" style="background:var(--lime,#7ee787);color:#08130b;border:none;border-radius:8px;padding:5px 12px;font-weight:700;cursor:pointer">+ Adicionar</button></div>${campanhas.length?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">${campanhas.map(cm=>`<span style="background:var(--bg2,#141a1f);border:1px solid var(--line,#233);border-radius:14px;padding:3px 10px">${_escM(cm.nome)}${(cm.ini||cm.fim)?` <small style="color:var(--muted)">${cm.ini?cm.ini.split('-').reverse().join('/'):''}${cm.fim?'–'+cm.fim.split('-').reverse().join('/'):''}</small>`:''} <span style="color:var(--muted);font-size:11px" title="custo padrão % da receita">custo <input value="${cm.custoPct!=null?String(cm.custoPct).replace('.',','):''}" placeholder="—" onkeydown="if(event.key==='Enter')setCampCustoPct('${_escM(cm.id)}',this.value)" onblur="setCampCustoPct('${_escM(cm.id)}',this.value)" style="width:36px;text-align:right;background:var(--bg,#0d1117);color:#fff;border:1px solid var(--line,#233);border-radius:5px;padding:1px 4px">%</span> <a href="#" onclick="removerCampanha('${_escM(cm.id)}');return false" style="color:var(--amber);text-decoration:none">✕</a></span>`).join('')}</div>`:'<div style="color:var(--muted);margin-top:6px">Nenhuma campanha cadastrada.</div>'}</div>`:'';
   const cfgTax = ehAdmin()? `<div class="card" style="margin-bottom:12px;font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>🧾 Tarifa do boleto Itaú</b> <span style="color:var(--muted)">(custo por boleto; taxa do pedido de boleto = tarifa × nº de boletos)</span> <label>R$ <input value="${_FIN.tarifaBoletoItau!=null?String(_FIN.tarifaBoletoItau).replace('.',','):''}" placeholder="—" onkeydown="if(event.key==='Enter')setTarifaBoletoItau(this.value)" onblur="setTarifaBoletoItau(this.value)" style="width:70px;text-align:right;background:var(--bg2,#141a1f);color:#fff;border:1px solid var(--line,#233);border-radius:6px;padding:4px 6px"></label></div>`:'';
   // percorre os pedidos do mês UMA vez (venda/troca, não ocultos, linhas completas)
-  const todos=[]; (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; const o=opDe(p.loja); if(o!=='venda'&&o!=='troca') return; if(NAOAP.includes(String(p.situacao||'').toLowerCase())) return; const a=analiseDoPedido(p.id); if(a&&!a.erro&&!a.linhasIncompletas) todos.push(a); });
+  const todos=[]; (pedidos||[]).forEach(p=>{ if(String(p.data||'').slice(0,7)!==mes) return; const o=opDe(p.loja); if(o!=='venda'&&o!=='troca') return; if(NAOAP.includes(String(p.situacao||'').toLowerCase())) return; if(_margEmp && empLabel(p.empresa)!==_margEmp) return; const a=analiseDoPedido(p.id); if(a&&!a.erro&&!a.linhasIncompletas) todos.push(a); });
   let resumoCamp='';
   const comCamp = todos.filter(a=>a.campId);
   if(ehAdmin() && (campanhas.length || comCamp.length)){
@@ -2198,9 +2203,12 @@ function renderMargem(){
   const _rodapeTxt = `* Frete é cobrado do cliente (repassado ao envio), então aparece à parte e <strong>não entra</strong> na margem do produto (senão contaria em dobro). Desconto linha = tabela − preço vendido na linha. Desconto pedido = o desconto que aparece no total do pedido, rateado por linha. Imposto = alíquota efetiva do Simples (PGDAS) do mês da NOTA × valor da NF de venda autorizada; pedido de venda sem NF fica com imposto 0 e marca "sem NF" (a margem dele parece melhor do que é); mês sem PGDAS usa a alíquota do mês anterior, "estimada"; o % fallback só vale sem PGDAS nenhum. Taxa cartão = taxa real do gateway (PayPal/Braavo/Rede) do recebimento do pedido, rateada por linha (Pix/dinheiro/boleto = 0). Comissão = o % de cada vendedor/loja do Cadastro, sobre a base (total − frete − despesas − devolução), rateada por linha (vendedores isentos entram zerados); é estimativa, a oficial (faixas/metas) entra quando o mês fecha. Custo = preço de custo da Bling (já inclui embalagem e mão de obra; peças "sem custo" não abatem, o ⚠ avisa). Margem = receita − imposto − taxa cartão − comissão − custo.<br><strong>As % em cinza mostram a alíquota que está sendo usada em cada coluna:</strong> desconto linha é % sobre a tabela, desconto pedido % sobre o subtotal, imposto e taxa % sobre a receita, comissão é a alíquota do vendedor sobre a base. Receita, custo e margem aparecem como % da tabela (fatia do preço cheio).`;
   // ── Destaques (parte 2): produto que mais lucrou / mais vendeu ──
   const _colsLista = [...new Set(Object.values(pCol))].filter(c=>c&&String(c).trim()&&String(c).trim()!=='-').sort((a,b)=>String(a).localeCompare(String(b),'pt'));
+  // pedidos do mês (venda/troca) SEM empresa no Bling — informativo (entram em Rokbox pelo empLabel)
+  const _semEmp = (pedidos||[]).filter(p=>String(p.data||'').slice(0,7)===mes && ehVT(p) && !String(p.empresa||'').trim()).map(p=>String(p.id));
+  const _sufEmp = _margEmp ? (' · '+_margEmp) : '';
   let _dLucrou=null, _dVendeu=null, _dEscopo='';
   if(_margDestaque){
-    _dEscopo = 'todos os meses';
+    _dEscopo = 'todos os meses'+_sufEmp;
     const pr = _destaquesColMeses(_margDestaque); const ents = Object.entries(pr);
     const comCusto = ents.filter(([,o])=>o.temCusto);
     const tl = comCusto.slice().sort((a,b)=>b[1].lucro-a[1].lucro)[0];
@@ -2208,7 +2216,7 @@ function renderMargem(){
     _dLucrou = tl ? [tl[0], {lucro:tl[1].lucro, pcs:tl[1].pcs}] : null;
     _dVendeu = tv ? [tv[0], {pcs:tv[1].pcs, lucro:tv[1].lucro}] : null;
   } else {
-    _dEscopo = mesNome;
+    _dEscopo = mesNome+_sufEmp;
     const ents = Object.entries(dims.produto||{});
     const comCusto = ents.filter(([,o])=>o.custo>0); // produto sem custo não entra no "mais lucrou"
     const tl = comCusto.slice().sort((a,b)=>b[1].margem-a[1].margem)[0];
@@ -2217,7 +2225,8 @@ function renderMargem(){
     _dVendeu = tv ? [tv[0], {pcs:tv[1].pcs, lucro:tv[1].margem}] : null;
   }
   el.innerHTML = `
-    <h2>💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span></h2>
+    <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">💰 Margem <span style="color:var(--muted);font-weight:400;font-size:.8em">${mesNome} · vendas (Venda/Troca)</span> <span style="display:inline-flex;gap:4px" title="Filtra a aba toda pela empresa do pedido (no Bling)">${[['','Todas'],['Rokbox','Rokbox'],['Rk','Rk']].map(([v,l])=>`<button onclick="setMargEmp('${v}')" style="padding:4px 12px;font-size:13px;border-radius:7px;cursor:pointer;border:1px solid var(--line,#233);background:${_margEmp===v?'var(--lime,#7ee787)':'var(--bg2,#141a1f)'};color:${_margEmp===v?'#08130b':'#fff'};font-weight:${_margEmp===v?'700':'400'}">${l}</button>`).join('')}</span></h2>
+    ${_semEmp.length?`<div style="margin:-4px 0 10px;font-size:11.5px;color:var(--amber)">⚠ ${_semEmp.length} pedido(s) do mês sem empresa no Bling (entram em Rokbox): ${_semEmp.slice(0,15).map(id=>'#'+_escM(id)).join(', ')}${_semEmp.length>15?' …':''} — vale corrigir no Bling.</div>`:''}
     <div class="card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px"><span>💲 Custos do Bling atualizados em <b>${_fmtDataHora(_FIN.bCustosAt)}</b></span>${ehAdmin()?`<button onclick="atualizarCustosBling()" ${_custosAtualizando?'disabled':''} style="background:${_custosAtualizando?'var(--bg2,#141a1f)':'var(--lime,#7ee787)'};color:${_custosAtualizando?'var(--muted)':'#08130b'};border:${_custosAtualizando?'1px solid var(--line,#233)':'none'};border-radius:8px;padding:5px 12px;font-weight:700;cursor:${_custosAtualizando?'default':'pointer'}">${_custosAtualizando?'⏳ atualizando…':'🔄 Atualizar custos'}</button>`:''}${_custosMsg?`<span style="color:${/não|demora/i.test(_custosMsg)?'var(--amber)':'var(--muted)'}">${_escM(_custosMsg)}</span>`:''}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <div class="card" style="flex:1 1 210px"><div class="lab">Receita líquida</div><div class="big" style="color:var(--lime)">${brl(T.receita)}</div><div class="lab" style="text-transform:none;font-weight:400;color:var(--muted);margin-top:4px;font-size:11px">tabela ${brl(T.tabela)} − descontos ${brl(T.descLinha+T.descPed)} · ${nPed} pedido(s) · ${nf(T.pcs)} peças</div></div>
@@ -2514,7 +2523,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-25.3';
+const BUILD='2026-11-25.4';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }

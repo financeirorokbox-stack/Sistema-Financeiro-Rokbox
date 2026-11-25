@@ -43,6 +43,28 @@ test('Margem: 3 cartões de topo + Destaques + tabela enxuta (6 col) sem erro', 
   expect(erros, 'sem erro de console/página: ' + JSON.stringify(erros)).toEqual([]);
 });
 
+test('Margem: filtro de empresa particiona exato (Rokbox + Rk = Todas)', async ({ page }) => {
+  const erros = await abrirMargem(page);
+  const tot = (emp) => page.evaluate((e) => {
+    _margEmp = e; _margDim = 'colecao'; _margDetalhes = true; renderMargem();
+    const el = document.getElementById('margem-conteudo');
+    const t = [...el.querySelectorAll('table.bal')].find(t => { const r = t.querySelector('tr'); return r && r.children[1] && /Peças/.test(r.children[1].textContent); });
+    let pcs = 0, rec = 0, custo = 0, mg = 0;
+    const num = s => { const m = (s || '').match(/-?\d[\d.]*,\d{2}|-?\d[\d.]*/g); if (!m) return 0; return Math.round(parseFloat(m[0].replace(/\./g, '').replace(',', '.')) * 100) / 100; };
+    if (t) [...t.querySelectorAll(':scope>tbody>tr, :scope>tr')].forEach(tr => { if (tr.classList.contains('mdet') || tr.querySelector('th')) return; const c = [...tr.children]; if (!c.length) return; pcs += num(c[1].textContent); rec += num(c[5].textContent); custo += num(c[9].textContent); mg += num(c[10].textContent); });
+    return { pcs, rec, custo, mg };
+  }, emp);
+  const A = await tot(''), R = await tot('Rokbox'), K = await tot('Rk');
+  const close = (a, b) => Math.abs(a - b) < 0.5;
+  expect(close(A.rec, R.rec + K.rec), `receita Todas ${A.rec} = Rokbox+Rk ${R.rec + K.rec}`).toBe(true);
+  expect(close(A.custo, R.custo + K.custo), `custo ${A.custo} = ${R.custo + K.custo}`).toBe(true);
+  expect(close(A.mg, R.mg + K.mg), `margem ${A.mg} = ${R.mg + K.mg}`).toBe(true);
+  expect(close(A.pcs, R.pcs + K.pcs), `peças ${A.pcs} = ${R.pcs + K.pcs}`).toBe(true);
+  expect(R.rec, 'cada empresa tem parte da receita').toBeGreaterThan(0);
+  expect(K.rec).toBeGreaterThan(0);
+  expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
+});
+
 test('Margem: Destaques por coleção (todos os meses) renderiza sem erro', async ({ page }) => {
   const erros = await abrirMargem(page);
   // escolhe a primeira coleção do seletor e confere que os cartões continuam
