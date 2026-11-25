@@ -1127,7 +1127,7 @@ async function carregar(){
     // A VENCER / ATRASADO / RESÍDUOS por VENCIMENTO EFETIVO (sáb/dom/feriado → próximo dia útil; a tela mostra o original).
     // Atrasado = em aberto, vencido há 4 dias OU MAIS (efetivo), de QUALQUER mês, piso R$ 5. Resíduos (< R$ 5) saem do Atrasado.
     // A vencer = de hoje até o fim do mês + os vencidos há ATÉ 3 dias (não somem do total).
-    const _corteAtraso=_isoMaisDias(hojeStr,-4), _iniVencer=_isoMaisDias(hojeStr,-3);
+    const _corteAtraso=_isoMaisDias(hojeStr,-4), _iniVencer=(mes>mesAtual())?(mes+'-01'):_isoMaisDias(hojeStr,-3); // mês FUTURO: "a vencer" conta só o do próprio mês (não acumula desde hoje); vigente/fechado inalterado
     const _fimMes=(()=>{const _p=mes.split('-').map(Number); return _isoDe(new Date(_p[0],_p[1],0));})();
     // O que o cliente REALMENTE ainda deve = atraso_real (gravado pelo Gestão: pedido quitado no gateway aguardando
     // repasse NÃO conta; parcial conta só o que falta). Fallback = valor_bruto (flat antigo, antes de rodar o sync).
@@ -1180,6 +1180,17 @@ async function carregar(){
     const _balRows = _usarBal ? bal.rows : null;
     const _netBanco = filtro => (_balRows||[]).filter(filtro).reduce((s,r)=>s+(r.tipo==='R'?r.valor:-r.valor),0);
     const saldoRealInicio = _usarBal ? +(((+bal.base)||0) + _netBanco(r=>r.mes < mes)).toFixed(2) : null; // real no início do mês (= fim do mês anterior)
+    // ── Projeção de UM mês (MESMAS regras do vigente): a receber = boletos emitidos a-vencer no mês (venc efetivo, atraso_real);
+    //    a pagar = em aberto no mês (a vencer + atrasado, contado uma vez). Usado pra ENCADEAR os meses futuros. ──
+    const _iniVencerDe = mm => (mm > _mesA) ? (mm + '-01') : _isoMaisDias(hojeStr, -3); // futuro: início do mês; vigente: hoje-3
+    const _fimDe = mm => { const _p = mm.split('-').map(Number); return _isoDe(new Date(_p[0], _p[1], 0)); };
+    const _proxMes = mm => { const p = mm.split('-').map(Number); const d = new Date(p[0], p[1], 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+    const _projDoMes = mm => {
+      const iv = _iniVencerDe(mm), fv = _fimDe(mm);
+      const arec = crA.filter(r => !r.data_liquidacao && r.vencimento && _ehBoletoCR(r) && !r.a_emitir && _aReal(r) > 0.005 && (() => { const vf = _vencEfetivo(r.vencimento); return vf >= iv && vf <= fv; })()).reduce((s, r) => s + _aReal(r), 0);
+      const apag = cpA.filter(r => !r.cancelado && !r.data_liquidacao && !r.pago && String(r.vencimento || '').slice(0, 7) === mm).reduce((s, r) => s + (+r.valor || 0), 0);
+      return { arec: +arec.toFixed(2), apag: +apag.toFixed(2) };
+    };
     let saldoInicioMes, saldoFinal, _labFinal, _detTxt;
     if (mes < _mesA && _usarBal) {
       // MÊS FECHADO → tudo REAL (o que bateu no banco), sem projeção
@@ -1200,12 +1211,12 @@ async function carregar(){
       _labFinal = '💰 Saldo no fim do mês (projetado)';
       _detTxt = `Saldo em banco hoje ${brl(totalBanco)} + a receber (a vencer) ${brl(crVencerBol)} − a pagar ${brl(cpAberto)}`;
     } else {
-      // MÊS FUTURO → rola o saldo de hoje até o começo do mês, depois projeta
-      const _ini1 = mes + '-01';
-      const crAntes = crA.filter(r=>!r.data_liquidacao && r.vencimento && String(r.vencimento)>=hojeStr && String(r.vencimento)<_ini1).reduce((s,r)=>s+(+r.valor_bruto||0),0);
-      const cpAntes = cpA.filter(r=>!r.cancelado && !r.data_liquidacao && !r.pago && r.vencimento && String(r.vencimento)>=hojeStr && String(r.vencimento)<_ini1).reduce((s,r)=>s+(+r.valor||0),0);
-      saldoInicioMes = +(totalBanco + crAntes - cpAntes).toFixed(2);
-      saldoFinal = +(saldoInicioMes + crVencerBol - cpAberto).toFixed(2);           // "a vencer" da projeção = MESMO nº do quadro "A vencer (boletos emitidos)"
+      // MÊS FUTURO → ENCADEADO: início = fim projetado do mês anterior (mesmas regras do vigente), do vigente até aqui.
+      // Começa no saldo real de hoje e soma, mês a mês, (a receber − a pagar) de cada mês entre o vigente e o escolhido.
+      let _sIni = totalBanco;
+      for (let _m = _mesA; _m < mes; _m = _proxMes(_m)) { const p = _projDoMes(_m); _sIni = +(_sIni + p.arec - p.apag).toFixed(2); } // _sIni vira o FIM do mês _m = início do próximo
+      saldoInicioMes = _sIni;                                                       // = fim projetado do mês anterior
+      saldoFinal = +(_sIni + crVencerBol - cpAberto).toFixed(2);                    // fim deste mês (crVencerBol/cpAberto já são deste mês = _projDoMes(mes))
       _labFinal = '💰 Saldo no fim do mês (projetado)';
       _detTxt = `Saldo início do mês ${brl(saldoInicioMes)} + a receber (a vencer) ${brl(crVencerBol)} − a pagar ${brl(cpAberto)}`;
     }
@@ -2431,7 +2442,7 @@ async function renderMargemPL() {
 }
 
 // Auto-atualização: recarrega sozinho quando sai versão nova (mata o cache do navegador)
-const BUILD='2026-11-23.4';
+const BUILD='2026-11-25.1';
 try{ const _sb=document.getElementById('selo-build'); if(_sb) _sb.textContent='BUILD '+BUILD; }catch(e){} // selo visível da versão no rodapé
 let _verChk=false;
 function _gateVisivel(){ const g=document.getElementById('gate'); return !!(g && getComputedStyle(g).display!=='none'); }
