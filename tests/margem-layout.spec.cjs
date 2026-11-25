@@ -65,6 +65,20 @@ test('Margem: filtro de empresa particiona exato (Rokbox + Rk = Todas)', async (
   expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
 });
 
+test('Margem: custos fixos por empresa persistem e lucro Rokbox+Rk = Todas', async ({ page }) => {
+  const erros = await abrirMargem(page);
+  await page.evaluate(() => { mesSel = '2026-11'; setAba('margem'); setCustoFixoEmp('Rokbox', '10000'); setCustoFixoEmp('Rk', '5.000,00'); });
+  const saved = await page.evaluate(() => JSON.stringify((_FIN.custosFixosMes || {})['2026-11']));
+  expect(saved, 'gravou por empresa').toBe('{"Rokbox":10000,"Rk":5000}');
+  const lucro = (emp) => page.evaluate((e) => { _margEmp = e; renderMargem(); const el = document.getElementById('margem-conteudo'); const c = [...el.querySelectorAll('.card')].find(c => /LUCRO DO MÊS/i.test(c.innerText)); const t = c.querySelector('.big').textContent; const n = (t.match(/-?\d[\d.]*,\d{2}/) || ['0'])[0].replace(/\./g, '').replace(',', '.'); return Math.round(parseFloat(n) * 100) / 100; }, emp);
+  const A = await lucro(''), R = await lucro('Rokbox'), K = await lucro('Rk');
+  expect(Math.abs(A - (R + K)) < 0.05, `lucro Todas ${A} = Rokbox+Rk ${R + K}`).toBe(true);
+  // sem custo fixo em outro mês → cartão pede pra informar
+  const semFixo = await page.evaluate(() => { mesSel = '2026-09'; setAba('margem'); _margEmp = ''; renderMargem(); return /informe os custos fixos/i.test(document.getElementById('margem-conteudo').innerText); });
+  expect(semFixo, 'mês sem custo fixo mostra "informe os custos fixos"').toBe(true);
+  expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
+});
+
 test('Margem: Destaques por coleção (todos os meses) renderiza sem erro', async ({ page }) => {
   const erros = await abrirMargem(page);
   // escolhe a primeira coleção do seletor e confere que os cartões continuam
