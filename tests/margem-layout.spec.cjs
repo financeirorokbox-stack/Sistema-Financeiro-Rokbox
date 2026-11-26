@@ -79,6 +79,33 @@ test('Margem: custos fixos por empresa persistem e lucro Rokbox+Rk = Todas', asy
   expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
 });
 
+test('Margem: Campanha auto-aplica por período+segmentos e compara com a base (venda normal)', async ({ page }) => {
+  const erros = await abrirMargem(page);
+  const r = await page.evaluate(() => {
+    mesSel = '2026-11'; setAba('margem');
+    const c = criarCampanha('Teste BF', '2026-11-01', '2026-11-09', '5', ['Site', 'Varejo', 'Atacado']);
+    _margEmp = ''; _margCampAberta = true; _margCampVer = c.id; renderMargem();
+    const card = document.querySelector('[data-campsec]');
+    const txt = card.innerText;
+    // linha recolhida da campanha deve existir (nome + período)
+    const temLinha = /Teste BF/.test(txt) && /01\/11\/2026/.test(txt);
+    // comparação dentro × base
+    const temBase = /Venda normal/.test(txt) && /base 0?2\/10\/2026/.test(txt);
+    // lista ordenada por maior desconto: extrai a coluna Desconto da tabela de pedidos
+    const tabs = [...card.querySelectorAll('table.bal')];
+    const lista = tabs.find(t => /Desconto/.test(t.querySelector('tr') ? t.querySelector('tr').textContent : ''));
+    let descs = [];
+    if (lista) descs = [...lista.querySelectorAll('tbody tr')].map(tr => { const c = tr.children[2]; return c ? parseFloat((c.textContent.match(/[\d.]+/) || ['0'])[0]) : null; }).filter(v => v != null);
+    const ordenado = descs.every((v, i) => i === 0 || descs[i - 1] >= v);
+    return { temLinha, temBase, nLista: descs.length, ordenado };
+  });
+  expect(r.temLinha, 'linha recolhida da campanha').toBe(true);
+  expect(r.temBase, 'comparação com base (venda normal) e período da base').toBe(true);
+  expect(r.nLista, 'lista de pedidos da campanha tem itens').toBeGreaterThan(0);
+  expect(r.ordenado, 'lista ordenada por maior desconto primeiro').toBe(true);
+  expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
+});
+
 test('Margem: Destaques por coleção (todos os meses) renderiza sem erro', async ({ page }) => {
   const erros = await abrirMargem(page);
   // escolhe a primeira coleção do seletor e confere que os cartões continuam
