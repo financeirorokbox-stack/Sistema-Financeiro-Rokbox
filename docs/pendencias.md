@@ -6,6 +6,27 @@ sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Po
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
 
+## 25/11 (terça) — ESTADO ATUAL
+
+**Selos no ar:** Gestão **v822/10-875**; Painel **BUILD 2026-11-25.6** (atualiza sozinho).
+
+**No ar hoje (reorganização da aba 💰 Margem, por partes, cálculo IDÊNTICO — só a tela muda; prova OLD×NEW nas 5 abas):**
+- **Projeção encadeada (BUILD 25.1):** saldo inicial de cada mês futuro = saldo final projetado do mês anterior (nov→dez→jan), mesmas regras do vigente; meses fechados não mudam.
+- **Margem parte 1 (BUILD 25.2):** topo + 3 cartões (Receita líq. | Margem contrib. R$ e % | Lucro) + alertas compactos em botões + abas com "Analisar pedido nº" + **tabela enxuta 6 colunas** com "Mostrar detalhes" (volta às 12 de hoje) + **Configurações recolhidas** (só admin) + rodapé em `<details>`. Bloco de cálculo intacto.
+- **Margem parte 2 (BUILD 25.3):** card **✨ Destaques** (seletor de coleção: Todas=mês do filtro, uma coleção=todos os meses dela) com "🏆 Produto que mais lucrou" (sem custo fora) e "📦 Produto que mais vendeu". `_destaquesColMeses` só roda ao escolher coleção (pré-filtro).
+- **Margem filtro de empresa (BUILD 25.4):** seletor **Todas | Rokbox | Rk** no topo; filtra a aba toda (cards, alertas, tabela, Destaques) pela empresa do pedido no Bling; só filtra, nenhum cálculo muda. Prova Rokbox+Rk=Todas exato (out+nov). Pedido sem empresa → Rokbox + aviso listando (produção hoje: 0).
+- **Margem custos fixos POR EMPRESA (BUILD 25.5):** em Configurações, "Custos fixos Rokbox" e "Custos fixos Rk" por mês, persistidos em `custosFixosMes` (não zera mais ao recarregar); só admin, mês fechado só-leitura. Lucro = margem da empresa − fixo da empresa (Todas = soma); vazio → "informe os custos fixos". Prova lucro Rokbox+Rk=Todas. Gate 89/89.
+
+- **Margem Campanha (BUILD 25.6):** seção recolhida (1 linha/campanha: nome·período·ped·desc·margem); aberta = editor (criar/editar nome/início/fim/SEGMENTOS obrigatórios/custo%) + comparação Campanha × Venda normal (base = mesmos segmentos+empresa, 30 dias antes do início, fora de qualquer campanha, período exibido) + lista ordenada por maior desconto. Auto-aplica por período+segmentos (calcula na tela, não grava por pedido; manual na Análise segue valendo). Respeita filtro de empresa; período multi-mês; mês fechado só-leitura. Só agrega margens já calculadas (nenhum cálculo muda). Gate 90/90.
+
+**FILA DA MARGEM:** custo PL opção A (Rk→conta2 1º, Rokbox→conta1 1º, sem custo só se faltar nas 2; mostrar antes/depois out+nov antes de publicar). Importar coleções por planilha segue PARADO até o modelo.
+
+**DEPLOY mudou (25/11):** Pages passou de "GitHub Actions" para **"Deploy from a branch" (main, /)** porque o `actions/deploy-pages@v4` falhava em todo deploy ("No artifacts named github-pages found" — infra de artefatos do Actions). Agora: push + `POST /pages/builds`, confere `/pages/builds/latest` + busca o arquivo publicado. Tirei o gatilho `push` do `deploy-pages.yml`.
+
+**FILA DA MARGEM (nesta ordem):**
+- **Parte 3 — Campanha recolhida com segmentos** (recolher o "Resumo por campanha", mostrar por segmento). Mostrar print antes de publicar.
+- **Custo do PL (opção A) — DEPOIS da parte 3:** Margem lê custo só da conta 1; produtos PL/White Label têm custo na conta 2 e entram como "sem custo". Regra aprovada: Rk→conta2 1º; Rokbox→conta1 1º; senão a outra; "sem custo" só se faltar nas duas. Nov ao vivo: 194 sem custo, 172 têm na conta 2 (PL), 22 reais. Mostrar antes/depois (PL e "sem custo", out e nov) antes de publicar. Importar coleções por planilha segue PARADO até o modelo.
+
 ## 24/11 (segunda) — ESTADO ATUAL
 
 **Selos no ar:** Gestão **v822/10-875** (F5 pra atualizar — o Gestão só troca de versão no F5; mostra faixa laranja "versão nova" quando há); Painel **BUILD 2026-11-23.4** (atualiza sozinho).

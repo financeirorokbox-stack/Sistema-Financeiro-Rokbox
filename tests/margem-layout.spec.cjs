@@ -76,6 +76,15 @@ test('Margem: custos fixos por empresa persistem e lucro Rokbox+Rk = Todas', asy
   // sem custo fixo em outro mês → cartão pede pra informar
   const semFixo = await page.evaluate(() => { mesSel = '2026-09'; setAba('margem'); _margEmp = ''; renderMargem(); return /informe os custos fixos/i.test(document.getElementById('margem-conteudo').innerText); });
   expect(semFixo, 'mês sem custo fixo mostra "informe os custos fixos"').toBe(true);
+  // os campos gravam por onblur/Enter (não onchange, que se perdia no re-render) e os guards anti-reload existem
+  const robusto = await page.evaluate(() => {
+    mesSel = '2026-11'; setAba('margem'); _margCfgAberta = true; renderMargem();
+    const ins = [...document.querySelectorAll('#margem-conteudo input')];
+    const rk = ins.find(i => /setCustoFixoEmp\('Rokbox'/.test((i.getAttribute('onblur') || '') + (i.getAttribute('onkeydown') || '')));
+    return { temOnblur: !!(rk && /setCustoFixoEmp/.test(rk.getAttribute('onblur') || '')), temEnter: !!(rk && /Enter/.test(rk.getAttribute('onkeydown') || '')), semOnchange: !!(rk && !rk.getAttribute('onchange')), guards: typeof _skSalvando !== 'undefined' && typeof _editandoCampo === 'function' };
+  });
+  expect(robusto.temOnblur && robusto.temEnter && robusto.semOnchange, 'campo grava por onblur+Enter, sem onchange').toBe(true);
+  expect(robusto.guards, '_skSalvando e _editandoCampo existem (guard anti-reload)').toBe(true);
   expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
 });
 
