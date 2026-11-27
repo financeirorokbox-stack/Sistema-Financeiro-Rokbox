@@ -127,6 +127,37 @@ test('Margem: Destaques por coleção (todos os meses) renderiza sem erro', asyn
   expect(erros, 'sem erro: ' + JSON.stringify(erros)).toEqual([]);
 });
 
+test('Margem: custo opção A — Rk busca conta 2 primeiro, Rokbox conta 1; fallback nos dois sentidos; sem custo só quando falta nas duas', async ({ page }) => {
+  await abrirMargem(page);
+  const r = await page.evaluate(() => {
+    const out = {};
+    // mesmo SKU nas duas contas, custos diferentes
+    _FIN.bCustos = { 'ABC': { custo: 10, preco: 0 } }; _FIN.bCustos2 = { 'ABC': { custo: 30 } }; _FIN._cb = null;
+    out.rk = _custoEmpM('ABC', 2);      // Rk → conta 2 primeiro = 30
+    out.rokbox = _custoEmpM('ABC', 1);  // Rokbox → conta 1 primeiro = 10
+    // só na conta 1 → Rk cai no fallback da conta 1
+    _FIN.bCustos = { 'X': { custo: 10 } }; _FIN.bCustos2 = {}; _FIN._cb = null;
+    out.rkFallback1 = _custoEmpM('X', 2); // = 10
+    // só na conta 2 → Rokbox cai no fallback da conta 2
+    _FIN.bCustos = {}; _FIN.bCustos2 = { 'Y': { custo: 7 } }; _FIN._cb = null;
+    out.rokboxFallback2 = _custoEmpM('Y', 1); // = 7
+    // custo 0 na conta 1 e positivo na conta 2 → usa a conta 2 (0 não conta como custo)
+    _FIN.bCustos = { 'Z': { custo: 0 } }; _FIN.bCustos2 = { 'Z': { custo: 9 } }; _FIN._cb = null;
+    out.zeroNaoBloqueia = { rk: _custoEmpM('Z', 2), rokbox: _custoEmpM('Z', 1) }; // 9 e 9
+    // falta nas duas → sem custo (null/0)
+    _FIN.bCustos = {}; _FIN.bCustos2 = {}; _FIN._cb = null;
+    const semA = _custoEmpM('NADA', 2); out.semCusto = (semA == null || semA === 0);
+    return out;
+  });
+  expect(r.rk, 'Rk pega conta 2 primeiro').toBe(30);
+  expect(r.rokbox, 'Rokbox pega conta 1 primeiro').toBe(10);
+  expect(r.rkFallback1, 'Rk sem conta 2 cai na conta 1').toBe(10);
+  expect(r.rokboxFallback2, 'Rokbox sem conta 1 cai na conta 2').toBe(7);
+  expect(r.zeroNaoBloqueia.rk, 'custo 0 na conta de origem não bloqueia o positivo da outra (Rk)').toBe(9);
+  expect(r.zeroNaoBloqueia.rokbox, 'idem Rokbox').toBe(9);
+  expect(r.semCusto, 'falta nas duas = sem custo').toBe(true);
+});
+
 test('Margem: "Mostrar detalhes" expande pra 12 colunas e volta', async ({ page }) => {
   await abrirMargem(page);
   expect(await headerCols(page)).toBe(6);
