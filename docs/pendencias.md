@@ -6,7 +6,17 @@ sem "pode publicar"**; **toda gravação direta no banco → rodar "Atualizar Po
 (o automático só dispara por ação na tela); **backup antes de gravar**; **mostrar antes
 de publicar**; **teste automático junto**.
 
-## 25/11 (terça) — ESTADO ATUAL
+## 27/11 (quinta) — ESTADO ATUAL
+
+**Selos no ar:** Gestão **v822/10-875** (parte 2 prevenção Compras AINDA NÃO publicada, só local); Painel **BUILD 2026-11-25.8** (atualiza sozinho).
+
+**No ar hoje/ontem (continuação da Margem + correções):**
+- **Custos fixos não gravavam → CORRIGIDO (BUILD 25.7):** causa = o auto-reload de versão (`checkVersao`) recarregava a página e abortava o save em voo (publiquei .4/.5/.6 enquanto ela testava). Fix (protege TODOS os campos): checkVersao não recarrega com campo focado nem com save em voo (`_skSalvando`/`_editandoCampo`); custos fixos gravam em Enter/Tab/blur (não mais onchange).
+- **Custo opção A (BUILD 25.8):** a aba Margem resolve custo por empresa — **Rk busca 1º no Bling da Rk (conta 2, blingCustos2), depois na 1; Rokbox 1º na 1, depois na 2; "sem custo" só se faltar nas duas.** Em analiseDoPedido (linha+brinde), bloco de dims e lente 🔍. Só a aba Margem (não DRE/Fechamento/Balancete/fotos). Antes/depois reais 27/11: Rk out custo 12.003,03→57.335,44 (sem custo 1397→230), nov 4.753,10→10.407,30 (172→0); Rokbox sem mudança. Gate 92/92.
+- **CP #187 vencimento em mês fechado → CORRIGIDO NO BANCO:** conta Lucelma R$712,50 Pedido #187 (empresa Rk, em `contasPagar`, não estava na foto) nasceu com venc 26/10 (faturamento 16/10) e a trava barrou. Troca direta no banco (só o campo `vencimento`, jsonb_set): 26/10 → **27/11/2026**. Precisa F5 + Atualizar Power BI.
+- **PARTE 2 — prevenção no Compras: CODADA, NÃO PUBLICADA** (só no index.html local, aguardando "pode publicar"): `_ajustarVencsMesFechado` — ao GERAR parcela de compra com vencimento em mês fechado, pergunta a data real (sugere hoje, 1x por data) e aplica; cancelar/ inválida/ outra fechada → aborta. Fluxo "fazer pedido" + reparcelamento (editor manual não entra). Teste `compras-venc-mesfechado.spec.cjs` ✓. Publicar = bump APP_VERSION do Gestão.
+
+## 25/11 (terça)
 
 **Selos no ar:** Gestão **v822/10-875**; Painel **BUILD 2026-11-25.6** (atualiza sozinho).
 

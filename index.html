@@ -571,7 +571,7 @@ async function _sbToken() {
 const EMPRESA_ID = 'rokbox_financeiro';
 
 // Versão visível no topo (ajuda a confirmar se o navegador pegou a última publicação)
-const APP_VERSION = 'v822/10-875';
+const APP_VERSION = 'v823/10-876';
 
 // ── AVISO DE VERSÃO NOVA + trava de salvar em ABA VELHA ───────────────────────────────────────
 // Se o site publicado estiver com versão MAIS NOVA que esta aba, mostra uma faixa "clique p/ atualizar"
@@ -17084,6 +17084,8 @@ function receberPedidoCompra(pedidoId) {
           const colecoes = [...new Set(itens.map(c => c.colecao).filter(Boolean))].join(', ');
           const numPed = itens[0]._pedidoNum || '';
           const novas = gerarParcelasCondicao({ dias }, totalFinal, dt);
+          if (!_ajustarVencsMesFechado(novas)) { alert('Reparcelamento cancelado — mantive as parcelas atuais.'); }
+          else {
           contasPagar = contasPagar.filter(c => c._compraPedidoId !== pedidoId);
           novas.forEach((p, k) => contasPagar.push({
             numero: nfTxt || '', fornecedor: forn,
@@ -17093,6 +17095,7 @@ function receberPedidoCompra(pedidoId) {
           }));
           itens.forEach(c => { c.condicaoId = ''; c.dataFatur = dfISO; });
           reparcelou = true;
+          }
         }
       }
     }
@@ -17396,6 +17399,7 @@ function gerarPedidoCompra(fornecedor, i) {
   if (numPed === '') { alert('Pedido cancelado (sem número).'); return; }
   const obsPed = String(prompt('Observação do pedido (opcional — ex.: prazo negociado, aguardando amostra):', '') || '').trim();
   if (!confirm(`Fazer o pedido #${numPed} de "${fornecedor}"?\n\n• ${itens.length} item(ns) · Total ${fmtVal(total)} (com frete)\n• Condição: ${condNomeTxt} → ${parcelas.length} parcela(s)\n• Data de Faturamento: ${dataFat.split('-').reverse().join('/')}${obsPed ? '\n• Obs.: ' + obsPed : ''}\n\nVai criar ${parcelas.length} parcela(s) EM ABERTO no Contas a Pagar (previstas no Fluxo).`)) return;
+  if (!_ajustarVencsMesFechado(parcelas)) return; // nenhuma parcela pode nascer em mês fechado
   const pedidoId = 'pedcompra_' + Date.now();
   parcelas.forEach((p, k) => {
     contasPagar.push({
@@ -17462,6 +17466,39 @@ function gerarParcelasCondicao(cond, valorTotal, dataBase) {
     acum += v; parc.push({ venc, valor: v });
   }
   return parc;
+}
+// Prevenção (mês fechado): uma parcela de compra NÃO pode nascer com vencimento em mês já fechado
+// (senão fica presa pela trava, como aconteceu com o #187). Pergunta a data REAL (sugere hoje) UMA VEZ
+// por data de vencimento que caia em mês fechado, e aplica. Retorna false se a Elaine cancelar/erro (aborta a geração).
+function _ajustarVencsMesFechado(parcelas) {
+  const MF = (typeof mesesFechados !== 'undefined' && Array.isArray(mesesFechados)) ? mesesFechados : [];
+  if (!MF.length || !Array.isArray(parcelas) || !parcelas.length) return true;
+  const two = n => String(n).padStart(2, '0');
+  const toDate = v => (v instanceof Date) ? v : new Date(String(v).length <= 10 ? (String(v) + 'T12:00:00') : v);
+  const ymOf = d => d.getFullYear() + '-' + two(d.getMonth() + 1);
+  const brOf = d => two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear();
+  const hojeBR = brOf(new Date());
+  const parseBR = s => { s = String(s || '').trim(); if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; const mm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return mm ? `${mm[3]}-${mm[2].padStart(2, '0')}-${mm[1].padStart(2, '0')}` : ''; };
+  const cache = {}; // 'YYYY-MM-DD' original -> Date nova (ou null se cancelou/erro)
+  for (const p of parcelas) {
+    const d = toDate(p.venc); if (isNaN(d)) continue;
+    const ym = ymOf(d); if (!MF.includes(ym)) continue;
+    const key = ym + '-' + two(d.getDate());
+    if (!(key in cache)) {
+      const resp = prompt(`⚠ O vencimento ${brOf(d)} cai em MÊS FECHADO (${ym}), que está travado.\n\nDigite a data REAL do vencimento (DD/MM/AAAA):`, hojeBR);
+      if (resp === null) { alert('Pedido de compra cancelado (vencimento em mês fechado não foi corrigido).'); cache[key] = null; }
+      else {
+        const iso = parseBR(resp);
+        const nd = iso ? new Date(iso + 'T12:00:00') : null;
+        if (!iso || !nd || isNaN(nd)) { alert('Data inválida — pedido cancelado.'); cache[key] = null; }
+        else if (MF.includes(ymOf(nd))) { alert('Essa data também cai em mês fechado (' + ymOf(nd) + ') — pedido cancelado.'); cache[key] = null; }
+        else cache[key] = nd;
+      }
+    }
+    if (cache[key] === null) return false;
+    p.venc = new Date(cache[key]); // meio-dia local, igual ao resto do sistema
+  }
+  return true;
 }
 // ── Fornecedores (Compras) ──
 function addFornecedorCompras() {
